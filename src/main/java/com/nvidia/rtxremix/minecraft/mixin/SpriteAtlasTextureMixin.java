@@ -4,11 +4,10 @@
  */
 package com.nvidia.rtxremix.minecraft.mixin;
 
-import com.nvidia.rtxremix.minecraft.texture.AtlasAnimationForwarder;
+import net.minecraft.client.renderer.texture.SpriteLoader;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.resources.Identifier;
 import com.nvidia.rtxremix.minecraft.entity.RemixEntitySubmitter;
-import net.minecraft.client.texture.SpriteLoader;
-import net.minecraft.client.texture.SpriteAtlasTexture;
-import net.minecraft.util.Identifier;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -16,23 +15,13 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(SpriteAtlasTexture.class)
+@Mixin(TextureAtlas.class)
 public abstract class SpriteAtlasTextureMixin {
 
-    @Shadow @Final private Identifier id;
-
-    @Inject(method = "tickAnimatedSprites", at = @At("HEAD"))
-    private void rtxremix$onAnimatedSpriteTickStart(CallbackInfo ci) {
-        AtlasAnimationForwarder.beginAtlasUpload(id);
-    }
-
-    @Inject(method = "tickAnimatedSprites", at = @At("RETURN"))
-    private void rtxremix$onAnimatedSpriteTickEnd(CallbackInfo ci) {
-        AtlasAnimationForwarder.endAtlasUpload();
-    }
+    @Shadow @Final private Identifier location;
 
     @Inject(method = "upload", at = @At("RETURN"))
-    private void rtxremix$onAtlasUploaded(SpriteLoader.StitchResult stitchResult, CallbackInfo ci) {
-        RemixEntitySubmitter.onMinecraftAtlasUploaded(id);
+    private void rtxremix$onAtlasUploaded(SpriteLoader.Preparations stitchResult, CallbackInfo ci) {
+        RemixEntitySubmitter.onMinecraftAtlasUploaded(location);
     }
 }

@@ -7,7 +7,7 @@ package com.nvidia.rtxremix;
 import java.nio.ByteBuffer;
 
 /**
- * Describes a single rectangular mip-0 patch update for an existing texture.
+ * Describes a rectangular update. Nonzero mip levels require an authored mip-chain texture.
  */
 public class TexturePatch {
     public int dstX;
@@ -17,4 +17,5 @@ public class TexturePatch {
     public ByteBuffer pixelData;
     public int rowPitch;
     public int format = TextureFormat.RGBA8_UNORM;
+    public int mipLevel;
 }

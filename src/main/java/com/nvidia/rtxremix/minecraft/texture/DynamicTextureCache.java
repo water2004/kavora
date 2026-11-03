@@ -4,11 +4,7 @@
  */
 package com.nvidia.rtxremix.minecraft.texture;
 
-import net.minecraft.client.texture.AbstractTexture;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.NativeImageBackedTexture;
-import net.minecraft.util.Identifier;
-
+import com.mojang.blaze3d.platform.NativeImage;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,41 +13,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.resources.Identifier;
 
 /**
- * Pixel cache for dynamic textures (maps, player skins, etc.) that are not
- * accessible through the resource manager.
- *
- * <p>Textures are captured via two mixin paths:
- * <ul>
- *   <li>{@code NativeImageBackedTextureMixin}, for {@code NativeImageBackedTexture}
- *       instances (capes, etc.)</li>
- *   <li>{@code PlayerSkinTextureMixin}, for {@code PlayerSkinTexture} instances
- *       (player skins downloaded from Mojang CDN)</li>
- * </ul>
- *
- * <p>In both cases, {@code TextureManagerMixin} intercepts {@code registerTexture()}
- * to record the texture-to-identifier mapping in {@link #TEXTURE_IDS}, and the type-specific
- * mixin captures pixel data at upload time via {@link #captureFromUpload}.
- *
- * <p>Font glyph pages are served here too but never snapshotted: Minecraft assembles a
- * page on the GPU one glyph at a time and {@link GlyphPageMirror} follows along, so
- * {@link #get} reads the page's mirror live. A page belongs to the font, not to a world,
- * so {@link #clear} leaves the pages alone.
- *
- * <p>A snapshot follows its texture rather than the world: {@link #clear} drops the
- * pixels of textures the game has itself released and keeps live registrations,
- * and the capacity bound evicts released textures only, oldest first, so it is a soft
- * bound while live textures alone exceed it. Vanilla memoises a downloaded skin for the
- * whole client session and uploads it exactly once, so a snapshot dropped for any reason
- * other than its texture's release would never be captured again and the player would
- * render with the default skin until the game restarts. {@link #TEXTURE_IDS} holds its
- * keys weakly. Image-backed textures also count as released once their image is null:
- * vanilla can close a map texture without removing it from the texture manager.
- *
- * <p>Versions are monotonic for the life of the process. Consumers keep the version they
- * last applied and compare it against the current one, so a counter reset would let a
- * snapshot that outlived a clear mask the upload that follows it.
+ * CPU snapshots by Minecraft texture identifier, including skins, maps and font pages.
+ * RenderPearl upload interception captures bytes before their NativeImage is closed.
+ * Live registrations survive world clears because skins may upload only once per session.
+ * Versions increase across reloads and glyph pages, so existing materials notice replacements.
  */
 public final class DynamicTextureCache {
 
@@ -91,7 +61,7 @@ public final class DynamicTextureCache {
         TEXTURE_IDS.put(texture, id);
         if (imageOrNull != null) {
             // Image available now (e.g. cape textures, non-async paths).
-            store(id, extractPixels(imageOrNull));
+            captureImage(id, imageOrNull);
         }
     }
 
@@ -111,7 +81,7 @@ public final class DynamicTextureCache {
     public static boolean captureFromUpload(AbstractTexture texture, NativeImage image) {
         Identifier id = TEXTURE_IDS.get(texture);
         if (id == null) return false;
-        store(id, extractPixels(image));
+        captureImage(id, image);
         return true;
     }
 
@@ -124,15 +94,11 @@ public final class DynamicTextureCache {
 
     /** The current pixels of a snapshotted texture or a glyph page, or null for anything else. */
     public static Pixels get(Identifier id) {
-        Pixels snapshot = CACHE.get(id);
-        if (snapshot != null) {
-            return snapshot;
-        }
         GlyphPageMirror page = GLYPH_PAGES.get(id);
-        return page == null
-                ? null
-                : new Pixels(page.data(), GlyphPageMirror.PAGE_SIZE, GlyphPageMirror.PAGE_SIZE,
-                        page.version());
+        if (page != null) {
+            return new Pixels(page.data(), GlyphPageMirror.PAGE_SIZE, GlyphPageMirror.PAGE_SIZE, page.version());
+        }
+        return CACHE.get(id);
     }
 
     public static boolean isGlyphPage(Identifier id) {
@@ -154,6 +120,18 @@ public final class DynamicTextureCache {
      * textures oldest first. A live texture's snapshot is never pruned: its
      * pixels cannot be captured again.
      */
+    public static void capture(Identifier id, Pixels pixels) {
+        store(id, pixels);
+    }
+
+    public static void release(Identifier id) {
+        CACHE.remove(id);
+        GLYPH_PAGES.remove(id);
+        synchronized (TEXTURE_IDS) {
+            TEXTURE_IDS.values().removeIf(id::equals);
+        }
+    }
+
     private static void store(Identifier id, Pixels pixels) {
         CACHE.put(id, pixels);
         if (CACHE.size() <= MAX_CACHE_ENTRIES) {
@@ -174,8 +152,8 @@ public final class DynamicTextureCache {
         Set<Identifier> liveIds = new HashSet<>();
         synchronized (TEXTURE_IDS) {
             for (var entry : TEXTURE_IDS.entrySet()) {
-                if (!(entry.getKey() instanceof NativeImageBackedTexture texture)
-                        || texture.getImage() != null) {
+                if (!(entry.getKey() instanceof DynamicTexture texture)
+                        || (texture.getPixels() != null && !texture.getPixels().isClosed())) {
                     liveIds.add(entry.getValue());
                 }
             }
@@ -183,24 +161,40 @@ public final class DynamicTextureCache {
         return liveIds;
     }
 
-    private static Pixels extractPixels(NativeImage image) {
+    private static void captureImage(Identifier id, NativeImage image) {
+        Pixels previous = CACHE.get(id);
+        Pixels pixels = extractPixels(image, previous);
+        if (pixels != previous) store(id, pixels);
+    }
+
+    private static Pixels extractPixels(NativeImage image, Pixels previous) {
         int w = image.getWidth();
         int h = image.getHeight();
-        byte[] out = new byte[w * h * 4];
+        byte[] before = previous != null && previous.width() == w && previous.height() == h
+                ? previous.data() : null;
+        byte[] out = before == null ? new byte[w * h * 4] : null;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int abgr = image.getColor(x, y);
+                int abgr = NativeImagePixels.abgr(image, x, y);
                 int idx = (y * w + x) * 4;
+                if (out == null) {
+                    int existing = (before[idx] & 255) | ((before[idx + 1] & 255) << 8)
+                            | ((before[idx + 2] & 255) << 16) | ((before[idx + 3] & 255) << 24);
+                    if (existing == abgr) continue;
+                    // Published snapshots are immutable: copy only when the first changed pixel arrives.
+                    out = new byte[before.length];
+                    System.arraycopy(before, 0, out, 0, idx);
+                }
                 out[idx]     = (byte)  (abgr         & 0xFF);
                 out[idx + 1] = (byte) ((abgr >>  8)  & 0xFF);
                 out[idx + 2] = (byte) ((abgr >> 16)  & 0xFF);
                 out[idx + 3] = (byte) ((abgr >> 24)  & 0xFF);
             }
         }
-        return new Pixels(out, w, h, allocateVersion());
+        return out == null ? previous : new Pixels(out, w, h, allocateVersion());
     }
 
-    private static synchronized long allocateVersion() {
+    public static synchronized long allocateVersion() {
         return nextVersion++;
     }
 

@@ -95,6 +95,14 @@ public abstract class RemixAssetBase {
                 throw new IllegalStateException(typeName() + " already created (hash=0x"
                         + Long.toHexString(this.hash) + ")");
             }
+            createAndDispose(api, hash, disposeData);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    private void createAndDispose(RemixAPI api, long hash, boolean disposeData) {
+        try {
             this.api = api;
             this.hash = hash;
             this.handle = doCreate(api, hash);
@@ -104,6 +112,14 @@ public abstract class RemixAssetBase {
                 dataDisposed = true;
             }
         } catch (RuntimeException e) {
+            if (this.handle != 0) {
+                try {
+                    doDestroy(api, this.handle);
+                } catch (RuntimeException cleanupError) {
+                    e.addSuppressed(cleanupError);
+                    LOGGER.warn("Failed to release {} after creation data disposal failed", typeName(), cleanupError);
+                }
+            }
             this.handle = 0;
             cleanerHandleRef.set(0);
             if (disposeData && !dataDisposed) {
@@ -117,8 +133,6 @@ public abstract class RemixAssetBase {
                 }
             }
             throw e;
-        } finally {
-            rwLock.writeLock().unlock();
         }
     }
 

@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 from .benchmark import util
+from .sdk import validate_runtime_provenance
 
 # The runtime textures the mod loads from <gameDir>/textures/. build.gradle checks the same files after every pull.
 RUNTIME_TEXTURE_FILES = ("overcast_thunderstorm_bc6u.dds", "water_normals_flipbook.dds")
@@ -20,9 +21,9 @@ def runtime_source(project_dir: Path, arch: str) -> Path:
     return (project_dir / (os.environ.get("REMIX_BUILD") or f"remix-runtime/{arch}")).absolute()
 
 
-def _stage_runtime(source: Path, bridge: Path, destination: Path, arch: str) -> None:
+def _stage_runtime(source: Path, support: Path, destination: Path, arch: str) -> None:
     # A game directory may point at a shared SDK cache. Detach the link before
-    # reading its marker so even an unchanged SDK receives a private bridge copy.
+    # reading its marker so even an unchanged SDK receives a private support helper copy.
     if destination.is_junction():
         destination.rmdir()
     elif destination.is_symlink():
@@ -39,7 +40,9 @@ def _stage_runtime(source: Path, bridge: Path, destination: Path, arch: str) -> 
             shutil.rmtree(destination)
         shutil.copytree(source, destination)
         marker.write_text(marker_value + "\n", encoding="utf-8")
-    shutil.copy2(bridge, destination / "remixbridge.dll")
+    (destination / "remixbridge.dll").unlink(missing_ok=True)
+    (destination / "remixbridge.pdb").unlink(missing_ok=True)
+    shutil.copy2(support, destination / "rtxremix-support.dll")
 
 
 def install_development_build(project_dir: Path, *, game_dir: Path | None = None, arch: str | None = None) -> int:
@@ -65,14 +68,19 @@ def install_development_build(project_dir: Path, *, game_dir: Path | None = None
         game_dir = Path(appdata) / ".minecraft"
     game_dir = (project_dir / game_dir).absolute()
     source = runtime_source(project_dir, selected_arch)
-    bridge = project_dir / "build" / "native" / selected_arch / "remixbridge.dll"
+    support = project_dir / "build" / "native" / selected_arch / "rtxremix-support.dll"
     if not (source / "d3d9.dll").is_file():
         print(f'ERROR: d3d9.dll not found in "{source}".')
         print(f"       Stage one with tools\\rtx.bat sdk local <runtime dir> --arch {selected_arch}.")
         return 1
-    if not bridge.is_file():
+    try:
+        validate_runtime_provenance(source, selected_arch)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        return 1
+    if not support.is_file():
         task = "compileNativeArm64" if selected_arch == "arm64" else "compileNativeWin64"
-        print(f'ERROR: JNI bridge not found at "{bridge}".')
+        print(f'ERROR: Native crash helper not found at "{support}".')
         print(f"       Build it with .\\gradlew.bat {task}.")
         return 1
     jars = (
@@ -108,9 +116,9 @@ def install_development_build(project_dir: Path, *, game_dir: Path | None = None
     shutil.copy2(mod_jar, mods / "rtx-remix-renderer.jar")
     if not any(mods.glob("fabric-api-*.jar")):
         print(f"WARNING: no fabric-api jar in {mods}.")
-        print("         The mod requires fabric-api >=0.116.10+1.21.1 (https://modrinth.com/mod/fabric-api).")
+        print("         The mod requires fabric-api >=0.165.0+26.3 (https://modrinth.com/mod/fabric-api).")
 
-    _stage_runtime(source, bridge, game_dir / "remix-sdk", selected_arch)
+    _stage_runtime(source, support, game_dir / "remix-sdk", selected_arch)
     packaging = project_dir / "packaging"
     shutil.copy2(packaging / "rtx.conf", game_dir / "rtx.conf")
     # Shipped profiles are refreshed; extra author-created files stay intact.

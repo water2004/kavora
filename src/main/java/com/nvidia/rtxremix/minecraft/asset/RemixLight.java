@@ -6,7 +6,6 @@ package com.nvidia.rtxremix.minecraft.asset;
 
 import com.nvidia.rtxremix.LightInfo;
 import com.nvidia.rtxremix.RemixAPI;
-import org.slf4j.LoggerFactory;
 
 import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
@@ -52,8 +51,7 @@ public class RemixLight extends RemixAssetBase {
     }
 
     /**
-     * Replaces this light's properties while preserving its hash, so Remix's
-     * ReSTIR can track it as the same light source across frames.
+     * Updates this light's properties in place, preserving its native temporal identity.
      * Must only be called on an alive light.
      */
     void update(RemixAPI api, LightInfo newInfo) {
@@ -62,22 +60,8 @@ public class RemixLight extends RemixAssetBase {
             if (handle == 0 || deletionFlag != DeletionReason.NOT_DELETED)
                 throw new IllegalStateException("Cannot update a light that is not alive");
             newInfo.hash = this.hash;
-            long oldHandle = handle;
-            long newHandle = api.createLight(newInfo);
-            if (oldHandle != 0 && oldHandle != newHandle) {
-                try {
-                    api.destroyLight(oldHandle);
-                } catch (RuntimeException e) {
-                    // The runtime may already have replaced the same-hash light
-                    // inside CreateLight, so a failed destroy is not fatal: keep
-                    // the new handle and log, because repeated failures here mean
-                    // handles are being retained natively.
-                    LoggerFactory.getLogger(RemixLight.class)
-                            .warn("Failed to destroy replaced light handle 0x{} for hash 0x{}: {}",
-                                    Long.toHexString(oldHandle), Long.toHexString(hash), e.getMessage());
-                }
-            }
-            replaceNativeHandle(newHandle);
+            api.updateLight(handle, newInfo);
+            lightInfo = newInfo;
         } finally {
             rwLock.writeLock().unlock();
         }

@@ -39,6 +39,8 @@ public class RemixInstance extends RemixAssetBase {
      * cache, which shared extension objects overwrite for one another.
      */
     private long blendExtNative;
+    private int voxelCoverageLevel;
+    private long coverageExtNative;
     private boolean doubleSided;
 
     /** Whether the retained native description needs a complete replacement. */
@@ -73,6 +75,16 @@ public class RemixInstance extends RemixAssetBase {
         if (this.blendExt == ext) return this;
         this.blendExt = ext;
         this.sceneInfoDirty = true;
+        freeBlendExtNative();
+        return this;
+    }
+
+    /** Clips far terrain against the shared published-near mask; zero disables clipping. */
+    public RemixInstance setVoxelCoverageLevel(int level) {
+        if (level < 0 || level > 255) throw new IllegalArgumentException("Invalid coverage level");
+        if (voxelCoverageLevel == level) return this;
+        voxelCoverageLevel = level;
+        sceneInfoDirty = true;
         freeBlendExtNative();
         return this;
     }
@@ -134,15 +146,18 @@ public class RemixInstance extends RemixAssetBase {
     }
 
     private long pNextChain() {
-        if (blendExt == null) return 0;
-        if (blendExtNative == 0) blendExtNative = blendExt.allocNative(0);
+        if (voxelCoverageLevel != 0 && coverageExtNative == 0)
+            coverageExtNative = RemixBridge.allocVoxelCoverageExt(voxelCoverageLevel, 0);
+        if (blendExt == null) return coverageExtNative;
+        if (blendExtNative == 0) blendExtNative = blendExt.allocNative(coverageExtNative);
         return blendExtNative;
     }
 
     private void freeBlendExtNative() {
-        if (blendExtNative == 0) return;
-        RemixBridge.freeExt(blendExtNative);
+        if (blendExtNative != 0) RemixBridge.freeExt(blendExtNative);
+        if (coverageExtNative != 0) RemixBridge.freeExt(coverageExtNative);
         blendExtNative = 0;
+        coverageExtNative = 0;
     }
 
     @Override

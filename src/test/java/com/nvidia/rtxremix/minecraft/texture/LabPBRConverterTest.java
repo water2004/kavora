@@ -4,6 +4,7 @@
  */
 package com.nvidia.rtxremix.minecraft.texture;
 
+import com.mojang.blaze3d.platform.NativeImage;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -14,6 +15,69 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LabPBRConverterTest {
 
     @Test
+    void singleChannelThicknessPreservesEveryLabPbrValueAndAnimationBlend() {
+        try (NativeImage source = new NativeImage(16, 16, false)) {
+            for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) {
+                source.setPixel(x, y, 0xFF000000 | (y * 16 + x));
+            }
+            int w = 35, h = 21;
+            byte[] rgba = new byte[w * h * 4], r8 = new byte[w * h];
+            LabPBRConverter.blitSSS(rgba, w, source, 1, 2, 32, 18);
+            LabPBRConverter.blitSssThickness(r8, w, source, 1, 2, 32, 18);
+            for (int i = 0; i < r8.length; i++) assertEquals(rgba[i * 4], r8[i]);
+
+            byte[] table = LabPBRConverter.buildSSssTable(source);
+            byte[] patch = new byte[w * h];
+            for (float blend : new float[]{0, .13f, .5f, .999f, 1}) {
+                java.util.Arrays.fill(patch, (byte) 73);
+                AnimatedTextureReference.buildR8Patch(patch, w, table, 16, 16,
+                        3, 5, 11, 13, blend, 31, h);
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+                    if (x >= 31) assertEquals((byte) 73, patch[y * w + x]);
+                    else {
+                        int a = table[(y + 5) % 16 * 16 + (x + 3) % 16] & 255;
+                        int b = table[(y + 13) % 16 * 16 + (x + 11) % 16] & 255;
+                        assertEquals((byte) Math.round(a * (1 - blend) + b * blend), patch[y * w + x]);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void invariantAnimationChannelsEqualTheirInitializedPixelsAtEveryFrameAndBlend() {
+        for (int[] dimensions : new int[][] {
+                {16, 64, 16, 16, 16, 16}, {6, 10, 4, 6, 2, 2},
+                {16, 16, 32, 64, 16, 16}, {32, 48, 16, 16, 16, 16}}) {
+            int w = dimensions[0], h = dimensions[1], fw = dimensions[2], fh = dimensions[3];
+            byte[] table = new byte[w * h];
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+                table[y * w + x] = (byte) ((x % dimensions[4]) * 31 + (y % dimensions[5]) * 47);
+            }
+            assertTrue(LabPBRConverter.isFrameInvariant(table, w, h, fw, fh));
+            byte[] expected = new byte[fw * fh], actual = new byte[expected.length];
+            AnimatedTextureReference.buildR8Patch(expected, fw, table, w, h, 0, 0, 0, 0, 0, fw, fh);
+            for (int frame = 0; frame < 8; frame++) for (float blend : new float[] {0, .13f, .5f, .999f, 1}) {
+                AnimatedTextureReference.buildR8Patch(actual, fw, table, w, h,
+                        frame * fw, frame / 2 * fh, (frame + 3) * fw, (frame + 1) * fh, blend, fw, fh);
+                org.junit.jupiter.api.Assertions.assertArrayEquals(expected, actual);
+            }
+        }
+    }
+
+    @Test
+    void genuinelyAnimatedChannelsKeepTheirUpdatesIndependently() {
+        byte[] constant = new byte[16 * 32], moving = constant.clone();
+        moving[16 * 20 + 3] = (byte) 255;
+        org.junit.jupiter.api.Assertions.assertFalse(LabPBRConverter.isFrameInvariant(moving, 16, 32, 16, 16));
+        var channels = new BlockTextureManager.AnimatedSpriteLabPBR(null, 0, 0,
+                null, constant, moving, constant, 16, 32, false, true, 16, 16);
+        org.junit.jupiter.api.Assertions.assertFalse(channels.animatedRoughness);
+        assertTrue(channels.animatedMetallic);
+        org.junit.jupiter.api.Assertions.assertFalse(channels.animatedSss);
+    }
+
+    @Test
     void applyAoToPatchSamplesTheAoTableAtTheUploadSourceOffset() {
         ByteBuffer src = ByteBuffer.allocate(8);
         putPixel(src, 0, 100, 150, 200, 250);
@@ -22,7 +86,7 @@ class LabPBRConverterTest {
         byte[] dst = new byte[8];
         byte[] aoTable = bytes(255, 128, 64, 0);
 
-        LabPBRConverter.applyAOToPatch(dst, 8, src, 8, aoTable, 4, 1, 2, 0, 2, 1);
+        AnimatedTextureReference.applyAOToPatch(dst, 8, src, 8, aoTable, 4, 1, 2, 0, 2, 1);
 
         assertEquals(25, unsigned(dst[0]));
         assertEquals(37, unsigned(dst[1]));
@@ -43,7 +107,7 @@ class LabPBRConverterTest {
         byte[] dst = new byte[8];
         byte[] sAlphaTable = bytes(255, 0, 127, 255);
 
-        boolean anyEmission = LabPBRConverter.buildEmissivePatch(
+        boolean anyEmission = AnimatedTextureReference.buildEmissivePatch(
             dst, 8, src, 8, sAlphaTable, 4, 1, 1, 0, 2, 1, 1.0f);
 
         assertTrue(anyEmission);
@@ -66,7 +130,7 @@ class LabPBRConverterTest {
         putPixel(src, 1, 200, 50, 20, 255);
         byte[] dst = new byte[8];
 
-        LabPBRConverter.buildEmissiveMaskPatch(dst, 8, src, 8, 2, 1, (u, v) -> u > 0.5f ? 0.5f : 0f);
+        AnimatedTextureReference.buildEmissiveMaskPatch(dst, 8, src, 8, 2, 1, (u, v) -> u > 0.5f ? 0.5f : 0f);
 
         assertEquals(0, unsigned(dst[0]));
         assertEquals(0, unsigned(dst[3]));

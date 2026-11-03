@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 final class VanillaCloudPlacement {
     static final int PARTITIONS_PER_AXIS = 8;
     static final double WORLD_PERIOD = 256.0 * VanillaCloudMeshGenerator.CELL_SIZE;
-    static final double VIEW_DISTANCE = CloudPlacement.VIEW_DISTANCE;
+    static final double VIEW_DISTANCE = 1152.0;
     static final double DRIFT_PER_TICK = 0.03;
     static final double Z_PHASE = 0.33;
 

@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import io
-import os
+import json
 import subprocess
 import urllib.error
-import xml.etree.ElementTree as ET
 from email.message import Message
 from pathlib import Path
 from unittest.mock import Mock
@@ -225,192 +225,42 @@ def staged_sdk(project: Path, platform: str = "win64") -> Path:
     return target
 
 
-def directory_link(link: Path, target: Path) -> None:
-    link.parent.mkdir(parents=True, exist_ok=True)
-    if os.name == "nt":
-        subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
-    else:
-        link.symlink_to(target, target_is_directory=True)
-
-
-def assert_no_sdk_scratch(project: Path) -> None:
-    assert not list((project / "remix-runtime").glob(".packman-tracy-*"))
-    assert not list(project.glob(".packman-fetch-*.tmp.xml"))
-
-
 @pytest.mark.parametrize("platform", ["win64", "arm64", "all"])
-def test_sdk_pulls_matching_debugoptimized_packages_and_swaps_after_validation(project, monkeypatch, platform):
-    staged_sdk(project)
-    staged_sdk(project, "arm64")
-    versions = []
-
-    def pull(args, **kwargs):
-        assert Path(args[0]) == project / "packman" / "packman.cmd"
-        assert args[1] == "pull"
-        assert args[3:] == ["-p", "windows-x86_64", "-r", "demo-sdk"]
-        assert ET.parse(args[2]).getroot().find("import") is None
-        assert kwargs["cwd"] == project
-        root = ET.parse(args[2]).getroot()
-        assert root.attrib == {"toolsVersion": "7.6"}
-        dependencies = root.findall("dependency")
-        assert len(dependencies) == 1
-        dep = dependencies[0]
-        package = dep.find("package")
-        assert package is not None
-        arch = dep.attrib["name"].removeprefix("remix-sdk-")
-        assert (project / "remix-runtime" / arch / "d3d9.dll").read_bytes() == b"old runtime"
-        assert package.attrib["name"] == "rtx_remix_runtime"
-        if arch == "win64":
-            assert package.attrib["platforms"] == "windows-x86_64"
-        versions.append(package.attrib["version"])
-        target = Path(dep.attrib["linkPath"])
-        assert target.is_absolute()
-        assert target.parent == project / "remix-runtime"
-        target.mkdir()
-        (target / "d3d9.dll").write_bytes(package.attrib["version"].encode())
-        return subprocess.CompletedProcess(args, 0)
-
-    monkeypatch.setattr(tracy.util, "run", pull)
-    tracy.fetch_sdk(platform)
-    expected = ["win64", "arm64"] if platform == "all" else [platform]
-    assert versions == [f"revision-{arch}-debugoptimized" for arch in expected]
-    for arch in expected:
-        assert (
-            project / "remix-runtime" / arch / "d3d9.dll"
-        ).read_bytes() == f"revision-{arch}-debugoptimized".encode()
-    assert_no_sdk_scratch(project)
-
-
-def test_sdk_refuses_local_override(project, monkeypatch):
+def test_tracy_sdk_requires_source_provenance_without_pulling_packages(project, monkeypatch, platform):
     target = staged_sdk(project)
-    (target / ".local-sdk-source").write_text("source: local-build\n", encoding="utf-8")
-    pull = Mock()
-    monkeypatch.setattr(tracy.util, "run", pull)
-    with pytest.raises(RuntimeError, match="(?s)local-build.*Refusing to overwrite.*sdk packman"):
-        tracy.fetch_sdk("win64")
+    monkeypatch.setattr(tracy.util, "run", lambda *a, **kw: pytest.fail("Old runtime packages must not be fetched"))
+    with pytest.raises(RuntimeError, match="provenance is missing"):
+        tracy.fetch_sdk(platform)
     assert (target / "d3d9.dll").read_bytes() == b"old runtime"
-    pull.assert_not_called()
 
 
-def test_sdk_fetch_without_remote_names_the_missing_setting(project, monkeypatch):
-    target = staged_sdk(project)
-    tracy.util.write_json(tracy.util.SHARED_CONFIG_PATH.with_name("config.local.json"), {"sdk": {"tracyRemote": ""}})
-    pull = Mock()
-    monkeypatch.setattr(tracy.util, "run", pull)
-    with pytest.raises(RuntimeError, match=r"sdk\.tracyRemote"):
-        tracy.fetch_sdk("win64")
-    assert (target / "d3d9.dll").read_bytes() == b"old runtime"
-    pull.assert_not_called()
-
-
-def test_sdk_reuses_matching_link(project, monkeypatch):
-    cache = project / "cache" / "revision-win64-debugoptimized"
-    cache.mkdir(parents=True)
-    (cache / "d3d9.dll").write_bytes(b"cached runtime")
-    target = project / "remix-runtime" / "win64"
-    directory_link(target, cache)
-    pull = Mock()
-    monkeypatch.setattr(tracy.util, "run", pull)
-    tracy.fetch_sdk("win64")
-    assert target.resolve() == cache.resolve()
-    pull.assert_not_called()
-
-
-@pytest.mark.parametrize("failure", ["exit_code", "missing_dll", "exception"])
-def test_sdk_failed_pull_keeps_existing_runtime_and_preserves_cache(project, monkeypatch, failure):
-    target = staged_sdk(project)
-    cache = project / "cache" / "revision-win64-debugoptimized"
-    cache.mkdir(parents=True)
-    (cache / "keep.txt").write_text("shared package", encoding="utf-8")
-
-    def pull(args, **kwargs):
-        dep = ET.parse(args[2]).getroot().find("dependency")
-        assert dep is not None
-        directory_link(Path(dep.attrib["linkPath"]), cache)
-        if failure == "exception":
-            raise OSError("cannot launch packman")
-        if failure == "exit_code":
-            raise RuntimeError("command failed (7): packman pull")
-        return subprocess.CompletedProcess(args, 0)
-
-    monkeypatch.setattr(tracy.util, "run", pull)
-    if failure == "exception":
-        with pytest.raises(OSError, match="cannot launch packman"):
-            tracy.fetch_sdk("win64")
-    else:
-        reason = r"command failed \(7\)" if failure == "exit_code" else "d3d9.dll is missing"
-        with pytest.raises(RuntimeError, match=f"(?s)revision-win64-debugoptimized.*{reason}"):
-            tracy.fetch_sdk("win64")
-    assert (target / "d3d9.dll").read_bytes() == b"old runtime"
-    assert (cache / "keep.txt").read_text(encoding="utf-8") == "shared package"
-    assert_no_sdk_scratch(project)
-
-
-@pytest.mark.parametrize("nested", [False, True])
-def test_sdk_replacement_never_traverses_existing_junctions(project, monkeypatch, nested):
-    cache = project / "cache" / "revision-win64-release"
-    cache.mkdir(parents=True)
-    (cache / "d3d9.dll").write_bytes(b"shared release")
-    target = project / "remix-runtime" / "win64"
-    if nested:
-        staged_sdk(project)
-        directory_link(target / "nested", cache)
-    else:
-        directory_link(target, cache)
-    new_cache = project / "cache" / "revision-win64-debugoptimized"
-    new_cache.mkdir(parents=True)
-    (new_cache / "d3d9.dll").write_bytes(b"shared Tracy")
-
-    def pull(args, **kwargs):
-        dep = ET.parse(args[2]).getroot().find("dependency")
-        assert dep is not None
-        directory_link(Path(dep.attrib["linkPath"]), new_cache)
-        return subprocess.CompletedProcess(args, 0)
-
-    monkeypatch.setattr(tracy.util, "run", pull)
-    tracy.fetch_sdk("win64")
-    assert target.resolve() == new_cache.resolve()
-    assert (cache / "d3d9.dll").read_bytes() == b"shared release"
-    assert (new_cache / "d3d9.dll").read_bytes() == b"shared Tracy"
-    assert_no_sdk_scratch(project)
-
-
-@pytest.mark.parametrize(
-    ("dependency", "message"),
-    [
-        ("", "Dependency 'remix-sdk-win64' not found"),
-        ('<dependency name="remix-sdk-win64" />', "has no pinned package version"),
-        ('<dependency name="remix-sdk-win64"><package name="runtime" /></dependency>', "has no pinned package version"),
-        ('<dependency name="remix-sdk-win64"><package version="  " /></dependency>', "to end with '-win64-release'"),
-        (
-            '<dependency name="remix-sdk-win64"><package version="revision-win64-debugoptimized" /></dependency>',
-            "to end with '-win64-release'",
-        ),
-        (
-            '<dependency name="remix-sdk-win64"><package version="revision-arm64-release" /></dependency>',
-            "to end with '-win64-release'",
-        ),
-    ],
-)
-def test_sdk_rejects_incomplete_or_wrong_architecture_pins(project, monkeypatch, dependency, message):
-    (project / "packman" / "remix-sdk.packman.xml").write_text(f"<project>{dependency}</project>", encoding="utf-8")
-    pull = Mock()
-    monkeypatch.setattr(tracy.util, "run", pull)
-    with pytest.raises(RuntimeError, match=message):
-        tracy.fetch_sdk("win64")
-    pull.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    ("missing", "message"),
-    [("packman.cmd", "Packman helper is missing"), ("remix-sdk.packman.xml", "manifest not found")],
-)
-def test_sdk_reports_missing_prerequisite(project, missing, message):
-    (project / "packman" / missing).unlink()
-    with pytest.raises(RuntimeError, match=message):
-        tracy.fetch_sdk("win64")
-
-
-def test_sdk_rejects_unsupported_platform(project):
+def test_tracy_sdk_rejects_unsupported_platform(project):
     with pytest.raises(RuntimeError, match="invalid SDK platform"):
         tracy.fetch_sdk("linux")
+
+
+@pytest.mark.parametrize("tracy_enabled", [False, True])
+def test_tracy_sdk_preserves_and_checks_source_built_runtime(project, tracy_enabled):
+    target = staged_sdk(project)
+    dll = target / "d3d9.dll"
+    dll.write_bytes(b"source runtime" + (b"___tracy_emit_zone_begin_alloc" if tracy_enabled else b""))
+    (target / ".runtime-provenance.json").write_text(
+        json.dumps(
+            {
+                "fork": "water2004/dxvk-remix",
+                "apiVersion": "1.5.0",
+                "architecture": "win64",
+                "sourceCommit": "a" * 40,
+                "sourceDirty": True,
+                "dllSha256": hashlib.sha256(dll.read_bytes()).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = dll.read_bytes()
+    if tracy_enabled:
+        tracy.fetch_sdk("win64")
+    else:
+        with pytest.raises(RuntimeError, match="not Tracy-enabled"):
+            tracy.fetch_sdk("win64")
+    assert dll.read_bytes() == original

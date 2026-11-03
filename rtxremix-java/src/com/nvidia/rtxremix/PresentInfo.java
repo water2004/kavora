@@ -13,6 +13,8 @@ public class PresentInfo {
     public int interopFlipY;
     public long clientDoneSemaphore_ValueToWait;
     public int disableCpuWaitForExternalSemaphores;
+    /** Optional final client image for the native Vulkan presentation surface. */
+    public VulkanClientFrameInfo vulkanFrame;
 
     public PresentInfo() {}
 }

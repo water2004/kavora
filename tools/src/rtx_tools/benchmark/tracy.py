@@ -5,18 +5,13 @@
 
 from __future__ import annotations
 
-import copy
 import os
-import re
 import shutil
 import time
 import urllib.error
 import urllib.request
-import uuid
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from .. import config as tools_config
 from .. import sdk
 from . import util
 
@@ -150,84 +145,15 @@ def fetch_tools() -> None:
     print(f"  tracy-csvexport: {csvexport}")
 
 
-def _tracy_version(dependency: ET.Element, platform: str) -> tuple[str, str]:
-    """Return the pinned release version and its debugoptimized sibling."""
-    package = dependency.find("package")
-    assert package is not None  # sdk.pinned_dependency guarantees a versioned package
-    release_version = package.attrib["version"]
-    if not re.fullmatch(rf".+-{re.escape(platform)}-release", release_version):
-        raise RuntimeError(
-            f"Expected remix-sdk-{platform} in packman/remix-sdk.packman.xml to end with "
-            f"'-{platform}-release': {release_version}"
-        )
-    return release_version, release_version.removesuffix("-release") + "-debugoptimized"
-
-
-def _pull_sdk(platform: str) -> None:
-    dependency = sdk.pinned_dependency(platform)
-    release_version, version = _tracy_version(dependency, platform)
-    dep_name = dependency.attrib["name"]
-    target = util.PROJECT_DIR / "remix-runtime" / platform
-    sentinel = target / ".local-sdk-source"
-    if sentinel.is_file():
-        contents = sentinel.read_text(encoding="utf-8-sig", errors="replace").rstrip()
-        raise RuntimeError(
-            f"\nERROR: {dep_name} was staged from a local source:\n{contents}\n\n"
-            "Refusing to overwrite. Benchmark will use local SDK overrides only when their\n"
-            "d3d9.dll contains Tracy symbols. To switch back to the Packman Tracy SDK,\n"
-            "remove the local override with tools\\rtx.bat sdk packman first."
-        )
-    if sdk.links_to(target, version) and (target / "d3d9.dll").is_file():
-        print(f"Already on benchmark Tracy SDK for {platform}: {version}")
-        return
-    config = tools_config.load_config()
-    remote = tools_config.require_setting(config, "sdk.tracyRemote")
-
-    # Pull beside the target and swap only after the package proves complete, so
-    # a failed pull leaves the current staging in place.
-    temp_target = target.parent / f".packman-tracy-{dep_name}-{uuid.uuid4().hex}"
-    pull = copy.deepcopy(dependency)
-    pull.set("linkPath", temp_target.as_posix())
-    for package in pull.findall("package"):
-        if package.get("version") == release_version:
-            package.set("version", version)
-    try:
-        print(f"Pulling benchmark Tracy SDK {dep_name} ({version}) -> {temp_target.as_posix()}")
-        reason = ""
-        try:
-            sdk.pull_packman_dependency(pull, util.PROJECT_DIR / "packman", remote=remote)
-        except RuntimeError as error:
-            reason = str(error)
-        if not reason and not (temp_target / "d3d9.dll").is_file():
-            reason = f"Packman pull completed, but d3d9.dll is missing at {temp_target / 'd3d9.dll'}."
-        if reason:
-            raise RuntimeError(
-                f"Benchmark Tracy SDK package is not available for {platform}.\n"
-                f"Requested: rtx_remix_runtime@{version}\n"
-                f"Derived from: rtx_remix_runtime@{release_version} in packman\\remix-sdk.packman.xml\n"
-                f"Dependency: {dep_name}\nReason: {reason}\n\n"
-                "Fix: publish the matching -debugoptimized package for the same SDK revision,\n"
-                "update packman\\remix-sdk.packman.xml to a release revision that has\n"
-                "debugoptimized artifacts, or stage a local debug/Tracy SDK with\n"
-                "tools\\rtx.bat sdk local [PATH]. See the job log above for Packman output."
-            )
-        if target.exists() or target.is_junction() or target.is_symlink():
-            print(f"Removing existing SDK target: {target}")
-        sdk.remove_target(target)
-        temp_target.rename(target)
-    finally:
-        sdk.remove_target(temp_target)
-
-
 def fetch_sdk(platform: str) -> None:
-    """Stage the pinned debugoptimized SDK for win64, arm64, or all.
-
-    Refuse local overrides and leave existing staging intact if a pull fails or
-    lacks d3d9.dll. Junction removal never changes shared Packman cache contents.
-    """
+    """Validate a source-built Tracy runtime without replacing local staging."""
     if platform not in {"win64", "arm64", "all"}:
         raise RuntimeError(f"invalid SDK platform: {platform}")
-    sdk.packman_cmd()
     for arch in ("win64", "arm64") if platform == "all" else (platform,):
-        _pull_sdk(arch)
-    print("Benchmark Tracy SDK ready.")
+        directory = util.PROJECT_DIR / "remix-runtime" / arch
+        sdk.validate_runtime_provenance(directory, arch)
+        if b"___tracy_emit_zone_begin_alloc" not in (directory / "d3d9.dll").read_bytes():
+            raise RuntimeError(
+                f"Source-built {arch} runtime is not Tracy-enabled: {directory}. Rebuild with Tracy enabled."
+            )
+    print("Source-built Tracy runtime ready.")

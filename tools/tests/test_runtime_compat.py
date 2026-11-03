@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ctypes
+import re
 import subprocess
 from pathlib import Path
 
@@ -18,7 +20,7 @@ def win64_process(monkeypatch):
 
 def staged_runtime(tmp_path: Path, arch: str = "win64") -> tuple[Path, Path, Path]:
     project = tmp_path / "project"
-    bridge = project / "build" / "native" / arch / "remixbridge.dll"
+    bridge = project / "build" / "native" / arch / "rtxremix-support.dll"
     runtime = project / "remix-runtime" / arch / "d3d9.dll"
     bridge.parent.mkdir(parents=True)
     runtime.parent.mkdir(parents=True)
@@ -36,10 +38,10 @@ def test_the_probe_runs_out_of_process(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(command, 0, stdout="8\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", run)
-    code, failure = runtime_compat._probe_in_subprocess(bridge, runtime)
+    code, failure = runtime_compat._probe_in_subprocess(runtime)
 
     assert code == runtime_compat.INCOMPATIBLE_VERSION and failure is None
-    assert seen[0][0] == [runtime_compat.sys.executable, "-m", "rtx_tools.runtime_compat", str(bridge), str(runtime)]
+    assert seen[0][0] == [runtime_compat.sys.executable, "-m", "rtx_tools.runtime_compat", str(runtime)]
     assert seen[0][1]["timeout"] == runtime_compat.PROBE_TIMEOUT_SECONDS
     assert Path(seen[0][1]["cwd"]).name.startswith("rtx-remix-runtime-probe-")
     assert not Path(seen[0][1]["cwd"]).exists()
@@ -51,7 +53,7 @@ def test_an_incompatible_runtime_warns_without_blocking(tmp_path, monkeypatch, c
     monkeypatch.setattr(
         runtime_compat,
         "_probe_in_subprocess",
-        lambda bridge, runtime: (runtime_compat.INCOMPATIBLE_VERSION, None),
+        lambda runtime: (runtime_compat.INCOMPATIBLE_VERSION, None),
     )
 
     result = runtime_compat.warn_if_incompatible(project, "win64")
@@ -60,12 +62,12 @@ def test_an_incompatible_runtime_warns_without_blocking(tmp_path, monkeypatch, c
     warning = capsys.readouterr().out
     assert "INCOMPATIBLE_VERSION" in warning
     assert "will not initialize" in warning
-    assert "sdk packman" in warning
+    assert "sdk local" in warning
 
 
 def test_a_compatible_runtime_is_silent(tmp_path, monkeypatch, capsys, win64_process):
     project, _, _ = staged_runtime(tmp_path)
-    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda bridge, runtime: (0, None))
+    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda runtime: (0, None))
 
     result = runtime_compat.warn_if_incompatible(project, "win64")
 
@@ -75,7 +77,7 @@ def test_a_compatible_runtime_is_silent(tmp_path, monkeypatch, capsys, win64_pro
 
 def test_a_probe_failure_is_distinct_from_an_api_mismatch(tmp_path, monkeypatch, capsys, win64_process):
     project, _, _ = staged_runtime(tmp_path)
-    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda bridge, runtime: (None, "wrong architecture"))
+    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda runtime: (None, "wrong architecture"))
 
     runtime_compat.warn_if_incompatible(project, "win64")
 
@@ -93,9 +95,7 @@ def test_probe_uses_the_same_checkout_relative_override_as_install(tmp_path, mon
     monkeypatch.setenv("REMIX_BUILD", "local SDK")
     monkeypatch.chdir(tmp_path)
     seen = []
-    monkeypatch.setattr(
-        runtime_compat, "_probe_in_subprocess", lambda bridge, runtime: seen.append(runtime) or (0, None)
-    )
+    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda runtime: seen.append(runtime) or (0, None))
 
     result = runtime_compat.probe(project, "win64")
 
@@ -110,9 +110,7 @@ def test_probe_uses_the_same_absolute_override_as_install(tmp_path, monkeypatch,
     override.write_bytes(b"override")
     monkeypatch.setenv("REMIX_BUILD", str(override.parent))
     seen = []
-    monkeypatch.setattr(
-        runtime_compat, "_probe_in_subprocess", lambda bridge, runtime: seen.append(runtime) or (0, None)
-    )
+    monkeypatch.setattr(runtime_compat, "_probe_in_subprocess", lambda runtime: seen.append(runtime) or (0, None))
 
     result = runtime_compat.probe(project, "win64")
 
@@ -129,7 +127,7 @@ def test_override_mismatch_names_the_override_instead_of_packman(tmp_path, monke
     monkeypatch.setattr(
         runtime_compat,
         "_probe_in_subprocess",
-        lambda bridge, runtime: (runtime_compat.INCOMPATIBLE_VERSION, None),
+        lambda runtime: (runtime_compat.INCOMPATIBLE_VERSION, None),
     )
 
     runtime_compat.warn_if_incompatible(project, "win64")
@@ -145,7 +143,7 @@ def test_mixed_process_and_bridge_architectures_are_actionable(tmp_path, monkeyp
     monkeypatch.setattr(
         runtime_compat,
         "_probe_in_subprocess",
-        lambda bridge, runtime: (_ for _ in ()).throw(AssertionError("probe called")),
+        lambda runtime: (_ for _ in ()).throw(AssertionError("probe called")),
     )
 
     result = runtime_compat.probe(project, "arm64")
@@ -168,10 +166,49 @@ def test_missing_artifacts_are_left_to_the_installer_diagnostics(tmp_path, monke
     monkeypatch.setattr(
         runtime_compat,
         "_probe_in_subprocess",
-        lambda bridge, runtime: (_ for _ in ()).throw(AssertionError("probe called")),
+        lambda runtime: (_ for _ in ()).throw(AssertionError("probe called")),
     )
 
     result = runtime_compat.warn_if_incompatible(tmp_path, "win64")
 
     assert result is None
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("status", [0, runtime_compat.INCOMPATIBLE_VERSION])
+def test_direct_probe_initializes_the_exact_vulkan_fork_interface(tmp_path, monkeypatch, status):
+    runtime = tmp_path / "d3d9.dll"
+    seen = []
+
+    class Initialize:
+        def __call__(self, info_pointer, interface_pointer):
+            info = ctypes.cast(info_pointer, ctypes.POINTER(runtime_compat.InitializeLibraryInfo)).contents
+            assert info.sType == 1 and info.pNext is None and info.version == (1 << 48) | (5 << 16)
+            assert ctypes.sizeof(interface_pointer._obj) == runtime_compat.INTERFACE_ENTRY_COUNT * ctypes.sizeof(
+                ctypes.c_void_p
+            )
+            table = ctypes.cast(
+                interface_pointer, ctypes.POINTER(ctypes.c_void_p * runtime_compat.INTERFACE_ENTRY_COUNT)
+            ).contents
+            for i in range(runtime_compat.INTERFACE_ENTRY_COUNT):
+                table[i] = i + 1
+            return status
+
+    class Library:
+        remixapi_InitializeLibrary = Initialize()
+
+    def load(path, *, winmode):
+        seen.append((path, winmode))
+        return Library()
+
+    monkeypatch.setattr(ctypes, "WinDLL", load)
+    assert runtime_compat._probe_in_process(runtime) == status
+    assert seen == [(str(runtime), 0x1100)]
+
+
+def test_probe_table_matches_the_authoritative_copied_header():
+    project = Path(__file__).resolve().parents[2]
+    header = (project / "rtxremix-java/native/include/remix_c.h").read_text(encoding="utf-8")
+    table = re.search(r"typedef struct remixapi_Interface\s*\{(.*?)\}", header, re.DOTALL)
+    assert table is not None
+    assert len(re.findall(r"PFN_remixapi_", table.group(1))) == runtime_compat.INTERFACE_ENTRY_COUNT

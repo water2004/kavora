@@ -4,7 +4,6 @@
  */
 package com.nvidia.rtxremix.minecraft.texture;
 
-import net.minecraft.util.Identifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -12,6 +11,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.minecraft.resources.Identifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -23,43 +23,24 @@ class AtlasAnimationForwarderTest {
     }
 
     @Test
-    void addPatchIgnoresSpritesOutsideTheBlockAtlasAllowList() throws Exception {
-        Identifier blockSprite = Identifier.of("minecraft", "block/lava_still");
-        Identifier guiSprite = Identifier.of("minecraft", "gui/sprites/icon");
-
-        AtlasAnimationForwarder.init(Map.of(), Set.of(blockSprite));
-        AtlasAnimationForwarder.beginAtlasUpload(BlockTextureManager.BLOCK_ATLAS_ID);
-
-        try {
-            AtlasAnimationForwarder.addPatch(guiSprite, 1, 2, 0, 0, 4, 4, 4, 4, 0L, 16);
-            assertEquals(0, pendingPatchCount());
-
-            AtlasAnimationForwarder.addPatch(blockSprite, 1, 2, 0, 0, 4, 4, 4, 4, 0L, 16);
-            assertEquals(1, pendingPatchCount());
-        } finally {
-            AtlasAnimationForwarder.endAtlasUpload();
-        }
+    void acceptsOnlySpritesFromTheCapturedBlockAtlas() {
+        Identifier block = Identifier.withDefaultNamespace("block/lava_still");
+        Identifier gui = Identifier.withDefaultNamespace("gui/sprites/icon");
+        AtlasAnimationForwarder.init(Map.of(), Set.of(block));
+        org.junit.jupiter.api.Assertions.assertTrue(AtlasAnimationForwarder.acceptsAnimation(BlockTextureManager.BLOCK_ATLAS_ID, block));
+        org.junit.jupiter.api.Assertions.assertFalse(AtlasAnimationForwarder.acceptsAnimation(BlockTextureManager.BLOCK_ATLAS_ID, gui));
+        org.junit.jupiter.api.Assertions.assertFalse(AtlasAnimationForwarder.acceptsAnimation(
+                Identifier.withDefaultNamespace("textures/atlas/particles.png"), block));
     }
-
     @Test
-    void addPatchIgnoresAllowedSpriteIdsFromOtherAtlases() throws Exception {
-        Identifier blockSprite = Identifier.of("minecraft", "block/lava_still");
-        Identifier particleAtlas = Identifier.of("minecraft", "textures/atlas/particles.png");
-
-        AtlasAnimationForwarder.init(Map.of(), Set.of(blockSprite));
-        AtlasAnimationForwarder.beginAtlasUpload(particleAtlas);
-
-        try {
-            AtlasAnimationForwarder.addPatch(blockSprite, 1, 2, 0, 0, 4, 4, 4, 4, 0L, 16);
-            assertEquals(0, pendingPatchCount());
-        } finally {
-            AtlasAnimationForwarder.endAtlasUpload();
-        }
-    }
-
-    private static int pendingPatchCount() throws Exception {
-        Field pendingPatches = AtlasAnimationForwarder.class.getDeclaredField("pendingPatches");
-        pendingPatches.setAccessible(true);
-        return ((List<?>) pendingPatches.get(null)).size();
+    void aPausedOrClearedForwarderAcceptsNoUpdates() {
+        Identifier sprite = Identifier.withDefaultNamespace("block/lava_still");
+        AtlasAnimationForwarder.init(Map.of(), Set.of(sprite));
+        AtlasAnimationForwarder.pause();
+        org.junit.jupiter.api.Assertions.assertFalse(AtlasAnimationForwarder.acceptsAnimation(BlockTextureManager.BLOCK_ATLAS_ID, sprite));
+        AtlasAnimationForwarder.resume();
+        org.junit.jupiter.api.Assertions.assertTrue(AtlasAnimationForwarder.acceptsAnimation(BlockTextureManager.BLOCK_ATLAS_ID, sprite));
+        AtlasAnimationForwarder.clear();
+        org.junit.jupiter.api.Assertions.assertFalse(AtlasAnimationForwarder.acceptsAnimation(BlockTextureManager.BLOCK_ATLAS_ID, sprite));
     }
 }

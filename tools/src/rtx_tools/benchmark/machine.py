@@ -126,12 +126,19 @@ def benchmark_gpu_from_system(system: Mapping[str, Any], selected_gpu: Mapping[s
     gpu = dict(selected_gpu)
     gpu["Name"] = name
     gpu["AdapterCompatibility"] = str(system.get("gpuVendor") or gpu.get("AdapterCompatibility") or "").strip()
-    gpu["GL_RENDERER"] = name
-    if system.get("gpuVendor"):
-        gpu["GL_VENDOR"] = system["gpuVendor"]
-    if system.get("glVersion"):
-        gpu["GL_VERSION"] = system["glVersion"]
-    gpu["selectionReason"] = "benchmark GL_RENDERER"
+    backend = str(system.get("graphicsBackend") or "OPENGL").upper()
+    gpu["graphicsBackend"] = backend
+    if system.get("graphicsDriver"):
+        gpu["graphicsDriver"] = system["graphicsDriver"]
+    for key in ("GL_RENDERER", "GL_VENDOR", "GL_VERSION"):
+        gpu.pop(key, None)
+    if backend == "OPENGL":
+        gpu["GL_RENDERER"] = name
+        if system.get("gpuVendor"):
+            gpu["GL_VENDOR"] = system["gpuVendor"]
+        if system.get("glVersion"):
+            gpu["GL_VERSION"] = system["glVersion"]
+    gpu["selectionReason"] = f"benchmark {backend} device"
     return gpu
 
 

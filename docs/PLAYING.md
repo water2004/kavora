@@ -127,18 +127,20 @@ enabled. For a direct comparison, press `F8` to toggle path tracing, or type
 
 ## Settings
 
-The mod's own settings screen is in **Options**, then **RTX Remix Settings...**.
-Its pages cover distance and framerate, sky and clouds, lighting, and
-materials. The renderer's quality tier lives in Remix's own Graphics Settings
-menu, which the **RTX Remix Graphics Settings** button on that screen opens.
+Open **Video Settings**, then **RTX Remix** in Sodium's sidebar for presets,
+DLSS, frame generation, tracing and cache controls, distances, and frame caps.
+Changes commit through Apply and can be undone. **RTX Remix Settings...** in
+Options opens the independent visual settings screen for lighting, sky and
+weather, image and exposure, and materials. Sodium's Shader Settings link
+opens the same screen. Apply commits pending edits across its folders; Cancel
+discards them. Done applies and closes.
 See [Settings](SETTINGS.md) for how personal changes and map lighting fit
 together.
 
 **Alt+X** opens something different: the RTX Remix runtime's own developer
 menu, aimed at people tuning the renderer itself. Anything you change there is
-saved by Remix and overrides the mod's settings until you undo it. The
-**RTX Remix Graphics Settings** button opens the runtime's simpler menu the
-same way. While either is open the game receives no keyboard or mouse input,
+saved by Remix and overrides the mod's settings until you undo it. While a
+native overlay is open the game receives no keyboard or mouse input,
 Escape included; close the menu with its own close button, or press Alt+X
 again, to carry on playing. The runtime's First Use Guide opens at each launch
 until you choose **Never Show This Again** in it. It holds input the same way,
@@ -193,7 +195,7 @@ has the details.
 | `/rtx status` reports `Renderer Initialized: false` | Look for `Failed to initialize RTX Remix renderer` in `logs\latest.log` and read the error that follows. If it names a conf file, check that file; an existing file that fails to load is not automatically replaced. Include the logs when reporting the failure. |
 | On a laptop: the game runs but looks like ordinary Minecraft, or is extremely slow | The display is being driven by the built-in graphics chip. In Windows Settings, Display, Graphics, add `javaw.exe` and set it to High performance, then relaunch. |
 | Windows SmartScreen warns about the Prism Launcher download | Prism Launcher is open-source and is not signed by Microsoft. Choose More info, then Run anyway. You can also install it yourself from <https://prismlauncher.org>, start Prism once, then re-run `install.bat`, which detects it. |
-| Very choppy at a high render distance | Lower Minecraft's render distance, or pick a lower tier in Options, RTX Remix Settings, RTX Remix Graphics Settings. |
+| Very choppy at a high render distance | Lower Minecraft's render distance, or pick a lower preset in Sodium's RTX Remix page. |
 | The game will not start at all | Launch the **NVIDIA RTX Remix for Minecraft** profile rather than a plain Minecraft one, and confirm the launcher is set to Java 21. |
 | A crash, a black screen, or wrong rendering with other mods installed | Remove the other mods and try again. Mods that change rendering or chunk loading are the likely conflict. If one mod turns out to be the cause, say which in your report. |
 

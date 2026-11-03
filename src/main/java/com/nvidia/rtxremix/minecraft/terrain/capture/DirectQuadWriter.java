@@ -9,8 +9,6 @@ import com.nvidia.rtxremix.minecraft.texture.BlockTextureManager;
 import com.nvidia.rtxremix.minecraft.terrain.ChunkManager;
 import com.nvidia.rtxremix.minecraft.profiling.ProfileScope;
 import com.nvidia.rtxremix.HardcodedVertex;
-import net.minecraft.util.Identifier;
-
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
@@ -20,10 +18,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import net.minecraft.resources.Identifier;
 
 /**
  * Writes block quad data directly into per-bucket interleaved
- * {@link ByteBuffer}s in HardcodedVertex layout (64-byte stride). Positions
+ * {@link ByteBuffer}s in the compact {@link SectionMeshData} layout. Positions
  * stay section-local so column meshes can be placed with an instance transform
  * without baking large world-space coordinates into BLAS vertex data.
  *
@@ -39,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class DirectQuadWriter {
 
-    private static final int STRIDE = HardcodedVertex.STRIDE; // 64
+    private static final int STRIDE = SectionMeshData.VERTEX_STRIDE;
     private static final int INDICES_PER_QUAD = 6;
     private static final int MAX_BLOCK_QUADS = 128;
     private static final float DECAL_NORMAL_DOT_EPSILON = 0.999f;
@@ -54,7 +53,7 @@ public final class DirectQuadWriter {
     private static final int MAX_VERT_BUF_SIZE = MAX_SECTION_QUADS * 4 * STRIDE;
     /** Initial bucket capacity: 128 quads keeps small section buckets compact. */
     private static final int INITIAL_QUADS    = 128;
-    private static final int INITIAL_VERT_SIZE = INITIAL_QUADS * 4 * STRIDE;       // 32 KB
+    private static final int INITIAL_VERT_SIZE = INITIAL_QUADS * 4 * STRIDE;
 
     /** Total bytes allocated across all DirectQuadWriter bucket buffers, all threads. */
     private static final AtomicLong totalAllocatedBytes = new AtomicLong();
@@ -102,6 +101,12 @@ public final class DirectQuadWriter {
                         float[] uvs, int uvOff,
                         float nx, float ny, float nz,
                         int color, int boundsMin, int boundsMax) {
+            writeQuad(pos, posOff, uvs, uvOff, nx, ny, nz, color, null, 0, boundsMin, boundsMax);
+        }
+
+        void writeQuad(float[] pos, int posOff, float[] uvs, int uvOff,
+                float nx, float ny, float nz, int color, int[] colors, int colorOffset,
+                int boundsMin, int boundsMax) {
             ensureVertexCapacity((vertexCount + 4) * STRIDE);
 
             for (int v = 0; v < 4; v++) {
@@ -117,14 +122,15 @@ public final class DirectQuadWriter {
                 vertices.putFloat(wo + 20, nz);
                 vertices.putFloat(wo + 24, uvs[uvOff + v * 2]);
                 vertices.putFloat(wo + 28, uvs[uvOff + v * 2 + 1]);
-                vertices.putInt(wo + 32,   color);
+                int vertexColor = colors == null ? color : colors[colorOffset + v];
+                vertices.putInt(wo + 32, vertexColor);
                 vertices.putInt(wo + 36,   boundsMin);
                 vertices.putInt(wo + 40,   boundsMax);
                 hashVertex(x, y, z,
                            nx, ny, nz,
                            uvs[uvOff + v * 2],
                            uvs[uvOff + v * 2 + 1],
-                           color, boundsMin, boundsMax);
+                           vertexColor, boundsMin, boundsMax);
             }
             vertexCount += 4;
             indexCount += INDICES_PER_QUAD;
@@ -180,9 +186,6 @@ public final class DirectQuadWriter {
             h = h * 31 + boundsMin;
             h = h * 31 + boundsMax;
 
-            // SectionMeshData hashes the full 64-byte vertex stride, including
-            // HardcodedVertex's zeroed padding ints.
-            for (int i = 0; i < 5; i++) h *= 31;
             vertexHash = h;
         }
     }
@@ -196,6 +199,8 @@ public final class DirectQuadWriter {
     private final float[] stageNy  = new float[MAX_BLOCK_QUADS];
     private final float[] stageNz  = new float[MAX_BLOCK_QUADS];
     private final int[]   stageColor = new int[MAX_BLOCK_QUADS];
+    private final int[] stageVertexColors = new int[MAX_BLOCK_QUADS * 4];
+    private final boolean[] stageHasVertexColors = new boolean[MAX_BLOCK_QUADS];
     private final Identifier[] stageSpriteId = new Identifier[MAX_BLOCK_QUADS];
     private final float[] stageSU0 = new float[MAX_BLOCK_QUADS];
     private final float[] stageSV0 = new float[MAX_BLOCK_QUADS];
@@ -259,12 +264,23 @@ public final class DirectQuadWriter {
         System.arraycopy(uvs, 0, stageUvs, i * 8, 8);
         stageNx[i] = nx; stageNy[i] = ny; stageNz[i] = nz;
         stageColor[i] = color;
+        stageHasVertexColors[i] = false;
         stageSpriteId[i] = spriteId;
         stageSU0[i] = su0; stageSV0[i] = sv0;
         stageSU1[i] = su1; stageSV1[i] = sv1;
         stageLayer[i] = renderLayer;
         stageOverlay[i] = false;
         stageDiscarded[i] = false;
+    }
+
+    /** Stages an already evaluated quad without discarding its per-vertex biome tint. */
+    public void stageColoredQuad(float[] positions, float[] uvs, float nx, float ny, float nz,
+            int[] colors, Identifier spriteId, float su0, float sv0, float su1, float sv1, String layer) {
+        int index = stageCount;
+        if (index >= MAX_BLOCK_QUADS) return;
+        stageQuad(positions, uvs, nx, ny, nz, colors[0], spriteId, su0, sv0, su1, sv1, layer);
+        System.arraycopy(colors, 0, stageVertexColors, index * 4, 4);
+        stageHasVertexColors[index] = true;
     }
 
     /**
@@ -275,6 +291,20 @@ public final class DirectQuadWriter {
                                 int color, Identifier spriteId,
                                 float su0, float sv0, float su1, float sv1,
                                 String renderLayer, BlockTextureManager tex) {
+        writeFluidQuad(positions, uvs, nx, ny, nz, color, null, spriteId,
+                su0, sv0, su1, sv1, renderLayer, tex);
+    }
+
+    public void writeColoredFluidQuad(float[] positions, float[] uvs,
+            float nx, float ny, float nz, int[] colors, Identifier spriteId,
+            float su0, float sv0, float su1, float sv1, String layer, BlockTextureManager tex) {
+        writeFluidQuad(positions, uvs, nx, ny, nz, colors[0], colors, spriteId,
+                su0, sv0, su1, sv1, layer, tex);
+    }
+
+    private void writeFluidQuad(float[] positions, float[] uvs,
+            float nx, float ny, float nz, int color, int[] colors, Identifier spriteId,
+            float su0, float sv0, float su1, float sv1, String renderLayer, BlockTextureManager tex) {
 
         int layerType = BlockTextureManager.layerType(renderLayer);
         boolean isWater = spriteId == null;
@@ -297,7 +327,7 @@ public final class DirectQuadWriter {
         int boundsMax = isWater ? HardcodedVertex.packHalf2x16(1, 1)
                                 : HardcodedVertex.packHalf2x16(su1, sv1);
 
-        bb.writeQuad(positions, 0, uvs, 0, nx, ny, nz, color, boundsMin, boundsMax);
+        bb.writeQuad(positions, 0, uvs, 0, nx, ny, nz, color, colors, 0, boundsMin, boundsMax);
     }
 
     /**
@@ -338,7 +368,8 @@ public final class DirectQuadWriter {
 
             bb.writeQuad(stagePos, i * 12, stageUvs, i * 8,
                          stageNx[i], stageNy[i], stageNz[i],
-                         stageColor[i], boundsMin, boundsMax);
+                         stageColor[i], stageHasVertexColors[i] ? stageVertexColors : null,
+                         i * 4, boundsMin, boundsMax);
         }
 
         Arrays.fill(stageSpriteId, 0, stageCount, null);
@@ -381,6 +412,7 @@ public final class DirectQuadWriter {
     }
 
     private boolean isDuplicateCutoutBackface(int a, int b) {
+        if (hasGradient(a) || hasGradient(b)) return false;
         float normalDot = stageNx[a] * stageNx[b]
                 + stageNy[a] * stageNy[b]
                 + stageNz[a] * stageNz[b];
@@ -397,6 +429,14 @@ public final class DirectQuadWriter {
         }
 
         return haveSameUnorderedPositions(a * 12, b * 12);
+    }
+
+    private boolean hasGradient(int index) {
+        if (!stageHasVertexColors[index]) return false;
+        int offset = index * 4;
+        for (int vertex = 1; vertex < 4; vertex++)
+            if (stageVertexColors[offset + vertex] != stageVertexColors[offset]) return true;
+        return false;
     }
 
     private boolean haveSameUnorderedPositions(int aPos, int bPos) {

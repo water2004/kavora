@@ -81,7 +81,7 @@ FAILURE_SIGNATURES = (
     ("VK_ERROR_DEVICE_LOST", "DeviceLost"),
     ("EXCEPTION_ACCESS_VIOLATION", "AccessViolation"),
     ("A fatal error has been detected by the Java Runtime Environment", "JvmCrash"),
-    # JNI/native ABI mismatch between the runtime and rtxremix-java.
+    # native ABI mismatch between the runtime and rtxremix-java.
     ("java.lang.UnsatisfiedLinkError", "NativeLinkError"),
     ("---- Minecraft Crash Report ----", "MinecraftCrash"),
     # BenchmarkController emits this when a parsed auto trigger cannot start.
@@ -186,7 +186,7 @@ def host_arch(override: object = None) -> str:
 def verify_jvm_matches_arch(arch: str) -> None:
     """Fail fast when the JVM cannot load native binaries for `arch`.
 
-    The SDK and JNI bridge must match the JVM that loads them. A wrong-arch
+    The SDK and native support helper must match the JVM that loads them. A wrong-arch
     JDK (e.g. an x64 Adoptium install on an ARM64 runner, which Adoptium
     silently provides because it ships no Windows-ARM64 build) would otherwise
     surface as the emulated client crashing mid-run with no actionable signal.
@@ -201,7 +201,7 @@ def verify_jvm_matches_arch(arch: str) -> None:
         return
     raise RuntimeError(
         f"benchmark arch {arch} does not match the JVM architecture {jvm_raw} "
-        f"reported by {java_executable()}; the native SDK and JNI bridge must "
+        f"reported by {java_executable()}; the native SDK and support helper must "
         "match the JVM. On ARM64 runners install Microsoft Build of OpenJDK 21 "
         "(ARM64) and remove any x64 Adoptium JDK or stale JAVA_HOME; see "
         "tools/docs/BENCHMARKING.md."
@@ -1820,7 +1820,7 @@ def fetch_sdk(variant: str, arch: str, auto_restage: bool = True) -> Path:
         else:
             raise RuntimeError(
                 f"Local {arch} SDK override is not Tracy-enabled: {sdk_dir}. "
-                "Stage a Tracy-enabled local SDK or switch back with 'tools\\rtx.bat sdk packman'."
+                "Build a Tracy-enabled source runtime and stage it with 'tools\\rtx.bat sdk local'."
             )
     elif variant == "tracy":
         tracy.fetch_sdk(arch)
@@ -1828,6 +1828,7 @@ def fetch_sdk(variant: str, arch: str, auto_restage: bool = True) -> Path:
         runtime_sdk.stage_packman_sdk(arch)
     if not dll.exists():
         raise RuntimeError(f"SDK fetch completed but d3d9.dll is missing: {dll}")
+    runtime_sdk.validate_runtime_provenance(sdk_dir, arch)
     return dll
 
 

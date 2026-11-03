@@ -4,16 +4,14 @@
  */
 package com.nvidia.rtxremix.minecraft.texture;
 
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
-
+import com.mojang.blaze3d.platform.NativeImage;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Map;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 
 /**
  * Converts LabPBR _n/_s textures into Remix-compatible PBR channel data.
@@ -48,7 +46,7 @@ public final class LabPBRConverter {
     public static void blitNormal(byte[] dst, int atlasW, NativeImage n, int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                int abgr = n.getColor(x % n.getWidth(), y % n.getHeight());
+                int abgr = NativeImagePixels.abgr(n, x % n.getWidth(), y % n.getHeight());
                 int nr = abgr & 0xFF;
                 int ng = (abgr >> 8) & 0xFF;
                 double nx = (nr / 255.0) * 2.0 - 1.0;
@@ -67,7 +65,7 @@ public final class LabPBRConverter {
     public static void applyAO(byte[] albedoRGBA, int atlasW, NativeImage n, int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = n.getColor(x % n.getWidth(), y % n.getHeight());
+                int abgr = NativeImagePixels.abgr(n, x % n.getWidth(), y % n.getHeight());
                 int ao = (abgr >> 16) & 0xFF;
                 int idx = ((oy + y) * atlasW + (ox + x)) * 4;
                 albedoRGBA[idx]     = (byte) ((albedoRGBA[idx]     & 0xFF) * ao / 255);
@@ -85,7 +83,7 @@ public final class LabPBRConverter {
     public static void blitRoughness(byte[] dst, int atlasW, NativeImage s, int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = s.getColor(x % s.getWidth(), y % s.getHeight());
+                int abgr = NativeImagePixels.abgr(s, x % s.getWidth(), y % s.getHeight());
                 dst[(oy + y) * atlasW + (ox + x)] = (byte) smoothnessToRoughness(abgr & 0xFF);
             }
     }
@@ -94,7 +92,7 @@ public final class LabPBRConverter {
     public static void blitMetallic(byte[] dst, int atlasW, NativeImage s, int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = s.getColor(x % s.getWidth(), y % s.getHeight());
+                int abgr = NativeImagePixels.abgr(s, x % s.getWidth(), y % s.getHeight());
                 dst[(oy + y) * atlasW + (ox + x)] = (byte) f0ToMetallic((abgr >> 8) & 0xFF);
             }
     }
@@ -107,11 +105,20 @@ public final class LabPBRConverter {
     public static void blitSSS(byte[] dst, int atlasW, NativeImage s, int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = s.getColor(x % s.getWidth(), y % s.getHeight());
+                int abgr = NativeImagePixels.abgr(s, x % s.getWidth(), y % s.getHeight());
                 byte val = (byte) sssIntensity((abgr >> 16) & 0xFF);
                 int idx = ((oy + y) * atlasW + (ox + x)) * 4;
                 dst[idx] = val; dst[idx + 1] = val; dst[idx + 2] = val;
                 dst[idx + 3] = (byte) 255;
+            }
+    }
+
+    /** Blits R8 thin-surface thickness from the LabPBR specular blue channel. */
+    public static void blitSssThickness(byte[] dst, int atlasW, NativeImage s, int ox, int oy, int w, int h) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int abgr = NativeImagePixels.abgr(s, x % s.getWidth(), y % s.getHeight());
+                dst[(oy + y) * atlasW + ox + x] = (byte) sssIntensity((abgr >> 16) & 0xFF);
             }
     }
 
@@ -120,7 +127,7 @@ public final class LabPBRConverter {
                                                   int ox, int oy, int w, int h) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = sss.getColor(x % sss.getWidth(), y % sss.getHeight());
+                int abgr = NativeImagePixels.abgr(sss, x % sss.getWidth(), y % sss.getHeight());
                 int idx = ((oy + y) * atlasW + (ox + x)) * 4;
                 dst[idx]     = (byte) (abgr & 0xFF);
                 dst[idx + 1] = (byte) ((abgr >> 8) & 0xFF);
@@ -162,7 +169,7 @@ public final class LabPBRConverter {
             for (int x = 0; x < w; x++) {
                 float factor;
                 if (s != null) {
-                    int alpha = (s.getColor(x % s.getWidth(), y % s.getHeight()) >> 24) & 0xFF;
+                    int alpha = (NativeImagePixels.abgr(s, x % s.getWidth(), y % s.getHeight()) >> 24) & 0xFF;
                     factor = (alpha < 255) ? Math.min(1.0f, alpha / 254.0f * gain) : fallbackFactor;
                 } else {
                     factor = fallbackFactor;
@@ -175,169 +182,17 @@ public final class LabPBRConverter {
             }
     }
 
-    // --- Animation-time helpers ---
-    //
-    // These variants operate on raw sprite pixels coming from a NativeImage
-    // upload rather than the stitched atlas buffer. They're used by the
-    // animation forwarder to re-apply LabPBR AO and animated _s material
-    // channels to each animated frame, so animated albedo doesn't drift out
-    // of phase with the LabPBR data applied at initial atlas build.
-    //
-    // AO and _s channels are pre-computed into flat byte tables at init time
-    // (see buildAOTable / buildSAlphaTable) so the per-tick path is a
-    // tight byte[] + ByteBuffer loop with no NativeImage.getColor() calls.
-
-    /**
-     * Reads raw RGBA8 albedo from {@code src} (a direct ByteBuffer of
-     * dimensions {@code w * h} laid out with {@code srcRowPitch} bytes per
-     * row) and writes AO-multiplied RGBA8 to {@code dst} (row pitch
-     * {@code dstRowPitch}). The AO table is sampled with modulo wrap so a
-     * single LabPBR {@code _n} image can modulate an arbitrary animation
-     * frame size.
-     */
-    public static void applyAOToPatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            byte[] aoTable, int aoW, int aoH,
-            int w, int h) {
-        applyAOToPatch(dst, dstRowPitch, src, srcRowPitch, aoTable, aoW, aoH, 0, 0, w, h);
-    }
-
-    public static void applyAOToPatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            byte[] aoTable, int aoW, int aoH,
-            int aoX, int aoY,
-            int w, int h) {
-        for (int y = 0; y < h; y++) {
-            int sRow = y * srcRowPitch;
-            int dRow = y * dstRowPitch;
-            int aoRow = wrapNonNegative(aoY + y, aoH) * aoW;
-            for (int x = 0; x < w; x++) {
-                int ao = aoTable[aoRow + wrapNonNegative(aoX + x, aoW)] & 0xFF;
-                int si = sRow + x * 4;
-                int di = dRow + x * 4;
-                dst[di]     = (byte) ((src.get(si)     & 0xFF) * ao / 255);
-                dst[di + 1] = (byte) ((src.get(si + 1) & 0xFF) * ao / 255);
-                dst[di + 2] = (byte) ((src.get(si + 2) & 0xFF) * ao / 255);
-                dst[di + 3] = src.get(si + 3);
-            }
-        }
-    }
-
-    /**
-     * Copies raw RGBA8 pixels verbatim, for non-LabPBR sprites that share
-     * the same forwarder code path.
-     */
-    public static void copyAlbedoPatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            int w, int h) {
-        int rowBytes = w * 4;
-        for (int y = 0; y < h; y++) {
-            int sOff = y * srcRowPitch;
-            int dOff = y * dstRowPitch;
-            for (int i = 0; i < rowBytes; i++) {
-                dst[dOff + i] = src.get(sOff + i);
-            }
-        }
-    }
-
-    /**
-     * Builds an RGBA8 emissive patch from source albedo and an optional
-     * LabPBR {@code _s.alpha} mask table.
-     *
-     * <p>Per-pixel rule, matching the atlas-build path in
-     * {@link #blitEmissive}: if {@code sAlphaTable != null} and the sampled
-     * alpha is {@code < 255}, the pixel emits at {@code alpha/254}; otherwise
-     * it falls back to {@code fallbackFactor}. Pixels with factor 0 get alpha
-     * 0 so the atlas emissive sampler correctly sees "no emission" at distance.
-     *
-     * @return true if any pixel ended up emissive; callers use this to
-     *         decide whether to submit this patch at all.
-     */
-    public static boolean buildEmissivePatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            byte[] sAlphaTable, int sW, int sH,
-            int w, int h,
-            float fallbackFactor) {
-        return buildEmissivePatch(dst, dstRowPitch, src, srcRowPitch,
-                sAlphaTable, sW, sH, 0, 0, w, h, fallbackFactor);
-    }
-
-    public static boolean buildEmissivePatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            byte[] sAlphaTable, int sW, int sH,
-            int maskX, int maskY,
-            int w, int h,
-            float fallbackFactor) {
-        return buildEmissivePatch(dst, dstRowPitch, src, srcRowPitch,
-                sAlphaTable, sW, sH, maskX, maskY, maskX, maskY, 0.0f,
-                w, h, fallbackFactor);
-    }
-
-    public static boolean buildEmissivePatch(
-            byte[] dst, int dstRowPitch,
-            ByteBuffer src, int srcRowPitch,
-            byte[] sAlphaTable, int sW, int sH,
-            int maskX, int maskY,
-            int nextMaskX, int nextMaskY,
-            float nextMaskBlend,
-            int w, int h,
-            float fallbackFactor) {
-        boolean anyEmission = false;
-        float nextBlend = Math.max(0.0f, Math.min(1.0f, nextMaskBlend));
-        float currentBlend = 1.0f - nextBlend;
-        for (int y = 0; y < h; y++) {
-            int sRow = y * srcRowPitch;
-            int dRow = y * dstRowPitch;
-            int saRow = (sAlphaTable != null) ? wrapNonNegative(maskY + y, sH) * sW : 0;
-            int nextSaRow = (sAlphaTable != null) ? wrapNonNegative(nextMaskY + y, sH) * sW : 0;
-            for (int x = 0; x < w; x++) {
-                float factor;
-                if (sAlphaTable != null) {
-                    int alpha = sAlphaTable[saRow + wrapNonNegative(maskX + x, sW)] & 0xFF;
-                    factor = emissiveFactorFromSAlpha(alpha, fallbackFactor);
-                    if (nextBlend > 0.0f) {
-                        int nextAlpha = sAlphaTable[nextSaRow + wrapNonNegative(nextMaskX + x, sW)] & 0xFF;
-                        float nextFactor = emissiveFactorFromSAlpha(nextAlpha, fallbackFactor);
-                        factor = factor * currentBlend + nextFactor * nextBlend;
-                    }
-                } else {
-                    factor = fallbackFactor;
-                }
-                int si = sRow + x * 4;
-                int di = dRow + x * 4;
-                int r = src.get(si)     & 0xFF;
-                int g = src.get(si + 1) & 0xFF;
-                int b = src.get(si + 2) & 0xFF;
-                dst[di]     = (byte) clamp255((int) (r * factor));
-                dst[di + 1] = (byte) clamp255((int) (g * factor));
-                dst[di + 2] = (byte) clamp255((int) (b * factor));
-                dst[di + 3] = (byte) (factor > 0 ? 255 : 0);
-                if (factor > 0) anyEmission = true;
-            }
-        }
-        return anyEmission;
-    }
-
-    private static float emissiveFactorFromSAlpha(int alpha, float fallbackFactor) {
-        return alpha < 255 ? alpha / 254.0f : fallbackFactor;
-    }
-
     /**
      * Pre-computes a flat AO byte table from a LabPBR {@code _n} image.
      * AO is stored in the blue channel (byte index 2 of the ABGR layout
-     * returned by {@link NativeImage#getColor}, i.e. shift 16).
+     * returned by {@link NativeImagePixels#abgr}, i.e. shift 16).
      */
     public static byte[] buildAOTable(NativeImage n) {
         int w = n.getWidth(), h = n.getHeight();
         byte[] table = new byte[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                table[y * w + x] = (byte) ((n.getColor(x, y) >> 16) & 0xFF);
+                table[y * w + x] = (byte) ((NativeImagePixels.abgr(n, x, y) >> 16) & 0xFF);
         return table;
     }
 
@@ -350,7 +205,7 @@ public final class LabPBRConverter {
         byte[] table = new byte[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                table[y * w + x] = (byte) ((s.getColor(x, y) >> 24) & 0xFF);
+                table[y * w + x] = (byte) ((NativeImagePixels.abgr(s, x, y) >> 24) & 0xFF);
         return table;
     }
 
@@ -369,28 +224,6 @@ public final class LabPBRConverter {
                 dst[ai + 2] = (byte) clamp255((int) ((albedoRGBA[ai + 2] & 0xFF) * factor));
                 dst[ai + 3] = (byte) (factor > 0 ? 255 : 0);
             }
-    }
-
-    /**
-     * Animated-frame counterpart of {@link #blitEmissiveMask}: emission for one uploaded
-     * frame of a sprite from its {@link BuiltinEmission.Mask}, albedo scaled by the mask.
-     */
-    public static void buildEmissiveMaskPatch(byte[] dst, int dstRowPitch,
-                                              ByteBuffer src, int srcRowPitch,
-                                              int w, int h, BuiltinEmission.Mask mask) {
-        for (int y = 0; y < h; y++) {
-            int sRow = y * srcRowPitch;
-            int dRow = y * dstRowPitch;
-            for (int x = 0; x < w; x++) {
-                float factor = mask.factor((x + 0.5f) / w, (y + 0.5f) / h);
-                int si = sRow + x * 4;
-                int di = dRow + x * 4;
-                dst[di]     = (byte) clamp255((int) ((src.get(si)     & 0xFF) * factor));
-                dst[di + 1] = (byte) clamp255((int) ((src.get(si + 1) & 0xFF) * factor));
-                dst[di + 2] = (byte) clamp255((int) ((src.get(si + 2) & 0xFF) * factor));
-                dst[di + 3] = (byte) (factor > 0 ? 255 : 0);
-            }
-        }
     }
 
     /**
@@ -414,7 +247,7 @@ public final class LabPBRConverter {
         byte[] table = new byte[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                table[y * w + x] = (byte) smoothnessToRoughness(s.getColor(x, y) & 0xFF);
+                table[y * w + x] = (byte) smoothnessToRoughness(NativeImagePixels.abgr(s, x, y) & 0xFF);
         return table;
     }
 
@@ -423,7 +256,7 @@ public final class LabPBRConverter {
         byte[] table = new byte[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                table[y * w + x] = (byte) f0ToMetallic((s.getColor(x, y) >> 8) & 0xFF);
+                table[y * w + x] = (byte) f0ToMetallic((NativeImagePixels.abgr(s, x, y) >> 8) & 0xFF);
         return table;
     }
 
@@ -432,61 +265,25 @@ public final class LabPBRConverter {
         byte[] table = new byte[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
-                table[y * w + x] = (byte) sssIntensity((s.getColor(x, y) >> 16) & 0xFF);
+                table[y * w + x] = (byte) sssIntensity((NativeImagePixels.abgr(s, x, y) >> 16) & 0xFF);
         return table;
     }
 
-    public static void buildR8Patch(
-            byte[] dst, int dstRowPitch,
-            byte[] valueTable, int tableW, int tableH,
-            int valueX, int valueY,
-            int nextValueX, int nextValueY,
-            float nextValueBlend,
-            int w, int h) {
-        float nextBlend = Math.max(0.0f, Math.min(1.0f, nextValueBlend));
-        float currentBlend = 1.0f - nextBlend;
-        for (int y = 0; y < h; y++) {
-            int dRow = y * dstRowPitch;
-            int row = wrapNonNegative(valueY + y, tableH) * tableW;
-            int nextRow = wrapNonNegative(nextValueY + y, tableH) * tableW;
-            for (int x = 0; x < w; x++) {
-                int value = valueTable[row + wrapNonNegative(valueX + x, tableW)] & 0xFF;
-                if (nextBlend > 0.0f) {
-                    int nextValue = valueTable[nextRow + wrapNonNegative(nextValueX + x, tableW)] & 0xFF;
-                    value = Math.round(value * currentBlend + nextValue * nextBlend);
-                }
-                dst[dRow + x] = (byte) value;
-            }
+    /** True when every animation-frame origin samples the same immutable channel as atlas initialization. */
+    static boolean isFrameInvariant(byte[] table, int tableW, int tableH, int frameW, int frameH) {
+        if (tableW < 1 || tableH < 1 || frameW < 1 || frameH < 1
+                || (long) tableW * tableH != table.length) throw new IllegalArgumentException("Invalid animation table");
+        int periodX = gcd(tableW, frameW), periodY = gcd(tableH, frameH);
+        if (periodX == tableW && periodY == tableH) return true;
+        for (int y = 0; y < tableH; y++) for (int x = 0; x < tableW; x++) {
+            if (table[y * tableW + x] != table[(y % periodY) * tableW + x % periodX]) return false;
         }
+        return true;
     }
 
-    public static void buildSssPatch(
-            byte[] dst, int dstRowPitch,
-            byte[] sssTable, int tableW, int tableH,
-            int valueX, int valueY,
-            int nextValueX, int nextValueY,
-            float nextValueBlend,
-            int w, int h) {
-        float nextBlend = Math.max(0.0f, Math.min(1.0f, nextValueBlend));
-        float currentBlend = 1.0f - nextBlend;
-        for (int y = 0; y < h; y++) {
-            int dRow = y * dstRowPitch;
-            int row = wrapNonNegative(valueY + y, tableH) * tableW;
-            int nextRow = wrapNonNegative(nextValueY + y, tableH) * tableW;
-            for (int x = 0; x < w; x++) {
-                int value = sssTable[row + wrapNonNegative(valueX + x, tableW)] & 0xFF;
-                if (nextBlend > 0.0f) {
-                    int nextValue = sssTable[nextRow + wrapNonNegative(nextValueX + x, tableW)] & 0xFF;
-                    value = Math.round(value * currentBlend + nextValue * nextBlend);
-                }
-                int di = dRow + x * 4;
-                byte packed = (byte) value;
-                dst[di] = packed;
-                dst[di + 1] = packed;
-                dst[di + 2] = packed;
-                dst[di + 3] = (byte) 255;
-            }
-        }
+    private static int gcd(int a, int b) {
+        while (b != 0) { int remainder = a % b; a = b; b = remainder; }
+        return a;
     }
 
     // --- Resource loading ---
@@ -517,7 +314,7 @@ public final class LabPBRConverter {
     }
 
     public static VariantCache buildVariantCache(ResourceManager rm) {
-        return new VariantCache(rm.findResources("textures", LabPBRConverter::isVariantResource));
+        return new VariantCache(rm.listResources("textures", LabPBRConverter::isVariantResource));
     }
 
     private static boolean isVariantResource(Identifier id) {
@@ -527,7 +324,7 @@ public final class LabPBRConverter {
 
     private static NativeImage loadResource(Resource resource) {
         if (resource == null) return null;
-        try (InputStream stream = resource.getInputStream()) {
+        try (InputStream stream = resource.open()) {
             return NativeImage.read(stream);
         } catch (IOException | RuntimeException e) {
             return null;
@@ -535,7 +332,7 @@ public final class LabPBRConverter {
     }
 
     private static Identifier variantId(Identifier spriteId, String suffix) {
-        return Identifier.of(spriteId.getNamespace(), "textures/" + spriteId.getPath() + suffix + ".png");
+        return Identifier.fromNamespaceAndPath(spriteId.getNamespace(), "textures/" + spriteId.getPath() + suffix + ".png");
     }
 
     /**
@@ -544,7 +341,7 @@ public final class LabPBRConverter {
     public static boolean hasSSSData(NativeImage s) {
         for (int y = 0; y < s.getHeight(); y++)
             for (int x = 0; x < s.getWidth(); x++)
-                if (((s.getColor(x, y) >> 16) & 0xFF) >= 65) return true;
+                if (((NativeImagePixels.abgr(s, x, y) >> 16) & 0xFF) >= 65) return true;
         return false;
     }
 
@@ -555,7 +352,7 @@ public final class LabPBRConverter {
     public static boolean hasEmissiveData(NativeImage s) {
         for (int y = 0; y < s.getHeight(); y++)
             for (int x = 0; x < s.getWidth(); x++)
-                if (((s.getColor(x, y) >> 24) & 0xFF) < 255) return true;
+                if (((NativeImagePixels.abgr(s, x, y) >> 24) & 0xFF) < 255) return true;
         return false;
     }
 
@@ -565,14 +362,11 @@ public final class LabPBRConverter {
                                int ox, int oy, int w, int h, int shift) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = img.getColor(x % img.getWidth(), y % img.getHeight());
+                int abgr = NativeImagePixels.abgr(img, x % img.getWidth(), y % img.getHeight());
                 dst[(oy + y) * atlasW + (ox + x)] = (byte) ((abgr >> shift) & 0xFF);
             }
     }
 
     private static int clamp255(int v) { return Math.max(0, Math.min(255, v)); }
 
-    private static int wrapNonNegative(int value, int size) {
-        return value % size;
-    }
 }

@@ -940,8 +940,10 @@ DASHBOARD_HTML = r"""<!doctype html>
         return `${index + 1}. ${gpu.Name || "unknown"} (${marker}) driver ${gpu.DriverVersion || "-"}${ramMib ? `, ${ramMib} MiB` : ""}`;
       });
       const lines = [
-        benchmark.gpu ? `benchmark GL_RENDERER: ${benchmark.gpu}` : "",
-        benchmark.gpuVendor ? `benchmark GL_VENDOR: ${benchmark.gpuVendor}` : "",
+        benchmark.gpu ? `benchmark device: ${benchmark.gpu}` : "",
+        benchmark.gpuVendor ? `benchmark vendor: ${benchmark.gpuVendor}` : "",
+        benchmark.graphicsBackend ? `backend: ${benchmark.graphicsBackend}` : "",
+        benchmark.graphicsDriver ? `graphics driver: ${benchmark.graphicsDriver}` : "",
         benchmark.glVersion ? `GL_VERSION: ${benchmark.glVersion}` : "",
         selected.selectionReason ? `selection: ${selected.selectionReason}` : "",
         adapters.length ? `adapters: ${adapters.join(" | ")}` : "",

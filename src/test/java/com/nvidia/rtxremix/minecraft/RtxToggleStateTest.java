@@ -62,6 +62,20 @@ class RtxToggleStateTest {
     }
 
     @Test
+    void enablingWithoutANativeRendererKeepsVanillaSectionBuildsEnabled() throws Exception {
+        RemixRenderer previousRenderer = RtxRemixMod.renderer;
+        try {
+            RtxRemixMod.renderer = null;
+            setFlag("rtxEnabled", false);
+            RtxRemixMod.setRtxEnabled(true);
+            assertFalse(RtxRemixMod.isRtxEnabled());
+            assertFalse(RtxRemixMod.isRemixWorldRendering());
+        } finally {
+            RtxRemixMod.renderer = previousRenderer;
+        }
+    }
+
+    @Test
     void settingSkyEnabledKeepsBothGatesInSync() {
         RtxRemixMod.setSkyEnabled(false);
         assertFalse(RtxRemixMod.isSkyEnabled());

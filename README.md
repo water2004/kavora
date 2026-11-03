@@ -1,16 +1,22 @@
 # RTX Remix for Minecraft
 
-Play Minecraft Java Edition 1.21.1 with real-time path tracing on a GeForce RTX
-GPU, powered by NVIDIA RTX Remix.
+This branch ports the Fabric renderer to Minecraft Java Edition 26.3, using
+Vulkan exclusively for the game renderer and Remix interoperation.
+It uses Java 25 and the source-built RTX Remix runtime from
+`water2004/dxvk-remix`, with its custom 1.5.0 C API.
+
+**Integration is still pending.** Compilation and unit tests do not establish
+that a playable client, presentation, or every captured scene works.
+Build from source and verify the matching runtime before treating an artifact
+as a release. Upstream Minecraft 1.21.1 installers, JARs, and published 0.x
+Remix SDK packages are incompatible with this branch.
 
 ## What To Expect
 
-This is a beta. It was built as a technology showcase, but we love Minecraft
-and want it to succeed as a rendering mod. We tuned it against one showcase
+The upstream mod was built as a technology showcase and tuned against one showcase
 world, built for this project by [BlockWorks](https://www.blockworks.uk/) (see
 [Showcase World And Art Pack](#showcase-world-and-art-pack)), and the places
-that world visits are where it looks and runs best. We have worked hard to fix
-as many issues as we could, but it ships with
+that world visits received the most testing. The upstream project has
 [known issues](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft/issues),
 and there are certainly bugs yet to be discovered.
 
@@ -21,9 +27,15 @@ Three areas have had less attention than the rest:
   conflict with anything that changes rendering or the chunk pipeline.
 - **A full playthrough.** Blocks, mobs, dimensions, and situations the showcase
   never reaches have had less care, and some will look wrong or run slowly.
-- **Other versions.** It targets Minecraft 1.21.1 only, chosen because that is
-  where the modding community is today. Ports to newer versions are something
-  we hope the community takes on.
+- **The 26.3 port.** The rendering and native interfaces changed substantially.
+  The feature descriptions below describe the behavior being preserved;
+  validate it on this branch before relying on it.
+
+Sodium 0.9.2 is required for terrain rendering and the shared video settings UI.
+Sodium and Fabric API remain separate JARs. Voxy is unsupported. Far-terrain
+rendering is an optional [Remix Horizons extension](docs/FAR_TERRAIN.md), built
+separately from this renderer.
+Other mod versions and combinations need their own integration tests.
 
 We hope the community helps fill it out. If something breaks,
 [report it](docs/PLAYING.md#reporting-a-bug); if you can fix it, see
@@ -31,28 +43,35 @@ We hope the community helps fill it out. If something breaks,
 
 ## Download
 
-Download the release archive from the
-[Releases page](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft/releases/latest).
+Build the Windows x64 mod JAR with `gradlew.bat package -Parch=win64`,
+after staging the source runtime. The JAR in `build/distributions/` includes
+the matching native runtime. Install Sodium 0.9.2 and Fabric API separately.
+See [Getting Started](docs/GETTING_STARTED.md) to build from source.
+The upstream releases target a different Minecraft version and native API.
 
-## Install in three steps
+## Source installation
 
-1. Extract the release archive.
-2. Double-click `install.bat` and follow the menu.
-3. Launch the **NVIDIA RTX Remix for Minecraft** profile from your launcher.
+1. Build and stage the matching Vulkan runtime from source.
+2. Build the mod and its separate Windows crash-support library with Java 25.
+3. Validate a development client using Gradle `runClient` or the Prism workflow.
 
-The step-by-step version, with launcher advice and troubleshooting, is in
-[Playing](docs/PLAYING.md).
+See [Getting Started](docs/GETTING_STARTED.md). The existing player and installer
+guides describe upstream behavior and are not evidence of port release readiness.
 
 ## Requirements
 
-- Windows 10 or 11, x64 or ARM64.
-- Minecraft Java Edition 1.21.1, on a Microsoft account that owns the game.
-- A GeForce RTX 30-series or newer GPU with NVIDIA driver 616.92 or newer.
-- About 5 GB of free disk space while installing; about 3 GB stays in use.
-- An internet connection while the installer runs.
+- Windows 10 or 11, x64. ARM64 is outside the current integration work.
+- Minecraft Java Edition 26.3, with Java 25 and matching Fabric dependencies.
+- An RTX-capable NVIDIA GPU and a driver supporting the selected 26.3 renderer
+  and the exact runtime build being tested.
+- Visual Studio C++ tools and the matching runtime fork's build dependencies.
+- A source-built runtime and validated provenance for each selected architecture.
+- Network access for development dependencies and runtime textures.
 - 16 GB of system memory is recommended.
 
-Java 21, Fabric, and the RTX Remix runtime are installed for you.
+Java calls the Remix C API through the Foreign Function and Memory API.
+`rtxremix-support.dll` provides Windows crash and process support separately.
+The JVM needs `--enable-native-access=ALL-UNNAMED`.
 
 Building and running from source has its own
 [prerequisites](docs/GETTING_STARTED.md#prerequisites), including Prism
@@ -68,6 +87,9 @@ Graphics Settings menu changes them at any time.
 what is sent.
 
 ## What it does
+
+These are the upstream feature goals being preserved by the port. They still
+require visual and native integration checks on Minecraft 26.3.
 
 **Every block, mob, and item is lit by a path tracer.** Light bounces off walls,
 through glass, and out of torches the way it does in a film renderer, so shadows,
@@ -86,8 +108,8 @@ standing in it.
 or for an exact before-and-after comparison.
 
 **A settings screen in the game.** Distances, framerate, sky, lighting,
-exposure, and materials, all in Options, with no config files to edit, and a
-button into Remix's own Graphics Settings for the quality tier.
+exposure, materials, DLSS, and advanced runtime controls in Sodium's RTX Remix
+pages, with Apply and Undo and no config files to edit.
 
 ## Showcase World And Art Pack
 
@@ -134,9 +156,9 @@ into the world with the pack on.
 | Path | Purpose |
 |---|---|
 | `src/` | Mod implementation and JVM tests |
-| `rtxremix-java/` | Minecraft-agnostic Java facade and JNI bridge over the RTX Remix C API |
+| `rtxremix-java/` | Minecraft-agnostic Java facade, Java 25 FFM bindings, and Windows crash-support source |
 | `tools/` | Developer launcher, benchmarks, profiling, SDK staging, and development installation |
-| `packman/` | Packman bootstrap and runtime package pins |
+| `packman/` | Runtime-texture fetching and historical SDK manifests; the Vulkan runtime requires source staging |
 | `packaging/` | Public installer, runtime defaults, and distribution payload |
 | `docs/` | Player, authoring, and source-build guides |
 

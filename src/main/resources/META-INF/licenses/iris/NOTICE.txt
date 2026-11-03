@@ -1,0 +1,24 @@
+Iris shader settings UI
+Copyright Iris contributors.
+License: GNU Lesser General Public License version 3 only (LGPL-3.0-only).
+
+Source: https://github.com/IrisShaders/Iris
+Revision: bff1e69cb6c5519d8745784aa9c8b92984de67e7
+
+Adapted components:
+- GuiUtil.drawButton: IrisWidgets drawing helper.
+- BaseOptionElementWidget and SliderElementWidget: ShaderOptionWidget presentation.
+- LinkElementWidget: ShaderMenuButton presentation.
+- ShaderPackOptionList and ShaderPackScreen: RtxSettingsScreen layout and navigation.
+- assets/iris/textures/gui/widgets.png: unchanged widget texture.
+
+Modifications: Java packages and game resource namespace; Minecraft 26.3
+render extraction without OpenGL state calls; Remix setting models and pending
+transactions; exact numeric entry; responsive layout and keyboard navigation.
+Adapted Java source remains under LGPL-3.0-only. Other independently authored
+files retain their own SPDX license identifiers.
+
+Corresponding source is included in this project's sources JAR and repository:
+https://github.com/water2004/rtx-remix-minecraft
+The adapted UI may be modified and rebuilt independently using the documented
+Gradle build. There is no signature restriction on replacement mod JARs.

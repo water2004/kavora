@@ -15,9 +15,11 @@ package com.nvidia.rtxremix.minecraft.logic;
 public final class LogicChannels {
     public static final String UNDERWATER = "mc.underwater";
     public static final String VIEW_DISTANCE = "mc.view_distance";
+    public static final String VIEW_DISTANCE_FAR = "mc.view_distance.far";
     public static final String VOLUMETRICS_SETTLING = "mc.volumetrics.settling";
     public static final String WEATHER_RAIN = "mc.weather.rain";
     public static final String WEATHER_THUNDER = "mc.weather.thunder";
+    public static final String WEATHER_MIST = "mc.weather.mist";
     public static final String ZONE_PREFIX = "mc.zone.";
     public static final String BIOME_PREFIX = "mc.biome.";
     public static final String TIME_PREFIX = "mc.time.";

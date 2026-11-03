@@ -6,6 +6,21 @@ locations given.
 
 ## Vendored source code
 
+### Iris shader settings interface
+
+- Adapted sources: `RtxSettingsScreen.java`, `ShaderMenuButton.java`,
+  `ShaderOptionWidget.java`, and `settings/iris/IrisWidgets.java`.
+- Unchanged asset: `assets/rtx-remix-renderer/textures/gui/iris_widgets.png`.
+- Copyright Iris contributors; adaptation notices appear in each source file.
+- License: LGPL-3.0-only. The corresponding LGPL and GPL license texts and
+  the source revision and modification notice ship in every JAR under
+  `META-INF/licenses/iris/`.
+- Source: https://github.com/IrisShaders/Iris, revision
+  `bff1e69cb6c5519d8745784aa9c8b92984de67e7`.
+- Modified sources are included in this project's sources JAR and repository.
+  These GUI files retain their LGPL license; other files retain their own
+  SPDX identifiers. Iris's renderer and shader loader are not embedded.
+
 ### Gradle wrapper
 
 - Files: `gradlew.bat`, `gradle/wrapper/`

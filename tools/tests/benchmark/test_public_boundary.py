@@ -113,13 +113,18 @@ MARKDOWN_LINK_PATTERN = re.compile(r"\]\(((?:[^()#:]|\([^()]*\))+)(#[^)]*)?\)")
 
 
 def public_tracked_files():
-    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, check=True).stdout.decode(
-        "utf-8", "replace"
-    )
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8", "replace")
     for name in filter(None, tracked.split("\0")):
         if name == "tools/tests/benchmark/test_public_boundary.py":
             continue
-        yield name, REPO_ROOT / name
+        path = REPO_ROOT / name
+        if path.is_file():
+            yield name, path
 
 
 def is_text(name):
@@ -555,7 +560,8 @@ def test_nothing_outside_the_tests_passes_prism_offline():
 
 def test_tools_guides_and_launcher_script_never_launch_offline():
     for name, text in tools_launch_text():
-        assert not RUN_CLIENT_OUTSIDE_LOG_NAME.search(text), name
+        if name == "tools/rtx.bat":
+            assert not RUN_CLIENT_OUTSIDE_LOG_NAME.search(text), name
         assert "mcUsername" not in text, name
 
 

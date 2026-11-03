@@ -18,6 +18,8 @@ public class MaterialInfo {
     public long normalTexture;
     public long tangentTexture;
     public long emissiveTexture;
+    /** Optional opaque-material R8 mask: zero neutralizes vertex RGB; one keeps it. */
+    public long vertexColorMaskTexture;
     public float emissiveIntensity = 0.0f;
     public Float3D emissiveColorConstant = new Float3D(0, 0, 0);
     public byte spriteSheetRow = 1;
@@ -42,6 +44,7 @@ public class MaterialInfo {
         private long normalTexture;
         private long tangentTexture;
         private long emissiveTexture;
+        private long vertexColorMaskTexture;
         private float emissiveIntensity = 0.0f;
         private Float3D emissiveColorConstant = new Float3D(0, 0, 0);
         private byte filterMode = 1;
@@ -67,10 +70,13 @@ public class MaterialInfo {
             return this;
         }
 
-        /**
-         * Sets the normal texture handle.
-         * @param textureHandle Handle from createTextureFromMemory or createTextureFromFile
-         */
+        /** Sets the optional opaque-material R8 vertex RGB mask. */
+        public Builder vertexColorMaskTexture(long textureHandle) {
+            this.vertexColorMaskTexture = textureHandle;
+            return this;
+        }
+
+        /** Sets the normal texture handle returned by createTexture*. */
         public Builder normalTexture(long textureHandle) {
             this.normalTexture = textureHandle;
             return this;
@@ -151,6 +157,7 @@ public class MaterialInfo {
             info.normalTexture = this.normalTexture;
             info.tangentTexture = this.tangentTexture;
             info.emissiveTexture = this.emissiveTexture;
+            info.vertexColorMaskTexture = this.vertexColorMaskTexture;
             info.emissiveIntensity = this.emissiveIntensity;
             info.emissiveColorConstant = this.emissiveColorConstant;
             info.filterMode = this.filterMode;

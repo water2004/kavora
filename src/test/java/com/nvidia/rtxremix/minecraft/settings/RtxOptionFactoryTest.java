@@ -4,74 +4,35 @@
  */
 package com.nvidia.rtxremix.minecraft.settings;
 
-import net.minecraft.client.option.SimpleOption;
-import net.minecraft.text.TranslatableTextContent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
-import java.lang.reflect.Field;
 import java.util.List;
-import java.util.regex.Pattern;
+import net.minecraft.network.chat.contents.TranslatableContents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+
 
 class RtxOptionFactoryTest {
 
     private static final String LABEL_KEY = "rtxremix.test.label";
-
-    private static RtxSetting<?> settingOf(RtxSetting.Kind kind) {
-        return switch (kind) {
-            case BOOL -> RtxSetting.ofBool("t.bool", SettingGroup.RENDER_DISTANCE, LABEL_KEY, "k.tip",
-                    false, () -> false, v -> { });
-            case INT -> RtxSetting.ofInt("t.int", SettingGroup.RENDER_DISTANCE, LABEL_KEY, "k.tip",
-                    0, 10, 5, () -> 5, v -> { });
-            case FLOAT -> RtxSetting.ofFloat("t.float", SettingGroup.RENDER_DISTANCE, LABEL_KEY, "k.tip",
-                    0.0, 1.0, 0.5, () -> 0.5, v -> { });
-        };
-    }
 
     private static RtxSetting<Integer> intSetting(String id, int min, int max) {
         return RtxSetting.ofInt(id, SettingGroup.RENDER_DISTANCE, LABEL_KEY, "k.tip",
                 min, max, min, () -> min, v -> { });
     }
 
-    private static SimpleOption<?> toOption(RtxSetting<?> setting) {
-        return RtxOptionFactory.toOption(setting);
-    }
-
-    @Test
-    void everySettingKindShowsItsLabelOnce() {
-        // Buttons compose "<label>: <value>" themselves, while sliders show
-        // their value text as is, so the same value text doubles the label on
-        // one and drops it from the other. The built widget's message is what
-        // the screen shows, whichever way a kind renders.
-        for (RtxSetting.Kind kind : RtxSetting.Kind.values()) {
-            // GameOptions is only written when a widget's value changes.
-            String message = toOption(settingOf(kind))
-                    .createWidget(null).getMessage().getString();
-
-            assertEquals(1, occurrences(message, LABEL_KEY), kind + " shows \"" + message + "\"");
-        }
-    }
-
-    private static int occurrences(String text, String part) {
-        return text.split(Pattern.quote(part), -1).length - 1;
-    }
-
     @Test
     void proceduralCloudToggleUsesCloudStyleNames() {
         assertEquals(
                 "rtxremix.settings.value.procedural",
-                ((TranslatableTextContent) RtxOptionFactory.booleanValueText(
-                        RtxOptionFactory.PROCEDURAL_CLOUDS_ID, true).getContent()).getKey());
+                ((TranslatableContents) RtxOptionFactory.booleanValueText(
+                        RtxOptionFactory.PROCEDURAL_CLOUDS_ID, true).getContents()).getKey());
         assertEquals(
                 "rtxremix.settings.value.classic",
-                ((TranslatableTextContent) RtxOptionFactory.booleanValueText(
-                        RtxOptionFactory.PROCEDURAL_CLOUDS_ID, false).getContent()).getKey());
+                ((TranslatableContents) RtxOptionFactory.booleanValueText(
+                        RtxOptionFactory.PROCEDURAL_CLOUDS_ID, false).getContents()).getKey());
     }
 
     @Test
@@ -103,10 +64,10 @@ class RtxOptionFactoryTest {
         assertEquals(26, RtxOptionFactory.sliderValueFromInt(framerate, 260));
 
         assertEquals("options.framerateLimit.max",
-                ((TranslatableTextContent) RtxOptionFactory.intValueText(id, 260)
-                        .getContent()).getKey());
-        TranslatableTextContent capped = (TranslatableTextContent)
-                RtxOptionFactory.intValueText(id, 120).getContent();
+                ((TranslatableContents) RtxOptionFactory.intValueText(id, 260)
+                        .getContents()).getKey());
+        TranslatableContents capped = (TranslatableContents)
+                RtxOptionFactory.intValueText(id, 120).getContents();
         assertEquals("options.framerate", capped.getKey());
         assertEquals(120, capped.getArgs()[0]);
     }
@@ -118,41 +79,6 @@ class RtxOptionFactoryTest {
         assertEquals(128, RtxOptionFactory.intValueFromSlider(ordinary, 128));
         assertEquals(0, RtxOptionFactory.sliderValueFromInt(ordinary, 0));
         assertEquals(128, RtxOptionFactory.sliderValueFromInt(ordinary, 128));
-    }
-
-    @Test
-    void factoryPreservesDeferredApplyForIntegerAndFloatSliders() {
-        RtxSetting<Integer> integerSetting =
-                RtxSetting.ofInt("t.int", SettingGroup.RENDER_DISTANCE, "k", "k.tip",
-                        0, 10, 5, () -> 5, value -> { })
-                        .deferSliderApply();
-        RtxSetting<Double> floatSetting =
-                RtxSetting.ofFloat("t.float", SettingGroup.RENDER_DISTANCE, "k", "k.tip",
-                        0.0, 1.0, 0.5, () -> 0.5, value -> { })
-                        .deferSliderApply();
-
-        assertFalse(sliderCallbacks(toOption(integerSetting))
-                .applyValueImmediately());
-        assertFalse(sliderCallbacks(toOption(floatSetting))
-                .applyValueImmediately());
-    }
-
-    @Test
-    void immediateSliderPolicyPreservesTheOriginalCallbacks() {
-        var callbacks = SimpleOption.DoubleSliderCallbacks.INSTANCE;
-
-        assertTrue(callbacks.applyValueImmediately());
-        assertSame(callbacks, RtxOptionFactory.sliderApplyPolicy(callbacks, true));
-    }
-
-    private static SimpleOption.SliderCallbacks<?> sliderCallbacks(SimpleOption<?> option) {
-        try {
-            Field callbacksField = SimpleOption.class.getDeclaredField("callbacks");
-            callbacksField.setAccessible(true);
-            return (SimpleOption.SliderCallbacks<?>) callbacksField.get(option);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError("Could not inspect SimpleOption callbacks", e);
-        }
     }
 
     @ParameterizedTest
@@ -193,7 +119,7 @@ class RtxOptionFactoryTest {
     void zeroRendersAsAutoForBothDistanceSliders() {
         for (String id : List.of("dist.entity", "dist.light")) {
             assertEquals("rtxremix.settings.value.auto",
-                    ((TranslatableTextContent) RtxOptionFactory.intValueText(id, 0).getContent()).getKey(), id);
+                    ((TranslatableContents) RtxOptionFactory.intValueText(id, 0).getContents()).getKey(), id);
         }
         assertEquals("7", RtxOptionFactory.intValueText("dist.entity", 7).getString());
         assertEquals("0", RtxOptionFactory.intValueText("light.reach", 0).getString(),

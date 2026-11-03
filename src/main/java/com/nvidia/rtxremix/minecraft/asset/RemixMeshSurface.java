@@ -135,10 +135,12 @@ public class RemixMeshSurface {
         MeshInfoSurfaceTriangles surf = new MeshInfoSurfaceTriangles();
 
         if (structuredVertices != null) {
-            int stride = HardcodedVertex.STRIDE;
+            boolean compact = (flags & MeshInfoSurfaceTriangles.COMPACT_VERTICES) != 0;
+            int stride = compact ? HardcodedVertex.STORAGE_STRIDE : HardcodedVertex.STRIDE;
             ByteBuffer vBuf = DirectBufferPool.acquire(structuredVertexCount * stride);
             for (int i = 0; i < structuredVertexCount; i++) {
-                structuredVertices[i].writeTo(vBuf);
+                if (compact) structuredVertices[i].writeCompactTo(vBuf);
+                else structuredVertices[i].writeTo(vBuf);
             }
             vBuf.flip();
             surf.vertexBuffer = vBuf;
@@ -179,8 +181,8 @@ public class RemixMeshSurface {
 
     long estimatedNativeBytes() {
         long bytes = structuredVertices != null
-                ? (long) structuredVertexCount * HardcodedVertex.STRIDE
-                : (long) vertexCount * HardcodedVertex.STRIDE;
+                ? (long) structuredVertexCount * HardcodedVertex.STORAGE_STRIDE
+                : (long) vertexCount * HardcodedVertex.STORAGE_STRIDE;
         bytes += structuredIndices != null
                 ? (long) structuredIndexCount * Integer.BYTES
                 : (long) indexCount * Integer.BYTES;

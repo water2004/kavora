@@ -1,53 +1,46 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.rtxremix.minecraft.mixin;
 
-import com.nvidia.rtxremix.minecraft.entity.EntityRenderContext;
-import com.nvidia.rtxremix.minecraft.entity.RemixVertexConsumerProvider;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.entity.EntityRenderDispatcher;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.Entity;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.nvidia.rtxremix.minecraft.RemixRenderer;
+import com.nvidia.rtxremix.minecraft.RtxRemixMod;
+import com.nvidia.rtxremix.minecraft.entity.RemixRenderStateOwner;
+import com.nvidia.rtxremix.minecraft.entity.RemixSubmitNodeCollector;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-/**
- * Brackets each entity render with a capture boundary on the thread-local
- * {@link EntityRenderContext}.
- *
- * <p>{@code EntityRenderDispatcher.render()} opens the boundary at HEAD with the
- * remix-pass flag and closes it at RETURN. Nesting is the context's concern: an
- * entity rendered from inside another render appends to the enclosing capture
- * instead of starting its own.
- */
 @Mixin(EntityRenderDispatcher.class)
 public abstract class EntityRenderDispatcherMixin {
-
-    @Inject(
-        method = "render(Lnet/minecraft/entity/Entity;DDDFFLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
-        at = @At("HEAD")
-    )
-    private <E extends Entity> void rtxremix$onRenderStart(
-            E entity, double x, double y, double z,
-            float yaw, float tickDelta,
-            MatrixStack matrices, VertexConsumerProvider vertexConsumers,
-            int light, CallbackInfo ci) {
-        EntityRenderContext.get().begin(vertexConsumers instanceof RemixVertexConsumerProvider);
+    @Inject(method = "extractEntity", at = @At("RETURN"))
+    private void rtxremix$retainOwner(Entity entity, float partialTick,
+                                     CallbackInfoReturnable<EntityRenderState> cir) {
+        ((RemixRenderStateOwner) cir.getReturnValue()).rtxremix$setOwner(entity, partialTick);
     }
 
-    @Inject(
-        method = "render(Lnet/minecraft/entity/Entity;DDDFFLnet/minecraft/client/util/math/MatrixStack;Lnet/minecraft/client/render/VertexConsumerProvider;I)V",
-        at = @At("RETURN")
-    )
-    private <E extends Entity> void rtxremix$onRenderEnd(
-            E entity, double x, double y, double z,
-            float yaw, float tickDelta,
-            MatrixStack matrices, VertexConsumerProvider vertexConsumers,
-            int light, CallbackInfo ci) {
-        EntityRenderContext.get().end();
+    @WrapMethod(method = "submit")
+    private void rtxremix$capture(EntityRenderState state, CameraRenderState camera,
+            double x, double y, double z, PoseStack matrices, SubmitNodeCollector collector,
+            Operation<Void> original) {
+        if (!(collector instanceof RemixSubmitNodeCollector)) {
+            RemixRenderStateOwner metadata = (RemixRenderStateOwner) state;
+            RtxRemixMod mod = RtxRemixMod.getInstance();
+            RemixRenderer renderer = mod == null ? null : mod.getRenderer();
+            if (renderer != null && metadata.rtxremix$owner() instanceof Entity entity
+                    && renderer.renderEntityInPlace(entity, state,
+                            (EntityRenderDispatcher) (Object) this, metadata.rtxremix$partialTick())) return;
+        }
+        original.call(state, camera, x, y, z, matrices, collector);
     }
 }

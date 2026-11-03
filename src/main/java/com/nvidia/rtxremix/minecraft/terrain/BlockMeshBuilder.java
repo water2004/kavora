@@ -31,7 +31,7 @@ import java.util.function.Function;
  */
 public final class BlockMeshBuilder {
 
-    private static final int STRIDE = HardcodedVertex.STRIDE; // 64
+    private static final int STRIDE = HardcodedVertex.STORAGE_STRIDE;
     private static final int VERTS_PER_QUAD = 4;
     private static final int INDICES_PER_QUAD = 6;
     private static final int BYTES_PER_CANONICAL_QUAD =
@@ -317,14 +317,9 @@ public final class BlockMeshBuilder {
                     int localFirstQuad = overlapStart - sourceStart;
                     int copyQuads = overlapEnd - overlapStart;
                     int copyVerts = copyQuads * VERTS_PER_QUAD;
-                    int sourceByte = localFirstQuad * VERTS_PER_QUAD * STRIDE;
-                    int copyBytes = copyVerts * STRIDE;
-
                     ByteBuffer src = source.vertexBuffer().duplicate().order(ByteOrder.LITTLE_ENDIAN);
-                    src.position(sourceByte).limit(sourceByte + copyBytes);
-                    vm.position(outputVerts * STRIDE);
-                    vm.put(src);
-                    addVertexOffset(vm, outputVerts, copyVerts,
+                    copySectionVertices(vm, outputVerts, src,
+                            localFirstQuad * VERTS_PER_QUAD, copyVerts,
                             ref.xOff(), ref.yOff(), ref.zOff());
                     outputVerts += copyVerts;
                 }
@@ -339,7 +334,7 @@ public final class BlockMeshBuilder {
             RemixMeshSurface surface = new RemixMeshSurface(material)
                     .setVertexData(vm, totalVerts)
                     .setIndexData(im, totalIdx)
-                    .setFlags(MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS);
+                    .setFlags(MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS | MeshInfoSurfaceTriangles.COMPACT_VERTICES);
             transferred = true;
             return surface;
         } finally {
@@ -393,16 +388,17 @@ public final class BlockMeshBuilder {
     }
 
 
-    private static void addVertexOffset(ByteBuffer vertices, int vertBase, int vertexCount,
-                                        int xOff, int yOff, int zOff) {
-        if (xOff == 0 && yOff == 0 && zOff == 0) return;
-        int baseByte = vertBase * STRIDE;
+    private static void copySectionVertices(ByteBuffer destination, int destinationBase,
+            ByteBuffer source, int sourceBase, int vertexCount, int xOff, int yOff, int zOff) {
+        destination.put(destinationBase * STRIDE, source, sourceBase * STRIDE, vertexCount * STRIDE);
         for (int v = 0; v < vertexCount; v++) {
-            int pos = baseByte + v * STRIDE;
-            vertices.putFloat(pos, vertices.getFloat(pos) + xOff);
-            vertices.putFloat(pos + 4, vertices.getFloat(pos + 4) + yOff);
-            vertices.putFloat(pos + 8, vertices.getFloat(pos + 8) + zOff);
+            int src = (sourceBase + v) * SectionMeshData.VERTEX_STRIDE;
+            int dst = (destinationBase + v) * STRIDE;
+            destination.putFloat(dst, source.getFloat(src) + xOff);
+            destination.putFloat(dst + 4, source.getFloat(src + 4) + yOff);
+            destination.putFloat(dst + 8, source.getFloat(src + 8) + zOff);
         }
+        destination.position((destinationBase + vertexCount) * STRIDE);
     }
 
     private static int canonicalIndexCount(int vertexCount) {

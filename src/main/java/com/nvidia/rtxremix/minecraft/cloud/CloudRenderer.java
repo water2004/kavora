@@ -13,6 +13,7 @@ import com.nvidia.rtxremix.minecraft.asset.RemixMaterialStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixMaterial;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
 import java.nio.ByteBuffer;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.nvidia.rtxremix.HardcodedVertex;
 import com.nvidia.rtxremix.InstanceCategoryBit;
 import com.nvidia.rtxremix.MaterialInfo;
@@ -20,44 +21,24 @@ import com.nvidia.rtxremix.MaterialInfoOpaqueEXT;
 import com.nvidia.rtxremix.MaterialInfoOpaqueSubsurfaceEXT;
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.Transform;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.CloudRenderMode;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import net.minecraft.client.CloudStatus;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.phys.Vec3;
 
-/**
- * Renders either deterministic Perlin-Worley clouds or the voxelized vanilla
- * cloud texture, as one Remix material shared by all clouds and one submitted
- * transform per visible cloud or texture chunk each frame.
- *
- * <p>Ownership: only the render thread creates or destroys Remix assets here.
- * Mesh generation runs on worker tasks that return plain vertex data, and every
- * worker result carries the generation epoch it was started under, so a result
- * that lands after a world change, a settings change or a teardown is dropped
- * instead of publishing a mesh into the wrong scene.
- */
+/** Owns classic cloud meshes and publishes the host state for native volumetric clouds. */
 public final class CloudRenderer {
-    private static final Identifier VANILLA_CLOUD_TEXTURE =
-            Identifier.ofVanilla("textures/environment/clouds.png");
-    static final int PALETTE_SIZE = 32;
-    static final long PALETTE_SEED = 0x434C_4F55_4450_5546L;
-    private static final long MAINTENANCE_INTERVAL_TICKS = 40L;
-    private static final double CURVATURE_RADIUS = 8000.0;
+    private static final Identifier VANILLA_CLOUD_TEXTURE = Identifier.withDefaultNamespace("textures/environment/clouds.png");
     private static final float DEFAULT_VANILLA_EDGE_SMOOTHNESS = 1.5f;
     private static final float VANILLA_BASE_THICKNESS = 4.0f;
-    /** Vanilla's small offset above the nominal cloud height, which avoids z-fighting with block tops. */
     private static final float VANILLA_LAYER_LIFT = 0.33f;
     private static final float DEFAULT_CLOUD_SIZE = 1.0f;
     private static final float DEFAULT_CLOUDS_HEIGHT = 0.0f;
@@ -66,22 +47,17 @@ public final class CloudRenderer {
     private static final double VANILLA_COLOR_INFLUENCE = 0.2;
     private static final float SSS_RADIUS_SCALE = 5000.0f;
     private static final float SSS_MAX_SAMPLE_RADIUS = 1.0f;
-
     private final RemixRenderer renderer;
     private final MeshCreator meshCreator;
-    private final PaletteEntry[] palette = new PaletteEntry[PALETTE_SIZE];
-    private final Map<Long, ActiveCloud> clouds = new HashMap<>();
-    private final Set<Long> visibleKeys = new HashSet<>();
+    private final VolumetricCloudState volumetricState;
     private final Map<Long, PaletteEntry> vanillaChunks = new HashMap<>();
     private final Set<Long> emptyVanillaChunks = new HashSet<>();
     private final Set<Long> pendingVanillaChunks = new HashSet<>();
-    private final ConcurrentLinkedQueue<PaletteGenerationResult> completedPaletteMeshes =
-            new ConcurrentLinkedQueue<>();
-    private final ConcurrentLinkedQueue<VanillaChunkResult> completedVanillaChunks =
-            new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<VanillaChunkResult> completedVanillaChunks = new ConcurrentLinkedQueue<>();
     private final Transform vanillaTransform = new Transform();
-
-    private ClientWorld currentWorld;
+    private final com.nvidia.rtxremix.minecraft.sky.EnvironmentSnapshot environment =
+            new com.nvidia.rtxremix.minecraft.sky.EnvironmentSnapshot();
+    private ClientLevel currentWorld;
     private RemixMaterial material;
     private int cloudColor = 0x00ff_ffff;
     private int materialColor = -1;
@@ -89,19 +65,11 @@ public final class CloudRenderer {
     private int vanillaTextureWidth;
     private int vanillaTextureHeight;
     private RuntimeException vanillaFailure;
-    private RuntimeException paletteFailure;
-    private volatile long paletteGenerationEpoch;
-    private boolean paletteGenerationScheduled;
-    private CompletableFuture<?> paletteGenerationTask;
     private long vanillaGenerationEpoch;
     private boolean proceduralClouds;
     private float vanillaEdgeSmoothness = DEFAULT_VANILLA_EDGE_SMOOTHNESS;
     private float cloudSize = DEFAULT_CLOUD_SIZE;
     private float cloudsHeight = DEFAULT_CLOUDS_HEIGHT;
-    private long lastMaintenanceBucket = Long.MIN_VALUE;
-    private double lastVisibilityCameraX = Double.NaN;
-    private double lastVisibilityCameraZ = Double.NaN;
-    private double placementWorldTime;
     private int lastCloudCount;
     private int lastInstanceCount;
     private int lastPaletteCreateCount;
@@ -117,239 +85,32 @@ public final class CloudRenderer {
     CloudRenderer(RemixRenderer renderer, MeshCreator meshCreator) {
         this.renderer = renderer;
         this.meshCreator = meshCreator;
+        this.volumetricState = new VolumetricCloudState((key, value) -> renderer.getRemixApi().setConfigVariable(key, value));
     }
 
-    public void render(ClientWorld world, Vec3d cameraPos, float tickDelta) {
+    public void render(ClientLevel world, Vec3 cameraPos, float tickDelta) {
         resetFrameStats();
         if (world != currentWorld) {
-            clearScene();
+            releaseResources();
             currentWorld = world;
         }
-
-        MinecraftClient client = MinecraftClient.getInstance();
-        float cloudHeight = world.getDimensionEffects().getCloudsHeight();
-        if (client.options.getCloudRenderModeValue() == CloudRenderMode.OFF
-                || Float.isNaN(cloudHeight)) {
+        Minecraft client = Minecraft.getInstance();
+        environment.capture(world, client.gameRenderer.mainCamera(), tickDelta);
+        float cloudHeight = environment.cloudHeight;
+        boolean visible = client.options.getCloudStatus() != CloudStatus.OFF
+                && environment.cloudAlpha > 0 && Float.isFinite(cloudHeight);
+        if (proceduralClouds && visible) {
+            volumetricState.update(environment.gameTime / 20.0, cloudHeight + cloudsHeight, environment.rain);
+            return;
+        }
+        volumetricState.disable();
+        if (!visible) {
             releaseResources();
             return;
         }
-        if (!shouldSuppressVanillaClouds()) {
-            return;
-        }
-        updateCloudColor(world.getCloudsColor(tickDelta));
-
-        if (!proceduralClouds) {
-            completedPaletteMeshes.clear();
-            clouds.clear();
-            visibleKeys.clear();
-            int cloudTicks =
-                    ((WorldRendererCloudAccess) client.worldRenderer).rtxremix$getCloudTicks();
-            drawVanillaClouds(cameraPos, cloudHeight, cloudTicks + (double) tickDelta);
-            return;
-        }
-
-        double worldTime = world.getTime() + (double) tickDelta;
-        if (!ensurePalette()) {
-            return;
-        }
-        long maintenanceBucket = (long) Math.floor(worldTime / MAINTENANCE_INTERVAL_TICKS);
-        if (needsVisibilityRefresh(
-                maintenanceBucket,
-                lastMaintenanceBucket,
-                cameraPos.x,
-                cameraPos.z,
-                lastVisibilityCameraX,
-                lastVisibilityCameraZ)) {
-            updateVisibleClouds(cameraPos, worldTime);
-            lastMaintenanceBucket = maintenanceBucket;
-            lastVisibilityCameraX = cameraPos.x;
-            lastVisibilityCameraZ = cameraPos.z;
-            placementWorldTime = worldTime;
-        }
-
-        drawClouds(cameraPos, cloudHeight, worldTime);
-        lastCloudCount = clouds.size();
-    }
-
-    static boolean needsVisibilityRefresh(
-            long maintenanceBucket,
-            long lastMaintenanceBucket,
-            double cameraX,
-            double cameraZ,
-            double lastCameraX,
-            double lastCameraZ) {
-        if (maintenanceBucket != lastMaintenanceBucket
-                || !Double.isFinite(lastCameraX)
-                || !Double.isFinite(lastCameraZ)) {
-            return true;
-        }
-        double dx = cameraX - lastCameraX;
-        double dz = cameraZ - lastCameraZ;
-        return dx * dx + dz * dz
-                >= CloudPlacement.CELL_SIZE * CloudPlacement.CELL_SIZE;
-    }
-
-    private void updateVisibleClouds(Vec3d cameraPos, double worldTime) {
-        visibleKeys.clear();
-        try (ProfileScope ignored = ProfileScope.begin("Cloud.Visibility")) {
-            CloudPlacement.forEachVisible(
-                    cameraPos.x,
-                    cameraPos.z,
-                    worldTime,
-                    placement -> {
-                        visibleKeys.add(placement.key());
-                        ActiveCloud cloud = clouds.get(placement.key());
-                        if (cloud == null) {
-                            clouds.put(
-                                    placement.key(),
-                                    new ActiveCloud(
-                                            placement,
-                                            paletteIndex(placement.seed())));
-                        } else {
-                            cloud.placement = placement;
-                        }
-                    });
-        }
-
-        Iterator<Map.Entry<Long, ActiveCloud>> iterator = clouds.entrySet().iterator();
-        while (iterator.hasNext()) {
-            if (!visibleKeys.contains(iterator.next().getKey())) {
-                iterator.remove();
-            }
-        }
-    }
-
-    static int paletteIndex(long seed) {
-        return (int) Long.remainderUnsigned(
-                CloudPlacement.mix(seed + 5L), PALETTE_SIZE);
-    }
-
-    private boolean ensurePalette() {
-        if (paletteFailure != null) {
-            throw paletteFailure;
-        }
-        publishNextPaletteMesh();
-        if (isPaletteReady()) {
-            return true;
-        }
-        if (!paletteGenerationScheduled) {
-            schedulePaletteGeneration();
-        }
-        return false;
-    }
-
-    private void schedulePaletteGeneration() {
-        if (paletteGenerationTask != null && !paletteGenerationTask.isDone()) {
-            return;
-        }
-        try {
-            destroyPalette(palette);
-        } catch (RuntimeException e) {
-            throw failPalette("Failed to reset procedural cloud palette", e);
-        }
-
-        long epoch = ++paletteGenerationEpoch;
-        paletteGenerationScheduled = true;
-        paletteGenerationTask = CompletableFuture.runAsync(() -> {
-            try {
-                for (int i = 0; i < PALETTE_SIZE; i++) {
-                    if (epoch != paletteGenerationEpoch) {
-                        return;
-                    }
-                    CloudMeshGenerator.GeneratedMesh generated =
-                            CloudMeshGenerator.generate(
-                                    CloudPlacement.mix(PALETTE_SEED + i));
-                    if (epoch != paletteGenerationEpoch) {
-                        return;
-                    }
-                    completedPaletteMeshes.add(
-                            new GeneratedPaletteMesh(epoch, i, generated));
-                }
-            } finally {
-                CloudMeshGenerator.releaseWorkspace();
-            }
-        }).whenComplete((unused, failure) -> {
-            if (epoch == paletteGenerationEpoch) {
-                completedPaletteMeshes.add(
-                        failure == null
-                                ? new CompletedPaletteGeneration(epoch)
-                                : new FailedPaletteGeneration(epoch, failure));
-            }
-        });
-    }
-
-    private void publishNextPaletteMesh() {
-        PaletteGenerationResult result;
-        while ((result = completedPaletteMeshes.poll()) != null) {
-            if (publishPaletteResult(result)) {
-                return;
-            }
-        }
-    }
-
-    boolean publishPaletteResult(PaletteGenerationResult result) {
-        if (result.epoch() != paletteGenerationEpoch) {
-            return false;
-        }
-        if (result instanceof CompletedPaletteGeneration) {
-            paletteGenerationScheduled = false;
-            return false;
-        }
-        if (result instanceof FailedPaletteGeneration failed) {
-            throw failPalette(
-                    "Failed to generate procedural cloud palette", failed.failure());
-        }
-
-        GeneratedPaletteMesh generatedResult = (GeneratedPaletteMesh) result;
-        CloudMeshGenerator.GeneratedMesh generated = generatedResult.mesh();
-        try {
-            RemixMesh mesh = createMesh(generated);
-            palette[generatedResult.index()] = new PaletteEntry(
-                    mesh,
-                    generated.vertexCount(),
-                    generated.triangleCount());
-        } catch (RuntimeException e) {
-            throw failPalette("Failed to publish procedural cloud palette", e);
-        }
-        lastGenerationNanos += generated.generationNanos();
-        lastPaletteCreateCount = 1;
-        return true;
-    }
-
-    private RuntimeException failPalette(String message, Throwable cause) {
-        paletteGenerationEpoch++;
-        paletteGenerationScheduled = false;
-        completedPaletteMeshes.clear();
-        RuntimeException failure = new IllegalStateException(message, cause);
-        try {
-            destroyPalette(palette);
-        } catch (RuntimeException cleanupError) {
-            failure.addSuppressed(cleanupError);
-        }
-        try {
-            destroyMaterial();
-        } catch (RuntimeException cleanupError) {
-            failure.addSuppressed(cleanupError);
-        }
-        paletteFailure = failure;
-        return failure;
-    }
-
-    private boolean isPaletteReady() {
-        for (PaletteEntry entry : palette) {
-            if (entry == null || entry.mesh.isDeleted()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static void destroyPalette(PaletteEntry[] entries) {
-        try {
-            destroyEntries(Arrays.asList(entries));
-        } finally {
-            Arrays.fill(entries, null);
-        }
+        if (!shouldSuppressVanillaClouds()) return;
+        updateCloudColor(environment.cloudRed, environment.cloudGreen, environment.cloudBlue);
+        drawVanillaClouds(cameraPos, cloudHeight, environment.gameTime);
     }
 
     private static void destroyEntries(Iterable<PaletteEntry> entries) {
@@ -379,12 +140,12 @@ public final class CloudRenderer {
         if (vanillaOccupancy != null) {
             return;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         try {
             var resource = client.getResourceManager().getResource(VANILLA_CLOUD_TEXTURE)
                     .orElseThrow(() -> new IOException(
                             "Missing texture " + VANILLA_CLOUD_TEXTURE));
-            try (NativeImage image = NativeImage.read(resource.getInputStream())) {
+            try (NativeImage image = NativeImage.read(resource.open())) {
                 vanillaTextureWidth = image.getWidth();
                 vanillaTextureHeight = image.getHeight();
                 vanillaOccupancy =
@@ -392,7 +153,7 @@ public final class CloudRenderer {
                 for (int y = 0; y < vanillaTextureHeight; y++) {
                     for (int x = 0; x < vanillaTextureWidth; x++) {
                         vanillaOccupancy[y * vanillaTextureWidth + x] =
-                                ((image.getColor(x, y) >>> 24) & 0xff) >= 128;
+                                ((image.getPixel(x, y) >>> 24) & 0xff) >= 128;
                     }
                 }
             }
@@ -477,10 +238,6 @@ public final class CloudRenderer {
         lastPaletteCreateCount++;
     }
 
-    private RemixMesh createMesh(CloudMeshGenerator.GeneratedMesh generated) {
-        return createMesh(generated.vertices(), generated.indices());
-    }
-
     private RemixMesh createMesh(float[] packed, int[] indices) {
         if (meshCreator != null) {
             return meshCreator.create(packed, indices);
@@ -516,8 +273,8 @@ public final class CloudRenderer {
         materialColor = cloudColor;
     }
 
-    private void updateCloudColor(Vec3d color) {
-        int packedColor = packCloudColor(color.x, color.y, color.z);
+    private void updateCloudColor(float red, float green, float blue) {
+        int packedColor = packCloudColor(red, green, blue);
         cloudColor = packedColor;
         if (material == null || material.isDeleted() || materialColor == packedColor) {
             return;
@@ -529,11 +286,7 @@ public final class CloudRenderer {
         } catch (RuntimeException e) {
             RuntimeException failure =
                     new IllegalStateException("Failed to update cloud material color", e);
-            if (proceduralClouds) {
-                paletteFailure = failure;
-            } else {
-                vanillaFailure = failure;
-            }
+            vanillaFailure = failure;
             throw failure;
         }
     }
@@ -575,7 +328,7 @@ public final class CloudRenderer {
         return (int) Math.round(adjustedColor * 255.0);
     }
 
-    private void drawVanillaClouds(Vec3d cameraPos, float cloudHeight, double worldTime) {
+    private void drawVanillaClouds(Vec3 cameraPos, float cloudHeight, double worldTime) {
         ensureVanillaCloudMask();
 
         publishVanillaChunks();
@@ -622,65 +375,6 @@ public final class CloudRenderer {
         lastCloudCount = lastInstanceCount;
     }
 
-    private void drawClouds(Vec3d cameraPos, float cloudHeight, double worldTime) {
-        double elapsedTicks = worldTime - placementWorldTime;
-        double windX = elapsedTicks * CloudPlacement.WIND_X_PER_TICK;
-        double windZ = elapsedTicks * CloudPlacement.WIND_Z_PER_TICK;
-        RemixAPI api = renderer.getRemixApi();
-        for (ActiveCloud cloud : clouds.values()) {
-            updateTransform(cloud, cameraPos, cloudHeight, windX, windZ);
-            PaletteEntry entry = palette[cloud.paletteIndex];
-            api.drawInstance(
-                    entry.mesh.getHandle(),
-                    cloud.transform.matrix,
-                    INSTANCE_CATEGORIES,
-                    0,
-                    0L);
-            lastDrawCount++;
-            lastInstanceCount++;
-            lastVertexCount += entry.vertexCount;
-            lastTriangleCount += entry.triangleCount;
-        }
-    }
-
-    private void updateTransform(
-            ActiveCloud cloud,
-            Vec3d cameraPos,
-            float cloudHeight,
-            double windX,
-            double windZ) {
-        CloudPlacement.Placement placement = cloud.placement;
-        double worldX = placement.x() + windX;
-        double worldZ = placement.z() + windZ;
-        double dx = worldX - cameraPos.x;
-        double dz = worldZ - cameraPos.z;
-        double horizontalDistanceSquared = dx * dx + dz * dz;
-        double clampedDistanceSquared = Math.min(
-                horizontalDistanceSquared,
-                CURVATURE_RADIUS * CURVATURE_RADIUS);
-        double curvatureDrop = CURVATURE_RADIUS
-                - Math.sqrt(CURVATURE_RADIUS * CURVATURE_RADIUS - clampedDistanceSquared);
-        float worldY = cloudHeight
-                + cloudsHeight
-                + VANILLA_LAYER_LIFT
-                + placement.altitudeOffset()
-                - (float) curvatureDrop;
-        float scale = placement.scale() * cloudSize;
-        float[] matrix = cloud.transform.matrix;
-        matrix[0] = scale;
-        matrix[1] = 0.0f;
-        matrix[2] = 0.0f;
-        matrix[3] = (float) worldX;
-        matrix[4] = 0.0f;
-        matrix[5] = scale;
-        matrix[6] = 0.0f;
-        matrix[7] = worldY;
-        matrix[8] = 0.0f;
-        matrix[9] = 0.0f;
-        matrix[10] = scale;
-        matrix[11] = (float) worldZ;
-    }
-
     public void cleanup() {
         try {
             releaseResources();
@@ -690,44 +384,20 @@ public final class CloudRenderer {
     }
 
     public void disable() {
-        try {
-            releaseResources();
-        } finally {
-            resetFrameStats();
-        }
+        releaseResources();
     }
 
     private void releaseResources() {
-        clearScene();
-        CloudMeshGenerator.releaseWorkspace();
-        paletteGenerationEpoch++;
-        paletteGenerationScheduled = false;
-        completedPaletteMeshes.clear();
-        RuntimeException failure = null;
-        try {
-            destroyPalette(palette);
-        } catch (RuntimeException e) {
-            failure = e;
-        }
-        paletteFailure = null;
-
+        volumetricState.disable();
+        resetFrameStats();
         try {
             invalidateVanillaChunks();
-        } catch (RuntimeException e) {
-            failure = accumulateFailure(failure, e);
-        }
-        vanillaOccupancy = null;
-        vanillaTextureWidth = 0;
-        vanillaTextureHeight = 0;
-        completedVanillaChunks.clear();
-
-        try {
+        } finally {
+            vanillaOccupancy = null;
+            vanillaTextureWidth = 0;
+            vanillaTextureHeight = 0;
+            completedVanillaChunks.clear();
             destroyMaterial();
-        } catch (RuntimeException e) {
-            failure = accumulateFailure(failure, e);
-        }
-        if (failure != null) {
-            throw failure;
         }
     }
 
@@ -742,40 +412,13 @@ public final class CloudRenderer {
         }
     }
 
-    private static RuntimeException accumulateFailure(
-            RuntimeException failure, RuntimeException additionalFailure) {
-        if (failure == null) {
-            return additionalFailure;
-        }
-        failure.addSuppressed(additionalFailure);
-        return failure;
-    }
+    public boolean isProceduralClouds() { return proceduralClouds; }
 
-    private void clearScene() {
-        lastMaintenanceBucket = Long.MIN_VALUE;
-        lastVisibilityCameraX = Double.NaN;
-        lastVisibilityCameraZ = Double.NaN;
-        clouds.clear();
-        visibleKeys.clear();
-        lastCloudCount = 0;
-    }
-
-    public boolean isProceduralClouds() {
-        return proceduralClouds;
-    }
-
-    /** Whether the active cloud mode is healthy enough to replace Minecraft's draw. */
     public boolean shouldSuppressVanillaClouds() {
-        return proceduralClouds ? paletteFailure == null : vanillaFailure == null;
+        return proceduralClouds || vanillaFailure == null;
     }
 
-    long paletteGenerationEpoch() {
-        return paletteGenerationEpoch;
-    }
-
-    long vanillaGenerationEpoch() {
-        return vanillaGenerationEpoch;
-    }
+    long vanillaGenerationEpoch() { return vanillaGenerationEpoch; }
 
     public void setProceduralClouds(boolean enabled) {
         if (proceduralClouds == enabled) {
@@ -839,6 +482,7 @@ public final class CloudRenderer {
     }
 
     private void resetFrameStats() {
+        lastCloudCount = 0;
         lastInstanceCount = 0;
         lastPaletteCreateCount = 0;
         lastDrawCount = 0;
@@ -854,40 +498,6 @@ public final class CloudRenderer {
     public int getLastVertexCount() { return lastVertexCount; }
     public int getLastTriangleCount() { return lastTriangleCount; }
     public long getLastGenerationNanos() { return lastGenerationNanos; }
-
-    private static final class ActiveCloud {
-        private CloudPlacement.Placement placement;
-        private final int paletteIndex;
-        private final Transform transform = new Transform();
-
-        private ActiveCloud(
-                CloudPlacement.Placement placement,
-                int paletteIndex) {
-            this.placement = placement;
-            this.paletteIndex = paletteIndex;
-        }
-    }
-
-    sealed interface PaletteGenerationResult
-            permits GeneratedPaletteMesh,
-                    CompletedPaletteGeneration,
-                    FailedPaletteGeneration {
-        long epoch();
-    }
-
-    record GeneratedPaletteMesh(
-            long epoch,
-            int index,
-            CloudMeshGenerator.GeneratedMesh mesh) implements PaletteGenerationResult {
-    }
-
-    record CompletedPaletteGeneration(long epoch)
-            implements PaletteGenerationResult {
-    }
-
-    record FailedPaletteGeneration(long epoch, Throwable failure)
-            implements PaletteGenerationResult {
-    }
 
     sealed interface VanillaChunkResult
             permits GeneratedVanillaChunk, FailedVanillaChunk {

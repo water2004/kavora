@@ -12,7 +12,11 @@ import java.nio.ByteBuffer;
  */
 public class MeshInfoSurfaceTriangles {
     public static final int TEXCOORD_BOUNDS = 1 << 0;
+    /** CPU vertices omit trailing padding and use {@link HardcodedVertex#STORAGE_STRIDE}.
+     * The direct buffer must remain alive through CreateMesh; the runtime owns its copy. */
+    public static final int COMPACT_VERTICES = 1 << 1;
 
+    /** Direct, native-order records starting at offset zero; capacity must cover vertexCount times the stride. */
     public ByteBuffer vertexBuffer;
     public int vertexCount;
     public ByteBuffer indexBuffer;

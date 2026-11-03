@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -17,6 +19,22 @@ pytestmark = pytest.mark.usefixtures("isolated_tools_config")
 def write_file(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
+
+
+def write_provenance(runtime: Path, arch: str = "win64") -> None:
+    (runtime / ".runtime-provenance.json").write_text(
+        json.dumps(
+            {
+                "fork": "water2004/dxvk-remix",
+                "apiVersion": "1.5.0",
+                "architecture": arch,
+                "sourceCommit": "a" * 40,
+                "sourceDirty": False,
+                "dllSha256": hashlib.sha256((runtime / "d3d9.dll").read_bytes()).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 @pytest.fixture
@@ -51,10 +69,25 @@ def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, migration: Moc
         files[f"remix-runtime/{arch}/d3d9.dll"] = f"{arch} runtime".encode()
         files[f"remix-runtime/{arch}/dxvk.conf"] = b"runtime config"
         files[f"remix-runtime/{arch}/usd/plugins/plugin.dll"] = b"USD plugin"
-        files[f"remix-runtime/{arch}/remixbridge.dll"] = b"old bundled bridge"
-        files[f"build/native/{arch}/remixbridge.dll"] = f"{arch} bridge".encode()
+        files[f"remix-runtime/{arch}/rtxremix-support.dll"] = b"old bundled bridge"
+        files[f"build/native/{arch}/rtxremix-support.dll"] = f"{arch} bridge".encode()
     for name, content in files.items():
         write_file(project / name, content)
+    for arch in ("win64", "arm64"):
+        runtime = project / f"remix-runtime/{arch}"
+        (runtime / ".runtime-provenance.json").write_text(
+            json.dumps(
+                {
+                    "fork": "water2004/dxvk-remix",
+                    "apiVersion": "1.5.0",
+                    "architecture": arch,
+                    "sourceCommit": "a" * 40,
+                    "sourceDirty": False,
+                    "dllSha256": hashlib.sha256((runtime / "d3d9.dll").read_bytes()).hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
     jars = project / "build/libs"
     for name, timestamp in (
         ("rtx-remix-renderer-9.9.jar", 1_000),
@@ -96,7 +129,7 @@ def test_install_stages_complete_development_payload(installation, capsys, arch)
         "remix-sdk/d3d9.dll": f"{arch} runtime".encode(),
         "remix-sdk/dxvk.conf": b"runtime config",
         "remix-sdk/usd/plugins/plugin.dll": b"USD plugin",
-        "remix-sdk/remixbridge.dll": f"{arch} bridge".encode(),
+        "remix-sdk/rtxremix-support.dll": f"{arch} bridge".encode(),
         "rtx.conf": b"runtime defaults",
         "rtx-remix/mods/minecraft-logic/weather/rain.conf": b"shipped rain",
         "rtx-remix/mods/custom/zones/castle.conf": b"author zone",
@@ -108,10 +141,11 @@ def test_install_stages_complete_development_payload(installation, capsys, arch)
     }
     actual = {path.relative_to(game).as_posix(): path.read_bytes() for path in game.rglob("*") if path.is_file()}
     marker = actual.pop("remix-sdk/.install-marker")
+    actual.pop("remix-sdk/.runtime-provenance.json")
     assert marker.decode("utf-8").startswith(f"{arch};")
     assert actual == expected
     assert (game / "remix-sdk/usd/empty").is_dir()
-    assert (project / f"remix-runtime/{arch}/remixbridge.dll").read_bytes() == b"old bundled bridge"
+    assert (project / f"remix-runtime/{arch}/rtxremix-support.dll").read_bytes() == b"old bundled bridge"
     output = capsys.readouterr().out
     assert "WARNING" not in output
     assert "Mod jar:" in output
@@ -164,7 +198,7 @@ def test_install_warns_about_missing_fabric_api_without_installing_it(installati
 
     output = capsys.readouterr().out
     assert f"WARNING: no fabric-api jar in {game / 'mods'}." in output
-    assert "fabric-api >=0.116.10+1.21.1 (https://modrinth.com/mod/fabric-api)" in output
+    assert "fabric-api >=0.165.0+26.3 (https://modrinth.com/mod/fabric-api)" in output
     assert list((game / "mods").glob("fabric-api-*.jar")) == []
 
 
@@ -176,7 +210,7 @@ def test_install_checks_prerequisites_before_changing_game(installation, migrati
     if missing == "runtime":
         (project / f"remix-runtime/{arch}/d3d9.dll").unlink()
     elif missing == "bridge":
-        (project / f"build/native/{arch}/remixbridge.dll").unlink()
+        (project / f"build/native/{arch}/rtxremix-support.dll").unlink()
     elif missing == "textures":
         for texture in (project / "remix-runtime/textures").iterdir():
             texture.unlink()
@@ -201,7 +235,7 @@ def test_install_checks_prerequisites_before_changing_game(installation, migrati
         assert f"--arch {arch}" in output
         assert "sdk local" in output
     elif missing == "bridge":
-        assert "ERROR: JNI bridge not found" in output
+        assert "ERROR: Native crash helper not found" in output
         task = "compileNativeArm64" if arch == "arm64" else "compileNativeWin64"
         assert f"Build it with .\\gradlew.bat {task}." in output
     elif missing == "textures":
@@ -228,7 +262,7 @@ def test_install_keeps_environment_and_host_arch_defaults(installation, monkeypa
         monkeypatch.setenv("REMIX_ARCH", override)
 
     assert run_install(game) == 0
-    assert (game / "remix-sdk/remixbridge.dll").read_bytes() == f"{expected} bridge".encode()
+    assert (game / "remix-sdk/rtxremix-support.dll").read_bytes() == f"{expected} bridge".encode()
 
 
 def test_install_explicit_arch_overrides_environment(installation, monkeypatch):
@@ -236,7 +270,7 @@ def test_install_explicit_arch_overrides_environment(installation, monkeypatch):
     monkeypatch.setenv("REMIX_ARCH", "invalid")
 
     assert run_install(game, "--arch", "arm64") == 0
-    assert (game / "remix-sdk/remixbridge.dll").read_bytes() == b"arm64 bridge"
+    assert (game / "remix-sdk/rtxremix-support.dll").read_bytes() == b"arm64 bridge"
 
 
 def test_install_rejects_invalid_environment_arch(installation, monkeypatch, capsys):
@@ -266,6 +300,7 @@ def test_install_requires_game_dir_when_appdata_is_unset(installation, monkeypat
 def test_install_resolves_relative_paths_from_checkout(installation, migration, monkeypatch, tmp_path):
     project, _ = installation
     write_file(project / "local SDK/d3d9.dll", b"custom runtime")
+    write_provenance(project / "local SDK")
     monkeypatch.setenv("REMIX_BUILD", "local SDK")
     monkeypatch.chdir(tmp_path)
 
@@ -278,6 +313,7 @@ def test_install_accepts_absolute_custom_runtime(installation, monkeypatch, tmp_
     _, game = installation
     source = tmp_path / "custom SDK"
     write_file(source / "d3d9.dll", b"custom runtime")
+    write_provenance(source)
     write_file(source / "usd/custom.dll", b"custom plugin")
     monkeypatch.setenv("REMIX_BUILD", str(source))
 
@@ -291,14 +327,14 @@ def test_install_skips_unchanged_runtime_but_refreshes_bridge_and_payload(instal
     assert run_install(game) == 0
     marker = (game / "remix-sdk/.install-marker").read_bytes()
     write_file(game / "remix-sdk/keep-on-skip.dll", b"not recopied")
-    write_file(project / "build/native/win64/remixbridge.dll", b"rebuilt bridge")
+    write_file(project / "build/native/win64/rtxremix-support.dll", b"rebuilt bridge")
     write_file(project / "packaging/rtx.conf", b"updated defaults")
 
     assert run_install(game) == 0
 
     assert (game / "remix-sdk/keep-on-skip.dll").read_bytes() == b"not recopied"
     assert (game / "remix-sdk/.install-marker").read_bytes() == marker
-    assert (game / "remix-sdk/remixbridge.dll").read_bytes() == b"rebuilt bridge"
+    assert (game / "remix-sdk/rtxremix-support.dll").read_bytes() == b"rebuilt bridge"
     assert (game / "rtx.conf").read_bytes() == b"updated defaults"
     assert "skipping SDK copy." in capsys.readouterr().out
 
@@ -323,12 +359,14 @@ def test_install_recreates_runtime_when_marker_changes(installation, monkeypatch
     args = []
     if changed == "size":
         source.write_bytes(b"larger rebuilt runtime")
+        write_provenance(source.parent)
     elif changed == "timestamp":
         stamp = source.stat()
         os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 120_000_000_000))
     elif changed == "source":
         custom = project / "custom runtime"
         write_file(custom / "d3d9.dll", source.read_bytes())
+        write_provenance(custom)
         stamp = source.stat()
         os.utime(custom / "d3d9.dll", ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
         monkeypatch.setenv("REMIX_BUILD", str(custom))
@@ -352,5 +390,5 @@ def test_install_detaches_game_sdk_junction_without_mutating_cache(installation,
     assert run_install(game) == 0
 
     assert not sdk.is_junction()
-    assert (sdk / "remixbridge.dll").read_bytes() == b"win64 bridge"
+    assert (sdk / "rtxremix-support.dll").read_bytes() == b"win64 bridge"
     assert {path.relative_to(cache): path.read_bytes() for path in cache.rglob("*") if path.is_file()} == original

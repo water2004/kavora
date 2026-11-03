@@ -41,10 +41,11 @@ tracked `uv.lock`. From `tools/`, use `uv run rtx` or
 
 SDK source management is exposed through `rtx.bat sdk status|local|restage|packman`.
 Keep source detection, sentinel parsing, local-copy freshness checks, snapshot
-copying, and explicit Packman restores in `src/rtx_tools/sdk.py`. Gradle fetches
-missing runtime directories itself, without depending on the Python tooling.
+copying, and the incompatible Packman fallback rejection in `src/rtx_tools/sdk.py`.
+Gradle validates staged source runtimes itself, without depending on Python;
+it cannot fetch compatible binaries for this branch.
 
-Every client launch goes through the client launcher that `client.active()` in
+Every developer-tool client launch goes through the launcher that `client.active()` in
 `src/rtx_tools/client.py` returns, which owns the game directory
 (`util.RUN_DIR`). The client launcher is `PrismLauncher` in
 `src/rtx_tools/prism_launcher.py`: it builds and installs into a
@@ -59,7 +60,7 @@ tokens.
 
 `rtx.bat install` stages an already-built development mod into an existing
 Fabric game directory, separate from the repository-local launch workflow.
-Keep its runtime/bridge architecture selection, unchanged-SDK marker, copies of
+Keep its runtime/support-library architecture selection, unchanged-SDK marker, copies of
 `rtx.conf`, the conf payload and the runtime textures, and author-created file
 preservation in `src/rtx_tools/install.py`.
 It must not build, launch Minecraft, or install Fabric dependencies.
@@ -90,30 +91,34 @@ touching a process.
 
 ## Sibling Checkouts And SDK Staging
 
-The repository-root `AGENTS.md` and `docs/GETTING_STARTED.md` document the
-default path: Gradle fetches missing runtimes from the pinned Packman manifest,
-and the Python CLI stages or refreshes a local override when requested.
+The root `AGENTS.md` and `docs/GETTING_STARTED.md` describe this branch's
+source-only runtime flow. Build the matching `water2004/dxvk-remix`
+fork with custom C API 1.5.0 and stage its completed output. Published 0.x
+SDK packages and upstream 1.21.1 installers are incompatible.
 
-In a sibling checkout layout, `../dxvk-remix` is the native runtime and SDK
-producer. The Java wrapper and JNI bridge are tracked here under root
-`rtxremix-java/`.
+`rtx.bat sdk local --arch <arch> --path <dir>` validates the PE architecture,
+`.runtime-provenance.json`, and DLL SHA-256 before replacing the local snapshot
+under `remix-runtime/<arch>/`. Provenance identifies the fork/API, architecture,
+source commit, and dirty flag. Staging writes `.local-sdk-source`.
+`sdk restage` repeats this for the recorded source; `sdk status` is read-only.
 
-`rtx.bat sdk local` with no path reuses the recorded local source, then
-`sdk.localPath` from ignored `config.local.json`, then `..\dxvk-remix\_output`.
-Relative paths resolve from the repository root. Use that local setting to
-choose another checkout once, or pass `--path` explicitly.
+Without a path, local staging uses the recorded source, then `sdk.localPath`
+in ignored `config.local.json`, then `../dxvk-remix/_output`. Relative paths
+start at the repository root. Choose another checkout explicitly when needed.
 
-A runtime reaches root `remix-runtime/<arch>/` one of two ways.
-`rtx.bat sdk local --arch <arch> --path <dir>` copies a local build in and writes
-a `.local-sdk-source` sentinel; `rtx.bat sdk packman --arch <arch>` restores the
-Packman-managed package as a junction into the shared cache.
-Gradle fetches a missing runtime automatically but never replaces an existing
-directory or local override. After changing `packman/remix-sdk.packman.xml`,
-use `sdk packman` to move an existing junction to the new pin.
+Gradle's `fetchRuntimeSdk*` task names now validate source-built outputs.
+They never fetch an incompatible fallback, and `sdk packman` rejects that
+unsupported request without modifying staging. Runtime textures continue to
+use their separately pinned Packman package.
 
-`build.gradle` reads the sentinel and rejects a dual-architecture `package` when
-one architecture is a local copy and the other is Packman-managed. Stage both
-the same way, or build a single architecture with `-Parch=`.
+The Java facade and Java 25 FFM binding live under root `rtxremix-java/`.
+`rtxremix-support.dll` is a separate MSVC-built Windows crash/process helper
+under `build/native/<arch>/`; it is layered over the runtime at installation.
+Never copy it into a Packman junction. Keep native-access JVM arguments in
+sync with Gradle and installer defaults.
+
+Prism launch behavior remains available. Direct Gradle `runClient` is also
+supported for this source port's integration validation and uses `run/`.
 
 ## Shared Configuration And Assets
 

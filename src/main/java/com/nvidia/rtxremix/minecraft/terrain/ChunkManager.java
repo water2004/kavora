@@ -11,6 +11,9 @@ import com.nvidia.rtxremix.minecraft.terrain.capture.SectionMeshData;
 import com.nvidia.rtxremix.minecraft.terrain.capture.SectionBlockData;
 import com.nvidia.rtxremix.minecraft.terrain.capture.DirectQuadWriter;
 import com.nvidia.rtxremix.minecraft.terrain.capture.BlockDataQueue;
+import com.nvidia.rtxremix.minecraft.terrain.lod.NearSection;
+import com.nvidia.rtxremix.minecraft.terrain.lod.FarTerrainExtension;
+import com.nvidia.rtxremix.minecraft.terrain.lod.LodTerrainScene;
 import com.nvidia.rtxremix.minecraft.profiling.ProfileScope;
 import com.nvidia.rtxremix.minecraft.profiling.PerformanceTimer;
 import com.nvidia.rtxremix.minecraft.light.LightPower;
@@ -37,14 +40,6 @@ import com.nvidia.rtxremix.LightInfoRectEXT;
 import com.nvidia.rtxremix.LightInfoSphereEXT;
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.Transform;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.ChunkSectionPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.chunk.WorldChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,12 +54,21 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.SectionPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Coordinates the terrain pipeline from worker captures to stable retained
@@ -93,9 +97,11 @@ public class ChunkManager {
     private final LongObjectMap<ColumnRenderState> renderColumns = new LongObjectMap<>();
     private final TerrainNativeCallStats nativeCallStats = new TerrainNativeCallStats();
     private final TerrainAssetRetirementQueue retirementQueue = new TerrainAssetRetirementQueue(nativeCallStats);
+    private final LodTerrainScene lodScene = new LodTerrainScene();
+    private final LinkedHashSet<Long> pendingLodRemovals = new LinkedHashSet<>();
     private final ArrayList<ColumnRenderState> dirtyBuildScratch = new ArrayList<>();
 
-    private ClientWorld currentWorld;
+    private ClientLevel currentWorld;
     /**
      * Live count of pages across every render column, maintained where activePages changes.
      * Published through {@link TerrainDiagnostics#retainedPages()} as Chunk.RetainedPages,
@@ -332,6 +338,9 @@ public class ChunkManager {
     private final AtomicLong pendingMeshBytes = new AtomicLong(0);
     private final ExecutorService meshBuildExecutor;
     private MeshInstallCursor activeInstall;
+    private final List<MeshInstallCursor> stagedNearInstalls = new ArrayList<>();
+    private boolean nearBatchReady;
+    private long lastNearInstallProgressFrame;
     private volatile int epoch;
     private static final int DEFAULT_MESH_BUILD_THREADS = Math.max(1,
             Math.min(4, Runtime.getRuntime().availableProcessors() / 4));
@@ -346,6 +355,7 @@ public class ChunkManager {
             Long.getLong("rtxremix.chunk.installBudgetNs", 2_000_000L));
     private static final int MAX_INSTALLED_COLUMNS_PER_FRAME = Math.max(1,
             Integer.getInteger("rtxremix.chunk.maxInstalledColumnsPerFrame", MAX_PENDING));
+    private static final int MAX_NEAR_BATCH_COLUMNS = Math.min(MAX_PENDING, MAX_INSTALLED_COLUMNS_PER_FRAME);
     private static final int COLUMN_STREAM_SETTLE_FRAMES = Math.max(0,
             Integer.getInteger("rtxremix.chunk.columnStreamSettleFrames", 4));
     private static final int COLUMN_STREAM_MAX_WAIT_FRAMES = Math.max(
@@ -372,6 +382,7 @@ public class ChunkManager {
         boolean buildInFlight;
         boolean hasPublishedState;
         boolean urgentBuild;
+        boolean pendingRemoval;
         long dirtySinceFrame = Long.MIN_VALUE;
         long settleUntilFrame;
 
@@ -390,19 +401,21 @@ public class ChunkManager {
         private final int categoryMask;
         private final int[] categoryFingerprints;
         private final int epoch;
+        private final Set<NearSection> coverage;
         private volatile BlockMeshBuilder.MeshPage[] pages;
         private volatile long accountedBytes;
         private volatile Throwable failure;
         private volatile boolean complete;
 
         MeshBuildResult(ColumnRenderState owner, int generation, int categoryMask,
-                        int[] categoryFingerprints, int epoch, long estimatedBytes) {
+                        int[] categoryFingerprints, int epoch, long estimatedBytes, Set<NearSection> coverage) {
             this.owner = owner;
             this.generation = generation;
             this.categoryMask = categoryMask;
             this.categoryFingerprints = categoryFingerprints;
             this.epoch = epoch;
             this.accountedBytes = estimatedBytes;
+            this.coverage = coverage;
         }
 
         ColumnRenderState owner() { return owner; }
@@ -471,6 +484,7 @@ public class ChunkManager {
             cntPagesInstalled, cntInstallBytes, cntInstancesAdded, cntInstancesRemoved,
             cntMeshesDestroyed;
     private int cntFloodIncrementalUs;
+    private int cntLodVisibilityMutations;
     private int perfBfs = -1;
     private volatile TerrainDiagnostics lastTerrainDiagnostics = TerrainDiagnostics.EMPTY;
 
@@ -518,6 +532,29 @@ public class ChunkManager {
 
     public int getLoadedChunkCount() { return terrain.columnCount(); }
     public TerrainDiagnostics getTerrainDiagnostics() { return lastTerrainDiagnostics; }
+
+    /** On-demand render-thread diagnostics for a pending near/far transition. */
+    public String getLodHandoffDiagnostics() { return lodScene.handoffDiagnostics(); }
+
+    /** Whether this column has published geometry in the native scene. Render thread only. */
+    public boolean hasTerrainGeometry(int cx, int cz) {
+        ColumnRenderState column = renderColumns.get(packChunkKey(cx, cz));
+        return column != null && column.hasGeometry();
+    }
+    public boolean hasFarTerrainGeometry(int sectionX, int sectionY, int sectionZ) {
+        return lodScene.hasGeometryForSection(sectionX, sectionY, sectionZ);
+    }
+    public boolean isFarViewRefined() { return lodScene.isViewRefined(); }
+    public boolean hasVisibleFarTerrainGeometry(int sectionX, int sectionY, int sectionZ) {
+        return lodScene.hasVisibleGeometryForSection(sectionX, sectionY, sectionZ);
+    }
+    public String getFarSectionDiagnostics(int sectionX, int sectionY, int sectionZ) {
+        return lodScene.sectionDiagnostics(sectionX, sectionY, sectionZ);
+    }
+    public FarTerrainExtension.Stats getLodDiagnostics() {
+        return lodScene.diagnostics();
+    }
+    public int getFarRenderDistanceChunks() { return Math.ceilDiv(lodScene.renderRadiusBlocks(), 16); }
 
     /**
      * Sets the light cull distance in chunks. 0 = Auto, Minecraft's render
@@ -596,15 +633,15 @@ public class ChunkManager {
     }
 
     public void onChunkUnloaded(ChunkPos p) {
-        BlockDataQueue.markChunkUnloaded(p.x, p.z);
-        chunkUnloadEvents.add(packChunkKey(p.x, p.z));
+        BlockDataQueue.markChunkUnloaded(p.x(), p.z());
+        chunkUnloadEvents.add(packChunkKey(p.x(), p.z()));
     }
 
     private static long packChunkKey(int cx, int cz) {
         return ((long) cx << 32) | (cz & 0xFFFFFFFFL);
     }
 
-    public void updateVisibleChunks(ClientWorld world, Vec3d cam,
+    public void updateVisibleChunks(ClientLevel world, Vec3 cam,
                                      PerformanceTimer timer, int perfGen, int perfDraw) {
         if (world == null || renderer.getRemixApi() == null) return;
         try (ProfileScope updateScope = ProfileScope.begin("updateVisibleChunks")) {
@@ -620,6 +657,9 @@ public class ChunkManager {
             BlockTextureManager tex = renderer.getTextureManager();
             if (tex == null || !tex.isInitialized()) return;
             RemixAPI api = renderer.getRemixApi();
+            try (ProfileScope ignored = ProfileScope.begin("Lod.Tick")) {
+                lodScene.tick(api, tex, world, cam);
+            }
 
             if (cntCap == -1) {
                 cntCap     = timer.registerCounter("Chunk.Captures");
@@ -666,6 +706,7 @@ public class ChunkManager {
                 cntInstancesAdded = timer.registerCounter("Chunk.InstancesAdded");
                 cntInstancesRemoved = timer.registerCounter("Chunk.InstancesRemoved");
                 cntMeshesDestroyed = timer.registerCounter("Chunk.MeshesDestroyed");
+                cntLodVisibilityMutations = timer.registerCounter("Chunk.LodVisibilityMutations");
                 perfBfs      = timer.registerSection("Chunk.BFS");
             }
 
@@ -726,6 +767,9 @@ public class ChunkManager {
                 try (ProfileScope installScope = ProfileScope.begin("installReadyMeshes")) {
                     installReadyMeshes(api);
                 }
+                drainLodRemovals();
+                lodScene.flushCoverage();
+                timer.count(cntLodVisibilityMutations, lodScene.visibilityMutations());
 
                 publishTerrainDiagnostics();
                 TerrainDiagnostics diag = lastTerrainDiagnostics;
@@ -785,9 +829,9 @@ public class ChunkManager {
 
             int cx = (int) (chunkKey >> 32);
             int cz = (int) chunkKey;
-            WorldChunk liveChunk = currentWorld == null
+            LevelChunk liveChunk = currentWorld == null
                     ? null
-                    : currentWorld.getChunkManager().getWorldChunk(cx, cz, false);
+                    : currentWorld.getChunkSource().getChunk(cx, cz, false);
             if (liveChunk != null) {
                 iterator.remove();
                 continue;
@@ -825,7 +869,7 @@ public class ChunkManager {
         if (evictedSectionScratch.isEmpty()) return;
 
         WorldRendererTerrainAccess worldRenderer =
-                (WorldRendererTerrainAccess) MinecraftClient.getInstance().worldRenderer;
+                (WorldRendererTerrainAccess) Minecraft.getInstance().levelRenderer;
         for (BlockDataQueue.EvictedSection section : evictedSectionScratch) {
             worldRenderer.rtxremix$scheduleResidentSectionRebuild(
                     section.x(), section.y(), section.z());
@@ -868,8 +912,8 @@ public class ChunkManager {
             return false;
         }
 
-        WorldChunk wc = currentWorld.getChunkManager().getWorldChunk(cx, cz, false);
-        return wc != null && wc.isSectionEmpty(sy);
+        LevelChunk wc = currentWorld.getChunkSource().getChunk(cx, cz, false);
+        return wc != null && wc.getSection(wc.getSectionIndexFromSectionY(sy)).hasOnlyAir();
     }
 
     private int drainBlockData() {
@@ -896,13 +940,13 @@ public class ChunkManager {
                 releaseMeshData(cap);
                 continue;
             }
-            ChunkSectionPos sp = cap.sectionPos();
+            SectionPos sp = cap.sectionPos();
             int cx = sp.getX(), sy = sp.getY(), cz = sp.getZ();
 
             long chunkKey = packChunkKey(cx, cz);
-            WorldChunk liveChunk = null;
+            LevelChunk liveChunk = null;
             if (currentWorld != null) {
-                liveChunk = currentWorld.getChunkManager().getWorldChunk(cx, cz, false);
+                liveChunk = currentWorld.getChunkSource().getChunk(cx, cz, false);
             }
             if (liveChunk == null) {
                 skipped++;
@@ -1025,8 +1069,8 @@ public class ChunkManager {
      * border-sized burst of them.
      */
     private void cancelLightTasksForColumn(int cx, int cz) {
-        int topSection = currentWorld.getTopSectionCoord();
-        for (int sy = currentWorld.getBottomSectionCoord(); sy < topSection; sy++) {
+        int topSection = currentWorld.getMaxSectionY() + 1;
+        for (int sy = currentWorld.getMinSectionY(); sy < topSection; sy++) {
             cancelLightTask(new LightSectionKey(cx, sy, cz));
         }
     }
@@ -1053,9 +1097,34 @@ public class ChunkManager {
     }
 
     private void removeRenderColumn(int cx, int cz) {
-        ColumnRenderState state = renderColumns.remove(packChunkKey(cx, cz));
+        long key = packChunkKey(cx, cz);
+        ColumnRenderState state = renderColumns.get(key);
         if (state == null) return;
+        if (lodScene.isActive()) {
+            state.pendingRemoval = true;
+            pendingLodRemovals.add(key);
+            return;
+        }
+        retireRenderColumn(state);
+    }
+
+    private void drainLodRemovals() {
+        var iterator = pendingLodRemovals.iterator();
+        int count = 0;
+        while (iterator.hasNext() && count++ < MAX_COLUMN_UNLOADS_PER_FRAME) {
+            long key = iterator.next();
+            ColumnRenderState state = renderColumns.get(key);
+            if (state == null || !state.pendingRemoval) { iterator.remove(); continue; }
+            retireRenderColumn(state);
+            iterator.remove();
+        }
+    }
+
+    private void retireRenderColumn(ColumnRenderState state) {
+        renderColumns.remove(state.key);
+        lodScene.recordNear(state.key, Set.of());
         for (InstalledMeshPage page : state.activePages) {
+            if (lodScene.isActive()) page.instance.hideFromScene(renderer.getRemixApi());
             retirementQueue.retire(page.instance);
         }
         retainedPageCount -= state.activePages.size();
@@ -1161,7 +1230,7 @@ public class ChunkManager {
      */
     private static int lightFingerprint(LightEntry le) {
         return Objects.hash(
-                Registries.BLOCK.getRawId(le.block()),
+                BuiltInRegistries.BLOCK.getId(le.block()),
                 le.key().ruleId(),
                 le.key().lightIndex(),
                 le.lightLevel(),
@@ -1190,6 +1259,10 @@ public class ChunkManager {
             int cx, int cz, int categoryMask, boolean immediate) {
         long key = packChunkKey(cx, cz);
         ColumnRenderState state = renderColumns.get(key);
+        if (state != null && state.pendingRemoval) {
+            state.pendingRemoval = false;
+            pendingLodRemovals.remove(key);
+        }
         if (state == null) {
             state = new ColumnRenderState(key, cx, cz);
             renderColumns.put(key, state);
@@ -1253,6 +1326,8 @@ public class ChunkManager {
                 }
             }
             if (buildMask == 0) {
+                Set<NearSection> coverage = snapshotCoverage(state, snapshots);
+                lodScene.recordNear(state.key, coverage);
                 state.dirtyMask &= ~requestedMask;
                 clearDirtyTimingIfClean(state);
                 state.hasPublishedState = true;
@@ -1270,7 +1345,7 @@ public class ChunkManager {
             int submittedMask = buildMask;
             MeshBuildResult result = new MeshBuildResult(
                     state, generation, submittedMask, fingerprints,
-                    currentEpoch, estimatedBytes);
+                    currentEpoch, estimatedBytes, snapshotCoverage(state, snapshots));
             // The build reads the section buffers on the mesh thread while the
             // render thread may replace or unload those sections; the build's
             // own reference keeps the buffers out of the pool until it is done.
@@ -1314,91 +1389,91 @@ public class ChunkManager {
         dirtyBuildScratch.clear();
     }
 
+    private MeshInstallCursor pollInstallCursor() {
+        for (MeshBuildResult result; (result = pollCompletedBuild()) != null;) {
+            pendingResults.decrementAndGet();
+            if (result.failure() != null) {
+                pendingMeshBytes.addAndGet(-result.accountedBytes());
+                markForRebuildIfLive(result, true);
+                LOGGER.error("Background mesh build failed", result.failure());
+            } else if (isStale(result)) {
+                disposePages(result.pages());
+                pendingMeshBytes.addAndGet(-result.accountedBytes());
+                markForRebuildIfLive(result, false);
+            } else return new MeshInstallCursor(result);
+        }
+        return null;
+    }
+
     private void installReadyMeshes(RemixAPI api) {
         long deadline = System.nanoTime() + INSTALL_TIME_BUDGET_NS;
-        int installedColumns = 0;
-
-        while (installedColumns < MAX_INSTALLED_COLUMNS_PER_FRAME) {
+        var iterator = stagedNearInstalls.iterator();
+        while (iterator.hasNext()) {
+            MeshInstallCursor cursor = iterator.next();
+            if (!cursor.abortRequested && !cursor.failed && !isStale(cursor.result)) continue;
+            nearBatchReady = false;
+            abortInstall(cursor);
+            iterator.remove();
+        }
+        if (nearBatchReady) {
+            publishStagedNearBatch(api);
+            return;
+        }
+        while (stagedNearInstalls.size() < MAX_NEAR_BATCH_COLUMNS) {
             if (activeInstall == null) {
-                // Installs pause only for retirement byte pressure, never item
-                // counts: teardown backlog must not block presentation, or
-                // trailing unloads starve new terrain during sustained flight.
-                if (retirementQueue.retirementBytesBackpressured()) return;
-                MeshBuildResult result = pollCompletedBuild();
-                if (result == null) return;
-                pendingResults.decrementAndGet();
-
-                if (result.failure() != null) {
-                    pendingMeshBytes.addAndGet(-result.accountedBytes());
-                    markForRebuildIfLive(result, true);
-                    LOGGER.error("Background mesh build failed", result.failure());
-                    continue;
-                }
-                if (isStale(result)) {
-                    disposePages(result.pages());
-                    pendingMeshBytes.addAndGet(-result.accountedBytes());
-                    markForRebuildIfLive(result, false);
-                    continue;
-                }
-                activeInstall = new MeshInstallCursor(result);
+                if (retirementQueue.retirementBytesBackpressured()) break;
+                activeInstall = pollInstallCursor();
+                if (activeInstall == null) break;
             }
-
             MeshInstallCursor cursor = activeInstall;
-            if (cursor.rollbackFailed) {
-                abortInstall(cursor);
-                activeInstall = null;
-                return;
+            if (cursor.nextActivation != 0) {
+                rollbackActiveInstallPages(api);
+                if (cursor.nextActivation != 0 && !cursor.rollbackFailed) return;
             }
-            if (cursor.abortRequested || isStale(cursor.result)) {
-                // Activated pages are retained scene objects. Re-hide the
-                // visible prefix under this frame's deadline before handing
-                // cursor ownership to budgeted retirement.
-                cursor.abortRequested = true;
-                boolean attemptedRollback = rollbackNextActiveInstallPage(cursor, api);
-                if (cursor.rollbackFailed) {
-                    abortInstall(cursor);
-                    activeInstall = null;
-                    return;
-                }
-                if (cursor.nextActivation == 0) {
-                    abortInstall(cursor);
-                    activeInstall = null;
-                }
-                if (attemptedRollback && System.nanoTime() >= deadline) return;
+            if (cursor.abortRequested || cursor.failed || cursor.rollbackFailed || isStale(cursor.result)) {
+                abortInstall(cursor); activeInstall = null;
+                if (System.nanoTime() >= deadline) break;
                 continue;
             }
-
-            boolean attemptedNativePage;
+            boolean attempted = false;
             if (!cursor.staged) {
-                attemptedNativePage = installNextPage(cursor, api);
-                if (!cursor.failed
-                        && cursor.nextPage >= cursor.result.pages().length) {
-                    stageHiddenPages(cursor);
-                }
-            } else {
-                attemptedNativePage = activateNextPage(cursor, api);
+                attempted = installNextPage(cursor, api);
+                if (!cursor.failed && cursor.nextPage >= cursor.result.pages().length) stageHiddenPages(cursor);
             }
-
             if (cursor.failed) {
-                cursor.abortRequested = true;
-                if (cursor.nextActivation == 0) {
-                    abortInstall(cursor);
-                    activeInstall = null;
-                }
-                // A failed page may already have spent the whole native-call
-                // budget. Roll back any activated prefix starting next frame.
+                abortInstall(cursor); activeInstall = null;
                 return;
             }
-            if (cursor.staged
-                    && cursor.nextActivation >= cursor.installedPages.size()) {
-                finishInstall(cursor);
+            if (cursor.staged) {
+                stagedNearInstalls.add(cursor);
                 activeInstall = null;
-                installedColumns++;
+                lastNearInstallProgressFrame = terrainFrame;
             }
+            if (attempted) lastNearInstallProgressFrame = terrainFrame;
+            if (attempted && System.nanoTime() >= deadline) break;
+        }
+        if (stagedNearInstalls.isEmpty()) return;
+        boolean complete = activeInstall == null && pendingResults.get() == 0;
+        if (stagedNearInstalls.size() < MAX_NEAR_BATCH_COLUMNS && !complete && terrainFrame - lastNearInstallProgressFrame < 2) return;
+        nearBatchReady = true;
+        if (System.nanoTime() < deadline) publishStagedNearBatch(api);
+    }
 
-            if (attemptedNativePage && System.nanoTime() >= deadline) {
-                return;
+    private void publishStagedNearBatch(RemixAPI api) {
+        activateNearBatch(api);
+        for (MeshInstallCursor cursor : stagedNearInstalls) finishInstall(cursor);
+        stagedNearInstalls.clear(); nearBatchReady = false;
+    }
+
+    private void activateNearBatch(RemixAPI api) {
+        try {
+            for (MeshInstallCursor cursor : stagedNearInstalls) activateNearTransaction(cursor, api);
+        } catch (RuntimeException | Error failure) {
+            for (MeshInstallCursor cursor : stagedNearInstalls) {
+                cursor.abortRequested = true;
+                while (cursor.nextActivation > 0 && !cursor.rollbackFailed) rollbackNextActiveInstallPage(cursor, api);
             }
+            throw failure;
         }
     }
 
@@ -1481,6 +1556,16 @@ public class ChunkManager {
         return true;
     }
 
+    private void activateNearTransaction(MeshInstallCursor cursor, RemixAPI api) {
+        while (cursor.nextActivation < cursor.installedPages.size()) {
+            activateNextPage(cursor, api);
+            if (cursor.failed) {
+                while (cursor.nextActivation > 0 && !cursor.rollbackFailed) rollbackNextActiveInstallPage(cursor, api);
+                throw new IllegalStateException("Near terrain visibility transaction failed");
+            }
+        }
+    }
+
     private boolean rollbackNextActiveInstallPage(MeshInstallCursor cursor, RemixAPI api) {
         if (!cursor.staged || cursor.nextActivation == 0) return false;
 
@@ -1517,6 +1602,7 @@ public class ChunkManager {
         while (oldPages.hasNext()) {
             InstalledMeshPage page = oldPages.next();
             if ((categoryMask & (1 << page.category)) == 0) continue;
+            if (lodScene.isActive()) page.instance.hideFromScene(renderer.getRemixApi());
             oldPages.remove();
             retainedPageCount--;
             retirementQueue.retire(page.instance);
@@ -1529,6 +1615,7 @@ public class ChunkManager {
             }
         }
         owner.hasPublishedState = true;
+        lodScene.recordNear(owner.key, result.coverage);
         owner.buildInFlight = false;
         pendingMeshBytes.addAndGet(-result.accountedBytes());
     }
@@ -1588,7 +1675,7 @@ public class ChunkManager {
     }
 
     private int countCompletedBuilds() {
-        int count = 0;
+        int count = stagedNearInstalls.size();
         for (MeshBuildResult result : readyQueue) {
             if (result.complete()) count++;
         }
@@ -1634,6 +1721,12 @@ public class ChunkManager {
         for (TerrainState.SectionSnapshot snapshot : snapshots) {
             if (snapshot.data() instanceof SectionMeshData data) data.retain();
         }
+    }
+
+    private static Set<NearSection> snapshotCoverage(ColumnRenderState state, List<TerrainState.SectionSnapshot> snapshots) {
+        Set<NearSection> cells = new LinkedHashSet<>();
+        for (var snapshot : snapshots) cells.add(new NearSection(state.cx, Math.floorDiv(snapshot.yOff(), 16), state.cz));
+        return Set.copyOf(cells);
     }
 
     private static void releaseSnapshots(List<TerrainState.SectionSnapshot> snapshots) {
@@ -1726,7 +1819,7 @@ public class ChunkManager {
     }
 
     /** @return the number of native instance submits this pass made */
-    private int draw(RemixAPI api, PerformanceTimer t, Vec3d cam) {
+    private int draw(RemixAPI api, PerformanceTimer t, Vec3 cam) {
         t.begin(perfBfs);
         try (ProfileScope bfsScope = ProfileScope.begin("BFS reachability")) {
             terrain.ensureReachabilityOnce();
@@ -1796,6 +1889,7 @@ public class ChunkManager {
 
     /** Hides retained terrain instances while preserving cached meshes. */
     public void hideRetainedInstances() {
+        lodScene.suspend();
         RemixAPI api = renderer.getRemixApi();
         if (api != null) {
             for (ColumnRenderState state : renderColumns.values()) {
@@ -1834,7 +1928,7 @@ public class ChunkManager {
             examined++;
             int cx = (int) (key >> 32);
             int cz = (int) key;
-            WorldChunk chunk = currentWorld.getChunkManager().getWorldChunk(cx, cz, false);
+            LevelChunk chunk = currentWorld.getChunkSource().getChunk(cx, cz, false);
             if (chunk == null && terrain.findColumn(cx, cz) != null) {
                 // The column left without an unload event, so nothing has
                 // cancelled its light tasks yet.
@@ -1854,7 +1948,11 @@ public class ChunkManager {
     }
 
     public void clear() {
+        lodScene.clear();
+        pendingLodRemovals.clear();
         epoch++;
+        for (MeshInstallCursor cursor : stagedNearInstalls) abortInstall(cursor);
+        stagedNearInstalls.clear(); nearBatchReady = false;
         if (activeInstall != null) {
             abortInstall(activeInstall);
             activeInstall = null;
@@ -1913,6 +2011,7 @@ public class ChunkManager {
 
     public void destroy() {
         clear();
+        lodScene.close();
         meshBuildExecutor.shutdown();
     }
 

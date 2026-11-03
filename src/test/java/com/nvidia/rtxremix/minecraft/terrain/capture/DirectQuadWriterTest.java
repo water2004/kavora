@@ -4,14 +4,13 @@
  */
 package com.nvidia.rtxremix.minecraft.terrain.capture;
 
-import com.nvidia.rtxremix.HardcodedVertex;
 import com.nvidia.rtxremix.minecraft.terrain.ChunkManager;
 import com.nvidia.rtxremix.minecraft.texture.BlockTextureManager;
-import net.minecraft.util.Identifier;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import net.minecraft.resources.Identifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -19,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DirectQuadWriterTest {
 
-    private static final Identifier CUTOUT_SPRITE = Identifier.ofVanilla("test/cutout");
+    private static final Identifier CUTOUT_SPRITE = Identifier.withDefaultNamespace("test/cutout");
     private static final float[] FRONT_POSITIONS = {
             0.0f, 0.0f, 0.0f,
             1.0f, 0.0f, 0.0f,
@@ -44,6 +43,25 @@ class DirectQuadWriterTest {
             0.75f, 0.25f,
             0.25f, 0.25f
     };
+
+    @Test
+    void evaluatedQuadsPreserveEveryVertexTintAndHashIt() {
+        DirectQuadWriter writer = new DirectQuadWriter();
+        writer.beginSection();
+        int[] colors = {0xff123456, 0xff234567, 0xff345678, 0xff456789};
+        writer.stageColoredQuad(FRONT_POSITIONS, FRONT_UVS, 0, 0, 1, colors,
+                CUTOUT_SPRITE, 0, 0, 1, 1, "solid");
+        writer.flushBlock(null);
+        SectionMeshData data = writer.buildMeshData();
+        try {
+            ByteBuffer vertices = data.surfaces().get(0).vertexBuffer().duplicate().order(ByteOrder.LITTLE_ENDIAN);
+            for (int vertex = 0; vertex < 4; vertex++) assertEquals(colors[vertex], vertices.getInt(vertex * SectionMeshData.VERTEX_STRIDE + 32));
+            assertEquals(new SectionMeshData(data.surfaces()).contentHash(), data.contentHash());
+        } finally {
+            data.release();
+            writer.releaseBuffers();
+        }
+    }
 
     @Test
     void precomputedHashMatchesSectionMeshDataHash() {
@@ -93,9 +111,9 @@ class DirectQuadWriterTest {
         assertEquals(0.0f, vertices.getFloat(0));
         assertEquals(0.0f, vertices.getFloat(4));
         assertEquals(0.0f, vertices.getFloat(8));
-        assertEquals(1.0f, vertices.getFloat(2 * 64));
-        assertEquals(1.0f, vertices.getFloat(2 * 64 + 4));
-        assertEquals(0.0f, vertices.getFloat(2 * 64 + 8));
+        assertEquals(1.0f, vertices.getFloat(2 * SectionMeshData.VERTEX_STRIDE));
+        assertEquals(1.0f, vertices.getFloat(2 * SectionMeshData.VERTEX_STRIDE + 4));
+        assertEquals(0.0f, vertices.getFloat(2 * SectionMeshData.VERTEX_STRIDE + 8));
     }
 
     @Test
@@ -117,7 +135,7 @@ class DirectQuadWriterTest {
             assertTrue(vertices.isDirect());
             assertEquals(0, vertices.position());
             assertEquals(20, surface.vertexCount());
-            assertEquals(20 * HardcodedVertex.STRIDE, vertices.limit());
+            assertEquals(20 * SectionMeshData.VERTEX_STRIDE, vertices.limit());
             assertTrue(vertices.capacity() >= vertices.limit());
         } finally {
             meshData.release();
@@ -139,8 +157,8 @@ class DirectQuadWriterTest {
         assertEquals(4, surface.vertexCount());
         assertEquals(6, surface.indexCount());
         for (int vertex = 0; vertex < 4; vertex++) {
-            assertEquals(FRONT_UVS[vertex * 2], vertices.getFloat(vertex * 64 + 24));
-            assertEquals(FRONT_UVS[vertex * 2 + 1], vertices.getFloat(vertex * 64 + 28));
+            assertEquals(FRONT_UVS[vertex * 2], vertices.getFloat(vertex * SectionMeshData.VERTEX_STRIDE + 24));
+            assertEquals(FRONT_UVS[vertex * 2 + 1], vertices.getFloat(vertex * SectionMeshData.VERTEX_STRIDE + 28));
         }
     }
 
@@ -152,7 +170,7 @@ class DirectQuadWriterTest {
         stageCutoutQuad(writer, FRONT_POSITIONS, FRONT_UVS, 1.0f, CUTOUT_SPRITE, 0xFFFFFFFF);
         stageCutoutQuad(writer, BACK_POSITIONS, DISTINCT_BACK_UVS, 1.0f, CUTOUT_SPRITE, 0xFFFFFFFF);
         stageCutoutQuad(writer, BACK_POSITIONS, DISTINCT_BACK_UVS, -1.0f,
-                Identifier.ofVanilla("test/cutout_overlay"), 0xFFFFFFFF);
+                Identifier.withDefaultNamespace("test/cutout_overlay"), 0xFFFFFFFF);
         writer.flushBlock(null);
 
         assertEquals(12, totalVertices(writer.buildMeshData()));

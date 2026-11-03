@@ -16,6 +16,10 @@ public class HardcodedVertex {
     /** Native struct size in bytes (must match remixapi_HardcodedVertex: 16 fields * 4 = 64). */
     public static final int STRIDE = 64;
 
+    /** Compact CPU input and runtime vertex storage, excluding trailing padding.
+     * Shared GPU buffers retain {@link #STRIDE}. This counts no indices, skinning or BLAS storage. */
+    public static final int STORAGE_STRIDE = 44;
+
     public float[] position = new float[3];
     public float[] normal = new float[3];
     public float[] texcoord = new float[2];
@@ -52,17 +56,22 @@ public class HardcodedVertex {
 
     /** Writes this vertex's fields into a direct ByteBuffer at its current position. */
     public void writeTo(ByteBuffer buf) {
+        writeCompactTo(buf);
+        buf.putInt(_pad0);
+        buf.putInt(_pad1);
+        buf.putInt(_pad2);
+        buf.putInt(_pad3);
+        buf.putInt(_pad4);
+    }
+
+    /** Writes every vertex attribute without padding, for COMPACT_VERTICES CPU surfaces. */
+    public void writeCompactTo(ByteBuffer buf) {
         buf.putFloat(position[0]).putFloat(position[1]).putFloat(position[2]);
         buf.putFloat(normal[0]).putFloat(normal[1]).putFloat(normal[2]);
         buf.putFloat(texcoord[0]).putFloat(texcoord[1]);
         buf.putInt(color);
         buf.putInt(texcoordBoundsMin);
         buf.putInt(texcoordBoundsMax);
-        buf.putInt(_pad0);
-        buf.putInt(_pad1);
-        buf.putInt(_pad2);
-        buf.putInt(_pad3);
-        buf.putInt(_pad4);
     }
 
     public HardcodedVertex(float[] position, float[] normal, float[] texcoord, int color) {

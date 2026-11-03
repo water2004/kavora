@@ -4,15 +4,15 @@
  */
 package com.nvidia.rtxremix.minecraft.terrain.visibility;
 
-import net.minecraft.util.math.Direction;
-import net.minecraft.util.math.MathHelper;
+import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 
 /**
  * Vanilla's line-of-sight probe for sections far from the camera, without its per-step
  * allocations.
  *
  * <p>Vanilla's visibility walk admits a neighbour more than 60 blocks from the camera only if
- * a ray from the neighbour's near corner toward the camera passes exclusively through
+ * a ray from the current section's selected corner toward the camera passes exclusively through
  * sections that exist and are already in the visible graph. It advances the ray in fixed
  * steps and, per step, allocates a Vec3d for the remaining offset, a Vec3d for the advanced
  * point and a BlockPos for the lookup. This reproduces the same arithmetic in the same order
@@ -28,8 +28,6 @@ public final class FarChunkProbe {
 
     /** Squared distance at which the ray is close enough to the camera to stop. */
     private static final double NEAR_CAMERA_DISTANCE_SQUARED = 3600.0;
-    /** Below this length vanilla's {@code Vec3d.normalize} yields the zero vector. */
-    private static final double NORMALIZE_EPSILON = 1.0E-4;
 
     private FarChunkProbe() {}
 
@@ -67,22 +65,18 @@ public final class FarChunkProbe {
         double toCameraX = cameraX - pointX;
         double toCameraY = cameraY - pointY;
         double toCameraZ = cameraZ - pointZ;
-        double length = Math.sqrt(toCameraX * toCameraX + toCameraY * toCameraY + toCameraZ * toCameraZ);
-        double stepX = 0.0;
-        double stepY = 0.0;
-        double stepZ = 0.0;
-        if (!(length < NORMALIZE_EPSILON)) {
-            stepX = toCameraX / length * step;
-            stepY = toCameraY / length * step;
-            stepZ = toCameraZ / length * step;
-        }
+        double inverseLength = org.joml.Math.invsqrt(org.joml.Math.fma(toCameraX, toCameraX,
+                org.joml.Math.fma(toCameraY, toCameraY, toCameraZ * toCameraZ)));
+        double stepX = toCameraX * inverseLength * step;
+        double stepY = toCameraY * inverseLength * step;
+        double stepZ = toCameraZ * inverseLength * step;
 
         while (true) {
             double remainingX = cameraX - pointX;
             double remainingY = cameraY - pointY;
             double remainingZ = cameraZ - pointZ;
-            if (!(remainingX * remainingX + remainingY * remainingY + remainingZ * remainingZ
-                    > NEAR_CAMERA_DISTANCE_SQUARED)) {
+            if (!(org.joml.Math.fma(remainingX, remainingX,
+                    org.joml.Math.fma(remainingY, remainingY, remainingZ * remainingZ)) > NEAR_CAMERA_DISTANCE_SQUARED)) {
                 return true;
             }
             pointX += stepX;
@@ -92,7 +86,7 @@ public final class FarChunkProbe {
                 return true;
             }
             if (!graph.contains(
-                    MathHelper.floor(pointX), MathHelper.floor(pointY), MathHelper.floor(pointZ))) {
+                    Mth.floor(pointX), Mth.floor(pointY), Mth.floor(pointZ))) {
                 return false;
             }
         }

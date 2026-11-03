@@ -6,29 +6,29 @@ package com.nvidia.rtxremix.minecraft.mixin;
 
 import com.nvidia.rtxremix.minecraft.terrain.capture.RenderRegionStoragePool;
 import com.nvidia.rtxremix.minecraft.terrain.capture.RegionSnapshotRelease;
-import net.minecraft.block.BlockState;
-import net.minecraft.util.collection.PackedIntegerArray;
-import net.minecraft.world.chunk.PalettedContainer;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import net.minecraft.util.SimpleBitStorage;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.PalettedContainer;
 
 /**
- * A chunk snapshot for a render region whose block-state copies draw their storage from
+ * A section snapshot for a render region whose block-state copy draws its storage from
  * {@link RenderRegionStoragePool} and give it back when the last region holding the snapshot
  * has been consumed. Snapshots are shared between the regions one frame's rebuild scheduling
  * builds, hence the count. The pool flag is set around the constructor by
  * {@link ClientChunkMixin}; vanilla's own snapshot code is untouched.
  */
-@Mixin(targets = "net.minecraft.client.render.chunk.RenderedChunk")
+@Mixin(targets = "net.minecraft.client.renderer.chunk.SectionCopy")
 public abstract class RenderedChunkMixin implements RegionSnapshotRelease {
 
     @Shadow
     @Final
-    private List<PalettedContainer<BlockState>> blockStateContainers;
+    @org.spongepowered.asm.mixin.Mutable
+    private PalettedContainer<BlockState> section;
 
     private final AtomicInteger rtxremix$regions = new AtomicInteger();
 
@@ -39,16 +39,12 @@ public abstract class RenderedChunkMixin implements RegionSnapshotRelease {
 
     @Override
     public void rtxremix$release() {
-        if (rtxremix$regions.decrementAndGet() != 0 || blockStateContainers == null) {
-            return;
+        int remaining = rtxremix$regions.decrementAndGet();
+        if (remaining < 0) throw new IllegalStateException("section snapshot released twice");
+        if (remaining != 0 || section == null) return;
+        if (section.data.storage() instanceof SimpleBitStorage packed) {
+            RenderRegionStoragePool.release(packed.getRaw());
         }
-        for (PalettedContainer<BlockState> container : blockStateContainers) {
-            if (container != null && container.data.storage() instanceof PackedIntegerArray packed) {
-                RenderRegionStoragePool.release(packed.getData());
-            }
-        }
-        // Nothing may read the snapshot after its last release; make a stale read fail loudly
-        // instead of returning whatever the recycled arrays hold next.
-        blockStateContainers.clear();
+        section = null;
     }
 }

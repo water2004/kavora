@@ -1,105 +1,119 @@
-# RTX Remix Java + JNI Shim
+# RTX Remix Java FFM binding
 
-`rtxremix-java` is a Java facade and JNI shim over the NVIDIA RTX Remix C API.
-It exposes runtime operations, data structures, and handles to Java consumers,
-marshals calls through JNI, and loads the separately distributed native runtime
-built from [dxvk-remix](https://github.com/NVIDIAGameWorks/dxvk-remix).
-It does not implement a renderer or interpret application state.
+`rtxremix-java` is a Minecraft-independent Java facade and Java 25 Foreign
+Function and Memory binding for the source-built RTX Remix custom C API 1.5.0.
+It calls the matching [runtime fork](https://github.com/water2004/dxvk-remix)
+directly. It does not implement rendering or interpret game state.
 
-The shim is Minecraft-agnostic. It must never import `net.minecraft` or
-`net.fabricmc`; game integration belongs to the consuming application.
-The root `RemixJavaBoundaryTest` enforces that dependency boundary.
+Game integration belongs in the mod. This module must not import
+`net.minecraft` or `net.fabricmc`; the root `RemixJavaBoundaryTest` enforces that
+boundary. There is no JNI or JNA bridge. `rtxremix-support.dll` is a separate
+Windows crash/process helper and does not marshal Remix calls.
 
-## Components
-
-Paths in this table are relative to `rtxremix-java/`.
+## Sources and ownership
 
 | Path | Responsibility |
 |---|---|
-| `src/com/nvidia/rtxremix/RemixAPI.java` | Java facade for runtime operations |
-| `src/com/nvidia/rtxremix/RemixBridge.java` | Static JNI entry points |
-| `src/com/nvidia/rtxremix/` | API data holders, builders, constants, and handles |
-| `native/remixbridge.cpp` | Runtime loading, JNI marshalling, and C API calls |
-| `native/include/remix_c.h` | C API header copied from the pinned runtime build |
-| `native/build_native.bat` | MSVC bridge build for Windows x64 or ARM64 |
+| `src/com/nvidia/rtxremix/RemixAPI.java` | Public facade and error handling |
+| `src/com/nvidia/rtxremix/RemixBridge.java` | Foreign calls and native memory marshalling |
+| `src/com/nvidia/rtxremix/RemixLayouts.java` | Generated native structure layouts |
+| `native/include/remix_c.h` | Matching copy of the runtime's custom C API |
+| `native/crash_support.cpp` | Windows crash and process support |
+| `ffm-test/` | C/Java ABI probes, mock runtime and lifecycle tests |
 
-The bridge loads `d3d9.dll`, calls `remixapi_InitializeLibrary`, and forwards
-Java operations through the resulting C API interface. Java-side handles are
-raw `long` values. Native methods that require direct `ByteBuffer`s must not
-receive heap buffers. Document buffer directness on every new JNI entry point.
-There is no JNA interface table.
+Java handles are raw `long` values; callers own their lifetime. The mod creates,
+updates and destroys rendering handles on the render thread. Direct-buffer
+arguments must remain alive until the foreign call returns. The bridge reads
+buffers from index zero, independently of their current position; callers must
+provide the documented native byte order and enough bytes for every element.
+Native extension chains allocated by the binding must be released by their owner.
 
-## Consumption By The Root Build
+`updateLight` calls the additive `remixapi_UpdateLight` export without changing
+the 1.5.0 interface-table layout. It copies the same `LightInfo` and extension
+structures as creation, retaining the native handle and temporal light identity.
+Creating another light with the same hash creates a separate resource. Dome
+and analytical lights keep their respective kind across an update. The loader
+requires this export from the matching source-built runtime.
 
-The repository's root Gradle project compiles these Java sources directly with
-the mod and builds `remixbridge.dll`. There is no separate wrapper Java build
-or example launcher. The mod is a consumer of the shim, not a dependency of it.
+`VulkanClientFrameInfo` extends Present with a host-owned color image on the
+runtime's device. Signal its ready timeline after rendering and wait for the
+returned consumed timeline before overwriting it. Presenting image zero
+synchronously releases borrowed native views before the host destroys an image.
+Presentation counters are asynchronous and restart with their epoch. NGX frame
+generation capabilities are queried separately from the selected multiplier.
 
-Building requires Windows, a 64-bit JDK 21 with `JAVA_HOME` set to it, and
-Visual Studio C++ tools. Running also requires a supported NVIDIA RTX GPU and
-a runtime matching the copied C API header. The root paths are:
+The DLL loader reference lives until process exit. Closing a rendering session
+releases its API/device resources without unloading the library, whose Windows
+Tracy teardown can otherwise terminate the JVM during a later reinitialization.
 
-| Path | Responsibility |
-|---|---|
-| `packman/remix-sdk.packman.xml` | Published runtime version pins |
-| `packman/` | Runtime package pins and Packman bootstrap |
-| `tools\rtx.bat sdk` | SDK source selection, local snapshots, and refresh |
-| `remix-runtime/{win64,arm64}/` | Ignored runtime junctions or local snapshots |
-| `build/native/{win64,arm64}/` | Ignored JNI bridge build outputs |
+## Building and staging
 
-Run from the repository root:
+Use Java 25, Windows and the Visual Studio C++ toolchain. The root Gradle build
+compiles the Java sources directly and builds the support library in
+`build/native/{win64|arm64}/`; there is no separate Java wrapper build.
+Running requires `--enable-native-access=ALL-UNNAMED`, included in both Gradle
+and installer defaults.
+
+First build the matching runtime from source, generate provenance from its
+completed output, and stage that output:
 
 ```powershell
-.\gradlew.bat build
-.\gradlew.bat test
-.\tools\rtx.bat launch
+.\tools\rtx.bat sdk local --arch win64 --path <runtime-output>
+.\gradlew.bat build test
 ```
 
-Gradle fetches missing runtimes automatically, then combines the selected runtime
-with the separately built bridge during development staging and packaging. Packman runtime directories are read-only
-junctions into a shared cache, so they stay outside `build/` and must never
-receive bridge outputs. A staged local runtime is a snapshot copy instead.
-SDK payloads and native outputs are not committed.
+Staging validates custom API 1.5.0, PE architecture, source revision and DLL
+SHA-256. Published 0.x packages and upstream 1.21.1 installers are incompatible;
+`sdk packman` cannot supply a fallback. `sdk restage` refreshes the recorded
+source snapshot. Runtime outputs remain ignored under
+`remix-runtime/{win64|arm64}/`. Never write support-library outputs into the
+read-only Packman texture junction.
 
-For a bridge-only rebuild from the root, use
-`.\gradlew.bat compileNativeWin64` (`compileNativeArm64` for ARM64), or
-`.\rtxremix-java\native\build_native.bat x64` (`arm64` for cross-compilation).
-The native build uses `rtxremix-java/native/include/remix_c.h` unless
-`REMIX_INCLUDE` selects another header directory. See
-[Getting Started](../docs/GETTING_STARTED.md) for prerequisites, published and
-local SDK workflows, and packaging.
+To build only the support library, use `gradlew.bat compileNativeWin64`
+(`compileNativeArm64` for ARM64), or
+`rtxremix-java\native\build_native.bat x64` (`arm64` for cross-compilation).
+See [Getting Started](../docs/GETTING_STARTED.md) for the complete staging and
+packaging inventory. Stop clients from this checkout before Gradle stages files.
 
-## API Change Workflow
+## API changes and validation
 
-1. Put renderer behavior and C API changes in dxvk-remix. Keep Java types and
-   JNI marshalling in this shim, without application-specific dependencies.
-2. Once the matching runtime package is published, update
-   `packman/remix-sdk.packman.xml` at the repository root and the copied header
-   together. The header matches the pinned build, which can be ahead of
-   dxvk-remix `main`; do not edit it in isolation.
-3. Update `native/remixbridge.cpp`, `RemixBridge.java`, `RemixAPI.java`, affected
-   data types, and all consuming mod callers in the same pull request.
-   `StructType.java` values and API version constants must match the runtime.
-   See [Runtime And Java API Changes](../AGENTS.md#runtime-and-java-api-changes)
-   for struct-type coordination and version negotiation.
-4. Restore the pinned SDKs and rebuild the bridges from the root with
-   `.\tools\rtx.bat sdk packman --arch all` and
-   `.\gradlew.bat compileNativeWin64 compileNativeArm64`.
-5. Build, run the JVM tests, and exercise native loading and rendering by
-   launching with the root `tools\rtx.bat launch` before requesting review. Java compilation
-   and JVM tests alone do not validate JNI compatibility. The published,
-   pinned runtime must implement the API exposed by the header and facade.
+`TextureFromMemoryInfo.immutable` opts out of subsequent texture patches through
+the `TextureImmutableEXT` creation extension. It transfers the native CPU mip
+chain to the initial upload and releases it after staging has consumed it.
+Omitting the extension preserves mutable-texture behavior. The direct Java pixel
+buffer must remain alive until creation returns in either mode. Authored mip
+chains can be combined with the immutable extension; texture purpose and mip
+filtering are unchanged.
 
-Repository-wide contribution rules and sign-off requirements are in
-[CONTRIBUTING.md](../CONTRIBUTING.md). Agent guidance and JNI invariants are in
-[AGENTS.md](../AGENTS.md#integrated-jni-wrapper).
+Change renderer behavior and the C API in the runtime fork, marshalling and
+layouts here, and game capture in the mod. Update the runtime header, copied
+header, `StructType.java`, layouts, foreign descriptors, bridge, facade, data
+holders and callers together. A matching version label alone does not prove ABI
+compatibility. `ffm-test/generate_layouts.py --check` detects stale layouts.
+
+With `JAVA_HOME` pointing at Java 25, run from the repository root:
+
+```powershell
+.\rtxremix-java\ffm-test\test-layouts.bat
+.\rtxremix-java\ffm-test\test-bridge.bat
+.\gradlew.bat build test compileGametestJava
+```
+
+The C layout probe checks Java sizes, alignments and field offsets. The mock
+runtime exercises every foreign entry point, extension marshalling and repeated
+shutdown/reinitialization. These tests do not establish native initialization,
+shared-device presentation, image correctness or performance. Validate the exact
+source-built runtime with Gradle `runClient`/`runClientGameTest` on both selected
+Minecraft graphics backends, or the signed-in Prism workflow.
+
+[CONTRIBUTING.md](../CONTRIBUTING.md) and the root
+[FFM binding rules](../AGENTS.md#integrated-ffm-binding) apply to changes here.
 
 ## License
 
 Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-The shim is covered by the repository's Apache License, Version 2.0.
-See [LICENSE](../LICENSE), [NOTICE](../NOTICE), and
-[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for the applicable terms and
+The binding is covered by the repository's Apache License, Version 2.0.
+See [LICENSE](../LICENSE), [NOTICE](../NOTICE) and
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for applicable terms and
 attributions.
-

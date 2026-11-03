@@ -27,7 +27,6 @@ public final class RtxSetting<T> {
     private final T defaultValue;
     private final Supplier<T> getter;
     private final Consumer<T> applier;
-    private boolean applySliderValueImmediately = true;
     private int step = 1;
 
     private RtxSetting(String id, SettingGroup group, String labelKey, String tooltipKey,
@@ -68,19 +67,9 @@ public final class RtxSetting<T> {
     public double min() { return min; }
     public double max() { return max; }
     public T defaultValue() { return defaultValue; }
-    public boolean applySliderValueImmediately() { return applySliderValueImmediately; }
 
     /** The spacing between the values an INT setting takes; 1 unless {@link #withStep}. */
     public int step() { return step; }
-
-    /**
-     * Defers an expensive slider applier until Minecraft's slider settles or
-     * the options screen commits its pending values.
-     */
-    public RtxSetting<T> deferSliderApply() {
-        applySliderValueImmediately = false;
-        return this;
-    }
 
     /**
      * Restricts an INT setting to multiples of {@code step}, as vanilla's

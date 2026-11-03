@@ -7,25 +7,10 @@ package com.nvidia.rtxremix.minecraft.texture;
 import java.nio.ByteBuffer;
 
 /**
- * CPU copy of one font glyph-atlas page.
- *
- * <p>Minecraft assembles a {@code GlyphAtlasTexture} on the GPU: each glyph is uploaded
- * into its slot the first time it is rendered, from a source image that may be freed the
- * moment the upload returns, so the GL texture is the only complete copy of the page.
- * Remix needs the pixels to build a material for text quads, so this mirror follows
- * every glyph upload. {@code GlyphAtlasTextureMixin} opens an upload scope around the
- * glyph's {@code upload} call, and the upload mixins on {@code NativeImage} and
- * {@code GlStateManager} write the same rectangle here that they hand to GL.
- *
- * <p>The mirror stores what the text shaders read, not what was uploaded. A colour page
- * is an RGBA8 texture and keeps the uploaded channels as {@code glTexSubImage2D}
- * converts them, missing colour channels zero and missing alpha opaque. An intensity
- * page is an R8 texture that {@code rendertype_text_intensity} samples as {@code .rrrr},
- * so red is spread across all four channels here.
- *
- * <p>Glyph uploads run only on the render thread ({@code NativeImage.uploadInternal}
- * asserts it) and every reader of {@link #data()} runs there too, so the page and the
- * upload scope carry no synchronisation.
+ * CPU copy of one font page assembled from RenderPearl texture uploads.
+ * Colour pages retain RGBA bytes. Intensity pages expand their red coverage
+ * across all channels to match Minecraft's text shader sampling.
+ * Uploads and consumers run on the render thread.
  */
 public final class GlyphPageMirror {
 
@@ -43,8 +28,6 @@ public final class GlyphPageMirror {
      * font reload is newer than the page it replaces: its consumer must re-upload rather
      * than keep the predecessor's slots.
      */
-    private static long nextVersion = 1L;
-    private static GlyphPageMirror uploadTarget;
 
     private final boolean intensity;
     private final byte[] data = new byte[PAGE_SIZE * PAGE_SIZE * CHANNELS];
@@ -75,7 +58,7 @@ public final class GlyphPageMirror {
      * @param y           slot row in the page
      * @param width       uploaded rectangle width in pixels
      * @param height      uploaded rectangle height in pixels
-     * @param channels    bytes per source pixel, in GL channel order: red, green, blue, alpha
+     * @param channels    bytes per source pixel, in channel order: red, green, blue, alpha
      * @param src         source bytes, positioned at the rectangle's first pixel
      * @param srcRowPitch bytes from one source row to the next
      * @throws IllegalArgumentException if the rectangle does not fit the page; a slot always does
@@ -106,22 +89,7 @@ public final class GlyphPageMirror {
                 data[d + 3] = (byte) a;
             }
         }
-        version = nextVersion++;
+        version = DynamicTextureCache.allocateVersion();
     }
 
-    // ---- Upload scope ----
-
-    /** Marks {@code page} as the destination of the glyph upload about to run. */
-    public static void beginUpload(GlyphPageMirror page) {
-        uploadTarget = page;
-    }
-
-    public static void endUpload() {
-        uploadTarget = null;
-    }
-
-    /** The page a glyph is being uploaded into, or null outside a glyph upload. */
-    public static GlyphPageMirror uploadTarget() {
-        return uploadTarget;
-    }
 }

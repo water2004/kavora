@@ -62,6 +62,7 @@ if ($env:PRISM_TEST_NEXT_JVM_ARGS) {
     $script:RECOMMENDED_JVM_ARGS = $env:PRISM_TEST_NEXT_JVM_ARGS
 }
 switch ($Action) {
+    'Initialize' { Initialize-PrismInstance -InstanceDir (Split-Path -Parent $Cfg) }
     'Sync' { Sync-JvmArgs -For Prism -PrismCfg $Cfg -Unattended:$Unattended }
     'SyncMicrosoft' { Sync-JvmArgs -For Microsoft -Unattended:$Unattended }
     'JavaPin' {
@@ -90,7 +91,7 @@ switch ($Action) {
 PROMPTED = "Confirm-YesNo:"
 INSTANCE_NAME = "NVIDIA RTX Remix for Minecraft"
 # instance.cfg as Initialize-PrismInstance creates it.
-NEW_INSTANCE = f"InstanceType=OneSix\r\nname={INSTANCE_NAME}\r\nJavaVersion=21"
+NEW_INSTANCE = f"InstanceType=OneSix\r\nname={INSTANCE_NAME}\r\nJavaVersion=25"
 USER_MEMORY = "OverrideMemory=true\r\nMinMemAlloc=1024\r\nMaxMemAlloc=8192\r\n"
 # What Prism saves when the instance's Java settings are applied with Memory unticked: Prism's global memory, and no
 # MinMemAlloc or MaxMemAlloc of the instance's own (JavaSettingsWidget::saveSettings in
@@ -973,3 +974,36 @@ def test_memory_follows_the_heap_the_jvm_args_set(
 
 def test_args_without_a_heap_leave_memory_to_prism(memory_settings: MemorySettings):
     assert memory_settings("-XX:+UseG1GC") == {}
+
+
+def test_prism_upgrade_updates_game_components_and_preserves_extra_components(sync: Sync, tmp_path: Path):
+    pack = tmp_path / "mmc-pack.json"
+    original = {
+        "components": [
+            {"uid": "net.minecraft", "version": "1.21.1", "important": True},
+            {"uid": "net.fabricmc.fabric-loader", "version": "0.16.5"},
+            {"uid": "custom.component", "version": "custom", "cachedName": "Author component"},
+        ],
+        "formatVersion": 1,
+        "customProperty": "author",
+    }
+    pack.write_text(json.dumps(original), encoding="utf-8")
+    configured, _ = sync(NEW_INSTANCE, action="Initialize")
+    updated = json.loads(pack.read_text(encoding="utf-8"))
+    versions = {component["uid"]: component["version"] for component in updated["components"]}
+    assert versions["net.minecraft"] == "26.3"
+    assert versions["net.fabricmc.fabric-loader"] == "0.20.1"
+    assert updated["components"][2] == original["components"][2]
+    assert updated["customProperty"] == "author"
+    assert configured == NEW_INSTANCE
+
+
+def test_new_prism_instance_uses_java_25_and_current_components(tmp_path: Path):
+    cfg = tmp_path / "instance.cfg"
+    run_harness(tmp_path, "-Cfg", str(cfg), "-Action", "Initialize")
+    assert "JavaVersion=25" in cfg.read_text(encoding="ascii")
+    pack = json.loads((tmp_path / "mmc-pack.json").read_text(encoding="utf-8"))
+    assert {component["uid"]: component["version"] for component in pack["components"]} == {
+        "net.minecraft": "26.3",
+        "net.fabricmc.fabric-loader": "0.20.1",
+    }

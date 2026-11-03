@@ -370,3 +370,9 @@ To migrate a fixture:
 
 Treat a fixture version and all of its cameras as one release unit. Never
 distribute or pin a fixture that mixes legacy and version 1 paths.
+
+A trigger for a copied fixture may explicitly set `confirmWorldUpgrade: true`
+to proceed past vanilla's version-upgrade dialog without another backup or cache
+erase. Use this only for a disposable copy whose original is preserved. The
+default leaves that decision to the user; QuickPlay fallback never opens a second
+save access while the dialog owns the first one's lock.

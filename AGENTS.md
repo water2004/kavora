@@ -4,10 +4,10 @@ Context for AI coding agents working in this repository.
 
 ## Project Overview
 
-`rtx-remix-minecraft` is a Fabric mod that renders Minecraft 1.21.1 through
+`rtx-remix-minecraft` is a Fabric mod that renders Minecraft 26.3 through
 NVIDIA RTX Remix. It captures terrain, entities, particles, sky, and clouds from
 the client and submits them to the Remix runtime as a path-traced scene. The
-Java facade and JNI bridge are tracked under `rtxremix-java/`; the native
+Java facade and Java 25 FFM bindings are tracked under `rtxremix-java/`; the native
 runtime and the Remix C API come from dxvk-remix. A change often spans all
 three layers.
 
@@ -27,8 +27,15 @@ subdirectory may carry its own `AGENTS.md`; read the nearest one as well.
 
 ## Build, Run, Package, Test
 
-Java 21, Windows, and the C++ toolchain are required. Gradle fetches a missing
-Remix runtime automatically. [Getting Started](docs/GETTING_STARTED.md) covers local overrides.
+Java 25, Windows, and the C++ toolchain are required. Stage the matching
+source-built `water2004/dxvk-remix` runtime (custom C API 1.5.0) first.
+Published 0.x runtime packages and upstream 1.21.1 installers are incompatible.
+This is an integration branch; compilation and tests do not establish playability.
+[Getting Started](docs/GETTING_STARTED.md) covers local overrides. The renderer uses Vulkan exclusively. Select it through Minecraft's options
+before device creation and do not allow an OpenGL fallback. Sodium 0.9.2 is required and owns
+terrain capture and the shared video settings UI. Keep Sodium and Fabric API as
+independent JARs, never nested dependencies. Voxy is unsupported. Optional far terrain uses the FarTerrainExtension API;
+its implementation and dependencies live in a separate project and JAR.
 
 ```powershell
 .\gradlew.bat build
@@ -44,8 +51,8 @@ reuses its normal account profile; portable Prism keeps its profile under
 owns Minecraft: Java Edition. See
 [Getting Started](docs/GETTING_STARTED.md#sign-in-to-prism).
 
-`classes` depends on `setupRuntime`, which compiles the JNI bridge, fetches a
-missing runtime, and stages it, so even `test` needs the C++ toolchain.
+`classes` depends on `setupRuntime`, which compiles `rtxremix-support.dll`, validates the
+source-built runtime provenance, and stages both, so even `test` needs the C++ toolchain.
 `build` leaves a lightweight JAR in `build/libs/`; `package` embeds
 the runtime and payload in `build/distributions/`. It verifies inclusion of
 every `packaging/licenses/` file and excludes Python interpreter and binding
@@ -69,7 +76,10 @@ excluded. See
 
 The mod needs the native runtime, not only Java code, and `NativeExtractor`
 unpacks the bundled payload on first launch, version or architecture change,
-or when `remix-sdk/` or its `d3d9.dll` is missing. Deleting
+when the bundled runtime provenance or support-library fingerprint changes,
+or when a required file under `remix-sdk/` is missing. The marker includes
+SHA-256 hashes of the bundled provenance and support library, so a runtime
+rebuilt under the same mod version is installed too. Deleting
 `.rtx-remix-version` also forces full re-extraction. Full extraction replaces
 the mod-owned `remix-sdk/`, `rtx.conf`, and the shipped runtime textures in
 `textures/`, leaving anything else in that folder alone, so a JAR installed
@@ -94,7 +104,27 @@ bridge into Remix and owns the frame. Sky textures are generated and published
 on the render thread, branched on the dimension's sky type: the End
 keeps a constant dark dome and a skyless dimension a black one with no sky
 ambient. Thread-safe stores wrap Remix-side meshes, instances, textures,
-materials, and lights over raw `long` handles from the JNI wrapper.
+materials, and lights over raw `long` handles from the FFM binding. Minecraft's
+selected backend owns its graphics resources. Vulkan device, physical device,
+queue and image synchronization belong to the render-thread integration.
+Minecraft blits the acquired runtime color directly into its composition target.
+Sampled color and depth snapshots are created and copied only when precipitation
+needs them, and the native menu snapshot only when its overlay is drawn. Each
+snapshot is copied at most once per acquired runtime frame.
+`NativeRuntime` prepares Remix before instance creation, combines Minecraft's
+device requests with the runtime's requirements, and transfers ownership of
+the resulting logical device to Minecraft after its dispatch table is ready.
+Both renderers use this single device, with distinct queues in the same graphics
+family and borrowed images and timeline semaphores. Shared color and depth
+images alias the producer's outputs; the client copies them into its own textures.
+Remix resources retire before Minecraft destroys the device, including during startup failure.
+`NativeVulkanSurface` replaces only Minecraft's surface backend and delegates
+the sole window swapchain, DLSS frame generation, and pacing to the runtime.
+The early RTX Submit ends the scene once; late Present consumes Minecraft's
+composed color. Each virtual backbuffer owns depth and motion snapshots, with
+reuse protected by its GPU acquire semaphore. A zero-image client Present
+releases borrowed source views before Minecraft destroys the image. Native
+presentation outlives renderer shutdown and closes with the host device.
 `JoinBurstHold` keeps vanilla's terrain-download screen up for a bounded wait
 for stable frames after a world join, hiding first-sight mesh, pipeline, and
 BLAS costs without holding the screen indefinitely.
@@ -106,10 +136,9 @@ it. Capture follows whether a native menu is shown, which `rtx.showUI` records:
 the start of every frame. The mod opens and closes menus by writing it, and the
 menus' own close and switch controls, the runtime's menu hotkey, and its First
 Use Guide change it too. Alt+X without Control toggles the developer menu over
-gameplay or a screen. The only other open command in the mod is the RTX Remix
-Graphics Settings button on the settings landing page; both open through
-`RtxRemixMod.openRemixMenu`, and the button queues its request so the click
-finishes dispatching first. Opening, by the mod or the runtime, finalizes held
+gameplay or a screen. Ordinary video settings, including advanced runtime options, stay in Sodium
+and do not open a native menu or capture input. The native developer menu
+opens through `RtxRemixMod.openRemixMenu`. Opening, by the mod or the runtime, finalizes held
 key bindings, vanilla's F3 combination state, and active mouse interactions
 because their releases will not reach Minecraft. Capture excludes Minecraft
 input and cursor-lock requests, and screens see an off-screen cursor to clear
@@ -121,6 +150,8 @@ controls take effect only because `SetConfigVariable` writes `NoSave` options
 such as `rtx.showUI` to the Derived layer, where the menus write them; a User
 Settings value would mask every native close. The packaged `rtx.conf` parks the
 runtime binding on a chord Windows cannot deliver.
+Native menu visibility also enables its render pass in the interop swapchain;
+`rtx.gui.enableExternalPresenter` is not required to open it.
 
 **Camera paths.** A time-aware shape-preserving cubic Hermite path over
 nonuniform waypoint times with shortest-route unwrapped yaw, a strict version 1
@@ -136,14 +167,17 @@ counterpart, so a map overrides per option rather than replacing an archetype,
 and it needs the integrated server, so it is single-player only. Profiles
 resolve above `rtx.conf` and below user settings and quality presets.
 
-**Procedural clouds.** Cloud identity and motion are stateless functions of cell
-coordinates and synchronized world time, so clients reconstruct the same clouds
-with no network state. One worker builds the mesh palette lazily, the render
-thread uploads one mesh per frame, and each visible cloud submits one palette
-mesh with one transform. Choosing the Classic cloud style switches to vanilla
-texture partitions that keep vanilla's cloud period and phase.
+**Clouds and fog.** Volumetric clouds use a world-space density field advected
+by synchronized world time. The runtime generates a periodic 3D noise palette
+once per device. Camera, reflection, refraction, and visibility rays sample the
+same density field. A single ray-segment integrator combines cloud and fog
+extinction and scattering before compositing. Fog height and noise affect both
+lighting and attenuation. Cloud distance is independent of terrain distance.
+Choosing Classic submits vanilla texture partitions with vanilla's period and
+phase as ray-traced geometry instead. The visual settings stage edits across
+Iris-style folders and commit once on Apply; Sodium owns the performance pages.
 
-**Terrain.** Minecraft workers build section meshes, a low-concurrency executor
+**Terrain.** Sodium workers build and capture section meshes, a low-concurrency executor
 merges them into chunk-column assets split into byte-capped pages per category,
 and the render thread publishes them under a frame budget and retires replaced
 pages through a bounded queue. Concurrent vanilla section builds are capped.
@@ -182,9 +216,12 @@ the surfaces unreadable while the cached hashes stay readable for diffing.
 **Textures and atlases.** Atlas capture produces per-sprite materials plus
 atlas-level PBR, emissive, and luminance textures. Animated sprite uploads are
 batched and forwarded, which needs the upload hook, the patch types in the
-wrapper, and runtime support for updating a texture from memory. Glyph pages are
-mirrored on upload, because vanilla assembles them on the GPU and never keeps
-them on the CPU.
+wrapper, and runtime support for updating a texture from memory. The runtime
+groups CPU mip generation and upload snapshots by texture on a bounded worker
+pool, preserves entry order within each texture, and joins all accepted work
+before returning from FFM. GPU uploads stay on the command thread. Glyph pages
+are mirrored on upload, because vanilla assembles them on the GPU and never
+keeps them on the CPU.
 
 **Particles.** Slot preparation and CPU mesh snapshots run on a dedicated worker
 and are double buffered: the render thread publishes the previous frame's
@@ -195,7 +232,7 @@ cache with no self-shadowing, so `ParticleTint` draws soot near-black to keep
 smoke dark over a lit floor.
 
 **Entities.** Entities and block entities that vanilla already draws are
-captured in place, so a model is evaluated once rather than once for OpenGL and
+captured in place, so a model is evaluated once rather than once for raster rendering and
 again for Remix; entities outside vanilla's frustum are swept up closest-first
 under a budget, because a path tracer needs them for shadows and reflections,
 and an entity that owns a Remix light this frame is swept at any distance so
@@ -271,7 +308,8 @@ diluting the sampler's candidate pool.
   loop's deadline read, and clock-free `TerrainNativeCallStats` tallies.
   Avoid per-block/per-quad capture allocation and per-frame render allocation.
 - Terrain capture has one path; the pre-`SectionMeshData` paths are gone
-  (`SectionBuilderMixin`).
+  (`SodiumMeshingTaskMixin`, `SodiumCapture`). There is no optional vanilla
+  capture fallback; both graphics backends require Sodium.
 - Every retained `SectionMeshData` or render-region reference is released
   exactly once: `SectionMeshData` rejects an over-release, `DirectBufferPool`
   ignores a buffer that is already idle, and `RenderRegionStoragePool` relies
@@ -313,7 +351,7 @@ diluting the sampler's candidate pool.
   `RtxRemixMod.followRemixMenuVisibility`, which `GameRendererMixin` calls at
   the start of each frame and which allocates nothing on the Java heap. The
   packaged runtime menu binding stays away from Alt+X (`KeyboardMixin`,
-  `MouseMixin`, `RtxSettingsScreen`, `packaging/rtx.conf`).
+  `MouseMixin`, `RtxSodiumConfig`, `packaging/rtx.conf`).
 - The placed Copper Beacon is not a `BlockLightDefaults` rule: its block entity
   owns a dynamic articulated light, and a static rule would light it twice
   (`LightManager`, `CopperBeaconBlockEntityRenderer`).
@@ -330,8 +368,9 @@ diluting the sampler's candidate pool.
   Their rule-id sets are validated during resource reload, not just unit tests.
 - Run entity capture on the render thread. Vanilla shares mutable renderer and
   model instances; gathering entities in parallel races on their part angles.
-- The developer tools launch only through a signed-in Prism; they never pass
-  Prism's `--offline` or launch `runClient` (`test_public_boundary.py`).
+- Developer tooling retains its signed-in Prism workflow and does not pass
+  Prism's `--offline`. Direct Gradle `runClient` is supported for source-port
+  integration validation; it uses the separate `run/` directory.
 
 ## Focused Engineering Guides
 
@@ -345,111 +384,86 @@ diluting the sampler's candidate pool.
   failures, debug views, and worktree setup. Debug-view indices belong to the
   matching dxvk-remix source, not this repository.
 
-## Integrated JNI Wrapper
+## Integrated FFM Binding
 
-`rtxremix-java/` is a Minecraft-agnostic Java facade and JNI shim over the
-RTX Remix C API. It must never import `net.minecraft` or `net.fabricmc`;
-`RemixJavaBoundaryTest.shimSourcesDoNotImportMinecraftOrFabric` enforces this
-boundary across `rtxremix-java/src/`. Keep game-state capture and Fabric
-integration in the mod, not in the shim. Wrapper and affected mod callers
-change in the same pull request.
+`rtxremix-java/` is a Minecraft-agnostic Java facade and Java 25 Foreign
+Function and Memory binding over the custom RTX Remix C API. It must never
+import `net.minecraft` or `net.fabricmc`; `RemixJavaBoundaryTest` enforces
+this boundary. Keep game-state capture and Fabric integration in the mod.
 
-The wrapper's source of truth, in order, is:
+The binding's source of truth, in order, is:
 
 1. `rtxremix-java/src/com/nvidia/rtxremix/`: `RemixAPI.java` is the facade,
-   `RemixBridge.java` declares static JNI entry points, and the other API types
-   are data holders, builders, constants, and handles.
-2. `rtxremix-java/native/remixbridge.cpp`: loads `d3d9.dll`, calls
-   `remixapi_InitializeLibrary`, stores the native interface, and forwards calls.
-3. `rtxremix-java/native/include/remix_c.h`: the copied C API header.
-4. `rtxremix-java/native/build_native.bat`: the MSVC bridge build.
-5. `packman/remix-sdk.packman.xml`: the published runtime pins.
-6. SDK source management in `tools/src/rtx_tools/sdk.py` and fetching in `build.gradle`.
+   `RemixBridge.java` performs foreign calls, and `RemixLayouts.java` defines
+   native structure layouts. The other types are data holders and handles.
+2. The source-built `water2004/dxvk-remix` runtime's custom 1.5.0 API
+   and the matching copied `rtxremix-java/native/include/remix_c.h`.
+3. `rtxremix-java/native/crash_support.cpp` and `build_native.bat`: the small
+   Windows crash/process support library, separate from the Remix binding.
+4. SDK source validation in `tools/src/rtx_tools/sdk.py` and `build.gradle`.
 
-The root Gradle build compiles the Java sources directly and builds
-`remixbridge.dll` into `build/native/{win64|arm64}/`. There is no separate
-wrapper Java build or example launcher. The native build needs Visual Studio
-C++ tools and `JAVA_HOME` pointing to a 64-bit JDK 21. It uses the
-copied header unless `REMIX_INCLUDE` explicitly selects another directory.
-The supported targets are Windows x64 and ARM64; agent shells may be POSIX
-even though the Gradle wrapper and native compiler entry points are batch scripts.
+The root build compiles Java directly with Java 25 and builds
+`rtxremix-support.dll` into `build/native/{win64|arm64}/` using MSVC. It does
+not compile a JNI bridge or require `jni.h`. The JVM needs
+`--enable-native-access=ALL-UNNAMED`. Keep that argument in both Gradle and
+installer defaults, along with their history contract.
 
-Runtime payloads live in `remix-runtime/{win64|arm64}/`, outside `build/` so
-Gradle `clean` cannot traverse Packman junctions into the shared package cache.
-The runtime textures' junction, `remix-runtime/textures/`, sits beside them.
-Treat these junctions as read-only, and keep every Packman link under
-`remix-runtime/`, which git has never tracked: a checkout of a commit that
-tracks files under a junction writes and deletes them in the shared cache. Staging and packaging combine the selected
-SDK with the separately built bridge; never write the bridge into a
-Packman-managed directory. The SDK contains `d3d9.dll`, dependent runtime DLLs,
-and USD plugin payload under `usd/`. SDK payloads and bridge outputs stay
-ignored by Git.
+Runtime outputs live in `remix-runtime/{win64|arm64}/`. A staged source build
+must include `d3d9.dll`, dependent runtime DLLs, USD payload, and
+`.runtime-provenance.json`. Provenance identifies the fork, custom API 1.5.0,
+architecture, 40-character source commit, dirty flag, and SHA-256 of the DLL.
+Validate provenance and PE architecture before replacing any staged snapshot.
 
-Gradle fetches a missing SDK before `syncRuntimeSdk` and fetches the selected
-architectures before packaging. Existing runtime directories and local overrides
-are left alone. Run source-management commands from the repository root:
+- `tools\rtx.bat sdk local --arch <arch> --path <output>` stages a completed
+  source build and records `.local-sdk-source`; `sdk restage` refreshes it.
+- Without a path, local staging uses the recorded source, then `sdk.localPath`
+  in ignored `tools/config.local.json`, then `../dxvk-remix/_output`.
+- `sdk status` reports source and snapshot freshness without changing them.
+- `sdk packman` rejects the unsupported 0.x binary fallback without modifying
+  staging. Gradle's `fetchRuntimeSdk*` task names remain, but validate source
+  builds instead of fetching published SDKs.
+- Support-library builds use `gradlew.bat compileNativeWin64 compileNativeArm64`
+  or `rtxremix-java/native/build_native.bat x64` / `arm64`.
 
-- `tools\rtx.bat sdk status --arch {win64|arm64}` reports the staged source and
-  local-copy freshness without changing it.
-- `tools\rtx.bat sdk local --arch {win64|arm64} --path <path>` replaces the
-  selected junction with a snapshot copy and writes `.local-sdk-source`.
-  Without a path, it reuses the sentinel's source, then `sdk.localPath` from
-  ignored `tools/config.local.json`, then `../dxvk-remix/_output`. Relative
-  paths start at the repository root. Worktrees can set that local default
-  once or pass `--path`. `sdk restage` refreshes the recorded snapshot.
-- `tools\rtx.bat sdk packman --arch {win64|arm64|all}` clears local staging
-  and restores the pinned runtime. It is a no-op on the pinned version unless
-  `--force` is passed.
-- Bridge-only builds use `gradlew.bat compileNativeWin64 compileNativeArm64`,
-  or `rtxremix-java/native/build_native.bat x64` or `arm64`.
+Keep runtime directories and native outputs ignored. Runtime textures remain
+under the read-only Packman junction `remix-runtime/textures/`, outside `build/`.
+Never write support-library outputs into a Packman-managed directory. Staging
+and packaging combine the validated runtime with the separately built support
+library, excluding obsolete `remixbridge.dll` payloads.
 
-The C API is reached only through JNI, never a JNA interface table. Java-side
-handles stay raw `long` values, not JNA `Pointer`s or wrapper objects. Native
-methods that require direct `ByteBuffer`s must never receive heap buffers;
-document buffer directness on every new JNI entry point.
+The Remix C API is reached through FFM, never JNI or JNA. Java-side handles
+remain raw `long` values. Document direct-buffer requirements and native
+segment lifetime on new binding entry points. A direct buffer passed to a
+foreign call must remain alive until that call has returned.
 
 ## Runtime And Java API Changes
 
-A change to native API functions, structure layouts, atlas animation forwarding,
-or runtime assets may span the separate native runtime, the integrated wrapper,
-and the mod, so check all three layers explicitly. Renderer behavior and the
-C API surface belong in dxvk-remix; marshalling and Java API types belong in
-the shim.
+Renderer behavior and the C API belong in the runtime fork. Marshalling and
+layouts belong in the FFM binding. Game capture belongs in the mod. Inspect
+all three layers for API, structure, texture-update, or runtime-asset changes.
 
-Once the matching runtime package is published, update both architecture pins
-in `packman/remix-sdk.packman.xml`, the copied header, JNI marshalling in
-`rtxremix-java/native/remixbridge.cpp`, `RemixBridge.java`, `RemixAPI.java`,
-affected data-holder types, and mod callers together. The copied header
-matches the pinned runtime, which can be ahead of dxvk-remix `main`; never
-edit it in isolation. From the repository root, restore the SDKs with
-`.\tools\rtx.bat sdk packman --arch all` and rebuild the bridges with
-`.\gradlew.bat compileNativeWin64 compileNativeArm64`.
+Keep the runtime's custom API, copied header, `RemixLayouts.java`, foreign
+function descriptors, `RemixBridge.java`, `RemixAPI.java`, data holders, and
+affected callers aligned. `StructType.java` values must exactly match the
+runtime header and its specialization definitions. Do not infer compatibility
+from an upstream SDK version or edit only one copy of a structure.
 
-`StructType.java` constants must exactly match `REMIXAPI_STRUCT_TYPE_*` in
-the copied header. Parallel API additions can claim the same number; after
-rebasing, assign any colliding new type the next free value in all four places:
+Rebuild the runtime and generate its provenance from the completed output,
+restage it, then rebuild the support library and mod. The Java version passed
+to `remixapi_InitializeLibrary` and every foreign layout must describe that
+same runtime. A version label alone cannot establish ABI compatibility.
 
-1. `public/include/remix/remix_c.h` in dxvk-remix.
-2. `src/dxvk/rtx_render/rtx_remix_specialization.inl` in dxvk-remix.
-3. `rtxremix-java/native/include/remix_c.h` here.
-4. `rtxremix-java/src/com/nvidia/rtxremix/StructType.java` here.
-
-The copied header defines `REMIXAPI_VERSION_{MAJOR,MINOR,PATCH}`. The JNI
-bridge passes those constants through `REMIXAPI_VERSION_MAKE(...)` to
-`remixapi_InitializeLibrary`; version changes must keep the header, bridge,
-facade, and runtime payload in step.
-
-Verify the full root `build`, `test`, and `tools\rtx.bat launch` path before
-requesting review. Compilation and JVM tests do not exercise JNI loading or
-rendering. Open the pull request only once the runtime package that implements
-the change is published and pinned: the runtime is distributed as binaries, so
-the package is what makes a change public. The header and facade must never run
-ahead of it.
+Verify `compileJava`, the full root `build` and `test`, and a development
+client using Gradle `runClient` or the signed-in Prism workflow. JVM tests do
+not establish native initialization, Vulkan device sharing, presentation,
+capture correctness, or performance. Record outstanding integration failures
+honestly; do not describe this port as a validated release before those checks
+have passed with the exact source-built runtime.
 
 ## Tests
 
 `TerrainStateTest` is the entry point for the JVM-side chunk-pipeline tests.
-The suite does not cross the JNI boundary or render, so a rendering change is
+The suite does not cross the FFM boundary or render, so a rendering change is
 verified by launching with `tools\rtx.bat launch` and looking.
 
 Python tooling uses `tools\rtx.bat check --tests` for its test suite.

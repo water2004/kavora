@@ -1,169 +1,196 @@
-# Getting Started (Developers)
+# Getting Started
 
-How to build and run the mod from source. If you only want to play, read
-[Playing](PLAYING.md) instead.
+Build and integrate the Minecraft 26.3 port from source. The mod selects Vulkan
+before graphics-device creation and disables the OpenGL fallback. This branch is
+not a validated playable release. Upstream 1.21.1 installation instructions and
+published 0.x runtime binaries do not provide a compatible installation.
 
 ## Prerequisites
 
-- **Windows 10 or 11**, on x64 or ARM64. The JNI bridge is compiled with MSVC,
-  so there is no Linux or macOS build.
-- **Java 21**, a JDK matching your machine's architecture. Eclipse Adoptium is
-  a good choice. Set `JAVA_HOME` to that JDK: the native build reads it to find
-  `jni.h`. Prism runs Minecraft 1.21.1 only on Java 21, not a newer version,
-  so the developer tools launch the game on `JAVA_HOME` when it is a JDK 21
-  and otherwise look for one in Gradle's toolchains and in the Eclipse
-  Adoptium, Microsoft, and Java folders under Program Files.
-- **Visual Studio 2022 Build Tools** with the Desktop development with C++
-  workload (MSVC v143). Cross-building the ARM64 bridge additionally needs the
-  toolset pinned in `rtxremix-java/native/build_native.bat` (currently 14.44).
-- **Git.** Everything is in the clone except the native runtime and the two
-  large runtime textures, which the build pulls through Packman on first use.
-- **uv 0.13 or newer and Python 3.15 or newer**, for the developer tools that
-  launch the mod. The first `tools\rtx.bat` command installs
-  [uv](https://docs.astral.sh/uv/) for your user when it is missing, and uv
-  downloads Python 3.15 when no such Python is installed, so that first
-  command needs network access.
-- **An NVIDIA RTX GPU**, 30-series or newer, to run what you build.
-- **Prism Launcher 9.0 or newer, signed in to a Microsoft account that owns
-  Minecraft: Java Edition**, to launch what you build. Install it from
-  [prismlauncher.org](https://prismlauncher.org); the developer tools never
-  download it. [Sign In To Prism](#sign-in-to-prism) covers
-  the sign-in.
-- **Network access to the pinned RTX Remix runtime** for the first build.
-  Gradle fetches it automatically. See [Get A Runtime](#get-a-runtime) for local overrides.
+- **Windows 10 or 11**, x64 for the current integration work. ARM64 build tooling
+  is retained but is not being validated in this port.
+- **Java 25**, a 64-bit JDK matching the target host. Set `JAVA_HOME` to it.
+  Remix calls use the Foreign Function and Memory API. The launch JVM needs
+  `--enable-native-access=ALL-UNNAMED`.
+- **Visual Studio C++ tools**, including the target architecture libraries,
+  for `rtxremix-support.dll`. This crash-support library has a plain C ABI;
+  it does not need JNI headers or a JDK include directory.
+- **Git**, plus the prerequisites of the matching
+  `water2004/dxvk-remix` runtime fork. The runtime is a separate source build.
+- **An RTX-capable NVIDIA GPU** and a driver supporting Minecraft 26.3's
+  Vulkan backend and the source runtime you build.
+- **Prism Launcher** for the optional signed-in launcher workflow. Gradle
+  `runClient` is also available for development validation.
+- **Network access** for development dependencies and the pinned runtime textures.
 
 ## Get A Runtime
 
-The mod is a renderer front end. It needs the native Remix runtime, which is a
-directory containing `d3d9.dll` and its supporting files, and it will not draw
-anything without one.
+Build the matching `water2004/dxvk-remix` runtime from source for the
+selected architecture. Its custom Remix C API is **1.5.0**. Follow that source
+revision's build instructions. An upstream release archive, old `d3d9.dll`, or
+Packman SDK does not implement this API.
 
-The runtime must match the wrapper's checked-in C API header,
-`rtxremix-java/native/include/remix_c.h`. The version that does is the
-one pinned in `packman/remix-sdk.packman.xml`. A runtime on another API minor
-fails the version check with error code 8, `INCOMPATIBLE_VERSION`. A launch
-without the developer preflight reports `Failed to initialize RTX Remix` in
-`logs/latest.log` and continues with ordinary Minecraft rendering.
+The completed output must include `d3d9.dll`, its dependent runtime DLLs and
+USD payload, and `.runtime-provenance.json`. The provenance records `fork`
+(`water2004/dxvk-remix`), `apiVersion` (`1.5.0`), `architecture` (`win64`
+or `arm64`), the 40-character `sourceCommit`, `sourceDirty`, and the SHA-256
+`dllSha256`. It must identify the actual completed source build. Staging
+validates the PE architecture, provenance, and DLL digest before replacing a
+staged snapshot.
 
-Gradle fetches the pinned runtime through the bootstrap in `packman/` whenever
-the selected `remix-runtime/<arch>/` directory is absent. A fresh clone needs no
-SDK setup command: run `gradlew.bat build` or `test`, or `tools\rtx.bat launch`,
-normally. Gradle needs no Python installation. Packaging fetches only the
-architectures being packaged.
+The staging script also records `buildType` and `tracyEnabled` from the completed
+Meson build. Use a Release runtime without Tracy for player packages; retain a
+separate debug-optimized build for assertions, instance lifetime diagnostics,
+and native profiling. Its destroyed-instance quarantine retains allocations
+until shutdown and can distort long-session memory measurements. Java JFR
+profiling remains available with a Release runtime.
 
-Pinned runtimes are published on NVIDIA's public Packman service, so the fetch
-needs no credentials. A matching local runtime is an alternative for
-development.
-
-A runtime already on disk works too: the `native/remix-sdk-<arch>/` directory
-inside a packaged release JAR, an installed game's `remix-sdk/` directory
-(which the mod extracts from the JAR on first launch), or your own dxvk-remix
-build at a matching version. Stage it for your architecture:
+From this mod checkout:
 
 ```powershell
-.\tools\rtx.bat sdk local --arch win64 --path <runtime dir>
+.\tools\rtx.bat sdk local --arch win64 --path <runtime output>
+.\tools\rtx.bat sdk status --arch win64
 ```
 
-Local SDK commands use the [developer tooling](../tools/README.md).
-`tools\rtx.bat` installs [uv](https://docs.astral.sh/uv/getting-started/installation/)
-if it is missing and manages the shared Python environment (Python >=3.15,
-uv >=0.13). The staging command requires `d3d9.dll` in the source directory
-and checks its architecture against `--arch`. It copies the runtime into
-`remix-runtime/<arch>/`; it does not link to the source. Run
-`tools\rtx.bat sdk restage` after rebuilding the source runtime. `package`
-rejects a dual-architecture JAR whose runtimes came from different kinds of
-source, so stage both architectures the same way.
+Use `arm64` for an ARM64 output. Runtime snapshots live in
+`remix-runtime/<arch>/`; local staging copies the output and records a
+`.local-sdk-source` sentinel. After a successful runtime rebuild, refresh it
+with `.\tools\rtx.bat sdk restage --arch win64`.
 
-Without a path, `sdk local` reuses the recorded local source, then
-`sdk.localPath` from ignored `tools/config.local.json`, then
-`../dxvk-remix/_output`. Configure another checkout directory once, or use
-`--path` to select a source explicitly:
+Without `--path`, local staging reuses the recorded source, then
+`sdk.localPath` in ignored `tools/config.local.json`, then
+`../dxvk-remix/_output`. Relative paths start at the repository root:
 
 ```json
 {
     "sdk": {
-        "localPath": "../my-runtime/_output"
+        "localPath": "../dxvk-remix/_output"
     }
 }
 ```
 
-Relative paths resolve from the mod repository root. For a local dxvk-remix
-build, refresh that output first with
-`meson install -C <build-dir> --tags output` in the runtime checkout.
+A stale output directory can survive a failed native build. Confirm the build
+and its output-install step completed before staging. `sdk status` reports
+staging freshness; it does not prove rendering works.
 
-Local staging writes a `.local-sdk-source` sentinel. Gradle leaves that override
-alone, including when the pinned runtime changes. `tools\rtx.bat sdk status`
-reports the source and whether its staged copy needs refreshing.
-To return to the pinned runtime, run `.\tools\rtx.bat sdk packman --arch win64`;
-use `--arch all` to restore both architectures. Packman staging uses read-only junctions into
-its shared cache at `remix-runtime/{win64|arm64}/`. They stay outside
-`build/` so Gradle `clean` cannot traverse them. The JNI bridge is built
-separately into `build/native/{win64|arm64}/` and combined with the runtime
-when staging or packaging; never copy it into a Packman-managed directory.
+The Gradle tasks named `fetchRuntimeSdkWin64` and `fetchRuntimeSdkArm64` now
+validate staged source builds. They do not download a compatible runtime.
+`sdk packman` rejects the unsupported binary fallback without changing staging.
+Historical package pins are not a source of compatible Vulkan binaries.
 
-`sdk status` compares the source and staged `d3d9.dll` for a local override;
-it does not prove that the source build succeeded, matches the API, or came
-from the intended branch. A failed native build can leave the old `_output`
-untouched. Confirm the build and `meson install` completed and that the output
-DLL changed before restaging. Gradle does not move an existing Packman
-junction when the manifest changes: use `sdk packman` to adopt the new pin.
+The Java facade and FFM layouts live under `rtxremix-java/src/`; the copied
+`rtxremix-java/native/include/remix_c.h` describes the same custom API.
+The separate Windows crash-support library is compiled into
+`build/native/{win64|arm64}/rtxremix-support.dll` and layered over the runtime
+when staging or packaging. Never write build outputs into a Packman-managed
+junction. Runtime textures still use a read-only Packman cache under
+`remix-runtime/textures/`, outside `build/`.
 
-The dxvk-remix source of the pinned runtime is not public yet, so a matching
-runtime cannot be built from public source. Use the pinned package, or a
-matching runtime already on disk as described above.
-
-Before building a runtime branch, compare its
-`public/include/remix/remix_c.h` with this repository's copied header.
-SDK staging checks the DLL architecture, not its API version. While the API
-major version is zero, the runtime requires an exact minor match; the patch
-component is not compared. Before Prism starts, `tools\rtx.bat launch` uses the
-freshly built JNI bridge to initialize the runtime the installer selected,
-including a checkout-relative or absolute `REMIX_BUILD`, in a short-lived
-process. An interactive launch warns on `INCOMPATIBLE_VERSION` and asks whether
-to continue; automated launches warn without waiting for input. Continuing is
-useful for coordinated WIP staging, but the renderer will not initialize. The
-tools Python process must match the selected architecture; otherwise the
-warning explains that the check was unavailable and how to use a matching
-Python/uv environment.
-
-For a local runtime iteration, build a single flavor in the dxvk-remix
-checkout, then restage and launch from the mod checkout:
+Compilation can be checked without runtime staging:
 
 ```powershell
-# In dxvk-remix, after its documented dependency setup:
-.\build_dxvk.ps1 -BuildFlavour release -BuildSubDir _Comp64Release -Backend ninja -EnableTracy false
-# In this mod checkout, after selecting that output with sdk local:
-.\tools\rtx.bat sdk restage
-.\tools\rtx.bat launch
+.\gradlew.bat compileJava compileTestJava
 ```
 
-The runtime's build script installs into `_output` after compiling. Follow
-that revision's README for prerequisites and other build targets. Use
-`-EnableTracy true` when you need native Tracy capture; choosing a Tracy
-variant in the launcher cannot add instrumentation to a local release build.
+For native integration, stage the matching runtime, then run the full build
+and a development client. Java compilation and unit tests do not verify Vulkan
+device sharing, foreign calls, either presentation path, or captured scene output.
+
+Sodium 0.9.2 is a required dependency and is on the Gradle runtime classpath.
+Keep its JAR and Fabric API separate from the RTX Remix JAR when installing.
+`gradlew.bat package -Parch=win64` builds the mod JAR with its native runtime
+in `build/distributions/`. Open Video Settings → RTX Remix for
+the Sodium configuration pages; changes commit through Apply and can be undone.
+Advanced Runtime Settings is an internal Sodium page; it does not open the
+runtime overlay. Choose Custom to edit its tracing and cache controls. Visual
+effects open in the independent Shader Settings screen, accessible from Options
+or Sodium's Shader Settings link.
+Under the Custom quality preset, the DLSS Super Resolution switch selects DLSS
+or native resolution. Its quality control includes Auto, Quality, Balanced,
+Performance, Ultra Performance and native-resolution DLAA. Ray Reconstruction
+is a separate control and requires DLSS to be enabled. Switching these options
+recreates native upscaling resources; the first frame may include pipeline
+creation. Remix supplies its own depth, jitter and scene motion vectors to NGX.
+
+Voxy is unsupported and must be removed from this profile. Far terrain is provided
+through a separately built extension; it shares the base renderer's materials
+and Remix scene. No far-terrain implementation is bundled in the base mod.
+
+Use `runClient -PclientRunDir=build/run/parityClient` for an isolated development
+profile. Gradle stages the same validated native payload there while preserving
+that profile's options, saves and separately installed mods. Vulkan is selected
+by the mod; no launcher backend override is needed.
 
 ## Checklist
 
 ```powershell
-git clone https://github.com/NVIDIAGameWorks/rtx-remix-minecraft.git
-cd rtx-remix-minecraft
+# In a checkout of this port, after building the matching runtime:
+.\tools\rtx.bat sdk local --arch win64 --path <runtime output>
 .\tools\rtx.bat prism signin
 .\tools\rtx.bat launch
 ```
 
+For direct Gradle development validation, use the separate `run/` game
+directory after staging the same runtime:
+
+```powershell
+.\gradlew.bat runClient -Parch=win64
+```
+
+This does not configure or launch Prism. Keep its saves and settings separate
+when comparing it with a Prism instance.
+
+### Automated native client GameTest
+
+`gradlew.bat runClientGameTest -Parch=win64` runs Fabric's client GameTest
+in `build/run/clientGameTest/`, with the normal client JVM tuning and a copy of
+the provenance-validated runtime, freshly built support library, textures,
+`rtx.conf`, and shipped conf layers. Stop clients from this checkout before
+running Gradle. `compileGametestJava` compiles the test without launching it.
+
+The test creates a flat world through Minecraft's create-world screen, checks
+the Copper Beacon recipe, waits for native initialization and published terrain
+geometry and 40 successful native submit/present calls, captures a screenshot,
+then leaves and reopens the same save and
+repeats the assertions. Screenshots are written under
+`build/run/clientGameTest/screenshots/` with `remix-world-created` and
+`remix-world-rejoined` in their filenames. Read that game directory's
+`logs/latest.log` for assertion results and the selected and actual backends.
+
+To validate each interop path, select Minecraft's actual setting before launch
+in that directory's `options.txt`: `preferredGraphicsBackend:"vulkan"` or
+`preferredGraphicsBackend:"opengl"`. Staging preserves this file. Add
+`-PgameTestExpectedBackend=VULKAN` to assert the expected backend;
+this property does not select or force a backend. An explicit setting that
+falls back to another backend fails the test.
+
+Edit an options file already written by this Minecraft version. If creating one
+from scratch for 26.3, include `version:5023` and `startedCleanly:true` alongside
+the backend setting. Without a version, vanilla migrates the file from version
+zero and resets the graphics backend to Default. After a startup crash, vanilla
+can reset Vulkan on the next launch; when deliberately retrying a fixed startup,
+restore the selected backend and `startedCleanly:true` while the client is closed.
+
+This is an opt-in GPU integration test, separate from the JVM `test` task.
+Fabric bounds world loading and shutdown at 1,200 ticks; renderer readiness
+allows 2,400 ticks. The Gradle launch task has a five-minute wall-clock timeout
+that fails the task and terminates its child client, including a hung native call.
+Passing establishes resource loading, native initialization, terrain publication,
+and session reuse. Inspect the screenshots to establish visual correctness;
+there is no approved image baseline or performance assertion.
+
 The two large runtime textures are not in git: the first build pulls them
-through Packman into `remix-runtime/textures/`, the same way the runtime is
-fetched, and later builds reuse the cached copy. The build checks that both
+through Packman into `remix-runtime/textures/`; later builds reuse the cached copy. The build checks that both
 files arrived. The pin lives in
 `packman/textures.packman.xml`. The water normals in the package are generated
 by `tools\rtx.bat textures water-normals`. The build automatically fetches
-`rtx_remix_minecraft_runtime_textures` version `1.1.0` through Packman.
+`rtx_remix_minecraft_runtime_textures` version `1.3.0` through Packman.
 
-The Java wrapper and JNI bridge are tracked under `rtxremix-java/` and arrive
+The Java facade, FFM bindings, and crash-support source are tracked under `rtxremix-java/` and arrive
 with the clone; no recursive checkout or hook setup is needed.
 
-`tools\rtx.bat launch` fetches a missing runtime and builds the mod and bridge
-with Gradle. It installs the mod, the pinned Fabric API, the runtime,
+`tools\rtx.bat launch` validates the staged runtime and builds the mod and
+crash-support library with Gradle. It installs the mod, the pinned Fabric API, the runtime,
 `rtx.conf`, the gameplay conf payload, and the runtime textures into this
 checkout's Prism instance, then starts Minecraft at the main menu through
 Prism and waits until the game exits. Prism's own console output stays out of
@@ -240,8 +267,9 @@ The baseline PBR textures are built into the mod JAR and load through Fabric's
 `fabric` resource pack, below user packs. No separate baseline pack needs
 enabling.
 
-The first launch of a new runtime compiles shaders, so expect a partial or empty
-scene for the first few minutes.
+The first launch of a new runtime can compile shaders and initially show a
+partial scene. A persistent empty scene is also an integration failure to
+investigate; do not assume every missing surface is shader compilation.
 `/rtx status` does not report completion of native shader compilation. Judge
 interactive readiness from the settled image.
 
@@ -255,21 +283,22 @@ interactive readiness from the settled image.
 ```
 
 `.\gradlew.bat compileJava` checks Java compilation without fetching or staging
-the runtime or compiling the JNI bridge. It is a useful iteration check, not
+the runtime or compiling the crash-support library. It is a useful iteration check, not
 validation of native integration.
 
 The JAR from `package` is the one players get: it embeds the runtime, gameplay
 conf payload, runtime textures, and baseline PBR textures. To try it in a
-normal installation of Minecraft 1.21.1 that already has Fabric Loader and
-Fabric API, drop it into the instance's `mods` folder; nothing else is needed.
+normal installation of Minecraft 26.3 that already has Fabric Loader and
+Fabric API, use the instance's `mods` folder. Native integration and rendering still need
+verification before this becomes a supported installation.
 The release archive's installer also migrates old generated baseline packs and
 preserves user-pack ordering.
 
 Every task that reaches `classes` runs `setupRuntime` first, which compiles the
-bridge and stages the runtime. `test` and `build` therefore need a staged
+crash-support library and stages the runtime. `test` and `build` therefore need a staged
 runtime and the C++ toolchain just as `tools\rtx.bat launch` does.
 `setupRuntime` also syncs a full copy of the runtime, PDBs included, with the
-bridge, `rtx.conf`, the gameplay conf payload, and the runtime textures into
+crash-support library, `rtx.conf`, the gameplay conf payload, and the runtime textures into
 `run/`, the game directory of Gradle's `runClient` task, so every build
 refreshes it. The developer tools' Prism launches use `run-prism\` instead.
 
@@ -285,7 +314,7 @@ The task also requires every `packaging/licenses/` file in the JAR.
 | `package` invocation | Output |
 |---|---|
 | `package` | Dual-architecture fat JAR. Needs both architectures staged from the same kind of source |
-| `package -Parch=win64` | win64 only, skips the arm64 bridge compile |
+| `package -Parch=win64` | win64 only, skips the arm64 support-library compile |
 | `package -Parch=arm64` | arm64 only, useful for cross-building for device testing |
 
 `releaseArchive` runs `package` and its `verifyPackageJar` check, then stages
@@ -331,8 +360,8 @@ They run `tools\rtx.bat check --tests` and `gradlew.bat build test`,
 respectively, with read-only repository permissions and no secrets. Pull
 request checks also scan the added commit messages. These workflows do not
 launch a GPU client, run benchmarks, or produce a release archive; run those
-locally when they are relevant. Runtime fetching has the publication
-prerequisite described in [Get A Runtime](#get-a-runtime).
+locally when they are relevant. Native integration requires the source runtime described in
+[Get A Runtime](#get-a-runtime).
 
 ## Choosing A Launch Workflow
 
@@ -344,7 +373,8 @@ prerequisite described in [Get A Runtime](#get-a-runtime).
 
 `build.gradle` also keeps `runClient`, Fabric's standard Gradle task. It runs
 from the repository-local `run/` directory, not the Prism instance, so the two
-share no saves, settings, or logs. The developer tools do not use it.
+share no saves, settings, or logs. The developer tools retain their Prism workflow; `runClient` can be used
+directly for source-port validation after staging the matching runtime.
 
 `rtx install` is an alternative to `tools\rtx.bat launch`, not a step before
 it. Build, then install from the repository root:
@@ -362,13 +392,13 @@ Add `--game-dir DIR` to select another installation and `--arch win64` or
 root. Without `--arch`, `REMIX_ARCH` wins, then the host architecture.
 
 The command installs the newest non-sources development JAR, the staged runtime
-from `remix-runtime/<arch>/`, the matching bridge from `build/native/<arch>/`,
+from `remix-runtime/<arch>/`, the matching crash-support library from `build/native/<arch>/`,
 `packaging/rtx.conf`, the `packaging/rtx-remix/` gameplay conf payload, and runtime
 textures. Baseline PBR textures are built into the JAR. The command removes its
 former generated `rtx-remix-labpbr` pack and orders vanilla and Fabric below
 existing user packs. Shipped gameplay confs are refreshed while extra
 author-created profiles are preserved. An unchanged runtime is not recopied,
-but the bridge and other payloads are always refreshed.
+but the crash-support library and other payloads are always refreshed.
 
 Set `REMIX_BUILD` to install a custom runtime directory containing `d3d9.dll`
 instead of the staged runtime. Set `REMIX_FORCE_SDK_COPY=1` to force a full SDK
@@ -448,13 +478,13 @@ announcement in `latest.log`.
 
 ## Working In A Worktree
 
-A new `git worktree add` checkout includes the integrated Java and JNI sources,
+A new `git worktree add` checkout includes the integrated Java and FFM sources,
 but not its ignored runtime directories, saves, or options. Installed Prism
 reuses its normal sign-in and gives the worktree a distinct instance. Portable
 Prism uses that worktree's ignored `run-prism\` profile, so sign it in before
 its first launch. Portable copies can run worktrees side by side; one installed
-Prism executable serves one launch at a time. Gradle fetches the runtime that
-worktree pins on its first build.
+Prism executable serves one launch at a time. Stage the matching source runtime
+and provenance in each worktree before its first full build.
 For local native work, run `tools\rtx.bat sdk local --path <absolute output path>`
 there; do not copy a runtime from another checkout whose API or pin may differ.
 Art packs, saves and player settings also need deliberate staging for a visual
@@ -470,35 +500,35 @@ removes its stale registration.
 
 | Symptom | Cause |
 |---|---|
-| `vswhere.exe not found` or `vcvarsall.bat failed` | Visual Studio Build Tools missing, or without the Desktop C++ workload. ARM64 also needs toolset 14.44 |
-| `JAVA_HOME is not set`, or `jni.h not found` | `JAVA_HOME` unset or pointing at a JRE rather than a JDK 21 |
-| Gradle cannot fetch the SDK | Check network access to the Packman remote, or stage a matching local runtime. See [Get A Runtime](#get-a-runtime) |
+| `vswhere.exe not found` or `vcvarsall.bat failed` | Visual Studio C++ tools or the selected target architecture libraries are missing |
+| Wrong Java version or missing FFM classes | Set `JAVA_HOME` to a 64-bit Java 25 JDK; the crash helper does not use `jni.h` |
+| `fetchRuntimeSdk*` rejects the staged runtime | Build the matching fork and stage its output with valid provenance; there is no compatible published SDK fallback |
 | A launch reports that Prism Launcher is not installed | Install it from [prismlauncher.org](https://prismlauncher.org), or point `prism.executable` in `tools/config.local.json` at its `prismlauncher.exe` |
 | A launch opens Prism and stops with sign-in steps | No Microsoft account that owns Minecraft is signed in to the selected Prism profile, or `prism.account` names another. See [Sign In To Prism](#sign-in-to-prism) |
 | A launch reports that Prism is already running | Close the selected Prism window and launch again |
-| A launch reports that Minecraft 1.21.1 in Prism needs a 64-bit JDK 21 | `JAVA_HOME` names another Java version or architecture, and no JDK 21 for this machine is installed where the tools look. Install one and set `JAVA_HOME` to it |
+| A launch reports that Minecraft 26.3 needs a 64-bit JDK 25 | Select a Java 25 JDK matching the target architecture |
 | A JVM option set in `JAVA_TOOL_OPTIONS` has no effect | Prism does not pass it to the game. Use `launch.jvmArgs`; see [JVM Arguments](TUNING.md#jvm-arguments) |
 | `Failed to initialize RTX Remix` with error code 8, and the game renders vanilla | The staged runtime predates the API in `rtxremix-java/native/include/remix_c.h`. Stage one of the runtimes listed in [Get A Runtime](#get-a-runtime) |
-| `UnsatisfiedLinkError` naming `remixbridge` | The bridge did not compile, or it was compiled for the other architecture. Re-run the build and check that `-Parch` matches the staged runtime |
+| `UnsatisfiedLinkError` naming `rtxremix-support` | Build the crash-support library for the correct architecture and restage; obsolete `remixbridge.dll` is not used |
+| Missing native export or incompatible version | Check the custom 1.5.0 runtime, copied header, FFM layouts, and foreign function descriptors together |
 | Minecraft still uses an old local runtime build | The staged runtime is a copy; run `tools\rtx.bat sdk restage` |
 | The build fails at `fetchRuntimeTextures` | Packman could not pull the runtime textures pinned in `packman/textures.packman.xml`. Check access to Packman's download host |
 | The build reports that the runtime textures are missing files | The shared Packman cache holds the package without its textures. Delete the folder the message names and build again; Packman downloads the package afresh |
 | `package` reports mixed sources | Stage both architectures from one kind of source, or package one with `-Parch=` |
-| Empty or partial scene on first launch | Shader compilation. Wait for it to settle before reporting a defect |
+| Empty or partial scene | Shader compilation can cause a delay; persistent failures also require Vulkan sharing, synchronization, and capture diagnostics on this port |
 | Frame-time spikes at high render distance | Garbage collection is one possible cause. Every launch gives the Prism instance the tuned JVM arguments and their heap limit; check that `launch.jvmArgs` does not override them |
 | A clone or checkout reports `Filename too long` | Enable `git config --global core.longpaths true` before cloning, or choose a shorter checkout path |
-| `package` cannot find the ARM64 toolset | Install the version pinned by `build_native.bat`, or use `package -Parch=win64` for a single-architecture artifact |
+| `package` cannot build ARM64 support | Install ARM64 C++ tools and stage an ARM64 source runtime, or use `package -Parch=win64` |
 | Initialization reports `DRIVER_VERSION_BELOW_MINIMUM` | Update the driver. The minimum is a capability gate; lowering `dxvk.nvidiaMinDriver` can enable unsupported paths and cause GPU faults |
-| `Startup` unexpectedly returns `REMIX_DEVICE_WAS_NOT_REGISTERED` after an API change | Check header, bridge and runtime together for a mismatched `remixapi_Interface` layout before continuing native calls |
-| `/rtx off` is slower than `/rtx on` | The off path renders vanilla GL at full resolution through the Remix swapchain; the on path can use DLSS's lower internal resolution. The toggle is not a standalone vanilla performance baseline |
+| Startup or device registration fails | Check Vulkan device/queue ownership, custom API layout, and the exact source runtime; do not continue calls with a mismatched ABI |
+| Comparing `/rtx off` and `/rtx on` | Validate both Vulkan paths and match internal resolution before drawing performance conclusions; a toggle is not a separate vanilla baseline |
 
-For `INCOMPATIBLE_VERSION`, restore the published runtime with
-`tools\rtx.bat sdk packman` or stage a build with a matching header, then
-rebuild the bridge. The bridge also returns this error if a custom runtime
-claims a matching version but lacks a required vtable tail entry; stderr then
-says `FATAL: loaded Remix runtime is missing required vtable tail entries`.
-An `UnsatisfiedLinkError` after changing a Java native declaration instead
-points to a bridge that was not rebuilt or loaded, or the wrong architecture.
+For `INCOMPATIBLE_VERSION`, rebuild and stage the matching custom 1.5.0
+runtime, with provenance identifying the completed output. Keep the copied
+header, `RemixLayouts.java`, foreign function descriptors, and Java API aligned.
+`sdk packman` cannot repair this port with an upstream binary. A missing export
+or incompatible calling layout is a native integration failure even when the
+runtime claims a matching version.
 
 For an ARM64 toolset failure, `verifyPackageJar -Parch=win64` checks the
 single-architecture package contents without running the tests. The

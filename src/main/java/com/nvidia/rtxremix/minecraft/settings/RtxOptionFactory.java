@@ -4,19 +4,12 @@
  */
 package com.nvidia.rtxremix.minecraft.settings;
 
-import com.mojang.serialization.Codec;
 import com.nvidia.rtxremix.minecraft.UnfocusedFramerateLimit;
-import net.minecraft.client.gui.tooltip.Tooltip;
-import net.minecraft.client.option.SimpleOption;
-import net.minecraft.screen.ScreenTexts;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-
 import java.util.Locale;
-import java.util.Optional;
-import java.util.function.Function;
+import net.minecraft.network.chat.CommonComponents;
+import net.minecraft.network.chat.Component;
 
-/** Converts an RtxSetting into a vanilla SimpleOption for OptionListWidget. */
+/** Value labels and slider mappings shared by Sodium and the shader menu. */
 final class RtxOptionFactory {
 
     static final String ENTITY_DISTANCE_ID = "dist.entity";
@@ -44,130 +37,6 @@ final class RtxOptionFactory {
     static final String UNFOCUSED_FRAMERATE_ID = "framerate.unfocused";
 
     private RtxOptionFactory() {}
-
-    @SuppressWarnings("unchecked")
-    public static SimpleOption<?> toOption(RtxSetting<?> setting) {
-        switch (setting.kind()) {
-            case BOOL -> {
-                RtxSetting<Boolean> s = (RtxSetting<Boolean>) setting;
-                return SimpleOption.ofBoolean(
-                        setting.labelKey(),
-                        v -> tooltip(s, v),
-                        buttonValueText(value -> booleanValueText(s.id(), value)),
-                        s.get(),
-                        s::apply);
-            }
-            case INT -> {
-                RtxSetting<Integer> s = (RtxSetting<Integer>) setting;
-                int sentinelSliderValue = sentinelSliderValue(s.id());
-                int sliderMin = sentinelSliderValue > 0 ? 1 : (int) s.min() / s.step();
-                int sliderMax = sentinelSliderValue > 0 ? sentinelSliderValue : (int) s.max() / s.step();
-                var callbacks =
-                        sliderApplyPolicy(
-                                new SimpleOption.ValidatingIntSliderCallbacks(
-                                        sliderMin, sliderMax, true).withModifier(
-                                                value -> intValueFromSlider(s, value),
-                                                value -> sliderValueFromInt(s, value)),
-                                s.applySliderValueImmediately());
-                return new SimpleOption<>(
-                        setting.labelKey(),
-                        v -> tooltip(s, v),
-                        (optionText, value) -> optionText.copy()
-                                .append(": ").append(intValueText(s.id(), value)),
-                        callbacks,
-                        s.get(),
-                        s::apply);
-            }
-            case FLOAT -> {
-                RtxSetting<Double> s = (RtxSetting<Double>) setting;
-                double min = s.min();
-                double max = s.max();
-                var callbacks =
-                        sliderApplyPolicy(
-                                SimpleOption.DoubleSliderCallbacks.INSTANCE.withModifier(
-                                        progress -> floatValueFromSlider(
-                                                s.id(), progress, min, max),
-                                        value -> sliderValueFromFloat(
-                                                s.id(), value, min, max)),
-                                s.applySliderValueImmediately());
-                return new SimpleOption<>(
-                        setting.labelKey(),
-                        v -> tooltip(s, v),
-                        (optionText, value) -> optionText.copy()
-                                .append(": ").append(floatValueText(s.id(), value)),
-                        callbacks,
-                        s.get(),
-                        s::apply);
-            }
-            default -> throw new IllegalStateException("Unknown kind: " + setting.kind());
-        }
-    }
-
-    /**
-     * The value text for a button, without its label.
-     *
-     * <p>Buttons render as a
-     * {@link net.minecraft.client.gui.widget.CyclingButtonWidget}, which
-     * composes {@code "<label>: <value>"} from the option text itself, so
-     * prefixing the label here renders it twice. Sliders instead set their
-     * message straight from the getter, which is why the slider kinds include it.
-     */
-    private static <T> SimpleOption.ValueTextGetter<T> buttonValueText(
-            Function<T, Text> valueText) {
-        return (optionText, value) -> valueText.apply(value);
-    }
-
-    static <T> SimpleOption.SliderCallbacks<T> sliderApplyPolicy(
-            SimpleOption.SliderCallbacks<T> callbacks, boolean applyImmediately) {
-        if (applyImmediately) {
-            return callbacks;
-        }
-        return new SimpleOption.SliderCallbacks<>() {
-            @Override
-            public double toSliderProgress(T value) {
-                return callbacks.toSliderProgress(value);
-            }
-
-            @Override
-            public T toValue(double sliderProgress) {
-                return callbacks.toValue(sliderProgress);
-            }
-
-            @Override
-            public Optional<T> validate(T value) {
-                return callbacks.validate(value);
-            }
-
-            @Override
-            public Codec<T> codec() {
-                return callbacks.codec();
-            }
-
-            @Override
-            public boolean applyValueImmediately() {
-                return false;
-            }
-        };
-    }
-
-    private static <T> Tooltip tooltip(RtxSetting<T> setting, T value) {
-        Text defaultValue = switch (setting.kind()) {
-            case BOOL -> booleanValueText(
-                    setting.id(), (Boolean) setting.defaultValue());
-            case INT -> intValueText(setting.id(), (Integer) setting.defaultValue());
-            case FLOAT -> floatValueText(
-                    setting.id(), (Double) setting.defaultValue());
-        };
-        Text defaultLine = Text.translatable("rtxremix.settings.tooltip.default", defaultValue);
-        if (!setting.isDefaultValue(value)) {
-            defaultLine = defaultLine.copy()
-                    .append(Text.literal(" "))
-                    .append(Text.translatable("rtxremix.settings.tooltip.overridden")
-                            .formatted(Formatting.YELLOW));
-        }
-        return Tooltip.of(ScreenTexts.joinLines(
-                Text.translatable(setting.tooltipKey()), defaultLine));
-    }
 
     static int intValueFromSlider(RtxSetting<Integer> setting, int sliderValue) {
         int sentinelSliderValue = sentinelSliderValue(setting.id());
@@ -240,40 +109,49 @@ final class RtxOptionFactory {
                 + logarithmicProgress * (1.0 - zeroSentinelEnd);
     }
 
-    private static Text floatValueText(String settingId, double value) {
-        String formatted = String.format(Locale.ROOT, "%.2f", value);
+    static Component floatValueText(String settingId, double value) {
+        String format = RtxEffectOptions.contains(settingId)
+                ? Math.abs(value) > 0 && Math.abs(value) < 0.01 ? "%.6f" : "%.3f"
+                : "%.2f";
+        String formatted = String.format(Locale.ROOT, format, value);
         if (!TERRAIN_EMISSION_MULTIPLIER_ID.equals(settingId)) {
-            return Text.literal(formatted);
+            return Component.literal(formatted);
         }
         if (value <= 0.0) {
-            return Text.translatable("rtxremix.settings.value.off");
+            return Component.translatable("rtxremix.settings.value.off");
         }
-        return Text.translatable("rtxremix.settings.value.multiplier", formatted);
+        return Component.translatable("rtxremix.settings.value.multiplier", formatted);
     }
 
-    static Text booleanValueText(String settingId, boolean value) {
+    static Component booleanValueText(String settingId, boolean value) {
         if (PROCEDURAL_CLOUDS_ID.equals(settingId)) {
-            return Text.translatable(value
+            return Component.translatable(value
                     ? "rtxremix.settings.value.procedural"
                     : "rtxremix.settings.value.classic");
         }
-        return ScreenTexts.onOrOff(value);
+        return CommonComponents.optionStatus(value);
     }
 
-    static Text intValueText(String settingId, int value) {
+    static Component intValueText(String settingId, int value) {
+        if (settingId.equals("image.tonemapper")) {
+            return Component.translatable("rtxremix.settings.value.tone." + (value == 0 ? "global" : "local"));
+        }
+        if (settingId.equals("exposure.average")) {
+            return Component.translatable("rtxremix.settings.value.metering." + (value == 0 ? "mean" : "median"));
+        }
         if (UNFOCUSED_FRAMERATE_ID.equals(settingId)) {
             // Vanilla's own Max Framerate wording, so the two read alike.
             return value == UnfocusedFramerateLimit.UNLIMITED
-                    ? Text.translatable("options.framerateLimit.max")
-                    : Text.translatable("options.framerate", value);
+                    ? Component.translatable("options.framerateLimit.max")
+                    : Component.translatable("options.framerate", value);
         }
         if (value == 0 && sentinelSliderValue(settingId) > 0) {
-            return Text.translatable("rtxremix.settings.value.auto");
+            return Component.translatable("rtxremix.settings.value.auto");
         }
-        return Text.literal(Integer.toString(value));
+        return Component.literal(Integer.toString(value));
     }
 
-    private static int sentinelSliderValue(String settingId) {
+    static int sentinelSliderValue(String settingId) {
         boolean hasSentinel = ENTITY_DISTANCE_ID.equals(settingId)
                 || LIGHT_DISTANCE_ID.equals(settingId);
         return hasSentinel ? SENTINEL_SLIDER_VALUE : -1;

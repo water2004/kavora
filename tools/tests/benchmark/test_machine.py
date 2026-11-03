@@ -49,6 +49,17 @@ class MachineTests(unittest.TestCase):
         self.assertEqual(gpu["DriverVersion"], "32.0.15.9636")
         self.assertEqual(gpu["GL_VENDOR"], "NVIDIA Corporation")
 
+    def test_vulkan_device_metadata_does_not_inherit_opengl_identity(self):
+        gpu = machine.benchmark_gpu_from_system(
+            {"gpu": "NVIDIA RTX 5060", "gpuVendor": "NVIDIA", "graphicsBackend": "VULKAN", "graphicsDriver": "621.01"},
+            {"DriverVersion": "32.0.15.9000", "GL_RENDERER": "Intel", "GL_VENDOR": "Intel", "GL_VERSION": "4.6"},
+        )
+        self.assertEqual(gpu["Name"], "NVIDIA RTX 5060")
+        self.assertEqual(gpu["graphicsBackend"], "VULKAN")
+        self.assertEqual(gpu["graphicsDriver"], "621.01")
+        self.assertEqual(gpu["DriverVersion"], "32.0.15.9000")
+        self.assertFalse({"GL_RENDERER", "GL_VENDOR", "GL_VERSION"} & gpu.keys())
+
     def test_parse_power_scheme_reads_the_active_plan_name_and_guid(self):
         text = "Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (High performance)\n"
 

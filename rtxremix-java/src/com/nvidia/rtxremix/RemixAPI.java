@@ -10,7 +10,7 @@ import java.util.Collection;
 
 /**
  * Main RTX Remix API class providing access to Remix functionality.
- * Thin facade over {@link RemixBridge} static native methods.
+ * Thin facade over {@link RemixBridge} foreign-function calls.
  *
  * <p>Usage example:</p>
  * <pre>
@@ -24,8 +24,8 @@ import java.util.Collection;
  * </pre>
  */
 public class RemixAPI {
-    public static final int VERSION_MAJOR = 0;
-    public static final int VERSION_MINOR = 16;
+    public static final int VERSION_MAJOR = 1;
+    public static final int VERSION_MINOR = 5;
     public static final int VERSION_PATCH = 0;
 
     /**
@@ -41,10 +41,7 @@ public class RemixAPI {
             0f, 0f, 1f, 0f
     };
 
-    // Set true after the JNI bridge DLL is bound (System.load / loadLibrary
-    // returned without throwing). Independent of initialize() success: tracy
-    // zone calls only need bound JNI symbols, not a fully initialized d3d9
-    // runtime, so they remain safe to call as long as this is true.
+    // Profiling remains disabled until the runtime has been successfully loaded.
     private static volatile boolean nativeLoaded = false;
 
     public static final int COPY_OUTPUT_FINAL_COLOR     = 0;
@@ -52,6 +49,10 @@ public class RemixAPI {
     public static final int COPY_OUTPUT_NORMALS         = 2;
     public static final int COPY_OUTPUT_OBJECT_PICKING  = 3;
     public static final int COPY_OUTPUT_GUI             = 4;
+    public static final int COPY_OUTPUT_WORLD_POSITION_RAW = 5;
+    public static final int COPY_OUTPUT_TEXCOORDS_RAW = 6;
+    public static final int COPY_OUTPUT_NORMAL_F32 = 7;
+    public static final int COPY_OUTPUT_COVERAGE = 8;
 
     private RemixAPI() {}
 
@@ -60,21 +61,28 @@ public class RemixAPI {
     }
 
     /**
-     * Loads the Remix DLL and initializes the API via JNI.
+     * Loads the Remix DLL and initializes the C API through FFM.
      *
      * @param dllPath Path to the d3d9.dll file from RTX Remix
      * @return A RemixAPI instance ready for use
      * @throws RemixException if the DLL cannot be loaded or initialized
      */
     public static RemixAPI load(String dllPath) {
-        java.io.File dllFile = bindBridge(dllPath);
-        int result = RemixBridge.initialize(dllFile.getAbsolutePath());
-        if (result != ErrorCode.SUCCESS) {
-            throw new RemixException("Failed to initialize Remix library", result);
+        java.io.File dllFile = runtimeFile(dllPath);
+        RemixBridge.initializeSupport(dllFile.toPath().toAbsolutePath().getParent());
+        try {
+            int result = RemixBridge.initialize(dllFile.getAbsolutePath());
+            if (result != ErrorCode.SUCCESS) {
+                throw new RemixException("Failed to initialize Remix library", result);
+            }
+        } catch (RuntimeException | Error error) {
+            RemixBridge.shutdownSupport();
+            throw error;
         }
 
         RemixAPI api = new RemixAPI();
         api.initialized = true;
+        nativeLoaded = true;
         return api;
     }
 
@@ -90,8 +98,7 @@ public class RemixAPI {
      * blanked: copies the process has already made, such as parsed arguments,
      * stay in memory, and a dump can still contain them.
      *
-     * @param dllPath Path to the d3d9.dll file from RTX Remix; binds the JNI
-     *                bridge beside it without loading the runtime
+     * @param dllPath Path to the d3d9.dll file from RTX Remix; validates the runtime path without loading it
      * @param options Option names, such as {@code --password}, matched against
      *                whole arguments
      * @return The number of values blanked
@@ -99,7 +106,7 @@ public class RemixAPI {
      *                        cannot be rewritten
      */
     public static int redactCommandLineOptions(String dllPath, Collection<String> options) {
-        bindBridge(dllPath);
+        runtimeFile(dllPath);
         CommandLineRedaction.Result redaction =
                 CommandLineRedaction.redact(RemixBridge.processCommandLine(), options);
         if (redaction.blankedValues() > 0) {
@@ -111,36 +118,43 @@ public class RemixAPI {
         return redaction.blankedValues();
     }
 
-    private static java.io.File bindBridge(String dllPath) {
+    private static java.io.File runtimeFile(String dllPath) {
         java.io.File dllFile = new java.io.File(dllPath);
         if (!dllFile.exists()) {
             throw new RemixException("Remix DLL not found: " + dllPath,
                     ErrorCode.LOAD_LIBRARY_FAILURE);
         }
 
-        // Load our JNI bridge DLL from the same directory as d3d9.dll
-        String parentDir = dllFile.getParent();
-        if (parentDir != null) {
-            String bridgePath = parentDir + java.io.File.separator + "remixbridge.dll";
-            java.io.File bridgeFile = new java.io.File(bridgePath);
-            if (bridgeFile.exists()) {
-                System.load(bridgeFile.getAbsolutePath());
-            } else {
-                // Try loading from java.library.path
-                System.loadLibrary("remixbridge");
-            }
-        } else {
-            System.loadLibrary("remixbridge");
-        }
-        // Bridge JNI symbols are now bound. Mark this so static probes
-        // (tracyBegin/tracyEnd/tracyThreadName) can short-circuit safely
-        // if a caller catches a downstream RemixException from initialize()
-        // and continues running without a fully initialized RemixAPI.
-        nativeLoaded = true;
         return dllFile;
     }
 
     // ─── lifecycle ───────────────────────────────────────────────────────
+
+    /** Initializes configuration and capture tooling before the host creates a Vulkan instance. */
+    public void prepareVulkan() {
+        checkInitialized();
+        int result = RemixBridge.prepareVulkan();
+        if (result != ErrorCode.SUCCESS) throw new RemixException("Vulkan preparation failed", result);
+    }
+
+    /**
+     * Creates the host-owned device with the union of both renderers' requirements.
+     * The complete pointer graphs at {@code instanceExtensionsAddress} and
+     * {@code deviceCreateInfoAddress} must remain valid until this call returns.
+     * The host must shut this API down before destroying the resulting VkDevice.
+     */
+    public void createVulkanDevice(HostVulkanDeviceInfo info) {
+        checkInitialized();
+        int result = RemixBridge.createVulkanDevice(info);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("Shared Vulkan device creation failed", result);
+    }
+
+    /** Transfers device destruction to the host after its Vulkan dispatch table was built. */
+    public void adoptVulkanDevice(long device) {
+        checkInitialized();
+        int result = RemixBridge.adoptVulkanDevice(device);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("Shared Vulkan ownership transfer failed", result);
+    }
 
     public void startup(StartupInfo info) {
         checkInitialized();
@@ -182,7 +196,8 @@ public class RemixAPI {
             info != null ? info.skipVulkanSwapchain : 0,
             info != null ? info.interopFlipY : 0,
             info != null ? info.clientDoneSemaphore_ValueToWait : 0L,
-            info != null ? info.disableCpuWaitForExternalSemaphores : 0);
+            info != null ? info.disableCpuWaitForExternalSemaphores : 0,
+            info != null ? info.vulkanFrame : null);
         if (result != ErrorCode.SUCCESS) {
             throw new RemixException("Present failed", result);
         }
@@ -210,7 +225,7 @@ public class RemixAPI {
             }
             return handle;
         } finally {
-            if (pNext != 0) RemixBridge.freeExt(pNext);
+            if (pNext != 0) RemixBridge.freeExtChain(pNext);
         }
     }
 
@@ -233,11 +248,21 @@ public class RemixAPI {
                 throw new RemixException("UpdateMaterial failed", result);
             }
         } finally {
-            if (pNext != 0) RemixBridge.freeExt(pNext);
+            if (pNext != 0) RemixBridge.freeExtChain(pNext);
         }
     }
 
     private long allocMaterialPNext(MaterialInfo info) {
+        if (info.vertexColorMaskTexture != 0 && info.opaqueExt == null) {
+            throw new IllegalArgumentException("Vertex color masks require an opaque material");
+        }
+        long next = allocMaterialTypePNext(info);
+        if (info.vertexColorMaskTexture == 0) return next;
+        try { return RemixBridge.allocVertexColorMaskExt(info.vertexColorMaskTexture, next); }
+        catch (RuntimeException | Error failure) { RemixBridge.freeExtChain(next); throw failure; }
+    }
+
+    private long allocMaterialTypePNext(MaterialInfo info) {
         if (info.opaqueExt != null) {
             MaterialInfoOpaqueEXT o = info.opaqueExt;
             long subsurfacePtr = 0;
@@ -298,7 +323,7 @@ public class RemixAPI {
         checkInitialized();
         long handle = RemixBridge.createTextureFromMemory(
                 info.hash, info.pixelData,
-                info.width, info.height, info.format, info.purpose);
+                info.width, info.height, info.format, info.purpose, info.mipLevels, info.immutable);
         if (handle == 0) {
             throw new RemixException("CreateTextureFromMemory failed",
                     ErrorCode.GENERAL_FAILURE);
@@ -355,6 +380,7 @@ public class RemixAPI {
         ByteBuffer[] pixelBuffers = new ByteBuffer[totalPatches];
         int[] rowPitches = new int[totalPatches];
         int[] formats = new int[totalPatches];
+        int[] mipLevels = null;
 
         int flat = 0;
         for (int e = 0; e < entryCount; e++) {
@@ -374,6 +400,10 @@ public class RemixAPI {
                 pixelBuffers[flat] = patch.pixelData;
                 rowPitches[flat] = patch.rowPitch;
                 formats[flat] = patch.format;
+                if (patch.mipLevel != 0) {
+                    if (mipLevels == null) mipLevels = new int[totalPatches];
+                    mipLevels[flat] = patch.mipLevel;
+                }
                 flat++;
             }
         }
@@ -383,13 +413,60 @@ public class RemixAPI {
                 dstXs, dstYs,
                 widths, heights,
                 pixelBuffers,
-                rowPitches, formats);
+                rowPitches, formats, mipLevels);
         if (result != ErrorCode.SUCCESS) {
             throw new RemixException("UpdateTextureFromMemory failed", result);
         }
     }
 
     // ─── meshes ──────────────────────────────────────────────────────────
+
+    /** Allocates device-local memory for an external GPU producer; caller destroys its buffer handle. */
+    public SharedBufferInfo createSharedBuffer(long bytes) {
+        checkInitialized();
+        var output = new SharedBufferInfo();
+        int result = RemixBridge.createSharedBuffer(bytes, output);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("CreateSharedBuffer failed", result);
+        return output;
+    }
+
+    /** Copies a direct R8 grid during this call. Origins are cell coordinates; lower nonzero levels own a cell. */
+    public void setVoxelCoverage(int originX, int originY, int originZ, int sizeX, int sizeY, int sizeZ,
+            int cellSize, ByteBuffer levels) {
+        checkInitialized();
+        int result = RemixBridge.setVoxelCoverage(originX, originY, originZ, sizeX, sizeY, sizeZ, cellSize, levels);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("SetVoxelCoverage failed", result);
+    }
+
+    /** Copies the near grid and sparse 64-byte tree records atomically; flags bit 0 clips outside the grid. */
+    public void setVoxelCoverageTree(int originX, int originY, int originZ, int sizeX, int sizeY, int sizeZ,
+            int cellSize, ByteBuffer levels, int flags, ByteBuffer treeNodes, int treeNodeCount) {
+        checkInitialized();
+        int result = RemixBridge.setVoxelCoverageTree(originX, originY, originZ, sizeX, sizeY, sizeZ,
+                cellSize, levels, flags, treeNodes, treeNodeCount);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("SetVoxelCoverageTree failed", result);
+    }
+
+    /** Signal the producer timeline first. After commit, GPU payloads must never be modified. */
+    public void commitSharedBuffers(long[] buffers, long readyValue) {
+        checkInitialized();
+        int result = RemixBridge.commitSharedBuffers(buffers, readyValue);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("CommitSharedBuffers failed", result);
+    }
+
+    public void destroySharedBuffer(long handle) {
+        checkInitialized();
+        int result = RemixBridge.destroySharedBuffer(handle);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("DestroySharedBuffer failed", result);
+    }
+
+    /** Meshes retain the committed GPU slices independently of the public buffer handles. */
+    public long createMeshFromSharedBuffers(MeshSharedSurface... surfaces) {
+        checkInitialized();
+        long handle = RemixBridge.createMeshFromSharedBuffers(surfaces);
+        if (handle == 0) throw new RemixException("CreateMeshFromSharedBuffers failed", ErrorCode.GENERAL_FAILURE);
+        return handle;
+    }
 
     public long createMesh(MeshInfo info) {
         checkInitialized();
@@ -559,7 +636,7 @@ public class RemixAPI {
             drawInstance(info.mesh, info.transform.matrix,
                     info.categoryFlags, info.doubleSided, pNext);
         } finally {
-            if (blendPNext != 0) RemixBridge.freeExt(blendPNext);
+            if (blendPNext != 0) info.blendExt.freeNative();
             if (gpuPNext != 0) RemixBridge.freeExt(gpuPNext);
             if (bonePNext != 0) RemixBridge.freeExt(bonePNext);
         }
@@ -597,6 +674,19 @@ public class RemixAPI {
                 throw new RemixException("CreateLight failed", ErrorCode.GENERAL_FAILURE);
             }
             return handle;
+        } finally {
+            if (pNext != 0) RemixBridge.freeExt(pNext);
+        }
+    }
+
+    /** Updates an existing light in place; its handle and temporal identity remain valid. */
+    public void updateLight(long handle, LightInfo info) {
+        checkInitialized();
+        long pNext = allocLightPNext(info);
+        try {
+            int result = RemixBridge.updateLight(handle, info.hash,
+                    info.radiance.x, info.radiance.y, info.radiance.z, pNext);
+            if (result != ErrorCode.SUCCESS) throw new RemixException("UpdateLight failed", result);
         } finally {
             if (pNext != 0) RemixBridge.freeExt(pNext);
         }
@@ -915,6 +1005,20 @@ public class RemixAPI {
             return;
         }
         RemixBridge.tracyFrameMark(name);
+    }
+
+    /** Reads direct Vulkan interop metadata into a reusable holder. */
+    public void dxvkGetVulkanInteropInfo(VulkanInteropInfo output) {
+        checkInitialized();
+        int result = RemixBridge.dxvkGetVulkanInteropInfo(output);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("dxvk_GetVulkanInteropInfo failed", result);
+    }
+
+    /** Queries NGX after Vulkan interop initialization; does not enable or allocate frame generation. */
+    public void getFrameGenerationCapabilities(FrameGenerationCapabilities output) {
+        checkInitialized();
+        int result = RemixBridge.getFrameGenerationCapabilities(output);
+        if (result != ErrorCode.SUCCESS) throw new RemixException("Frame generation capability query failed", result);
     }
 
     public InteropInfo dxvkGetInteropInfo() {

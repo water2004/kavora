@@ -5,11 +5,13 @@
 package com.nvidia.rtxremix.minecraft.logic;
 
 import net.minecraft.SharedConstants;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.nbt.NbtElement;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.world.level.storage.SavedDataStorage;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtList;
-import net.minecraft.nbt.NbtSizeTracker;
+import net.minecraft.nbt.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.nvidia.rtxremix.minecraft.logic.ZonePersistentState;
 
 class ZonePersistentStateTest {
 
@@ -84,15 +88,15 @@ class ZonePersistentStateTest {
                 "rtx zone define valid --center 1 2 3 --inner 4 --outer 8", 0, 0, 0);
         ZonePersistentState source = new ZonePersistentState();
         source.put(valid);
-        NbtCompound nbt = source.writeNbt(new NbtCompound(), null);
+        CompoundTag nbt = source.toNbt();
 
-        NbtCompound malformed = new NbtCompound();
+        CompoundTag malformed = new CompoundTag();
         malformed.putString("name", "broken");
         malformed.putString("channel", "mc.zone.broken");
         malformed.putString("shape", "sphere");
-        nbt.getList("zones", NbtElement.COMPOUND_TYPE).add(malformed);
+        nbt.getListOrEmpty("zones").add(malformed);
 
-        ZonePersistentState loaded = ZonePersistentState.fromNbt(nbt, null);
+        ZonePersistentState loaded = ZonePersistentState.fromNbt(nbt);
 
         assertEquals(1, loaded.snapshot().size());
         assertEquals(valid, loaded.snapshot().iterator().next());
@@ -100,11 +104,11 @@ class ZonePersistentStateTest {
 
     @Test
     void unsupportedSchemaLoadsAsEmptyWithoutDirtying() {
-        NbtCompound nbt = new NbtCompound();
+        CompoundTag nbt = new CompoundTag();
         nbt.putInt("version", 999);
-        nbt.put("zones", new NbtList());
+        nbt.put("zones", new ListTag());
 
-        ZonePersistentState loaded = ZonePersistentState.fromNbt(nbt, null);
+        ZonePersistentState loaded = ZonePersistentState.fromNbt(nbt);
 
         assertTrue(loaded.snapshot().isEmpty());
         assertFalse(loaded.isDirty());
@@ -121,16 +125,16 @@ class ZonePersistentStateTest {
         ZoneDefinition second = ZoneDefinition.parse(
                 "rtx zone define cave --center 100 0 0 --inner 5 --outer 10", 0, 0, 0);
 
-        NbtCompound firstNbt = writeOne(first);
-        NbtCompound secondNbt = writeOne(second);
-        NbtList zones = new NbtList();
+        CompoundTag firstNbt = writeOne(first);
+        CompoundTag secondNbt = writeOne(second);
+        ListTag zones = new ListTag();
         zones.add(firstNbt);
         zones.add(secondNbt);
-        NbtCompound root = new NbtCompound();
+        CompoundTag root = new CompoundTag();
         root.putInt("version", 1);
         root.put("zones", zones);
 
-        ZoneDefinition restored = ZonePersistentState.fromNbt(root, null).snapshot().iterator().next();
+        ZoneDefinition restored = ZonePersistentState.fromNbt(root).snapshot().iterator().next();
 
         assertEquals(second, restored);
         assertEquals(1.0f, restored.weight(100, 0, 0), 1e-6f);
@@ -156,38 +160,81 @@ class ZonePersistentStateTest {
                 "rtx zone define saved --center 4 5 6 --inner 7 --outer 11", 0, 0, 0);
         ZonePersistentState state = new ZonePersistentState();
         state.put(zone);
-        Path file = tempDir.resolve("rtx_remix_zones.dat");
+        Path file = tempDir.resolve("rtx-remix-renderer/zones.dat");
 
         ensureGameVersionForPersistentStateSave();
-        state.save(file.toFile(), null);
+        try (SavedDataStorage storage = new SavedDataStorage(tempDir, net.minecraft.util.datafix.DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
+            storage.set(ZonePersistentState.TYPE, state);
+            storage.saveAndJoin();
+        }
 
         assertFalse(state.isDirty());
-        NbtCompound root = NbtIo.readCompressed(file, NbtSizeTracker.ofUnlimitedBytes());
-        ZonePersistentState loaded = ZonePersistentState.fromNbt(root.getCompound("data"), null);
+        CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+        ZonePersistentState loaded = ZonePersistentState.fromNbt(root.getCompound("data").orElseThrow());
         assertEquals(List.of(zone), new ArrayList<>(loaded.snapshot()));
+    }
+
+    @Test
+    void importsLegacyFileWithoutModifyingIt(@TempDir Path tempDir) throws Exception {
+        ensureGameVersionForPersistentStateSave();
+        ZoneDefinition zone = ZoneDefinition.parse("rtx zone define legacy", 1, 2, 3);
+        ZonePersistentState original = new ZonePersistentState();
+        original.put(zone);
+        CompoundTag root = new CompoundTag();
+        root.put("data", original.toNbt());
+        Path legacy = tempDir.resolve("rtx_remix_zones.dat");
+        NbtIo.writeCompressed(root, legacy);
+        byte[] before = java.nio.file.Files.readAllBytes(legacy);
+        try (SavedDataStorage storage = new SavedDataStorage(tempDir, net.minecraft.util.datafix.DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
+            ZonePersistentState loaded = ZonePersistentState.getIfPresent(storage, legacy);
+            assertEquals(List.of(zone), new ArrayList<>(loaded.snapshot()));
+            storage.saveAndJoin();
+        }
+        org.junit.jupiter.api.Assertions.assertArrayEquals(before, java.nio.file.Files.readAllBytes(legacy));
+        try (SavedDataStorage storage = new SavedDataStorage(tempDir, net.minecraft.util.datafix.DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
+            assertEquals(List.of(zone), new ArrayList<>(storage.get(ZonePersistentState.TYPE).snapshot()));
+        }
+    }
+
+    @Test
+    void importingFutureSchemaDoesNotWriteReplacement(@TempDir Path tempDir) throws Exception {
+        ensureGameVersionForPersistentStateSave();
+        CompoundTag data = new CompoundTag();
+        data.putInt("version", 999);
+        CompoundTag root = new CompoundTag();
+        root.put("data", data);
+        Path legacy = tempDir.resolve("rtx_remix_zones.dat");
+        NbtIo.writeCompressed(root, legacy);
+        try (SavedDataStorage storage = new SavedDataStorage(tempDir, net.minecraft.util.datafix.DataFixers.getDataFixer(), RegistryAccess.EMPTY)) {
+            ZonePersistentState loaded = ZonePersistentState.getIfPresent(storage, legacy);
+            assertFalse(loaded.isDirty());
+            assertThrows(IllegalStateException.class, loaded::toNbt);
+            storage.saveAndJoin();
+        }
+        assertFalse(java.nio.file.Files.exists(tempDir.resolve("rtx-remix-renderer/zones.dat")));
     }
 
     private static ZonePersistentState roundTrip(ZoneDefinition zone) {
         ZonePersistentState state = new ZonePersistentState();
         state.put(zone);
-        NbtCompound nbt = state.writeNbt(new NbtCompound(), null);
-        return ZonePersistentState.fromNbt(nbt, null);
+        CompoundTag nbt = state.toNbt();
+        return ZonePersistentState.fromNbt(nbt);
     }
 
-    private static NbtCompound writeOne(ZoneDefinition zone) {
+    private static CompoundTag writeOne(ZoneDefinition zone) {
         ZonePersistentState state = new ZonePersistentState();
         state.put(zone);
-        return state.writeNbt(new NbtCompound(), null)
-                .getList("zones", NbtElement.COMPOUND_TYPE)
-                .getCompound(0)
+        return state.toNbt()
+                .getList("zones").orElseThrow()
+                .getCompound(0).orElseThrow()
                 .copy();
     }
 
     private static void ensureGameVersionForPersistentStateSave() {
         try {
-            SharedConstants.getGameVersion();
+            SharedConstants.getCurrentVersion();
         } catch (IllegalStateException unset) {
-            SharedConstants.createGameVersion();
+            SharedConstants.tryDetectVersion();
         }
     }
 }

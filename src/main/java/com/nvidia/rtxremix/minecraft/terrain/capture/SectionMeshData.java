@@ -5,6 +5,7 @@
 package com.nvidia.rtxremix.minecraft.terrain.capture;
 
 import com.nvidia.rtxremix.minecraft.util.DirectBufferPool;
+import com.nvidia.rtxremix.HardcodedVertex;
 import com.nvidia.rtxremix.minecraft.terrain.ChunkManager;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -14,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Pre-categorized interleaved mesh data for a single chunk section.
  * Each {@link Surface} is one (category, bucketKey) pair with vertex
- * data already in HardcodedVertex layout (64-byte stride).
+ * data in HardcodedVertex field order, without the trailing input padding.
  *
  * <p>Positions are section-local. The column mesh builder adds each section's
  * offset within the column, and the Remix instance transform places the
@@ -34,13 +35,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * estimates stay readable, so a replaced entry can still be diffed.
  */
 public final class SectionMeshData {
+    public static final int VERTEX_STRIDE = HardcodedVertex.STORAGE_STRIDE;
 
     /**
      * One mesh surface bucket within a section.
      *
      * @param category     chunk manager category (CAT_SOLID, CAT_CUTOUT, etc.)
      * @param bucketKey    material bucket key (e.g. "solid", "cutout_mipped", "water", "solid_sss")
-     * @param vertexBuffer HardcodedVertex interleaved (64 bytes/vert); a pooled direct
+     * @param vertexBuffer interleaved attributes ({@link #VERTEX_STRIDE} bytes/vert); a pooled direct
      *                     buffer in production, positioned at 0 with the payload as limit
      * @param vertexCount  number of vertices
      * @param indexCount   number of indices
@@ -176,7 +178,7 @@ public final class SectionMeshData {
         hash = hash * 31 + (surface.canonicalQuadIndices ? 1 : 0);
 
         ByteBuffer vertices = surface.vertexBuffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
-        vertices.position(0).limit(surface.vertexCount * 64);
+        vertices.position(0).limit(surface.vertexCount * VERTEX_STRIDE);
         while (vertices.remaining() >= Integer.BYTES) hash = hash * 31 + vertices.getInt();
 
         return hash;
@@ -186,7 +188,7 @@ public final class SectionMeshData {
         long[] bytes = new long[ChunkManager.CAT_COUNT];
         for (Surface s : surfaces) {
             if (!isValidCategory(s.category)) continue;
-            bytes[s.category] += (long) s.vertexCount * 64L;
+            bytes[s.category] += (long) s.vertexCount * HardcodedVertex.STRIDE;
             bytes[s.category] += (long) s.indexCount * Integer.BYTES;
         }
         return bytes;

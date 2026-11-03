@@ -530,6 +530,11 @@ the result, and missing-section counters before calling a scene settled.
 A queue of zero at one instant is useful evidence, not proof that every later
 path position is streamed.
 
+With far capture active, status heartbeats also include `lod`: visible and
+staged cells, outstanding jobs, geometry and worker reservations, retirement
+and failure counts, memory backpressure, and the current near-handoff wait.
+These distinguish optional detail pressure from a blocked near publication.
+
 `warmupLap` defaults to false in the controller when omitted. When enabled,
 warmup sweeps the path and settles at its start before recording.
 `BenchmarkController.WARMUP_LAP_MAX_SPEED` and `WARMUP_SETTLE_FRAMES` own the

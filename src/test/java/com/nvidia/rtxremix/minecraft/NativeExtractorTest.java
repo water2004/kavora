@@ -41,14 +41,6 @@ class NativeExtractorTest {
     }
 
     @Test
-    void buildMarkerCombinesTheVersionAndTheArch() {
-        assertEquals(
-            "0.9.0-202604191459-8f2ab12|remix-sdk-win64",
-            NativeExtractor.buildMarker("0.9.0-202604191459-8f2ab12", "remix-sdk-win64")
-        );
-    }
-
-    @Test
     void markerMatchesAcceptsAnIdenticalMarker() {
         String m = "0.9.0-202604191459-8f2ab12|remix-sdk-win64";
         assertTrue(NativeExtractor.markerMatches(m, m));
@@ -131,7 +123,23 @@ class NativeExtractorTest {
         assertEquals("shipped runtime", Files.readString(gameDir.resolve("remix-sdk/d3d9.dll")));
         assertEquals("shipped companion", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
         assertEquals("shipped defaults", Files.readString(gameDir.resolve("rtx.conf")));
-        assertEquals("1.0|remix-sdk-win64", Files.readString(gameDir.resolve(".rtx-remix-version")));
+        assertEquals(NativeExtractor.buildMarker("1.0", "remix-sdk-win64", nativeRoot.resolve("remix-sdk-win64")),
+                Files.readString(gameDir.resolve(".rtx-remix-version")));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"rtxremix-support.dll", ".runtime-provenance.json"})
+    void matchingMarkerRepairsAMissingRequiredRuntimeFile(String file, @TempDir Path tmp) throws IOException {
+        Path nativeRoot = createNativePayload(tmp);
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        Files.delete(gameDir.resolve("remix-sdk").resolve(file));
+        Files.writeString(gameDir.resolve("remix-sdk/runtime.dll"), "stale runtime");
+
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+
+        assertTrue(Files.isRegularFile(gameDir.resolve("remix-sdk").resolve(file)));
+        assertEquals("shipped companion", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
     }
 
     @Test
@@ -232,10 +240,82 @@ class NativeExtractorTest {
         assertEquals("existing runtime", Files.readString(gameDir.resolve("remix-sdk/d3d9.dll")));
     }
 
+    @ParameterizedTest
+    @CsvSource({".runtime-provenance.json", "rtxremix-support.dll"})
+    void changedBundledRuntimeReextractsAtSameVersionAndPreservesAuthorConf(String changedFile, @TempDir Path tmp)
+            throws IOException {
+        Path nativeRoot = createNativePayload(tmp);
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        Path sdk = nativeRoot.resolve("remix-sdk-win64");
+        Path conf = gameDir.resolve("rtx-remix/mods/minecraft-logic/confs/water.conf");
+        Files.writeString(conf, "author edit");
+        Files.writeString(gameDir.resolve("remix-sdk/runtime.dll"), "old runtime");
+        Files.writeString(sdk.resolve(changedFile), "changed content");
+
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+
+        assertEquals("shipped companion", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
+        assertEquals("changed content", Files.readString(gameDir.resolve("remix-sdk").resolve(changedFile)));
+        assertEquals("author edit", Files.readString(conf));
+    }
+
+    @Test
+    void identicalBundledContentDoesNotReextract(@TempDir Path tmp) throws IOException {
+        Path nativeRoot = createNativePayload(tmp);
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        Files.writeString(gameDir.resolve("remix-sdk/runtime.dll"), "existing runtime");
+        Path provenance = nativeRoot.resolve("remix-sdk-win64/.runtime-provenance.json");
+        Files.write(provenance, Files.readAllBytes(provenance));
+
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+
+        assertEquals("existing runtime", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
+    }
+
+    @Test
+    void legacyMarkerTriggersMigration(@TempDir Path tmp) throws IOException {
+        Path nativeRoot = createNativePayload(tmp);
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        Files.writeString(gameDir.resolve(".rtx-remix-version"), "1.0|remix-sdk-win64");
+        Files.writeString(gameDir.resolve("remix-sdk/runtime.dll"), "old runtime");
+
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+
+        assertEquals("shipped companion", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
+        assertEquals(NativeExtractor.buildMarker("1.0", "remix-sdk-win64", nativeRoot.resolve("remix-sdk-win64")),
+                Files.readString(gameDir.resolve(".rtx-remix-version")));
+    }
+
+    @Test
+    void missingArchitectureLeavesLivePayloadUntouched(@TempDir Path tmp) throws IOException {
+        Path nativeRoot = createNativePayload(tmp);
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        String marker = Files.readString(gameDir.resolve(".rtx-remix-version"));
+        Files.writeString(gameDir.resolve("remix-sdk/runtime.dll"), "existing runtime");
+
+        NativeExtractor.extractIfNeeded(nativeRoot, gameDir, "1.0", "remix-sdk-arm64", INLINE_CLEANUP);
+
+        assertEquals(marker, Files.readString(gameDir.resolve(".rtx-remix-version")));
+        assertEquals("existing runtime", Files.readString(gameDir.resolve("remix-sdk/runtime.dll")));
+    }
+
+    @Test
+    void absentNativeRootSkipsExtraction(@TempDir Path tmp) throws IOException {
+        Path gameDir = Files.createDirectories(tmp.resolve("game"));
+        NativeExtractor.extractIfNeeded(tmp.resolve("absent-native"), gameDir, "1.0", "remix-sdk-win64", INLINE_CLEANUP);
+        assertFalse(Files.exists(gameDir.resolve(".rtx-remix-version")));
+    }
+
     private static Path createNativePayload(Path tmp) throws IOException {
         Path nativeRoot = Files.createDirectories(tmp.resolve("native"));
         Path sdk = Files.createDirectories(nativeRoot.resolve("remix-sdk-win64"));
         Files.writeString(sdk.resolve("d3d9.dll"), "shipped runtime");
+        Files.writeString(sdk.resolve("rtxremix-support.dll"), "shipped crash helper");
+        Files.writeString(sdk.resolve(".runtime-provenance.json"), "source build metadata");
         Files.writeString(sdk.resolve("runtime.dll"), "shipped companion");
         Files.writeString(nativeRoot.resolve("rtx.conf"), "shipped defaults");
         Path confs = Files.createDirectories(nativeRoot.resolve("rtx-remix/mods/minecraft-logic/confs"));

@@ -27,7 +27,47 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nvidia.rtxremix.minecraft.terrain.TerrainAssetRetirementQueue;
+import com.nvidia.rtxremix.minecraft.terrain.TerrainState;
+
 class ChunkManagerMeshInstallTest {
+
+    @Test
+    void stagingPublishesACompleteGroupOfColumnsAndReleasesTheirAccounting() throws Exception {
+        ChunkManager manager = new ChunkManager(null);
+        try {
+            Object a = readyEmptyColumn(manager, 1, 2), b = readyEmptyColumn(manager, 2, 2);
+            Object c = readyEmptyColumn(manager, 3, 2);
+            invoke(manager, "installReadyMeshes", new Class<?>[]{RemixAPI.class}, new Object[]{null});
+            assertTrue(booleanField(a, "hasPublishedState"));
+            assertTrue(booleanField(b, "hasPublishedState"));
+            assertTrue(booleanField(c, "hasPublishedState"));
+            assertTrue(pages(manager, "stagedNearInstalls").isEmpty());
+            assertEquals(0, atomicInteger(manager, "pendingResults").get());
+            assertEquals(0, atomicLong(manager, "pendingMeshBytes").get());
+        } finally { manager.destroy(); }
+    }
+
+    @Test
+    void failedBatchActivationRollsBackItsAlreadyActivatedColumns() throws Exception {
+        ChunkManager manager = new ChunkManager(null);
+        TrackingInstance first = new TrackingInstance(false), second = new TrackingInstance(true);
+        try {
+            Object a = newCursor(newDetachedResult(0)), b = newCursor(newDetachedResult(0));
+            addPage(a, first, ChunkManager.CAT_SOLID, 0x20);
+            addPage(b, second, ChunkManager.CAT_SOLID, 0x40);
+            set(a, "staged", true); set(b, "staged", true);
+            pages(manager, "stagedNearInstalls").addAll(List.of(a, b));
+            org.junit.jupiter.api.Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                    () -> invoke(manager, "activateNearBatch", new Class<?>[]{RemixAPI.class}, new Object[]{null}));
+            assertEquals(0, intField(a, "nextActivation"));
+            assertEquals(0x20 | InstanceCategoryBit.HIDDEN, first.categoryFlags);
+            assertTrue(booleanField(a, "abortRequested"));
+            assertTrue(booleanField(b, "abortRequested"));
+        } finally {
+            first.destroy(); second.destroy(); manager.destroy();
+        }
+    }
 
     @Test
     void oneInstallPassPublishesMultipleCompletedColumnsWithoutNativeWork() throws Exception {
@@ -303,10 +343,12 @@ class ChunkManagerMeshInstallTest {
         Class<?> resultType = nested("MeshBuildResult");
         Constructor<?> constructor = resultType.getDeclaredConstructor(
                 nested("ColumnRenderState"), int.class, int.class,
-                int[].class, int.class, long.class);
+                int[].class, int.class, long.class, java.util.Set.class);
         constructor.setAccessible(true);
         return constructor.newInstance(owner, generation, categoryMask,
-                fingerprints, epoch, accountedBytes);
+                fingerprints, epoch, accountedBytes, java.util.Set.of(
+                        new com.nvidia.rtxremix.minecraft.terrain.lod.NearSection(
+                                intField(owner, "cx"), 0, intField(owner, "cz"))));
     }
 
     private static Object newCursor(Object result) throws Exception {

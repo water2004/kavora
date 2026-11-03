@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.nvidia.rtxremix.minecraft.terrain.capture.SectionMeshData;
+
 class SectionMeshDataTest {
 
     @Test
@@ -98,7 +100,7 @@ class SectionMeshDataTest {
 
     private static SectionMeshData.Surface surface(
             int category, float firstPosition, int vertexCount, int indexCount) {
-        ByteBuffer vertices = ByteBuffer.allocate(vertexCount * HardcodedVertex.STRIDE)
+        ByteBuffer vertices = ByteBuffer.allocate(vertexCount * SectionMeshData.VERTEX_STRIDE)
                 .order(ByteOrder.LITTLE_ENDIAN);
         vertices.putFloat(0, firstPosition);
         return new SectionMeshData.Surface(

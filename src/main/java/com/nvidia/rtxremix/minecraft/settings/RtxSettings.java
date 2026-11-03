@@ -73,6 +73,12 @@ public final class RtxSettings {
         }
     }
 
+    void resetCategory(SettingCategory category) {
+        for (RtxSetting<?> setting : all) {
+            if (setting.group().category() == category) setting.reset();
+        }
+    }
+
     boolean hasOverrides(SettingGroup group) {
         for (RtxSetting<?> setting : all) {
             if (setting.group() == group && !setting.isDefault()) {

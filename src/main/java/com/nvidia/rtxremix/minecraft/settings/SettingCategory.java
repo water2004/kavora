@@ -8,6 +8,7 @@ package com.nvidia.rtxremix.minecraft.settings;
 enum SettingCategory {
     PERFORMANCE("rtxremix.settings.category.performance"),
     LIGHTING("rtxremix.settings.category.lighting"),
+    ATMOSPHERE("rtxremix.settings.category.atmosphere"),
     IMAGE("rtxremix.settings.category.image"),
     MATERIALS("rtxremix.settings.category.materials");
 

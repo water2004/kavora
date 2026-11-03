@@ -3,6 +3,10 @@
 This project is maintained by NVIDIA and released under the Apache License,
 Version 2.0. Contributions are welcome.
 
+This branch is the Minecraft 26.3 Vulkan port. Native integration is still
+being validated; see [Getting Started](docs/GETTING_STARTED.md) for the Java 25
+and source-runtime prerequisites. Upstream 1.21.1 binaries are incompatible.
+
 ## Which Repository
 
 The renderer spans three layers across two repositories, so the first question
@@ -10,30 +14,26 @@ for any change is which repository it belongs in.
 
 - Path tracing, denoising, upscaling, and the Remix C API itself live in
   [dxvk-remix](https://github.com/NVIDIAGameWorks/dxvk-remix).
-- The Minecraft-agnostic Java facade, API types, marshalling, and JNI bridge
-  are tracked here under `rtxremix-java/`. Gradle acquires missing runtimes
-  from the package pins in `packman/remix-sdk.packman.xml`.
+- The Minecraft-agnostic Java facade, API types, FFM marshalling and layouts,
+  and Windows crash-support source are tracked here under `rtxremix-java/`.
+  Gradle validates a staged source-built runtime for this branch.
 - Everything that reads Minecraft state and hands it to Remix lives here: the
   terrain, entity, texture, particle, and cloud pipelines, the gameplay-driven
   conf layers, the settings screen, and the Fabric mixins that feed them.
 
-Wrapper and mod changes belong in the same pull request. The pinned runtime is
-built from an NVIDIA branch of dxvk-remix whose source is not public yet, so
-runtime changes are made by the maintainers: propose one on the
-[RTX Remix tracker](https://github.com/NVIDIAGameWorks/rtx-remix/issues), or as
-a pull request to dxvk-remix where it applies there too. Once a matching
-runtime is published, the SDK manifest, the copied header, the JNI bridge, the
-Java facade, and the mod callers are updated together here. The copied header at
-`rtxremix-java/native/include/remix_c.h` matches the pinned runtime build and
-must not be edited in isolation or ahead of the published runtime package.
+Binding and mod changes belong in the same pull request. This port uses the
+source-built `water2004/dxvk-remix` runtime and its custom 1.5.0 C API.
+Keep that runtime, its copied header, FFM layouts and descriptors, Java facade,
+and mod callers aligned. Do not edit the copied
+`rtxremix-java/native/include/remix_c.h` in isolation or substitute a published
+upstream 0.x SDK.
 
 ## Set Up
 
 [Getting Started](docs/GETTING_STARTED.md) covers the prerequisites, how to
-obtain and stage a Remix runtime, the first build, and the one-time Prism
-Launcher sign-in each checkout needs before it can launch. The runtime is the
-part that surprises people: the bridge is compiled against a specific Remix C
-API version, and a runtime that predates it loads and then fails.
+build and stage the source runtime, then launch through Gradle `runClient` or
+the signed-in Prism workflow. Foreign layouts and calling descriptors must
+match the runtime ABI; a version string alone cannot establish compatibility.
 
 ## Where To Start Reading
 
@@ -81,16 +81,16 @@ payload contains, and `NativeExtractor` must agree with what `package` produced.
 A change to any one of them without the others produces a JAR that installs a
 broken game directory.
 
-**The JNI shim has no game dependencies.** `rtxremix-java/` must never import
+**The FFM binding has no game dependencies.** `rtxremix-java/` must never import
 `net.minecraft` or `net.fabricmc`; `RemixJavaBoundaryTest` enforces the
 boundary. Java-side handles are raw `long` values, not wrapper objects or JNA
-`Pointer`s, and the C API is reached only through JNI, never a JNA interface
+`Pointer`s, and the C API is reached only through FFM, never a JNA interface
 table. Use direct `ByteBuffer`s wherever the native method requires them, and
-document whether buffers must be direct on every new JNI entry point.
+document buffer directness and native segment lifetime on every new foreign entry point.
 
 **An API change crosses the whole boundary.** Keep `StructType.java` constants
-in step with the copied header and native runtime. Update the header, JNI
-bridge, Java facade and data types, SDK manifest, and affected mod callers
+in step with the copied header and native runtime. Update the header, FFM
+layouts and descriptors, Java facade and data types, provenance, and affected mod callers
 together. After rebasing parallel API additions, check for conflicting struct
 type values; the exact coordination points are in
 [Runtime And Java API Changes](AGENTS.md#runtime-and-java-api-changes).
@@ -217,19 +217,18 @@ real render-thread saving.
 
 ### Reading Vanilla Bytecode
 
-The Yarn-named merged JAR Loom already caches is enough for `javap`; generating
-all decompiled sources is not necessary. Read the mappings coordinate in
-`build.gradle` and select its exact cache directory. Old versions remain in
-the cache after a mappings bump. The sibling
-`~/.gradle/caches/fabric-loom/<minecraft-version>/minecraft-merged.jar` is the
-obfuscated merge, not the Yarn-named one.
+Minecraft 26.3 ships readable official names. The exact merged JAR Loom caches
+is enough for Java 25 `javap`; generating every decompiled source is not
+necessary. Read the Minecraft dependency in `build.gradle` and inspect that
+version's cache, since older versions remain after an upgrade.
 
-For the currently pinned mapping, a Git Bash example is:
+For example, from the repository root in PowerShell:
 
-```bash
-merged=~/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged
-version=1.21.1-net.fabricmc.yarn.1_21_1.1.21.1+build.3-v2
-javap -p -c -classpath "$merged/$version/minecraft-merged-$version.jar" net.minecraft.client.render.VertexConsumer
+```powershell
+$merged = Get-ChildItem .gradle/loom-cache/minecraftMaven -Recurse -Filter '*26.3.jar'
+$merged | Select-Object FullName
+# Select the matching minecraft-merged JAR shown above:
+javap -p -c -classpath <merged-jar-path> com.mojang.blaze3d.vertex.VertexConsumer
 ```
 
 If you need to search all callers of a descriptor, extract the whole JAR into
@@ -242,7 +241,7 @@ the extraction afterwards. Do not leave thousands of class files in the tree.
 
 `Mixing X from ... into net.minecraft...` in `run/logs/debug.log` proves
 registration, not an applied injection or an executed target. The check reads
-Loom's Yarn-named development client, which `runClient`, Fabric's standard
+Loom's officially named development client, which `runClient`, Fabric's standard
 Gradle task, starts from `run/`. Temporarily add `-Dmixin.debug.export=true` to
 the client `vmArgs` in `build.gradle`, launch `runClient`, and disassemble the
 transformed class under
@@ -254,7 +253,7 @@ An `@Inject` merges a `handler$<id>$rtx-remix-renderer$<handler name>` method
 and a call at the intended offset: `invokespecial` for a private instance
 handler, `invokestatic` for a static one. If the call is present but does not
 fire, investigate vanilla's frustum, dimension, cloud-mode and weather gates.
-Exports and the classes loaded from `build/classes/` use Yarn names. The
+Exports and the classes loaded from `build/classes/` use official names. The
 remapped JAR in `build/libs/` instead embeds intermediary `method_NNNNN` names
 in injection annotations. Remove the diagnostic flag and export afterwards.
 
@@ -266,23 +265,23 @@ in injection annotations. Remove the diagnostic flag and export afterwards.
 
 The suite covers JVM-side behavior and data contracts.
 
-It does not cross the JNI boundary and it does not render, so it cannot tell you
+It does not cross the FFM boundary and it does not render, so it cannot tell you
 that a change looks right. Two things follow. First, `test` still needs the C++
-toolchain, because every task that reaches `classes` builds the bridge and
-fetches and stages a missing runtime first. Second, a rendering change is not
+toolchain, because every task that reaches `classes` builds the crash helper and
+validates and stages the source runtime first. Second, a rendering change is not
 reviewed until someone has looked at it in a running game: build and launch it
 with `tools\rtx.bat launch`, and say in the pull request what you looked at and
 what you saw. Screenshots of the before and after, taken from the same
 position, are the most useful thing you can attach.
 
-For wrapper changes, the same root Gradle workflow compiles the shim with its
-mod callers and builds the bridge into `build/native/{win64|arm64}/`.
-Visual Studio C++ tools and `JAVA_HOME` pointing to a 64-bit JDK 21 are
-required. Gradle fetches the pinned runtime automatically when it is missing.
+For binding changes, the root workflow compiles the Java facade with its
+callers and builds `rtxremix-support.dll` into `build/native/{win64|arm64}/`.
+Visual Studio C++ tools and a 64-bit Java 25 JDK are required. Stage the matching
+source runtime and validated provenance before full builds or tests.
 Use `.\tools\rtx.bat sdk local --path <runtime dir> --arch win64` for a local build,
 as described in [Getting Started](docs/GETTING_STARTED.md#get-a-runtime).
-Packman-managed runtimes in `remix-runtime/{win64|arm64}/` are junctions into
-the shared cache. Never copy bridge outputs into them or commit SDKs or native
+Packman-managed runtime-texture directories are junctions into the shared
+cache. Never copy native outputs into them or commit SDKs or native
 build outputs. Launch with `tools\rtx.bat launch` before requesting review on an
 API change: Java compilation alone does not validate native loading.
 
@@ -325,10 +324,10 @@ Capture both revisions from one dedicated, clean worktree so its
 checkout-specific Prism instance keeps the save, pose, and `options.txt`
 settings unchanged. Stop the client, check out the comparison revision detached, launch
 it with `tools\rtx.bat launch` and capture it, then return to the feature
-revision and repeat. The integrated Java facade and JNI sources switch with the
-checkout. If its runtime manifest changed, restore that revision's pin with
-`tools\rtx.bat sdk packman` before launching, or explicitly select the matching
-local runtime. Keep the shipped `packaging/rtx.conf` matched to the runtime too.
+revision and repeat. The integrated Java facade and FFM sources switch with the
+checkout. Stage the matching source runtime and its provenance before each
+launch; this port cannot restore a compatible SDK from Packman. Keep the
+shipped `packaging/rtx.conf` matched to the runtime too.
 `tools\rtx.bat launch` rebuilds and installs each revision, and refuses to start
 while a client from the checkout is still running.
 
@@ -370,11 +369,11 @@ runners. [`check`](.github/workflows/check.yml) installs uv and runs
 `tools\rtx.bat check --tests`: Ruff formatting and lint, ty, the Python tests,
 and the public-boundary gate. On a pull request it also scans the commit
 messages from the base SHA to the head SHA.
-[`build`](.github/workflows/build.yml) installs JDK 21 and runs
+[`build`](.github/workflows/build.yml) installs the configured JDK and runs
 `gradlew.bat build test`. Both use read-only repository permissions and no
-secrets, including for fork pull requests. The build fetches the pinned
-runtime from public Packman, so it needs no credentials; never add private
-ones to a workflow.
+secrets, including for fork pull requests. This source-only port requires
+compatible native outputs for full integration checks; do not restore an
+incompatible upstream runtime or add private credentials to a workflow.
 
 Neither workflow launches Minecraft, measures GPU performance, or produces a
 release archive. Run `releaseArchive` locally when validating packaging.

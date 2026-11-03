@@ -51,13 +51,10 @@ class SettingsRowWidthTest {
     private static final Map<String, Integer> BUTTON_WIDTHS = Map.of(
             "rtxremix.settings.reset", FOOTER_BUTTON_WIDTH,
             "rtxremix.settings.resetAll", FOOTER_BUTTON_WIDTH,
-            "rtxremix.settings.configure", OPTION_WIDGET_WIDTH,
-            "rtxremix.settings.openRemixMenu", OPTION_WIDGET_WIDTH);
+            "rtxremix.settings.configure", OPTION_WIDGET_WIDTH);
 
     /**
-     * Rows {@code RtxSettingsCategoryScreen.fullWidthRows} lays out one per
-     * line through {@code OptionListWidget.addSingleOptionEntry}, which builds
-     * the widget at this width.
+     * Full-width rows used by Sodium's performance settings.
      */
     private static final int FULL_WIDTH_OPTION_WIDTH = 310;
     private static final int FULL_WIDTH_OPTION_TEXT_WIDTH = FULL_WIDTH_OPTION_WIDTH - 2 * WIDGET_TEXT_MARGIN;
@@ -93,6 +90,10 @@ class SettingsRowWidthTest {
             entry("rtxremix.setting.sky.nightAmbient", "10.00"),
             entry("rtxremix.setting.materials.terrainEmission", "50.00×"),
             entry("rtxremix.setting.materials.smoothReliefMaps", "OFF"),
+            entry("rtxremix.setting.fog.enabled", "OFF"),
+            entry("rtxremix.setting.fog.automatic", "OFF"),
+            entry("rtxremix.setting.fog.automaticStrength", "2.00"),
+            entry("rtxremix.setting.post.bloom", "OFF"),
             entry("rtxremix.setting.post.exposure", "2.00"),
             entry("rtxremix.setting.post.shadows", "-5.00"),
             entry("rtxremix.setting.post.highlights", "10.00"),
@@ -133,6 +134,19 @@ class SettingsRowWidthTest {
             int width = font.width(label.getValue());
             assertTrue(width <= BLOCK_LIGHT_NAME_WIDTH, String.format(
                     "%s is %d px wide: \"%s\"", label.getKey(), width, label.getValue()));
+        }
+    }
+
+    @Test
+    void nativeEffectsFitTheirFullWidthRowsAndHaveTooltips() {
+        for (var control : RtxEffectOptions.CONTROLS) {
+            String label = lang.get(control.labelKey());
+            assertNotNull(label, control.labelKey());
+            assertNotNull(lang.get(control.labelKey() + ".tip"), control.labelKey());
+            String value = control.kind() == RtxSetting.Kind.BOOL ? "OFF"
+                    : control.kind() == RtxSetting.Kind.INT ? Integer.toString((int) control.max())
+                    : String.format(java.util.Locale.ROOT, "%.3f", Math.max(Math.abs(control.min()), Math.abs(control.max())));
+            assertTrue(font.width(label + ": " + value) <= FULL_WIDTH_OPTION_TEXT_WIDTH, control.labelKey());
         }
     }
 

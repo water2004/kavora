@@ -24,13 +24,34 @@ public class RemixTexture extends RemixAssetBase {
     private int format;
     private int purpose;
     private ByteBuffer pixelData;
+    private final boolean immutable;
+    private final String sharingIdentity;
+    private RemixTextureStore ownerStore;
 
     public RemixTexture(int width, int height, int format, int purpose, ByteBuffer pixelData) {
+        this(width, height, format, purpose, pixelData, false);
+    }
+
+    /** Immutable textures retain only GPU storage once their initial upload has completed. */
+    public RemixTexture(int width, int height, int format, int purpose, ByteBuffer pixelData, boolean immutable) {
+        this(width, height, format, purpose, pixelData, immutable, null);
+    }
+
+    /** A non-null sharing identity names one atlas channel; only identical immutable pixels may share it. */
+    public RemixTexture(int width, int height, int format, int purpose, ByteBuffer pixelData, boolean immutable,
+                        String sharingIdentity) {
         this.width = width;
         this.height = height;
         this.format = format;
         this.purpose = purpose;
         this.pixelData = pixelData;
+        this.immutable = immutable;
+        this.sharingIdentity = sharingIdentity;
+    }
+
+    void attachStore(RemixTextureStore store) {
+        if (ownerStore != null && ownerStore != store) throw new IllegalStateException("Texture already belongs to another store");
+        ownerStore = store;
     }
 
     @Override
@@ -42,15 +63,16 @@ public class RemixTexture extends RemixAssetBase {
         info.format = format;
         info.purpose = purpose;
         info.pixelData = pixelData;
+        info.immutable = immutable;
 
-        long result = api.createTextureFromMemory(info);
+        long result = ownerStore.createAllocation(api, info, sharingIdentity);
         Reference.reachabilityFence(pixelData);
         return result;
     }
 
     @Override
     protected void doDestroy(RemixAPI api, long handle) {
-        api.destroyTexture(handle);
+        ownerStore.releaseAllocation(api, handle);
     }
 
     @Override

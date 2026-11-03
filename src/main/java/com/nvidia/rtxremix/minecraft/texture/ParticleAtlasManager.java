@@ -11,19 +11,13 @@ import com.nvidia.rtxremix.minecraft.asset.RemixTexture;
 import com.nvidia.rtxremix.minecraft.asset.RemixMaterialStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixMaterial;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.nvidia.rtxremix.MaterialInfo;
 import com.nvidia.rtxremix.MaterialInfoOpaqueEXT;
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.RemixException;
 import com.nvidia.rtxremix.TextureFormat;
 import com.nvidia.rtxremix.TexturePurpose;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.AbstractTexture;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.Sprite;
-import net.minecraft.client.texture.SpriteAtlasTexture;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +26,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.ResourceManager;
 
 /**
  * Captures the particle sprite atlas and builds parallel LabPBR atlas textures
@@ -51,6 +51,8 @@ public class ParticleAtlasManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(ParticleAtlasManager.class);
 
     private final RemixRenderer renderer;
+    private final Identifier atlasId;
+    private final Map<Identifier, ParticleAtlasManager> additionalAtlases = new java.util.HashMap<>();
 
     private final List<RemixTexture> managedTextures = new ArrayList<>();
     private final List<RemixMaterial> managedMaterials = new ArrayList<>();
@@ -61,19 +63,31 @@ public class ParticleAtlasManager {
     private boolean initFailed;
 
     public ParticleAtlasManager(RemixRenderer renderer) {
+        this(renderer, TextureAtlas.LOCATION_PARTICLES);
+    }
+
+    private ParticleAtlasManager(RemixRenderer renderer, Identifier atlasId) {
         this.renderer = renderer;
+        this.atlasId = atlasId;
+    }
+
+    /** Lookup-only: particle preparation reads this from its worker thread. */
+    public RemixMaterial getMaterialForAtlas(Identifier id) {
+        if (atlasId.equals(id)) return material;
+        ParticleAtlasManager manager = additionalAtlases.get(id);
+        return manager == null ? null : manager.material;
     }
 
     public void initialize() {
         if (initialized || initFailed) return;
         try {
             RemixAPI api = renderer.getRemixApi();
-            MinecraftClient client = MinecraftClient.getInstance();
+            Minecraft client = Minecraft.getInstance();
             if (api == null || client == null || client.getTextureManager() == null) return;
 
             AbstractTexture tex = client.getTextureManager()
-                    .getTexture(SpriteAtlasTexture.PARTICLE_ATLAS_TEXTURE);
-            if (!(tex instanceof SpriteAtlasTexture atlas)) return;
+                    .getTexture(atlasId);
+            if (!(tex instanceof TextureAtlas atlas)) return;
 
             SpriteAtlasAccessor acc = (SpriteAtlasAccessor) atlas;
             int atlasW = acc.getWidth();
@@ -83,7 +97,7 @@ public class ParticleAtlasManager {
                 return;
             }
 
-            Map<Identifier, Sprite> sprites = acc.getSprites();
+            Map<Identifier, TextureAtlasSprite> sprites = acc.getSprites();
             if (sprites == null || sprites.isEmpty()) {
                 LOGGER.warn("Particle atlas has no sprites, deferring init");
                 return;
@@ -114,13 +128,14 @@ public class ParticleAtlasManager {
 
             for (var entry : sprites.entrySet()) {
                 Identifier spriteId = entry.getKey();
-                Sprite sprite = entry.getValue();
-                int pixX = sprite.getX(), pixY = sprite.getY();
-                int pixW = sprite.getContents().getWidth();
-                int pixH = sprite.getContents().getHeight();
+                TextureAtlasSprite sprite = entry.getValue();
+                int pixX = SpriteAtlasContent.x(sprite), pixY = SpriteAtlasContent.y(sprite);
+                int pixW = sprite.contents().width();
+                int pixH = sprite.contents().height();
 
-                Identifier texId = Identifier.of(spriteId.getNamespace(),
-                        "particle/" + spriteId.getPath());
+                Identifier texId = atlasId.equals(TextureAtlas.LOCATION_PARTICLES)
+                        ? Identifier.fromNamespaceAndPath(spriteId.getNamespace(), "particle/" + spriteId.getPath())
+                        : spriteId;
                 NativeImage nImg = labPBRVariants.loadVariant(texId, "_n");
                 NativeImage sImg = labPBRVariants.loadVariant(texId, "_s");
                 try {
@@ -146,21 +161,27 @@ public class ParticleAtlasManager {
                 }
             }
 
-            RemixTexture albedoTex = uploadTexture("particle_atlas_albedo",
+            SpriteAtlasContent.extrudePadding(atlas, albedoRGBA, 4);
+            SpriteAtlasContent.extrudePadding(atlas, normalAtlas, 4);
+            SpriteAtlasContent.extrudePadding(atlas, heightAtlas, 1);
+            SpriteAtlasContent.extrudePadding(atlas, roughnessAtlas, 1);
+            SpriteAtlasContent.extrudePadding(atlas, metallicAtlas, 1);
+            SpriteAtlasContent.extrudePadding(atlas, emissiveAtlas, 4);
+            RemixTexture albedoTex = uploadTexture("albedo",
                     albedoRGBA, atlasW, atlasH, TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
 
             RemixTexture normalTex = hasAnyNormal
-                    ? uploadTexture("particle_atlas_normal", normalAtlas, atlasW, atlasH,
+                    ? uploadTexture("normal", normalAtlas, atlasW, atlasH,
                             TextureFormat.RGBA8_UNORM, TexturePurpose.NORMAL_DX) : null;
             RemixTexture heightTex = hasAnyHeight
-                    ? uploadTexture("particle_atlas_height", heightAtlas, atlasW, atlasH,
+                    ? uploadTexture("height", heightAtlas, atlasW, atlasH,
                             TextureFormat.R8_UNORM, TexturePurpose.HEIGHTMAP) : null;
-            RemixTexture roughnessTex = uploadTexture("particle_atlas_roughness",
+            RemixTexture roughnessTex = uploadTexture("roughness",
                     roughnessAtlas, atlasW, atlasH, TextureFormat.R8_UNORM, TexturePurpose.DATA);
-            RemixTexture metallicTex = uploadTexture("particle_atlas_metallic",
+            RemixTexture metallicTex = uploadTexture("metallic",
                     metallicAtlas, atlasW, atlasH, TextureFormat.R8_UNORM, TexturePurpose.DATA);
             RemixTexture emissiveTex = hasAnyEmissive
-                    ? uploadTexture("particle_atlas_emissive", emissiveAtlas, atlasW, atlasH,
+                    ? uploadTexture("emissive", emissiveAtlas, atlasW, atlasH,
                             TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR) : null;
 
             if (albedoTex == null) {
@@ -178,6 +199,11 @@ public class ParticleAtlasManager {
                 return;
             }
 
+            if (atlasId.equals(TextureAtlas.LOCATION_PARTICLES)) {
+                ParticleAtlasManager items = new ParticleAtlasManager(renderer, TextureAtlas.LOCATION_ITEMS);
+                items.initialize();
+                additionalAtlases.put(TextureAtlas.LOCATION_ITEMS, items);
+            }
             initialized = true;
             LOGGER.info("Particle atlas initialized ({}x{}, {} sprites, normal={}, height={}, emissive={})",
                     atlasW, atlasH, sprites.size(), hasAnyNormal, hasAnyHeight, hasAnyEmissive);
@@ -219,7 +245,7 @@ public class ParticleAtlasManager {
         ByteBuffer buf = DirectBufferPool.acquire(data.length);
         buf.put(data).flip();
         try {
-            RemixTexture tex = new RemixTexture(w, h, fmt, purpose, buf);
+            RemixTexture tex = new RemixTexture(w, h, fmt, purpose, buf, true, atlasId + "/" + name);
             // The texture owns the buffer from here: RemixAssetBase disposes it after a
             // successful create and on the create failure path alike, so releasing it
             // here as well would release it twice.
@@ -245,6 +271,8 @@ public class ParticleAtlasManager {
     }
 
     public void cleanup() {
+        for (ParticleAtlasManager manager : additionalAtlases.values()) manager.cleanup();
+        additionalAtlases.clear();
         for (RemixMaterial mat : managedMaterials)
             if (!mat.isDeleted()) mat.destroy();
         managedMaterials.clear();

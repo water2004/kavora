@@ -1,6 +1,7 @@
 {
     "schemaVersion": 1,
     "id": "rtx-remix-renderer",
+    "provides": ["rtxremix-far-terrain-v1"],
     "version": "${version}",
     "name": "RTX Remix for Minecraft",
     "description": "Renders Minecraft through NVIDIA RTX Remix path tracing. NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
@@ -8,11 +9,11 @@
         "NVIDIA"
     ],
     "contact": {
-        "homepage": "https://github.com/NVIDIAGameWorks/rtx-remix-minecraft",
-        "sources": "https://github.com/NVIDIAGameWorks/rtx-remix-minecraft",
-        "issues": "https://github.com/NVIDIAGameWorks/rtx-remix-minecraft/issues"
+        "homepage": "https://github.com/water2004/rtx-remix-minecraft",
+        "sources": "https://github.com/water2004/rtx-remix-minecraft",
+        "issues": "https://github.com/water2004/rtx-remix-minecraft/issues"
     },
-    "license": "Apache-2.0",
+    "license": ["Apache-2.0", "LGPL-3.0-only"],
     "environment": "*",
     "entrypoints": {
         "preLaunch": [
@@ -23,16 +24,24 @@
         ],
         "client": [
             "com.nvidia.rtxremix.minecraft.RtxRemixMod"
+        ],
+        "sodium:config_api_user": [
+            "com.nvidia.rtxremix.minecraft.settings.RtxSodiumConfig"
         ]
     },
     "mixins": [
-        "rtx-remix-renderer.mixins.json"
+        "rtx-remix-renderer.mixins.json",
+        "rtx-remix-sodium.mixins.json"
     ],
     "accessWidener": "rtx-remix-renderer.accesswidener",
     "depends": {
-        "fabricloader": ">=0.16.5",
-        "fabric-api": ">=0.116.10+1.21.1",
-        "minecraft": "1.21.1",
-        "java": ">=21"
+        "fabricloader": ">=0.20.1",
+        "fabric-api": ">=0.165.0+26.3",
+        "sodium": "0.9.2",
+        "minecraft": "26.3",
+        "java": ">=25"
+    },
+    "breaks": {
+        "voxy": "*"
     }
 }

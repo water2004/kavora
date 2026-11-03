@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-#version 430 core
+#version 450
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -10,10 +10,10 @@ layout(rgba32f, binding = 1) uniform image2D UpperSingleImage;
 layout(rgba32f, binding = 2) uniform image2D UpperViewImage;
 layout(rgba16f, binding = 3) uniform image2D FinalSkyImage;
 
-layout(binding = 0) uniform sampler2D TransmittanceLut;
+layout(binding = 4) uniform sampler2D TransmittanceLut;
 
-uniform int Pass;
-layout(std140, binding = 0) uniform SkyParameters {
+layout(push_constant) uniform SkyPass { int Pass; };
+layout(std140, binding = 5) uniform SkyParameters {
     vec4 SunDirectionAndRadius;
     vec4 MoonDirectionAndRadius;
     vec4 SunRadianceAndAtmosphereScale;

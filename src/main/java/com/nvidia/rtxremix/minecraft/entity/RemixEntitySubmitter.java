@@ -21,6 +21,7 @@ import com.nvidia.rtxremix.minecraft.asset.RemixMaterialStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixMaterial;
 import com.nvidia.rtxremix.minecraft.asset.RemixInstanceStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixInstance;
+import com.mojang.blaze3d.platform.NativeImage;
 import com.nvidia.rtxremix.HardcodedVertex;
 import com.nvidia.rtxremix.InstanceCategoryBit;
 import com.nvidia.rtxremix.InstanceInfoBlendEXT;
@@ -41,18 +42,6 @@ import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.texture.AbstractTexture;
-import net.minecraft.client.texture.NativeImage;
-import net.minecraft.client.texture.Sprite;
-import net.minecraft.client.texture.SpriteAtlasTexture;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,6 +60,17 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Converts {@link RemixEntityPass.EntityCaptureResult} into RTX Remix API calls.
@@ -125,21 +125,19 @@ public class RemixEntitySubmitter {
     private static final float POM_DISPLACE_IN = 0.25f;
     private static final float EMISSIVE_INTENSITY = 100.0f;
     private static final float COPPER_BEACON_LENS_EMISSION_SCALE = 100.0f;
-    private static final float THIN_SSS_MEASUREMENT_DISTANCE = 0.75f;
     private static final int DEFAULT_CUTOUT_ALPHA_REFERENCE = 1;
     private static final int COVERAGE_ALPHA_REFERENCE = 128;
     private static final Identifier BANNER_PATTERNS_ATLAS_TEXTURE =
-            Identifier.of("minecraft", "textures/atlas/banner_patterns.png");
+            Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/banner_patterns.png");
     private static final Identifier SHIELD_PATTERNS_ATLAS_TEXTURE =
-            Identifier.of("minecraft", "textures/atlas/shield_patterns.png");
-    private static final Identifier PARTICLE_ATLAS_ID = SpriteAtlasTexture.PARTICLE_ATLAS_TEXTURE;
-    private static final Identifier BEDS_ATLAS_TEXTURE =
-            Identifier.of("minecraft", "textures/atlas/beds.png");
+            Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/shield_patterns.png");
+    private static final Identifier PARTICLE_ATLAS_ID = TextureAtlas.LOCATION_PARTICLES;
     private static final Identifier MAP_DECORATIONS_ATLAS_TEXTURE =
-            Identifier.of("minecraft", "textures/atlas/map_decorations.png");
+            Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/map_decorations.png");
     private static final String DYNAMIC_MAP_TEXTURE_PREFIX = "dynamic/map/";
-    private static final EntityMaterialKey BEDS_ATLAS_MATERIAL_KEY =
-            new EntityMaterialKey(BEDS_ATLAS_TEXTURE, RenderLayerUtils.SurfaceMode.OPAQUE);
+    private static final EntityMaterialKey BLOCK_ENTITIES_ATLAS_MATERIAL_KEY =
+            new EntityMaterialKey(net.minecraft.client.renderer.Sheets.BLOCK_ENTITIES_MAPPER.sheet(),
+                    RenderLayerUtils.SurfaceMode.OPAQUE);
     static final InstanceInfoBlendEXT VERTEX_COLOR_MODULATE =
             InstanceInfoBlendEXT.textureTimesVertexColor();
     static final InstanceInfoBlendEXT BANNER_PATTERN_BLEND =
@@ -262,7 +260,7 @@ public class RemixEntitySubmitter {
      * per-instance update instead of a native mesh create per part per frame.
      */
     record CuboidMeshKey(Identifier texId, RenderLayerUtils.SurfaceMode surfaceMode,
-                         int shellLayer, ModelPart.Quad[] sides, Sprite sprite)
+                         int shellLayer, ModelPart.Polygon[] sides, TextureAtlasSprite sprite)
             implements RigidMeshKey {
         @Override
         public boolean equals(Object other) {
@@ -294,7 +292,7 @@ public class RemixEntitySubmitter {
      * are values, baked as vertex colour.
      */
     record CanvasMeshKey(Identifier texId, RenderLayerUtils.SurfaceMode surfaceMode,
-                         int shellLayer, ModelPart.Quad[] sides, Sprite[] sprites, int[] tints)
+                         int shellLayer, ModelPart.Polygon[] sides, TextureAtlasSprite[] sprites, int[] tints)
             implements RigidMeshKey {
         @Override
         public boolean equals(Object other) {
@@ -337,8 +335,8 @@ public class RemixEntitySubmitter {
         private RenderLayerUtils.Topology topology;
         private int vertexCount;
         private long geometryHash;
-        private ModelPart.Quad[] sides;
-        private Sprite sprite;
+        private ModelPart.Polygon[] sides;
+        private TextureAtlasSprite sprite;
         private int layerHashPrefix;
         private int hashCode;
 
@@ -358,7 +356,7 @@ public class RemixEntitySubmitter {
             this.layerHashPrefix = layerHash(texId, surfaceMode, shellLayer);
         }
 
-        void setCuboid(ModelPart.Quad[] sides, Sprite sprite) {
+        void setCuboid(ModelPart.Polygon[] sides, TextureAtlasSprite sprite) {
             this.form = Form.CUBOID;
             this.sides = sides;
             this.sprite = sprite;
@@ -383,7 +381,7 @@ public class RemixEntitySubmitter {
          * The parts are read through the probe until the next set, so the source must
          * stay untouched while this probe is in use.
          */
-        void setCanvas(ModelPart.Quad[] sides, RemixCapturingConsumer source,
+        void setCanvas(ModelPart.Polygon[] sides, RemixCapturingConsumer source,
                        int firstPart, int patternCount) {
             this.form = Form.CANVAS;
             this.sides = sides;
@@ -407,7 +405,7 @@ public class RemixEntitySubmitter {
                 case HASHED -> new HashedMeshKey(texId, surfaceMode, topology, shellLayer,
                         vertexCount, geometryHash);
                 case CANVAS -> {
-                    Sprite[] sprites = new Sprite[canvasPatternCount];
+                    TextureAtlasSprite[] sprites = new TextureAtlasSprite[canvasPatternCount];
                     int[] tints = new int[canvasPatternCount];
                     for (int i = 0; i < canvasPatternCount; i++) {
                         int part = canvasFirstPart + i;
@@ -468,11 +466,11 @@ public class RemixEntitySubmitter {
         }
 
         static int cuboidHash(Identifier texId, RenderLayerUtils.SurfaceMode surfaceMode,
-                              int shellLayer, ModelPart.Quad[] sides, Sprite sprite) {
+                              int shellLayer, ModelPart.Polygon[] sides, TextureAtlasSprite sprite) {
             return cuboidHash(layerHash(texId, surfaceMode, shellLayer), sides, sprite);
         }
 
-        private static int cuboidHash(int layerHashPrefix, ModelPart.Quad[] sides, Sprite sprite) {
+        private static int cuboidHash(int layerHashPrefix, ModelPart.Polygon[] sides, TextureAtlasSprite sprite) {
             int result = 31 * layerHashPrefix + System.identityHashCode(sides);
             return 31 * result + System.identityHashCode(sprite);
         }
@@ -492,16 +490,16 @@ public class RemixEntitySubmitter {
         }
 
         static int canvasHashPrefix(Identifier texId, RenderLayerUtils.SurfaceMode surfaceMode,
-                                    int shellLayer, ModelPart.Quad[] sides) {
+                                    int shellLayer, ModelPart.Polygon[] sides) {
             return canvasHashPrefix(layerHash(texId, surfaceMode, shellLayer), sides);
         }
 
-        private static int canvasHashPrefix(int layerHashPrefix, ModelPart.Quad[] sides) {
+        private static int canvasHashPrefix(int layerHashPrefix, ModelPart.Polygon[] sides) {
             return 31 * layerHashPrefix + System.identityHashCode(sides);
         }
 
         /** Folds one canvas layer, the sprite by identity and the tint by value, into a running hash. */
-        static int foldCanvasLayer(int result, Sprite sprite, int tint) {
+        static int foldCanvasLayer(int result, TextureAtlasSprite sprite, int tint) {
             return 31 * (31 * result + System.identityHashCode(sprite)) + tint;
         }
 
@@ -608,7 +606,7 @@ public class RemixEntitySubmitter {
         RemixTexture roughness;
         RemixTexture metallic;
         RemixTexture emissive;
-        RemixTexture sssThickness;
+        boolean hasSssMask;
         RemixTexture sssAlbedo;
         boolean hasPBR;
         final List<RemixTexture> ownedTextures = new ArrayList<>();
@@ -628,16 +626,16 @@ public class RemixEntitySubmitter {
     private static final class BeaconLensAssets {
         final RemixMaterial material;
         final RemixMesh mesh;
-        final ModelPart.Quad[] sides;
-        final Sprite sprite;
+        final ModelPart.Polygon[] sides;
+        final TextureAtlasSprite sprite;
         float intensityMultiplier;
         long lastSeenFrame;
 
         BeaconLensAssets(
                 RemixMaterial material,
                 RemixMesh mesh,
-                ModelPart.Quad[] sides,
-                Sprite sprite,
+                ModelPart.Polygon[] sides,
+                TextureAtlasSprite sprite,
                 float intensityMultiplier,
                 long lastSeenFrame) {
             this.material = material;
@@ -783,7 +781,7 @@ public class RemixEntitySubmitter {
      * Submits an entity with a render-only root translation. Entity state and
      * captured rigid-part transforms remain in their authoritative positions.
      */
-    public void submitEntity(RemixEntityPass.EntityCaptureResult result, Vec3d renderOffset) {
+    public void submitEntity(RemixEntityPass.EntityCaptureResult result, Vec3 renderOffset) {
         Transform worldTransform = buildWorldTransform(result.worldPos().add(renderOffset));
         submitEntity(result, worldTransform, baseCategoryFlags(result), NO_EXTRA_CATEGORIES);
     }
@@ -844,11 +842,11 @@ public class RemixEntitySubmitter {
                              int layerIndex) {
         Identifier texId = layer.textureId();
         if (texId == null) return;
-        RenderLayer renderLayer = layer.renderLayer();
+        RenderType renderLayer = layer.renderLayer();
         RenderLayerUtils.SurfaceMode layerMode = RenderLayerUtils.surfaceMode(renderLayer);
         RenderLayerUtils.SurfaceMode surfaceMode = playerSkinSurfaceMode(layerMode,
-                result.owner() instanceof PlayerEntity
-                        && renderLayer == RenderLayer.getEntityTranslucent(texId));
+                result.owner() instanceof Player
+                        && renderLayer == net.minecraft.client.renderer.rendertype.RenderTypes.entityTranslucent(texId));
 
         RemixCapturingConsumer consumer = layer.consumer();
         // Guard on parts, not vertices: a cuboid part carries no captured
@@ -877,7 +875,7 @@ public class RemixEntitySubmitter {
         int patternCategoryFlags = baseCategoryFlags | textureCategoryFlags
                 | policy.categoryFlags(PatternCanvasRole.PATTERN);
         for (int part = 0, partCount = consumer.getPartCount(); part < partCount; part++) {
-            ModelPart.Quad[] sides = consumer.getPartSides(part);
+            ModelPart.Polygon[] sides = consumer.getPartSides(part);
             int bone = consumer.getPartBone(part);
             // Canvas roles are for cuboid parts, which arrive white with an instance
             // tint. A hashed part on a pattern atlas carries its colour in its
@@ -1030,13 +1028,13 @@ public class RemixEntitySubmitter {
         private static final int FLOATS_PER_BONE = 12;
 
         private float[] boneData;
-        private final List<ModelPart.Quad[]> baseSides = new ArrayList<>();
+        private final List<ModelPart.Polygon[]> baseSides = new ArrayList<>();
         private final IntArrayList baseBones = new IntArrayList();
 
         private boolean canvasLayer;
         private PatternCanvasRole solidRole;
         private boolean runOpen;
-        private ModelPart.Quad[] runSides;
+        private ModelPart.Polygon[] runSides;
         private int runBone;
         private int depth;
 
@@ -1053,7 +1051,7 @@ public class RemixEntitySubmitter {
             beginLayer(texId, layerMode);
             if (!canvasLayer) return;
             for (int part = 0, partCount = consumer.getPartCount(); part < partCount; part++) {
-                ModelPart.Quad[] sides = consumer.getPartSides(part);
+                ModelPart.Polygon[] sides = consumer.getPartSides(part);
                 if (sides == null) continue;
                 int bone = consumer.getPartBone(part);
                 if (next(sides, bone) == PatternCanvasRole.BASE) {
@@ -1073,7 +1071,7 @@ public class RemixEntitySubmitter {
         }
 
         /** Classifies the layer's next cuboid part, which hangs off {@code bone}. */
-        PatternCanvasRole next(ModelPart.Quad[] sides, int bone) {
+        PatternCanvasRole next(ModelPart.Polygon[] sides, int bone) {
             if (!canvasLayer) return solidRole;
             if (runOpen && sides == runSides && samePose(bone, runBone)) {
                 depth++;
@@ -1099,7 +1097,7 @@ public class RemixEntitySubmitter {
          * is drawn at no base's pose, and a hashed part has no cuboid to match, so those
          * stay.
          */
-        boolean isBacking(PatternCanvasRole role, ModelPart.Quad[] sides, int bone) {
+        boolean isBacking(PatternCanvasRole role, ModelPart.Polygon[] sides, int bone) {
             if (role != PatternCanvasRole.FRAME || sides == null) return false;
             for (int i = 0, n = baseSides.size(); i < n; i++) {
                 if (baseSides.get(i) == sides && samePose(bone, baseBones.getInt(i))) return true;
@@ -1194,8 +1192,8 @@ public class RemixEntitySubmitter {
                                  int categoryFlags) {
         int startVertex = consumer.getPartStart(partIndex);
         int vertexCount = consumer.getPartVertexCount(partIndex);
-        ModelPart.Quad[] sides = consumer.getPartSides(partIndex);
-        Sprite sprite = consumer.getPartSprite(partIndex);
+        ModelPart.Polygon[] sides = consumer.getPartSides(partIndex);
+        TextureAtlasSprite sprite = consumer.getPartSprite(partIndex);
         // Key and material both derive from this part's narrowed mode, so a
         // pooled mesh is never handed to a part whose material differs from the
         // one baked into it.
@@ -1214,7 +1212,7 @@ public class RemixEntitySubmitter {
         CopperBeaconBlockEntity beacon = placedBeaconLens(result.owner(), sprite);
         boolean emissiveBeaconLens = beacon != null
                 && CopperBeaconBlockEntityRenderer.LENS_SPRITE_ID.equals(
-                        sprite.getContents().getId());
+                        sprite.contents().name());
         RemixMesh mesh = emissiveBeaconLens
                 ? acquireBeaconLensMesh(
                         beacon, vertexCount, texId, shellLayer, sides, sprite)
@@ -1237,13 +1235,13 @@ public class RemixEntitySubmitter {
                 worldTransform);
     }
 
-    private static CopperBeaconBlockEntity placedBeaconLens(Object owner, Sprite sprite) {
+    private static CopperBeaconBlockEntity placedBeaconLens(Object owner, TextureAtlasSprite sprite) {
         return owner instanceof CopperBeaconBlockEntity beacon
                         && sprite != null
                         && (CopperBeaconBlockEntityRenderer.LENS_SPRITE_ID.equals(
-                                        sprite.getContents().getId())
+                                        sprite.contents().name())
                                 || CopperBeaconBlockEntityRenderer.UNLIT_LENS_SPRITE_ID.equals(
-                                        sprite.getContents().getId()))
+                                        sprite.contents().name()))
                 ? beacon
                 : null;
     }
@@ -1253,8 +1251,8 @@ public class RemixEntitySubmitter {
             int vertexCount,
             Identifier textureId,
             int shellLayer,
-            ModelPart.Quad[] sides,
-            Sprite sprite) {
+            ModelPart.Polygon[] sides,
+            TextureAtlasSprite sprite) {
         if (sides == null) {
             return null;
         }
@@ -1371,7 +1369,7 @@ public class RemixEntitySubmitter {
      */
     static void emitCanvasPatterns(RemixCapturingConsumer scratch, RemixCapturingConsumer source,
                                    int firstPart, int patternCount, int shellLayer) {
-        ModelPart.Quad[] sides = source.getPartSides(firstPart);
+        ModelPart.Polygon[] sides = source.getPartSides(firstPart);
         for (int layer = 0; layer < patternCount; layer++) {
             int part = firstPart + layer;
             scratch.emitCuboidGeometry(sides, source.getPartTint(part), 0, source.getPartSprite(part),
@@ -1442,8 +1440,8 @@ public class RemixEntitySubmitter {
                                         RenderLayerUtils.SurfaceMode surfaceMode,
                                         RenderLayerUtils.Topology topology,
                                         int shellLayer,
-                                        ModelPart.Quad[] sides,
-                                        Sprite sprite) {
+                                        ModelPart.Polygon[] sides,
+                                        TextureAtlasSprite sprite) {
         RemixMesh pooled = pooledMesh();
         if (pooled != null) return pooled;
 
@@ -2163,7 +2161,7 @@ public class RemixEntitySubmitter {
     }
 
     private EntityTextureSet tryCreateTextureSet(Identifier textureId) throws Exception {
-        var client = MinecraftClient.getInstance();
+        var client = Minecraft.getInstance();
         if (client == null) return null;
         ResourceManager rm = client.getResourceManager();
         // getResource walks every registered pack and stats the directory-backed ones. For a
@@ -2178,9 +2176,15 @@ public class RemixEntitySubmitter {
 
         int width, height;
         byte[] pixels;
-        DynamicTextureCache.Pixels cachedPixels = null;
-        if (resource.isPresent()) {
-            try (var image = NativeImage.read(resource.get().getInputStream())) {
+        DynamicTextureCache.Pixels cachedPixels = DynamicTextureCache.get(textureId);
+        if (cachedPixels != null) {
+            // A resource-backed texture can acquire an upload snapshot after its first use.
+            // Build from that version too, so refresh does not invalidate the same pixels again.
+            width = cachedPixels.width();
+            height = cachedPixels.height();
+            pixels = Arrays.copyOf(cachedPixels.data(), cachedPixels.data().length);
+        } else if (resource.isPresent()) {
+            try (var image = NativeImage.read(resource.get().open())) {
                 width = image.getWidth();
                 height = image.getHeight();
                 pixels = abgrToRGBA(image, width, height);
@@ -2188,14 +2192,7 @@ public class RemixEntitySubmitter {
         } else {
             // A downloaded skin reaches the cache when its texture uploads. Until then the
             // entity renders with the default and picks the skin up on a later frame.
-            DynamicTextureCache.Pixels cached = DynamicTextureCache.get(textureId);
-            if (cached == null) {
-                return null;
-            }
-            width = cached.width();
-            height = cached.height();
-            pixels = Arrays.copyOf(cached.data(), cached.data().length);
-            cachedPixels = cached;
+            return null;
         }
 
         Identifier spriteId = deriveLabPBRSpriteId(textureId);
@@ -2233,19 +2230,19 @@ public class RemixEntitySubmitter {
     }
 
     /**
-     * Creates the largest block-entity atlas during renderer warm-up instead of
-     * stalling the first frame in which a bed becomes visible.
+     * Warms the shared block-entity sheet before in-place capture. Beds use the
+     * block atlas, whose LabPBR materials are borrowed from the terrain pipeline.
      *
      * @return true only when a live material is cached for the atlas
      */
     public boolean preloadLargeBlockEntityAtlases() {
-        ensureMaterial(BEDS_ATLAS_MATERIAL_KEY);
+        ensureMaterial(BLOCK_ENTITIES_ATLAS_MATERIAL_KEY);
         return hasLiveLargeBlockEntityAtlasMaterial();
     }
 
-    /** Returns whether the preloaded bed-atlas material is still cached and usable. */
+    /** Returns whether the shared block-entity sheet material is cached and usable. */
     public boolean hasLiveLargeBlockEntityAtlasMaterial() {
-        RemixMaterial material = materialCache.get(BEDS_ATLAS_MATERIAL_KEY);
+        RemixMaterial material = materialCache.get(BLOCK_ENTITIES_ATLAS_MATERIAL_KEY);
         return material != null && !material.isDeleted();
     }
 
@@ -2281,19 +2278,14 @@ public class RemixEntitySubmitter {
     private EntityTextureSet tryCreateAtlasTextureSet(Identifier textureId) {
         if (failedTextures.contains(textureId)) return null;
         try {
-            var client = MinecraftClient.getInstance();
+            var client = Minecraft.getInstance();
             if (client == null) return null;
-            AbstractTexture tex = client.getTextureManager().getTexture(textureId);
-            if (!(tex instanceof SpriteAtlasTexture atlas)) {
-                LOGGER.warn("Atlas texture {} is not a SpriteAtlasTexture", textureId);
-                failedTextures.add(textureId);
-                return null;
-            }
+            TextureAtlas atlas = com.nvidia.rtxremix.minecraft.texture.TextureSourceRegistry.registeredAtlas(textureId);
+            if (atlas == null) return null;
 
             int w = BlockTextureManager.atlasWidth(atlas);
             int h = BlockTextureManager.atlasHeight(atlas);
             if (w == 0 || h == 0) {
-                failedTextures.add(textureId);
                 return null;
             }
             byte[] pixels = BlockTextureManager.stitchAtlasRGBA(atlas);
@@ -2303,7 +2295,6 @@ public class RemixEntitySubmitter {
             byte[] roughData = new byte[pixelCount];
             byte[] metalData = new byte[pixelCount];
             byte[] emissiveData = new byte[pixelCount * 4];
-            byte[] sssData = new byte[pixelCount * 4];
             byte[] sssAlbedoData = LabPBRConverter.createSingleScatteringAlbedoFallback(pixels);
             Arrays.fill(heightData, (byte) 255);
             Arrays.fill(roughData, (byte) 180);
@@ -2314,14 +2305,14 @@ public class RemixEntitySubmitter {
             boolean hasEmissive = false;
             boolean hasSss = false;
             ResourceManager rm = client.getResourceManager();
-            Map<Identifier, Sprite> sprites = ((SpriteAtlasAccessor) atlas).getSprites();
-            for (Map.Entry<Identifier, Sprite> entry : sprites.entrySet()) {
+            Map<Identifier, TextureAtlasSprite> sprites = ((SpriteAtlasAccessor) atlas).getSprites();
+            for (Map.Entry<Identifier, TextureAtlasSprite> entry : sprites.entrySet()) {
                 Identifier spriteId = entry.getKey();
-                Sprite sprite = entry.getValue();
-                int x = sprite.getX();
-                int y = sprite.getY();
-                int spriteW = sprite.getContents().getWidth();
-                int spriteH = sprite.getContents().getHeight();
+                TextureAtlasSprite sprite = entry.getValue();
+                int x = com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.x(sprite);
+                int y = com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.y(sprite);
+                int spriteW = sprite.contents().width();
+                int spriteH = sprite.contents().height();
                 NativeImage nImg = loadVariant(rm, spriteId, "_n");
                 NativeImage sImg = loadVariant(rm, spriteId, "_s");
                 NativeImage sssImg = loadVariant(rm, spriteId, "_sss");
@@ -2343,7 +2334,6 @@ public class RemixEntitySubmitter {
                             hasEmissive = true;
                         }
                         if (LabPBRConverter.hasSSSData(sImg)) {
-                            LabPBRConverter.blitSSS(sssData, w, sImg, x, y, spriteW, spriteH);
                             hasSss = true;
                         }
                     }
@@ -2358,9 +2348,15 @@ public class RemixEntitySubmitter {
                 }
             }
 
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, pixels, 4);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, normalData, 4);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, heightData, 1);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, roughData, 1);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, metalData, 1);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, emissiveData, 4);
+            com.nvidia.rtxremix.minecraft.texture.SpriteAtlasContent.extrudePadding(atlas, sssAlbedoData, 4);
             EntityTextureSet textures = new EntityTextureSet();
-            String name = "atlas_" + textureId;
-            textures.albedo = uploadAndOwn(textures, name + "_a", pixels, w, h,
+            textures.albedo = uploadAtlasChannel(textures, textureId, "albedo", pixels, w, h,
                     TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
             if (textures.albedo == null) {
                 textures.destroy();
@@ -2368,25 +2364,24 @@ public class RemixEntitySubmitter {
                 return null;
             }
             if (hasNormal) {
-                textures.normal = uploadAndOwn(textures, name + "_n", normalData, w, h,
+                textures.normal = uploadAtlasChannel(textures, textureId, "normal", normalData, w, h,
                         TextureFormat.RGBA8_UNORM, TexturePurpose.NORMAL_DX);
-                textures.height = uploadAndOwn(textures, name + "_h", heightData, w, h,
+                textures.height = uploadAtlasChannel(textures, textureId, "height", heightData, w, h,
                         TextureFormat.R8_UNORM, TexturePurpose.HEIGHTMAP);
             }
             if (hasSpecular) {
-                textures.roughness = uploadAndOwn(textures, name + "_r", roughData, w, h,
+                textures.roughness = uploadAtlasChannel(textures, textureId, "roughness", roughData, w, h,
                         TextureFormat.R8_UNORM, TexturePurpose.DATA);
-                textures.metallic = uploadAndOwn(textures, name + "_m", metalData, w, h,
+                textures.metallic = uploadAtlasChannel(textures, textureId, "metallic", metalData, w, h,
                         TextureFormat.R8_UNORM, TexturePurpose.DATA);
             }
             if (hasEmissive) {
-                textures.emissive = uploadAndOwn(textures, name + "_e", emissiveData, w, h,
+                textures.emissive = uploadAtlasChannel(textures, textureId, "emissive", emissiveData, w, h,
                         TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
             }
             if (hasSss) {
-                textures.sssThickness = uploadAndOwn(textures, name + "_sss", sssData, w, h,
-                        TextureFormat.RGBA8_UNORM, TexturePurpose.DATA);
-                textures.sssAlbedo = uploadAndOwn(textures, name + "_ssa", sssAlbedoData, w, h,
+                textures.hasSssMask = true;
+                textures.sssAlbedo = uploadAtlasChannel(textures, textureId, "sssAlbedo", sssAlbedoData, w, h,
                         TextureFormat.RGBA8_UNORM, TexturePurpose.DATA);
             }
             textures.hasPBR = hasNormal || hasSpecular || hasSss;
@@ -2519,7 +2514,7 @@ public class RemixEntitySubmitter {
     static Identifier deriveLabPBRSpriteId(Identifier textureId) {
         String path = textureId.getPath();
         if (path.startsWith("textures/") && path.endsWith(".png")) {
-            return Identifier.of(textureId.getNamespace(),
+            return Identifier.fromNamespaceAndPath(textureId.getNamespace(),
                     path.substring("textures/".length(), path.length() - ".png".length()));
         }
         // Downloaded player skins use minecraft:skins/<content-hash>. Packs can
@@ -2537,7 +2532,7 @@ public class RemixEntitySubmitter {
             LabPBRConverter.applyAO(albedoRGBA, w, nImg, 0, 0, w, h);
         }
         textures.albedo = uploadAndOwn(textures, "entity_a_" + textureName, albedoRGBA, w, h,
-                TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
+                TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR, false);
         if (textures.albedo == null) return;
 
         if (nImg != null) {
@@ -2554,11 +2549,9 @@ public class RemixEntitySubmitter {
         if (sImg != null) {
             byte[] roughData = new byte[w * h];
             byte[] metalData = new byte[w * h];
-            byte[] sssData   = new byte[w * h * 4];
             byte[] emissData = new byte[w * h * 4];
             LabPBRConverter.blitRoughness(roughData, w, sImg, 0, 0, w, h);
             LabPBRConverter.blitMetallic(metalData, w, sImg, 0, 0, w, h);
-            LabPBRConverter.blitSSS(sssData, w, sImg, 0, 0, w, h);
             textures.roughness = uploadAndOwn(textures, "entity_r_" + textureName, roughData, w, h,
                     TextureFormat.R8_UNORM, TexturePurpose.DATA);
             textures.metallic = uploadAndOwn(textures, "entity_m_" + textureName, metalData, w, h,
@@ -2569,17 +2562,13 @@ public class RemixEntitySubmitter {
                         TextureFormat.RGBA8_UNORM, TexturePurpose.COLOR);
             }
 
-            if (LabPBRConverter.hasSSSData(sImg)) {
-                textures.sssThickness = uploadAndOwn(textures, "entity_sss_" + textureName,
-                        sssData, w, h,
-                        TextureFormat.RGBA8_UNORM, TexturePurpose.DATA);
-            }
+            textures.hasSssMask = LabPBRConverter.hasSSSData(sImg);
             textures.hasPBR = true;
         }
         // _sss only colors subsurface scattering. _s.B is the authoritative
         // activation mask, so the sss color alone must not turn the whole
         // entity texture into an SSS material.
-        if (sssImg != null && textures.sssThickness != null) {
+        if (sssImg != null && textures.hasSssMask) {
             byte[] sssAlbedoData = new byte[w * h * 4];
             LabPBRConverter.blitSingleScatteringAlbedo(sssAlbedoData, w, sssImg, 0, 0, w, h);
             textures.sssAlbedo = uploadAndOwn(textures, "entity_ssa_" + textureName,
@@ -2596,7 +2585,7 @@ public class RemixEntitySubmitter {
 
         switch (key.surfaceMode()) {
             case OPAQUE -> { }
-            case CUTOUT -> opaque.alphaTestType(4)
+            case CUTOUT, EMISSIVE_CUTOUT -> opaque.alphaTestType(4)
                     .alphaReferenceValue(cutoutAlphaReferenceValue(key.textureId()));
             case TRANSLUCENT -> opaque.blendEnabled(true)
                     .blendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA);
@@ -2620,16 +2609,15 @@ public class RemixEntitySubmitter {
             opaque.heightTexture(textures.height.getHandle()).displaceIn(POM_DISPLACE_IN);
         }
         boolean hasSubsurface = shouldAttachSubsurface(
-                textures.sssThickness != null, key.surfaceMode());
-        boolean diffusionProfile = hasSubsurface && shouldUseDiffusionProfile(key.surfaceMode());
+                textures.hasSssMask, key.surfaceMode());
         if (hasSubsurface) {
-            opaque.subsurfaceExt(buildSubsurface(textures, diffusionProfile));
+            opaque.subsurfaceExt(buildSubsurface(textures));
         }
 
         MaterialInfo.Builder materialBuilder = MaterialInfo.builder()
                 .albedoTexture(textures.albedo.getHandle()).filterMode(0);
         if (textures.normal != null) materialBuilder.normalTexture(textures.normal.getHandle());
-        RemixTexture emissive = key.surfaceMode() == RenderLayerUtils.SurfaceMode.EMISSIVE
+        RemixTexture emissive = key.surfaceMode().isEmissive()
                 ? textures.albedo : textures.emissive;
         if (emissive != null) {
             materialBuilder.emissiveTexture(emissive.getHandle())
@@ -2645,7 +2633,7 @@ public class RemixEntitySubmitter {
                 textures.normal != null, textures.height != null,
                 textures.roughness != null || textures.metallic != null,
                 emissive != null, hasSubsurface,
-                hasSubsurface ? (diffusionProfile ? "diffusion" : "thin") : "none");
+                hasSubsurface ? "diffusion" : "none");
         return material;
     }
 
@@ -2653,49 +2641,37 @@ public class RemixEntitySubmitter {
                                           RenderLayerUtils.SurfaceMode surfaceMode) {
         return hasSssMask
                 && surfaceMode != RenderLayerUtils.SurfaceMode.TRANSLUCENT
-                && surfaceMode != RenderLayerUtils.SurfaceMode.EMISSIVE;
+                && !surfaceMode.isEmissive();
     }
 
-    static boolean shouldUseDiffusionProfile(RenderLayerUtils.SurfaceMode surfaceMode) {
-        // Entity cutout layers are commonly a conservative model default for
-        // closed character geometry and transparent overlay regions, rather
-        // than evidence that the surface is physically thin. Preserve alpha
-        // testing but use the solid diffusion profile for both opaque and
-        // cutout entity materials.
-        return surfaceMode == RenderLayerUtils.SurfaceMode.OPAQUE
-                || surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT;
+    private static MaterialInfoOpaqueSubsurfaceEXT buildSubsurface(EntityTextureSet textures) {
+        // Entity cutouts include closed character geometry and alpha overlays;
+        // their SSS profile is solid diffusion, independent of alpha testing.
+        RemixTexture radiusTexture = textures.sssAlbedo != null ? textures.sssAlbedo : textures.albedo;
+        return MaterialInfoOpaqueSubsurfaceEXT.builder()
+                .transmittanceTexture(textures.albedo.getHandle())
+                .diffusionProfile(true).radiusTexture(radiusTexture.getHandle())
+                .radiusScale(LabPBRConverter.DIFFUSION_SSS_RADIUS_SCALE)
+                .maxSampleRadius(LabPBRConverter.DIFFUSION_SSS_MAX_SAMPLE_RADIUS)
+                .build();
     }
 
-    private static MaterialInfoOpaqueSubsurfaceEXT buildSubsurface(EntityTextureSet textures,
-                                                                    boolean diffusionProfile) {
-        MaterialInfoOpaqueSubsurfaceEXT.Builder builder = MaterialInfoOpaqueSubsurfaceEXT.builder()
-                .transmittanceTexture(textures.albedo.getHandle());
-        if (diffusionProfile) {
-            // Match terrain diffusion materials: _sss supplies the RGB radius
-            // texture when present, otherwise the albedo is the fallback.
-            RemixTexture radiusTexture = textures.sssAlbedo != null
-                    ? textures.sssAlbedo : textures.albedo;
-            builder.diffusionProfile(true).radiusTexture(radiusTexture.getHandle())
-                    .radiusScale(LabPBRConverter.DIFFUSION_SSS_RADIUS_SCALE)
-                    .maxSampleRadius(LabPBRConverter.DIFFUSION_SSS_MAX_SAMPLE_RADIUS);
-        } else {
-            builder.diffusionProfile(false)
-                    .singleScatteringAlbedo(0.5f, 0.5f, 0.5f)
-                    .measurementDistance(THIN_SSS_MEASUREMENT_DISTANCE)
-                    .volumetricAnisotropy(0.0f);
-            if (textures.sssThickness != null) {
-                builder.thicknessTexture(textures.sssThickness.getHandle());
-            }
-            if (textures.sssAlbedo != null) {
-                builder.singleScatteringAlbedoTexture(textures.sssAlbedo.getHandle());
-            }
-        }
-        return builder.build();
+    private RemixTexture uploadAtlasChannel(EntityTextureSet textures, Identifier atlasId, String channel,
+                                             byte[] data, int width, int height, int format, int purpose) {
+        String identity = atlasId + "/" + channel;
+        RemixTexture texture = uploadPixels(identity, data, width, height, format, purpose, true, identity);
+        textures.own(texture);
+        return texture;
     }
 
     private RemixTexture uploadAndOwn(EntityTextureSet textures, String name, byte[] data,
                                       int width, int height, int format, int purpose) {
-        RemixTexture texture = uploadPixels(name, data, width, height, format, purpose);
+        return uploadAndOwn(textures, name, data, width, height, format, purpose, true);
+    }
+
+    private RemixTexture uploadAndOwn(EntityTextureSet textures, String name, byte[] data,
+                                      int width, int height, int format, int purpose, boolean immutable) {
+        RemixTexture texture = uploadPixels(name, data, width, height, format, purpose, immutable);
         textures.own(texture);
         return texture;
     }
@@ -2713,7 +2689,7 @@ public class RemixEntitySubmitter {
         byte[] out = new byte[w * h * 4];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                int abgr = image.getColor(x, y);
+                int abgr = net.minecraft.util.ARGB.toABGR(image.getPixel(x, y));
                 int idx = (y * w + x) * 4;
                 out[idx]     = (byte) (abgr & 0xFF);
                 out[idx + 1] = (byte) ((abgr >> 8) & 0xFF);
@@ -2723,11 +2699,17 @@ public class RemixEntitySubmitter {
         return out;
     }
 
-    private RemixTexture uploadPixels(String name, byte[] data, int w, int h, int format, int purpose) {
+    private RemixTexture uploadPixels(String name, byte[] data, int w, int h, int format, int purpose,
+                                      boolean immutable) {
+        return uploadPixels(name, data, w, h, format, purpose, immutable, null);
+    }
+
+    private RemixTexture uploadPixels(String name, byte[] data, int w, int h, int format, int purpose,
+                                      boolean immutable, String sharingIdentity) {
         ByteBuffer buf = DirectBufferPool.acquire(data.length);
         buf.put(data).flip();
         try {
-            RemixTexture tex = new RemixTexture(w, h, format, purpose, buf);
+            RemixTexture tex = new RemixTexture(w, h, format, purpose, buf, immutable, sharingIdentity);
             return RemixTextureStore.get().create(tex);
         } catch (RemixException e) {
             LOGGER.error("Failed to upload texture {}: {}", name, e.getMessage());
@@ -2735,7 +2717,7 @@ public class RemixEntitySubmitter {
         }
     }
 
-    private Transform buildWorldTransform(Vec3d pos) {
+    private Transform buildWorldTransform(Vec3 pos) {
         reusableWorldTransform.setTranslation((float) pos.x, (float) pos.y, (float) pos.z);
         return reusableWorldTransform;
     }

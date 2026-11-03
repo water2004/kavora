@@ -2464,6 +2464,19 @@ class RunnerTests(unittest.TestCase):
                 sdk.mkdir(parents=True)
                 dll = sdk / "d3d9.dll"
                 dll.write_bytes(dll_bytes)
+                (sdk / ".runtime-provenance.json").write_text(
+                    json.dumps(
+                        {
+                            "fork": "water2004/dxvk-remix",
+                            "apiVersion": "1.5.0",
+                            "architecture": arch,
+                            "sourceCommit": "a" * 40,
+                            "sourceDirty": False,
+                            "dllSha256": hashlib.sha256(dll_bytes).hexdigest(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 source = project / "dxvk-remix" / "_output"
                 source.mkdir(parents=True)
                 (source / "d3d9.dll").write_bytes(dll.read_bytes())

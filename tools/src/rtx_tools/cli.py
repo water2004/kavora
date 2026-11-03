@@ -775,7 +775,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="install a built development mod into an existing Fabric installation",
         description=(
             "Installs the newest non-sources development JAR from build/libs, the\n"
-            "staged runtime, JNI bridge, gameplay conf payload, and runtime textures.\n"
+            "staged runtime, native crash helper, gameplay conf payload, and runtime textures.\n"
             "Baseline PBR textures are built into the JAR; packaging/migrate_resource_packs.ps1\n"
             "removes the retired generated baseline and preserves user-pack ordering.\n"
             "Build first with gradlew.bat build.\n"

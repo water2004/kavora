@@ -5,11 +5,11 @@
 package com.nvidia.rtxremix.minecraft.mixin;
 
 import com.nvidia.rtxremix.minecraft.terrain.capture.RenderRegionStoragePool;
+import net.minecraft.client.renderer.chunk.SectionCopy;
+import net.minecraft.world.level.chunk.LevelChunk;
 import com.nvidia.rtxremix.minecraft.terrain.capture.RegionSnapshotRelease;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import net.minecraft.client.render.chunk.RenderedChunk;
-import net.minecraft.world.chunk.WorldChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -19,18 +19,18 @@ import org.spongepowered.asm.mixin.injection.At;
  * reference on the new snapshot; see {@link RenderedChunkMixin} and
  * {@link ChunkRendererRegionBuilderMixin}.
  */
-@Mixin(targets = "net.minecraft.client.render.chunk.ChunkRendererRegionBuilder$ClientChunk")
+@Mixin(net.minecraft.client.renderer.chunk.RenderRegionCache.class)
 public abstract class ClientChunkMixin {
 
     @WrapOperation(
-            method = "getRenderedChunk",
-            at = @At(value = "NEW", target = "(Lnet/minecraft/world/chunk/WorldChunk;)Lnet/minecraft/client/render/chunk/RenderedChunk;")
+            method = "lambda$getSectionDataCopy$0",
+            at = @At(value = "NEW", target = "(Lnet/minecraft/world/level/chunk/LevelChunk;I)Lnet/minecraft/client/renderer/chunk/SectionCopy;")
     )
-    private RenderedChunk rtxremix$snapshotWithPooledStorage(WorldChunk chunk, Operation<RenderedChunk> original) {
+    private static SectionCopy rtxremix$snapshotWithPooledStorage(LevelChunk chunk, int sectionY, Operation<SectionCopy> original) {
         RenderRegionStoragePool.beginCopying();
-        RenderedChunk snapshot;
+        SectionCopy snapshot;
         try {
-            snapshot = original.call(chunk);
+            snapshot = original.call(chunk, sectionY);
         } finally {
             RenderRegionStoragePool.endCopying();
         }

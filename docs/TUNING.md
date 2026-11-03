@@ -21,7 +21,116 @@ The named owner class defines each property's current default, accepted range,
 and invalid-value behaviour. Sizes are in bytes and durations in nanoseconds
 unless the key name says otherwise.
 
+## Vulkan Frame Submission
+
+`RemixRenderer` keeps the runtime Submit call's default host-submission ordering:
+the runtime's Vulkan signal is submitted to the driver before Minecraft consumes
+the shared images. This waits for command submission, not GPU completion.
+The shared-device path leaves generated frames in the presenter's asynchronous
+pacing queue. Source detachment, swapchain recreation, and device teardown still
+drain presentation work before releasing its resources.
+The early scene submission advances the runtime's scene frame once. The late
+host-image present does not advance it again; frame-generation continuity and
+other temporal consumers require consecutive scene-frame IDs.
+
+`RenderSystemMixin` records the image release, calls Minecraft's original frontend
+encoder submission once. `NativeVulkanSurface` then supplies Minecraft's final
+color to the runtime's sole Vulkan presenter, completing the shared-image
+handoff without ending the RTX scene a second time. If the frontend has no
+acquired surface, the ownership handoff still completes. The frontend submit
+also closes Minecraft's GPU profiling frame.
+`VulkanInterop.releaseImages` only records barriers and the timeline signal;
+its shutdown caller submits them before waiting for the device and freeing images.
+An extra encoder submission advances Minecraft's resource ring and can force the
+CPU to wait for the current GPU frame, reducing overlap.
+
+Frame generation snapshots depth, motion, and a compact camera alongside each
+virtual backbuffer. Reuse waits on that slot's GPU acquire semaphore, after the
+previous generated frames have read its inputs. This is independent of the
+timeline that releases Minecraft's source color. Scene capture can stop while
+presentation remains alive; the native runtime retires with Minecraft's device.
+
+Benchmark counters `DLSS.RenderedPresents` and `DLSS.GeneratedPresents` report
+asynchronous native presentation counts. Use both alongside rendered frame
+times; multiplying the rendered FPS by the selected mode does not measure
+successful generation. Counter comparisons restart across presenter changes.
+`Vulkan.DeviceLocalUsedMiB` and `Vulkan.DeviceLocalBudgetMiB` are the driver's
+current-process estimates for device-local heaps, sampled every 64 presents.
+They are separate from `Texture.SharedSavedMiB`, which counts allocations
+avoided by sharing identical immutable atlas channels.
+
+### Path-tracer work ordering
+
+On devices with Shader Execution Reordering, the G-buffer PSR pass separates
+hit-object traversal from material shading and groups hits by material before
+reading its textures. The primary visibility pass keeps its RayQuery path.
+Ray counts, displacement, material evaluation, resolution and reconstruction
+settings are unchanged. The runtime option
+`rtx.enableShaderExecutionReorderingInPathtracerGbuffer=false` selects the
+original ordering for a matched timing comparison. Unsupported devices keep
+their original path. Compare rendered frame times with frame generation off;
+the effect depends on the scene and GPU.
+
+## Volumetric Lighting Quality
+
+Sodium's advanced page controls volume pixel spacing, depth layers and history
+length. Smaller spacing or more depth layers resolves finer light boundaries at
+higher GPU and memory cost. More history reduces noise but reacts more slowly
+to changing lighting. Apply commits these controls together. Fog density,
+height and scattering direction remain in the visual settings.
+
+The reconstruction output adds 12 bytes per lighting cell, independently of
+the two temporal history buffers. At 1920×1080 with spacing 8 and 64 depth layers,
+this is about 23.7 MiB per volume before allocator padding. Reconstruction does
+not feed back into history or blur surface textures.
+
 ## Terrain Capture
+
+Section capture, column pages and CPU FFM uploads use the same 44-byte vertex
+attributes. `COMPACT_VERTICES` omits only the 20 trailing padding bytes from
+the legacy 64-byte input format. The runtime copies a compact page contiguously
+before the foreign call returns. Legacy CPU input and shared Vulkan buffers
+retain their existing layouts. No position, normal, UV, colour or atlas-bound
+precision changes. Native source geometry remains host-readable; the runtime's
+geometry cache allocates its GPU copy when needed.
+
+### Optional Far Terrain
+
+Remix Horizons is a separate voxel addon. Its RocksDB cache stores observed
+terrain; its CPU workers build meshes for a screen-space-selected octree.
+The addon converts completed CPU quads to
+Remix meshes and uses the main renderer's atlas, PBR, water, and lighting.
+There is no OpenGL/Voxy adapter, second raster scene, or far-scene composite.
+See [Far Terrain](FAR_TERRAIN.md) for the interface and integration limits.
+
+`ChunkManager` prepares hidden near instances under a frame budget and publishes
+complete column groups through the same path with or without the addon. Failed
+activation rolls back the group's visible prefix. The addon receives only
+committed near-section coverage; it cannot delay near publication. Coverage is
+uploaded once after the frame's near changes, and coarse ray candidates covered
+by near geometry are rejected before choosing the closest hit.
+
+Far distance comes from the installed extension. Automatic distance fading
+extends beyond the near ring below authored biome and zone profiles. The shipped
+`view_distance_voxy.conf` filename remains for existing author-owned configuration
+files; it no longer denotes a Voxy integration. The layer's 2048-chunk endpoint
+blends above the 32-chunk baseline and is released when far capture stops.
+The native camera extends its far plane with the configured radius.
+
+`Chunk.LodVisibilityMutations` reports native instance visibility changes.
+Uploading meshes is paced; an atomic parent/child switch can still contain many
+visibility changes. These bounds do not establish a frame-rate or total GPU
+memory limit. Native acceleration structures and renderer textures have their own
+costs, which must be measured on the target GPU.
+
+Animated LabPBR channels are checked for exact periodicity at resource load.
+Roughness, metallic, and scattering channels identical at every frame origin
+retain their initialized pixels without repeated uploads or mip generation.
+Emission still follows animated albedo even with a static mask. Animation capture
+copies unblended RGBA frames by row into owned buffers; no live image pointer
+survives capture.
+
+### Capture Queues
 
 Vanilla's chunk workers capture section geometry and hand it to the render
 thread through a bounded queue. These bound how much work is in flight and how
@@ -182,6 +291,13 @@ short commit hash, and a dirty marker to it.
 
 ## JVM Arguments
 
+This Minecraft 26.3 integration branch runs on Java 25 and calls the custom
+Remix 1.5.0 C API through FFM. Keep
+`--enable-native-access=ALL-UNNAMED` in every launch configuration, including
+direct Gradle `runClient` launches. Stage the matching source-built Vulkan
+runtime before running tasks that reach `setupRuntime`; published upstream
+0.x SDKs are incompatible. See [Getting Started](GETTING_STARTED.md#get-a-runtime).
+
 A development client and a fresh install share the unconditional tuning
 arguments in `loom.runs.client.vmArgs` in [build.gradle](../build.gradle) and
 `RECOMMENDED_JVM_ARGS` in
@@ -237,9 +353,10 @@ instance gets Prism's global maximum, by default 4096 MiB on a machine with
 Path tracing does not remove Minecraft's allocation rate, it adds a render
 thread that must not be paused.
 
-These are the Minecraft 1.21.1 launcher defaults for supported Windows
-arches: a 2 GB heap with G1GC. Measured on N1X, they showed none of the large
-frame-time spikes seen with generational ZGC. Reducing allocation volume stays
+The retained launcher tuning uses a 2 GB heap with G1GC. The N1X comparison
+against generational ZGC was measured on the upstream Minecraft 1.21.1 mod;
+it has not established the best collector or heap for this Java 25 Vulkan port.
+Reducing allocation volume stays
 necessary regardless of collector, since concurrent collector work competes with
 the render thread.
 
@@ -266,9 +383,9 @@ directory for an installed client. Portable Prism keeps the former at
 
 | Path | Owner | Access | Deleting it |
 |---|---|---|---|
-| `remix-sdk/` | mod | Replaced on full extraction, including when the version or architecture changes | Restored on the next launch even with a matching marker; a missing `d3d9.dll` also triggers full extraction |
+| `remix-sdk/` | mod | Validated source runtime, provenance, and separately built `rtxremix-support.dll`; replaced on full extraction | Missing runtime, support library, or provenance triggers full extraction even with a matching marker |
 | `rtx.conf` | mod | Replaced on full extraction; with a matching marker and runtime present, copied only if missing | Restored on the next launch |
-| `.rtx-remix-version` | mod | Marker recording the extracted version and architecture | Forces full re-extraction of the runtime and `rtx.conf`, preserving existing files under `rtx-remix/` |
+| `.rtx-remix-version` | mod | Marker recording the extracted version, architecture, and SHA-256 fingerprints of bundled runtime provenance and the support library | Forces full re-extraction of the runtime and `rtx.conf`, preserving existing files under `rtx-remix/` |
 | `remix-sdk.old-*/` | mod | Left behind when the previous runtime was locked at upgrade time | Safe, and cleaned up opportunistically |
 | `rtx-remix/mods/minecraft-logic/` | map or profile author | Missing shipped files are added on launch even with a matching marker; existing files, including edited confs, are never overwritten | A deleted shipped conf returns to its default on the next launch |
 | `textures/` | mod | The shipped runtime DDS textures, read by name and replaced on full extraction; other files there are left alone | Restored on the next launch even with a matching marker |
@@ -280,6 +397,16 @@ directory for an installed client. Portable Prism keeps the former at
 | `logs/latest.log` | game | Where the mod reports what it did and why | Safe |
 
 ## Resource Pack Inputs
+
+Directory atlas sources exclude paired `_n`, `_s`, and `_sss` material maps from
+the color atlas. Their original pixels remain available to the PBR loader; this
+does not reduce texture resolution. Unpaired texture names are left alone.
+The renderer uses shared atlas textures instead of allocating another set of
+GPU textures for every block sprite. Immutable texture uploads release their
+native CPU mip chains after staging. Animated atlas channels and dynamic entity
+textures retain the CPU data needed for incremental updates. Texture memory also
+includes driver and GPU allocations, so Java heap usage alone does not measure
+the process's texture footprint.
 
 Textures, material maps, and block light rules come from resource packs, not
 from properties. Their formats are in [Resource Packs](RESOURCE_PACKS.md).

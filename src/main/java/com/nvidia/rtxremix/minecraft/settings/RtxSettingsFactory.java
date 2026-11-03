@@ -69,6 +69,11 @@ public final class RtxSettingsFactory {
         ChunkManager chunks = renderer.getChunkManager();
         RemixEntityPass entities = renderer.getEntityPass();
         PostProcessingSettings postProcessing = renderer.getPostProcessingSettings();
+        var environment = renderer.getConfLayerDriver();
+        list.add(RtxSetting.ofBool("fog.automatic", SettingGroup.GROUND_MIST, "rtxremix.setting.fog.automatic",
+                "rtxremix.setting.fog.automatic.tip", true, environment::isAutomaticMist, environment::setAutomaticMist));
+        list.add(floatSetting("fog.automaticStrength", SettingGroup.GROUND_MIST, "rtxremix.setting.fog.automaticStrength", 0, 2,
+                environment::getMistStrength, environment::setMistStrength));
 
         // --- Render distances (live-bound to managers) ---
         list.add(RtxSetting.ofBool("dist.autoFade", SettingGroup.RENDER_DISTANCE,
@@ -149,8 +154,7 @@ public final class RtxSettingsFactory {
                 0.0,
                 1.99,
                 renderer.getCloudRenderer()::getVanillaEdgeSmoothness,
-                renderer.getCloudRenderer()::setVanillaEdgeSmoothness)
-                .deferSliderApply());
+                renderer.getCloudRenderer()::setVanillaEdgeSmoothness));
         list.add(floatSetting(
                 "clouds.size",
                 SettingGroup.CLOUDS,
@@ -158,8 +162,7 @@ public final class RtxSettingsFactory {
                 0.1,
                 2.0,
                 renderer.getCloudRenderer()::getCloudSize,
-                renderer.getCloudRenderer()::setCloudSize)
-                .deferSliderApply());
+                renderer.getCloudRenderer()::setCloudSize));
         list.add(floatSetting(
                 "clouds.height",
                 SettingGroup.CLOUDS,
@@ -169,16 +172,16 @@ public final class RtxSettingsFactory {
                 renderer.getCloudRenderer()::getCloudsHeight,
                 renderer.getCloudRenderer()::setCloudsHeight));
 
-        list.add(skyFloat(renderer, "sky.sunIntensity", "rtxremix.setting.sky.sunIntensity",
+        list.add(skyFloat(renderer, SettingGroup.CELESTIAL_LIGHTS, "sky.sunIntensity", "rtxremix.setting.sky.sunIntensity",
                 0.0, 100.0,
                 LightManager::getSunIntensity, LightManager::setSunIntensity));
-        list.add(skyFloat(renderer, "sky.moonIntensity", "rtxremix.setting.sky.moonIntensity",
+        list.add(skyFloat(renderer, SettingGroup.CELESTIAL_LIGHTS, "sky.moonIntensity", "rtxremix.setting.sky.moonIntensity",
                 0.0, 10.0,
                 LightManager::getMoonIntensity, LightManager::setMoonIntensity));
-        list.add(skyFloat(renderer, "sky.dayAmbient", "rtxremix.setting.sky.dayAmbient",
+        list.add(skyFloat(renderer, SettingGroup.CELESTIAL_LIGHTS, "sky.dayAmbient", "rtxremix.setting.sky.dayAmbient",
                 0.0, 5.0,
                 SkyRenderer::getDayAmbientBoost, SkyRenderer::setDayAmbientBoost));
-        list.add(skyFloat(renderer, "sky.nightAmbient", "rtxremix.setting.sky.nightAmbient",
+        list.add(skyFloat(renderer, SettingGroup.CELESTIAL_LIGHTS, "sky.nightAmbient", "rtxremix.setting.sky.nightAmbient",
                 0.0, 10.0,
                 SkyRenderer::getNightAmbientBoost, SkyRenderer::setNightAmbientBoost));
 
@@ -198,6 +201,7 @@ public final class RtxSettingsFactory {
 
         // --- Materials ---
         BlockTextureManager textures = renderer.getTextureManager();
+        addWaterSettings(list, textures);
         list.add(RtxSetting.ofFloat(
                 RtxOptionFactory.TERRAIN_EMISSION_MULTIPLIER_ID,
                 SettingGroup.MATERIALS,
@@ -209,6 +213,12 @@ public final class RtxSettingsFactory {
                 () -> (double) textures.getTerrainEmissionMultiplier(),
                 value -> textures.setTerrainEmissionMultiplier(value.floatValue())));
         RemixAPI remix = renderer.getRemixApi();
+        remixBool("fog.enabled", SettingGroup.FOG, "rtxremix.setting.fog.enabled",
+                "rtx.volumetrics.enable", remix::getConfigVariableResolved, remix::setConfigVariable)
+                .ifPresent(list::add);
+        remixBool("post.bloom", SettingGroup.BLOOM, "rtxremix.setting.post.bloom",
+                "rtx.bloom.enable", remix::getConfigVariableResolved, remix::setConfigVariable)
+                .ifPresent(list::add);
         remixBool("materials.smoothReliefMaps", SettingGroup.MATERIALS,
                 "rtxremix.setting.materials.smoothReliefMaps",
                 "rtx.materials.smoothReliefMapFiltering",
@@ -234,6 +244,7 @@ public final class RtxSettingsFactory {
                 "rtxremix.setting.post.highLightAdaptation", -5.0, 10.0,
                 postProcessing::getHighLightAdaptation, postProcessing::setHighLightAdaptation));
 
+        RtxEffectOptions.addTo(list, remix);
         return new RtxSettings(list);
     }
 
@@ -245,6 +256,26 @@ public final class RtxSettingsFactory {
                 UnfocusedFramerateLimit.DEFAULT,
                 UnfocusedFramerateLimit::get, UnfocusedFramerateLimit::set)
                 .withStep(UnfocusedFramerateLimit.STEP);
+    }
+
+    private static void addWaterSettings(List<RtxSetting<?>> list, BlockTextureManager textures) {
+        list.add(floatSetting("water.ior", SettingGroup.WATER, "rtxremix.effect.water.ior", 1, 2.5,
+                textures::getWaterIor, value -> textures.updateWaterIor(value)));
+        list.add(floatSetting("water.absorptionDistance", SettingGroup.WATER, "rtxremix.effect.water.absorptionDistance", 0.05, 128,
+                textures::getWaterTransmittanceDistance, value -> textures.updateWaterTransmittanceDistance(value)));
+        list.add(floatSetting("water.red", SettingGroup.WATER, "rtxremix.effect.water.red", 0, 1,
+                textures::getWaterTransmittanceR, value -> textures.updateWaterTransmittanceColor(
+                        value, textures.getWaterTransmittanceG(), textures.getWaterTransmittanceB())));
+        list.add(floatSetting("water.green", SettingGroup.WATER, "rtxremix.effect.water.green", 0, 1,
+                textures::getWaterTransmittanceG, value -> textures.updateWaterTransmittanceColor(
+                        textures.getWaterTransmittanceR(), value, textures.getWaterTransmittanceB())));
+        list.add(floatSetting("water.blue", SettingGroup.WATER, "rtxremix.effect.water.blue", 0, 1,
+                textures::getWaterTransmittanceB, value -> textures.updateWaterTransmittanceColor(
+                        textures.getWaterTransmittanceR(), textures.getWaterTransmittanceG(), value)));
+        list.add(RtxSetting.ofInt("water.animationFps", SettingGroup.WATER,
+                "rtxremix.effect.water.animationFps", "rtxremix.effect.water.animationFps.tip", 0, 120,
+                textures.getWaterAnimationFps(), textures::getWaterAnimationFps,
+                value -> textures.updateWaterAnimationFps(value)));
     }
 
     /**
@@ -279,7 +310,12 @@ public final class RtxSettingsFactory {
     private static RtxSetting<Double> skyFloat(RemixRenderer renderer, String id, String labelKey,
             double min, double max,
             Supplier<Float> getter, Consumer<Float> setter) {
-        return RtxSetting.ofFloat(id, SettingGroup.SKY, labelKey, labelKey + ".tip",
+        return skyFloat(renderer, SettingGroup.SKY, id, labelKey, min, max, getter, setter);
+    }
+
+    private static RtxSetting<Double> skyFloat(RemixRenderer renderer, SettingGroup group, String id, String labelKey,
+            double min, double max, Supplier<Float> getter, Consumer<Float> setter) {
+        return RtxSetting.ofFloat(id, group, labelKey, labelKey + ".tip",
                 min, max, getter.get(),
                 () -> (double) getter.get(),
                 v -> {

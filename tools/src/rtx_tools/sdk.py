@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
 import locale
 import os
 import re
@@ -16,7 +17,7 @@ import struct
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, Never
 
 from . import config as tools_config
 from .benchmark import util
@@ -126,6 +127,37 @@ def default_local_sdk_source() -> Path:
     return util.project_path(str(config.get("sdk", {}).get("localPath") or "../dxvk-remix/_output"))
 
 
+def validate_runtime_provenance(directory: Path, arch: str) -> dict[str, Any]:
+    """Validate the source-build identity and bind its metadata to the exact DLL."""
+    marker = directory / ".runtime-provenance.json"
+    if not marker.is_file():
+        raise RuntimeError(
+            f"Source-built Remix 1.5.0 provenance is missing: {marker}. "
+            "Build the water2004/dxvk-remix runtime from source; published 0.x packages are incompatible."
+        )
+    try:
+        provenance = json.loads(marker.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as exc:
+        raise RuntimeError(f"Cannot read runtime provenance {marker}: {exc}") from exc
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("fork") != "water2004/dxvk-remix"
+        or provenance.get("apiVersion") != "1.5.0"
+        or provenance.get("architecture") != arch
+        or not re.fullmatch(r"[0-9a-f]{40}", str(provenance.get("sourceCommit", "")))
+        or not isinstance(provenance.get("sourceDirty"), bool)
+    ):
+        raise RuntimeError(
+            f"Runtime provenance does not identify the required source-built {arch} Remix 1.5.0: {marker}"
+        )
+    dll = directory / "d3d9.dll"
+    if not dll.is_file() or provenance.get("dllSha256") != file_sha256(dll):
+        raise RuntimeError(
+            f"Runtime d3d9.dll differs from its source build provenance: {directory}. Rebuild and restage it."
+        )
+    return provenance
+
+
 def stage_local_sdk(arch: str, source: object = None) -> dict[str, Any]:
     """Stage a local dxvk build, reusing the recorded source when possible."""
     arch = normalize_arch(arch)
@@ -154,6 +186,7 @@ def stage_local_sdk(arch: str, source: object = None) -> dict[str, Any]:
         )
 
     validate_runtime_arch(source_dll, arch)
+    validate_runtime_provenance(source_path, arch)
     remove_target(target_dir)
     print(f"Copying {source_path} -> {target_dir}")
     shutil.copytree(source_path, target_dir)
@@ -244,29 +277,6 @@ def remove_target(path: Path) -> None:
         path.unlink()
 
 
-def links_to(path: Path, version: str) -> bool:
-    """Whether path is a junction or symlink into the Packman cache entry for version."""
-    if not (path.is_junction() or path.is_symlink()):
-        return False
-    return version.casefold() in os.readlink(path).casefold()
-
-
-def pinned_dependency(arch: str) -> ET.Element:
-    """Read one pinned SDK dependency before any destructive staging work."""
-    manifest = util.PROJECT_DIR / "packman" / "remix-sdk.packman.xml"
-    name = f"remix-sdk-{normalize_arch(arch)}"
-    if not manifest.is_file():
-        raise RuntimeError(f"Packman manifest not found at {manifest}. Restore the tracked file.")
-    root = ET.parse(manifest).getroot()
-    dependency = next((dep for dep in root.findall("dependency") if dep.get("name") == name), None)
-    if dependency is None:
-        raise RuntimeError(f"Dependency '{name}' not found in {manifest}")
-    package = dependency.find("package")
-    if package is None or not package.get("version"):
-        raise RuntimeError(f"Dependency '{name}' has no pinned package version in {manifest}")
-    return dependency
-
-
 def packman_cmd() -> Path:
     """The vendored Packman entry point, or a clear error when the checkout lacks it."""
     packman = util.PROJECT_DIR / "packman" / "packman.cmd"
@@ -298,31 +308,16 @@ def pull_packman_dependency(dependency: ET.Element, manifest_dir: Path, *, remot
         temporary_manifest.unlink(missing_ok=True)
 
 
-def fetch_sdk(arch: str) -> None:
-    """Fetch the pinned runtime for one architecture, refusing local overrides."""
+def fetch_sdk(arch: str) -> Never:
+    """Require source staging while the Vulkan fork has no published runtime package."""
     arch = normalize_arch(arch)
-    sentinel = util.PROJECT_DIR / "remix-runtime" / arch / ".local-sdk-source"
-    if sentinel.exists():
-        raise RuntimeError(
-            f"remix-sdk-{arch} was staged from a local source:\n{sentinel.read_text(encoding='utf-8').rstrip()}\n"
-            f"Refusing to overwrite. To switch back, run: tools\\rtx.bat sdk packman --arch {arch}"
-        )
-    dependency = pinned_dependency(arch)
-    print(f"Pulling remix-sdk-{arch} -> {util.PROJECT_DIR / 'remix-runtime' / arch}")
-    pull_packman_dependency(dependency, util.PROJECT_DIR / "packman")
+    raise RuntimeError(
+        f"Remix 1.5.0 ({arch}) must be built from water2004/dxvk-remix source. "
+        f"Stage it with tools\\rtx.bat sdk local --arch {arch} --path <runtime output>. "
+        "Published 0.x Packman runtimes use an incompatible ABI and cannot be restored."
+    )
 
 
 def stage_packman_sdk(arch: str, *, force: bool = False) -> dict[str, Any]:
-    """Restore the pinned runtime, discarding a local override only on request."""
-    arch = normalize_arch(arch)
-    dependency = pinned_dependency(arch)
-    package = dependency.find("package")
-    assert package is not None
-    version = package.attrib["version"]
-    target = util.PROJECT_DIR / "remix-runtime" / arch
-    if not force and not (target / ".local-sdk-source").exists() and links_to(target, version):
-        print(f"Already on packman SDK for {arch} - nothing to do.")
-        return sdk_source_status(arch)
-    remove_target(target)
+    """Reject incompatible binary SDKs without modifying a staged source build."""
     fetch_sdk(arch)
-    return sdk_source_status(arch)

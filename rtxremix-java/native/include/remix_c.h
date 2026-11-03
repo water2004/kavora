@@ -68,9 +68,10 @@
 #define REMIXAPI_VERSION_GET_MINOR(version) (((uint64_t)(version) >> 16) & (uint64_t)0xFFFFFFFF)
 #define REMIXAPI_VERSION_GET_PATCH(version) (((uint64_t)(version)      ) & (uint64_t)0xFFFF)
 
-#define REMIXAPI_VERSION_MAJOR 0
-#define REMIXAPI_VERSION_MINOR 16
+#define REMIXAPI_VERSION_MAJOR 1
+#define REMIXAPI_VERSION_MINOR 5
 #define REMIXAPI_VERSION_PATCH 0
+#define REMIXAPI_FORK_IDENTIFIER "water2004/dxvk-remix"
 
 
 // External
@@ -147,6 +148,19 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_TEXTURE_PATCH_INFO                   = 29,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO                          = 30,
     REMIXAPI_STRUCT_TYPE_CONFIG_VARIABLE_RESOLVED_INFO        = 31,
+    REMIXAPI_STRUCT_TYPE_VULKAN_INTEROP_INFO                  = 32,
+    REMIXAPI_STRUCT_TYPE_INTEROP_FRAME_STATUS_EXT             = 33,
+    REMIXAPI_STRUCT_TYPE_SHARED_BUFFER_INFO                  = 34,
+    REMIXAPI_STRUCT_TYPE_SHARED_BUFFER_COMMIT_INFO           = 35,
+    REMIXAPI_STRUCT_TYPE_MESH_INFO_SHARED_BUFFERS_EXT         = 36,
+    REMIXAPI_STRUCT_TYPE_TEXTURE_MIP_CHAIN_EXT                = 37,
+    REMIXAPI_STRUCT_TYPE_INSTANCE_INFO_VOXEL_COVERAGE_EXT      = 38,
+    REMIXAPI_STRUCT_TYPE_VOXEL_COVERAGE_INFO                   = 39,
+    REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_VERTEX_COLOR_MASK_EXT   = 40,
+    REMIXAPI_STRUCT_TYPE_TEXTURE_IMMUTABLE_EXT                 = 41,
+    REMIXAPI_STRUCT_TYPE_HOST_VULKAN_DEVICE_INFO               = 42,
+    REMIXAPI_STRUCT_TYPE_FRAME_GENERATION_CAPABILITIES_EXT     = 43,
+    REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_FRAME_INFO_EXT          = 44,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -223,6 +237,7 @@ extern "C" {
   typedef struct remixapi_TextureHandle_T* remixapi_TextureHandle;
   typedef struct remixapi_SceneInstanceHandle_T* remixapi_SceneInstanceHandle;
   typedef struct remixapi_ConfigLayerHandle_T* remixapi_ConfigLayerHandle;
+  typedef struct remixapi_SharedBufferHandle_T* remixapi_SharedBufferHandle;
 
   typedef const wchar_t* remixapi_Path;
 
@@ -391,7 +406,23 @@ extern "C" {
     remixapi_TexturePurpose  purpose;  // How to process mips and sample this texture
   } remixapi_TextureFromMemoryInfo;
 
-  // A single sub-region patch applied to a target texture's mip 0. Pixel
+  // Packed authored mip levels, beginning at pixelData. Dimensions halve to at least 1.
+  // No mip filtering is performed. Raw normal inputs (purpose 2/3) are unsupported.
+  typedef struct remixapi_TextureMipChainEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint32_t mipLevels;
+    uint64_t dataSize;
+  } remixapi_TextureMipChainEXT;
+
+  // Optional creation-only marker. Releases CPU pixels after upload and rejects all patches.
+  // May be chained with TextureMipChainEXT. Without this marker, textures remain updateable.
+  typedef struct remixapi_TextureImmutableEXT {
+    remixapi_StructType sType;
+    void* pNext;
+  } remixapi_TextureImmutableEXT;
+
+  // A single sub-region patch applied to a target texture's mipLevel. Pixel
   // data must be in the destination texture's format (no conversion is
   // performed at upload time; see remixapi_UpdateTextureFromMemory).
   typedef struct remixapi_TexturePatch {
@@ -402,12 +433,12 @@ extern "C" {
     const uint8_t* pixelData;
     uint32_t rowPitch;
     remixapi_TextureFormat format;
+    uint32_t mipLevel;
   } remixapi_TexturePatch;
 
   // A batch entry groups one or more patches targeting the same texture.
-  // The runtime applies all patches in an entry, then regenerates the mip
-  // chain for that texture (scoped to the union of patch rects to keep
-  // cost proportional to changed pixels, not texture size).
+  // Auto-generated textures accept mip 0 and regenerate affected mip regions.
+  // Authored mip chains accept explicit levels and never regenerate them.
   typedef struct remixapi_TextureBatchEntry {
     remixapi_TextureHandle        handle;
     uint32_t                      patchCount;
@@ -454,6 +485,10 @@ extern "C" {
     uint32_t _pad4;
   } remixapi_HardcodedVertex;
 
+  // CPU uploads can omit trailing padding with COMPACT_VERTICES. Shared-buffer surfaces
+  // use the full remixapi_HardcodedVertex stride.
+  enum { REMIXAPI_HARDCODED_VERTEX_STORAGE_STRIDE = 44 };
+
   typedef struct remixapi_MeshInfoSkinning {
     uint32_t                        bonesPerVertex;
     // Each tuple of 'bonesPerVertex' float-s defines a vertex.
@@ -468,6 +503,9 @@ extern "C" {
 
   typedef enum remixapi_MeshInfoSurfaceTrianglesFlagBit {
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_TEXCOORD_BOUNDS = 1 << 0,
+    // CreateMesh CPU input only: vertices_values points to consecutive 44-byte records,
+    // containing all fields before _pad0. The runtime copies them before returning.
+    REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_COMPACT_VERTICES = 1 << 1,
   } remixapi_MeshInfoSurfaceTrianglesFlagBit;
   typedef uint32_t remixapi_MeshInfoSurfaceTrianglesFlags;
 
@@ -490,6 +528,56 @@ extern "C" {
     const remixapi_MeshInfoSurfaceTriangles* surfaces_values;
     uint32_t                                 surfaces_count;
   } remixapi_MeshInfo;
+
+  // A write-once GPU allocation. The runtime owns every returned Win32 handle.
+  // Import into OpenGL, write, signal producerSemaphoreHandle to readyValue, and
+  // CommitSharedBuffers before referencing this allocation from a mesh.
+  // A committed buffer is immutable until all meshes referencing it are destroyed.
+  typedef struct remixapi_SharedBufferInfo {
+    remixapi_StructType sType;
+    void* pNext;
+    uint64_t size;
+    remixapi_SharedBufferHandle buffer;
+    uint64_t memoryHandle;
+    uint64_t allocationSize;
+    uint64_t bindOffset;
+    uint64_t producerSemaphoreHandle;
+    uint64_t readyValue;
+  } remixapi_SharedBufferInfo;
+
+  typedef struct remixapi_SharedBufferCommitInfo {
+    remixapi_StructType sType;
+    void* pNext;
+    const remixapi_SharedBufferHandle* buffers;
+    uint32_t bufferCount;
+    uint64_t readyValue;
+  } remixapi_SharedBufferCommitInfo;
+
+  typedef struct remixapi_MeshSharedSurface {
+    remixapi_SharedBufferHandle vertexBuffer;
+    uint64_t vertexOffset;
+    uint64_t vertexCount;
+    remixapi_SharedBufferHandle indexBuffer;
+    uint64_t indexOffset;
+    uint64_t indexCount;
+    remixapi_MaterialHandle material;
+    remixapi_MeshInfoSurfaceTrianglesFlags flags;
+    uint32_t reserved;
+  } remixapi_MeshSharedSurface;
+
+  // Extends MeshInfo with GPU-resident HardcodedVertex and uint32 index slices.
+  // The base MeshInfo's surfaces_values and surfaces_count must be empty.
+  // CreateMesh retains the allocations independently of their public buffer handles.
+  typedef struct remixapi_MeshInfoSharedBuffersEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    const remixapi_MeshSharedSurface* surfaces;
+    uint32_t surfaceCount;
+  } remixapi_MeshInfoSharedBuffersEXT;
+
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CreateSharedBuffer)(remixapi_SharedBufferInfo* info);
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CommitSharedBuffers)(const remixapi_SharedBufferCommitInfo* info);
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_DestroySharedBuffer)(remixapi_SharedBufferHandle buffer);
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CreateMesh)(
     const remixapi_MeshInfo*  info,
@@ -837,6 +925,13 @@ extern "C" {
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_DestroyLight)(
     remixapi_LightHandle      handle);
 
+  // In-place update. The light retains its handle and temporal identity. Dome and
+  // analytical lights cannot be converted into each other. Input data is copied before return.
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_UpdateLight)(
+    remixapi_LightHandle handle, const remixapi_LightInfo* info);
+  REMIXAPI remixapi_ErrorCode REMIXAPI_CALL remixapi_UpdateLight(
+    remixapi_LightHandle handle, const remixapi_LightInfo* info);
+
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_DrawLightInstance)(
     remixapi_LightHandle      lightHandle);
@@ -1038,6 +1133,10 @@ extern "C" {
     REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_NORMALS = 2,
     REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_OBJECT_PICKING = 3,
     REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_GUI = 4,
+    REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_WORLD_POSITION_RAW = 5,
+    REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_TEXCOORDS_RAW = 6,
+    REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_NORMAL_F32 = 7,
+    REMIXAPI_DXVK_COPY_RENDERING_OUTPUT_TYPE_COVERAGE = 8,
   } remixapi_dxvk_CopyRenderingOutputType;
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_CopyRenderingOutput)(
@@ -1096,12 +1195,210 @@ extern "C" {
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_GetInteropInfo)(remixapi_dxvk_InteropInfo* out_info);
 
+  // Exact Vulkan image/allocation parameters for OPAQUE_WIN32 imports on the same physical device and driver.
+  // Handles are borrowed until the next Submit or Shutdown. Never close them in the client.
+  // Imports must use the original allocationSize and memoryTypeIndex, with a dedicated image allocation.
+  typedef struct remixapi_VulkanInteropImage {
+    uint64_t memoryHandle;
+    uint64_t allocationSize;
+    uint64_t bindOffset;
+    uint64_t generation;
+    uint32_t memoryTypeIndex;
+    uint32_t allocationFlags;
+    uint32_t allocationDeviceMask;
+    uint32_t flags;
+    uint32_t imageType;
+    uint32_t format;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t mipLevels;
+    uint32_t arrayLayers;
+    uint32_t samples;
+    uint32_t tiling;
+    uint32_t usage;
+    uint32_t sharingMode;
+    uint32_t initialLayout;
+    uint32_t externalLayout;
+    uint32_t ownerQueueFamily;
+    uint32_t externalMemoryHandleType;
+    remixapi_Bool dedicatedAllocation;
+    uint32_t viewFormatCount;
+    uint32_t viewFormats[16];
+    // Read-only borrowed VkImage, usable only when VulkanInteropInfo.device is the caller's VkDevice.
+    // It may alias the producer's color/depth output. Both frame timelines protect its reuse.
+    uint64_t image;
+  } remixapi_VulkanInteropImage;
+
+  // Minecraft owns presentation. Submit signals the done timeline value after releasing both images to
+  // VK_QUEUE_FAMILY_EXTERNAL in GENERAL. The client waits, acquires EXTERNAL -> its queue family with
+  // GENERAL -> GENERAL, uses the images, releases its queue family -> EXTERNAL with GENERAL -> GENERAL,
+  // and signals the client timeline. Present(skipVulkanSwapchain=true) queues the matching runtime acquire
+  // after waiting for clientDoneSemaphore_ValueToWait. Both operations must balance before another Submit.
+  // Identical deviceUUID and driverUUID are required. Changing an image generation requires a fresh import.
+  // Output extension for the exact frame paired with dxvkDoneSemaphore_ValueToWait.
+  typedef struct remixapi_InteropFrameStatusEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint64_t frameId;
+    // Bit 0: ray traced. Bit 1: camera valid. Bit 2: compiling shaders.
+    uint32_t flags;
+    uint32_t shaderCompileCount;
+  } remixapi_InteropFrameStatusEXT;
+
+  // Output extension of VulkanInteropInfo. Limits come from NGX, independently of user settings.
+  // maxGeneratedFrames excludes the rendered frame: N generated frames produce an (N + 1)x mode.
+  typedef struct remixapi_FrameGenerationCapabilitiesEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint32_t initializationComplete;
+    uint32_t supported;
+    uint32_t maxGeneratedFrames;
+    // UTF-8, nul terminated. Empty when supported; distinguishes initializing from unsupported.
+    uint8_t notSupportedReason[256];
+  } remixapi_FrameGenerationCapabilitiesEXT;
+
+  // PresentInfo extension for a host-owned image on the runtime's VkDevice and graphics family.
+  // The source image must remain in GENERAL and alive until sourceConsumedValue is signaled.
+  // Subsequent host writes must wait for that value. The host owns sourceReadySemaphore;
+  // the runtime owns sourceConsumedSemaphore. Both are timeline semaphores.
+  // image == 0 releases borrowed views synchronously without advancing a frame. Use it
+  // before destroying a previously presented image. Other image fields are then ignored.
+  typedef struct remixapi_VulkanClientFrameInfoEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint64_t device;
+    uint64_t image;
+    uint64_t imageGeneration;
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint32_t bottomUp;
+    uint32_t vsync;
+    uint32_t allowFrameGeneration;
+    uint64_t sourceReadySemaphore;
+    uint64_t sourceReadyValue;
+    uint64_t sourceConsumedSemaphore;
+    uint64_t sourceConsumedValue;
+    // Presentation counters are asynchronous and restart when presentationEpoch changes.
+    uint64_t presentationEpoch;
+    uint64_t renderedFrames;
+    uint64_t generatedFrames;
+  } remixapi_VulkanClientFrameInfoEXT;
+
+  typedef struct remixapi_VulkanInteropInfo {
+    remixapi_StructType sType;
+    void* pNext;
+    uint8_t deviceUUID[16];
+    uint8_t driverUUID[16];
+    uint8_t deviceLUID[8];
+    uint32_t deviceNodeMask;
+    remixapi_Bool deviceLUIDValid;
+    uint32_t queueFamilyIndex;
+    uint32_t semaphoreType;
+    uint64_t dxvkDoneSemaphore_Handle;
+    uint64_t dxvkDoneSemaphore_ValueToWait;
+    uint64_t clientDoneSemaphore_Handle;
+    remixapi_VulkanInteropImage color;
+    remixapi_VulkanInteropImage depth;
+    // Premultiplied transparent native UI, composite after the client's screens and HUD.
+    remixapi_VulkanInteropImage uiOverlay;
+    // Exact logical device identity. Borrowed images and semaphores are not destroyed by the host.
+    uint64_t device;
+  } remixapi_VulkanInteropInfo;
+
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_GetVulkanInteropInfo)(remixapi_VulkanInteropInfo* out_info);
+
+  // Creates one logical device with the union of the host and Remix requirements.
+  // instance must enable Vulkan 1.4; deviceCreateInfo points to a VkDeviceCreateInfo
+  // whose entire pointer graph remains valid until the call returns. Allocation
+  // callbacks and protected/custom queue creation are not supported. AdoptVulkanDevice
+  // transfers destruction to the host after its dispatch table was initialized.
+  // The host must call Shutdown before vkDestroyDevice or instance
+  // destruction, including when host initialization fails before Startup.
+  // The enabledExtensions output is borrowed until Shutdown and must be used to
+  // initialize the host's Vulkan dispatch table. Startup reuses this device.
+  typedef struct remixapi_HostVulkanDeviceInfo {
+    remixapi_StructType sType;
+    void* pNext;
+    uint64_t instance;
+    uint64_t physicalDevice;
+    uint32_t instanceApiVersion;
+    uint32_t instanceExtensionCount;
+    const char* const* instanceExtensions;
+    uint32_t graphicsQueueFamily;
+    const void* deviceCreateInfo;
+    uint64_t device;
+    uint32_t enabledExtensionCount;
+    const char* const* enabledExtensions;
+  } remixapi_HostVulkanDeviceInfo;
+
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_CreateVulkanDevice)(remixapi_HostVulkanDeviceInfo* info);
+  // Loads rendering configuration and capture tooling before the host creates its instance.
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_PrepareVulkan)(void);
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_dxvk_AdoptVulkanDevice)(uint64_t device);
+
 
   typedef struct remixapi_InitializeLibraryInfo {
     remixapi_StructType sType;
     void*               pNext;
     uint64_t            version;
   } remixapi_InitializeLibraryInfo;
+
+  // Extends an opaque MaterialInfo. Red channel 0 neutralizes vertex RGB; 1 preserves
+  // it. Intermediate values blend linearly. Vertex alpha and opacity are unchanged.
+  // Uses the albedo UVs and sampler; an R8_UNORM texture avoids redundant channels.
+  typedef struct remixapi_MaterialInfoVertexColorMaskEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    remixapi_TextureHandle texture;
+  } remixapi_MaterialInfoVertexColorMaskEXT;
+
+  // Clip a retained instance against a world-space voxel coverage grid. Zero disables
+  // clipping. Nonzero levels discard hits owned by a lower nonzero grid level.
+  // Mesh triangle winding must point outward; cell ownership samples just inside it.
+  typedef struct remixapi_InstanceInfoVoxelCoverageEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint32_t level;
+    uint32_t nodeIndex; // Optional sparse-tree node; zero disables tree clipping.
+  } remixapi_InstanceInfoVoxelCoverageEXT;
+
+  // R8 levels in x-major order: x + sizeX * (y + sizeY * z). Origins are signed
+  // CELL coordinates, not world coordinates. cellSize is a positive power of two.
+  // Tree nodes use world-block coordinates. Index zero is reserved. A published
+  // or authoritatively empty child owns its whole cell. Missing children keep
+  // the parent; flags bits 8..15 mark known-empty child octants (x | y<<1 | z<<2).
+  typedef struct remixapi_VoxelCoverageNode {
+    int32_t originX;
+    int32_t originY;
+    int32_t originZ;
+    uint32_t sizeBlocks;
+    uint32_t flags; // bit 0: mesh published, bit 1: empty, bits 8..15: empty children.
+    uint32_t children[8];
+    uint32_t reserved[3];
+  } remixapi_VoxelCoverageNode;
+
+  // Zero dimensions disable the dense grid. flags bit 0 clips outside it.
+  // Sparse children must be half their parent's size and occupy their octant.
+  // levels is copied before the function returns; it need not outlive this call.
+  typedef struct remixapi_VoxelCoverageInfo {
+    remixapi_StructType sType;
+    void* pNext;
+    int32_t originX;
+    int32_t originY;
+    int32_t originZ;
+    uint32_t sizeX;
+    uint32_t sizeY;
+    uint32_t sizeZ;
+    uint32_t cellSize;
+    uint64_t dataSize;
+    const uint8_t* levels;
+    uint32_t flags;
+    const remixapi_VoxelCoverageNode* treeNodes;
+    uint32_t treeNodeCount;
+  } remixapi_VoxelCoverageInfo;
+  typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_SetVoxelCoverage)(const remixapi_VoxelCoverageInfo* info);
 
   // NOTE: If adding a new function, append at the end of the struct.
   //       Reordering breaks backwards compatibility.
@@ -1152,6 +1449,14 @@ extern "C" {
     PFN_remixapi_UpdateMaterial             UpdateMaterial;
 
     PFN_remixapi_GetConfigVariableResolved  GetConfigVariableResolved;
+    PFN_remixapi_dxvk_GetVulkanInteropInfo  dxvk_GetVulkanInteropInfo;
+    PFN_remixapi_CreateSharedBuffer CreateSharedBuffer;
+    PFN_remixapi_CommitSharedBuffers CommitSharedBuffers;
+    PFN_remixapi_DestroySharedBuffer DestroySharedBuffer;
+    PFN_remixapi_SetVoxelCoverage SetVoxelCoverage;
+    PFN_remixapi_dxvk_CreateVulkanDevice dxvk_CreateVulkanDevice;
+    PFN_remixapi_dxvk_PrepareVulkan dxvk_PrepareVulkan;
+    PFN_remixapi_dxvk_AdoptVulkanDevice dxvk_AdoptVulkanDevice;
   } remixapi_Interface;
 
   REMIXAPI remixapi_ErrorCode REMIXAPI_CALL remixapi_InitializeLibrary(

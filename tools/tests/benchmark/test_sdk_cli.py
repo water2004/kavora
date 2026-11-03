@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import json
 import os
 import subprocess
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -22,6 +22,24 @@ def runtime_bytes(payload: bytes = b"current", machine: int = 0x8664) -> bytes:
     pe[128:132] = b"PE\0\0"
     pe[132:134] = machine.to_bytes(2, "little")
     return bytes(pe) + payload
+
+
+def write_runtime(path: Path, data: bytes) -> None:
+    path.write_bytes(data)
+    arch = "arm64" if data[132:134] == b"\x64\xaa" else "win64"
+    (path.parent / ".runtime-provenance.json").write_text(
+        json.dumps(
+            {
+                "fork": "water2004/dxvk-remix",
+                "apiVersion": "1.5.0",
+                "architecture": arch,
+                "sourceCommit": "a" * 40,
+                "sourceDirty": False,
+                "dllSha256": hashlib.sha256(data).hexdigest(),
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 @pytest.fixture
@@ -47,7 +65,7 @@ def project(tmp_path, monkeypatch):
 def source(project):
     path = project.parent / "dxvk-remix" / "_output"
     path.mkdir(parents=True)
-    (path / "d3d9.dll").write_bytes(runtime_bytes())
+    write_runtime((path / "d3d9.dll"), runtime_bytes())
     (path / "usd").mkdir()
     (path / "usd" / "plugInfo.json").write_text("{}", encoding="utf-8")
     return path
@@ -72,7 +90,7 @@ def test_local_snapshot_copies_runtime_without_powershell(project, source):
     assert Path(fields["source"]) == source.resolve()
     assert fields["staged_at_utc"].endswith("Z")
     assert report["state"] == "local-current"
-    (source / "d3d9.dll").write_bytes(runtime_bytes(b"new build"))
+    write_runtime((source / "d3d9.dll"), runtime_bytes(b"new build"))
     assert (target / "d3d9.dll").read_bytes() == runtime_bytes()
     changed = sdk.sdk_source_status("win64")
     assert changed["state"] == "local-refresh-available"
@@ -88,7 +106,7 @@ def test_local_defaults_to_sibling_checkout(project, source):
 def test_local_uses_configured_source_before_sibling_default(project, source):
     configured = project.parent / "local-runtime"
     configured.mkdir()
-    (configured / "d3d9.dll").write_bytes(runtime_bytes(b"configured build"))
+    write_runtime((configured / "d3d9.dll"), runtime_bytes(b"configured build"))
     util.write_json(util.SHARED_CONFIG_PATH.with_name("config.local.json"), {"sdk": {"localPath": str(configured)}})
 
     report = sdk.stage_local_sdk("win64")
@@ -100,7 +118,7 @@ def test_local_reuses_recorded_source_and_removes_stale_files(project, source):
     sdk.stage_local_sdk("win64", source)
     target = project / "remix-runtime" / "win64"
     (target / "obsolete.dll").write_bytes(b"old")
-    (source / "d3d9.dll").write_bytes(runtime_bytes(b"rebuilt"))
+    write_runtime((source / "d3d9.dll"), runtime_bytes(b"rebuilt"))
     report = sdk.stage_local_sdk("win64")
     assert report["state"] == "local-current"
     assert (target / "d3d9.dll").read_bytes() == runtime_bytes(b"rebuilt")
@@ -129,7 +147,7 @@ def test_bad_local_source_never_removes_current_runtime(project, source, kind):
     elif kind == "no-dll":
         (source / "d3d9.dll").unlink()
     elif kind == "wrong-arch":
-        (source / "d3d9.dll").write_bytes(runtime_bytes(machine=0xAA64))
+        write_runtime((source / "d3d9.dll"), runtime_bytes(machine=0xAA64))
     elif kind == "invalid-pe":
         (source / "d3d9.dll").write_bytes(b"not a DLL")
     elif kind == "target":
@@ -137,10 +155,10 @@ def test_bad_local_source_never_removes_current_runtime(project, source, kind):
     elif kind == "child":
         source = target / "child"
         source.mkdir()
-        (source / "d3d9.dll").write_bytes(runtime_bytes())
+        write_runtime((source / "d3d9.dll"), runtime_bytes())
     elif kind == "parent":
         source = target.parent
-        (source / "d3d9.dll").write_bytes(runtime_bytes())
+        write_runtime((source / "d3d9.dll"), runtime_bytes())
     with pytest.raises(RuntimeError):
         sdk.stage_local_sdk("win64", source)
     assert (target / "d3d9.dll").read_bytes() == runtime_bytes()
@@ -148,7 +166,7 @@ def test_bad_local_source_never_removes_current_runtime(project, source, kind):
 
 
 def test_local_accepts_arm64_runtime(project, source):
-    (source / "d3d9.dll").write_bytes(runtime_bytes(machine=0xAA64))
+    write_runtime((source / "d3d9.dll"), runtime_bytes(machine=0xAA64))
     assert sdk.stage_local_sdk("arm64", source)["state"] == "local-current"
 
 
@@ -186,92 +204,47 @@ def test_removing_snapshot_preserves_nested_link_targets(project, dangling):
 def test_fetch_refuses_local_override_without_running_packman(project, source, monkeypatch):
     sdk.stage_local_sdk("win64", source)
     monkeypatch.setattr(util, "run", lambda *a, **kw: pytest.fail("Packman must not touch a local override"))
-    with pytest.raises(RuntimeError, match="Refusing to overwrite"):
+    with pytest.raises(RuntimeError, match="must be built"):
         sdk.fetch_sdk("win64")
     assert sdk.sdk_source_status("win64")["state"] == "local-current"
 
 
 @pytest.mark.parametrize("arch", ["win64", "arm64"])
-def test_packman_restores_only_requested_arch_with_absolute_link(project, source, monkeypatch, arch):
+@pytest.mark.parametrize("force", [False, True])
+def test_packman_rejects_incompatible_runtime_without_touching_local_snapshot(
+    project, source, monkeypatch, arch, force
+):
     sdk.stage_local_sdk("win64", source)
-    seen = []
-
-    def pull(args, **kwargs):
-        assert Path(args[0]) == project / "packman" / "packman.cmd"
-        assert args[1] == "pull"
-        assert args[3:] == ["-p", "windows-x86_64"]
-        assert kwargs["cwd"] == project
-        manifest = Path(args[2])
-        assert not manifest.read_bytes().startswith(b"\xef\xbb\xbf")
-        dependencies = ET.parse(manifest).getroot().findall("dependency")
-        assert len(dependencies) == 1
-        dep = dependencies[0]
-        assert dep.get("name") == f"remix-sdk-{arch}"
-        target = Path(dep.attrib["linkPath"])
-        assert target.is_absolute()
-        assert target == project / "remix-runtime" / arch
-        assert not (target / ".local-sdk-source").exists()
-        target.mkdir(parents=True)
-        (target / "d3d9.dll").write_bytes(b"packman runtime")
-        seen.append(manifest)
-
-    monkeypatch.setattr(util, "run", pull)
-    assert sdk.stage_packman_sdk(arch)["state"] == "packman-ready"
-    assert len(seen) == 1
-    assert not seen[0].exists()
-    if arch == "arm64":
-        assert sdk.sdk_source_status("win64")["state"] == "local-current"
-
-
-def test_packman_noops_for_current_junction_and_force_refetches(project, monkeypatch):
-    cache = project.parent / "runtime-build-win64-release"
-    cache.mkdir()
-    (cache / "d3d9.dll").write_bytes(b"cached runtime")
-    target = project / "remix-runtime" / "win64"
-    make_link(target, cache)
-    calls = []
-
-    def pull(args, **kwargs):
-        assert not target.exists()
-        calls.append(args)
-        make_link(target, cache)
-
-    monkeypatch.setattr(util, "run", lambda *a, **kw: pytest.fail("current junction must not be pulled"))
-    assert sdk.stage_packman_sdk("win64")["state"] == "packman-ready"
-    original_run = subprocess.run
-
-    def run(args, **kwargs):
-        if args[0] == "cmd":
-            return original_run(args, check=True, capture_output=True)
-        return pull(args, **kwargs)
-
-    monkeypatch.setattr(util, "run", run)
-    sdk.stage_packman_sdk("win64", force=True)
-    assert len(calls) == 1
-    sdk.remove_target(target)
-    assert (cache / "d3d9.dll").read_bytes() == b"cached runtime"
-
-
-def test_failed_pull_removes_temporary_manifest(project, monkeypatch):
-    manifests = []
-
-    def fail(args, **kwargs):
-        manifests.append(Path(args[2]))
-        raise RuntimeError("packman pull failed")
-
-    monkeypatch.setattr(util, "run", fail)
-    with pytest.raises(RuntimeError, match="packman pull failed"):
-        sdk.fetch_sdk("win64")
-    assert len(manifests) == 1
-    assert not manifests[0].exists()
-
-
-def test_missing_pin_preserves_override(project, source):
-    sdk.stage_local_sdk("win64", source)
-    (project / "packman" / "remix-sdk.packman.xml").write_text("<project />", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="Dependency 'remix-sdk-win64' not found"):
-        sdk.stage_packman_sdk("win64")
+    target = project / "remix-runtime/win64/d3d9.dll"
+    original = target.read_bytes()
+    monkeypatch.setattr(util, "run", lambda *a, **kw: pytest.fail("Incompatible Packman runtime must not be fetched"))
+    with pytest.raises(RuntimeError, match="incompatible ABI"):
+        sdk.stage_packman_sdk(arch, force=force)
+    assert target.read_bytes() == original
     assert sdk.sdk_source_status("win64")["state"] == "local-current"
+
+
+def test_local_requires_provenance_before_replacing_existing_snapshot(project, source):
+    sdk.stage_local_sdk("win64", source)
+    target = project / "remix-runtime/win64/d3d9.dll"
+    original = target.read_bytes()
+    (source / ".runtime-provenance.json").unlink()
+    with pytest.raises(RuntimeError, match="provenance is missing"):
+        sdk.stage_local_sdk("win64", source)
+    assert target.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "field,value", [("apiVersion", "0.16.0"), ("fork", "other"), ("architecture", "arm64"), ("dllSha256", "0" * 64)]
+)
+def test_provenance_binds_fork_abi_architecture_and_dll(project, source, field, value):
+    marker = source / ".runtime-provenance.json"
+    data = json.loads(marker.read_text(encoding="utf-8"))
+    data[field] = value
+    marker.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="provenance"):
+        sdk.stage_local_sdk("win64", source)
+    assert not (project / "remix-runtime/win64").exists()
 
 
 def test_restage_requires_a_local_source(project, source):
@@ -290,7 +263,7 @@ def test_restage_requires_a_local_source(project, source):
 @pytest.mark.parametrize("auto_restage", [False, True])
 def test_launch_refreshes_changed_local_source_only_when_enabled(project, source, capsys, auto_restage):
     sdk.stage_local_sdk("win64", source)
-    (source / "d3d9.dll").write_bytes(runtime_bytes(b"rebuilt"))
+    write_runtime((source / "d3d9.dll"), runtime_bytes(b"rebuilt"))
     dll = runner.fetch_sdk("release", "win64", auto_restage=auto_restage)
     assert dll.read_bytes() == runtime_bytes(b"rebuilt" if auto_restage else b"current")
     output = capsys.readouterr().out

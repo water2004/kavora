@@ -253,6 +253,7 @@ from several places with a shared channel.
 | `confs/time/dawn.conf` | Fixed Overworld schedule | 4000 | 0.50 | The clock curve below |
 | `confs/volumetrics/settling.conf` | A weather gradient moving, or a smoothed profile still easing: 0 or 1 | 3100 | 0.01 | Immediate, held 0.75 s after the last movement |
 | `confs/view_distance.conf` | Render distance, 2 to 32 chunks | 3000 | 0.01 | Immediate on each change |
+| `confs/view_distance_voxy.conf` | Active far capture radius, 32 to 2048 chunks | 2999 | 0.0001 | Immediate on each change |
 
 A smoothed strength halves its remaining distance to the target every half
 second and snaps when the gap becomes imperceptible, so a full swing looks
@@ -397,8 +398,13 @@ fog adjustment nor a brighter light creates that missing above-water volume.
 ### Automatic View Distance
 
 `rtx.conf` holds the 32-chunk fade band and `confs/view_distance.conf` holds
-the 2-chunk band, and the mod blends between them so the band is always 70 to
-80 percent of the render distance in use.
+the 2-chunk band. Optional far capture extends the effective distance through
+`confs/view_distance_voxy.conf`, whose endpoint is 2048 chunks. The mod blends
+these endpoints so the band is always 70 to 80 percent of the active distance.
+
+The former `view_distance_far.conf` endpoint is no longer acquired. Existing
+author-owned copies are preserved, but edits for the current far layer belong
+in `view_distance_voxy.conf`.
 
 It sits below every situational profile on purpose, so a zone, biome, weather,
 or time profile can override the fade keys deliberately.

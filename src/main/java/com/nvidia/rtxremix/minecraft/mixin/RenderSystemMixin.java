@@ -1,35 +1,42 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.rtxremix.minecraft.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.nvidia.rtxremix.minecraft.RtxRemixMod;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
-import com.mojang.blaze3d.systems.RenderSystem;
-import org.lwjgl.glfw.GLFW;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/**
- * Redirects the buffer swap inside {@code RenderSystem.flipFrame} to Remix's
- * present, so Vulkan owns the swapchain whenever the renderer is initialized.
- * Before that, and if initialization fails, the GLFW swap runs unchanged.
- */
-@Mixin(RenderSystem.class)
+/** Completes the shared-image frame before Minecraft presents its selected graphics surface. */
+@Mixin(Minecraft.class)
 public abstract class RenderSystemMixin {
-
-    @Redirect(
-        method = "flipFrame",
-        at = @At(value = "INVOKE", target = "Lorg/lwjgl/glfw/GLFW;glfwSwapBuffers(J)V")
-    )
-    private static void rtxremix$redirectSwapBuffers(long window) {
+    @Inject(method = "renderFrame", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/renderpearl/api/device/GpuSurface;blitFromTexture(Lcom/mojang/renderpearl/api/commands/CommandEncoder;Lcom/mojang/renderpearl/api/textures/GpuTextureView;)V"))
+    private void rtxremix$compositeNativeMenus(boolean tick, CallbackInfo ci) {
         RemixRenderer renderer = RtxRemixMod.renderer;
         if (renderer != null && renderer.isInitialized()) {
-            renderer.presentFrameVk();
+            renderer.compositeRemixMenus();
+        }
+    }
+
+    @WrapOperation(method = "renderFrame", at = @At(value = "INVOKE",
+            target = "Lcom/mojang/renderpearl/api/commands/CommandEncoder;submit()V"))
+    private void rtxremix$completeRemixFrame(CommandEncoder encoder, Operation<Void> original) {
+        RemixRenderer renderer = RtxRemixMod.renderer;
+        if (renderer != null && renderer.isInitialized()) {
+            renderer.preparePresentFrame();
+            original.call(encoder);
+            com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.completeUnpresentedFrame();
         } else {
-            GLFW.glfwSwapBuffers(window);
+            original.call(encoder);
         }
     }
 }

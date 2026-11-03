@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nvidia.rtxremix.minecraft.settings.RtxSetting;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -71,8 +72,9 @@ class RtxSettingsTest {
 
         assertEquals(List.of(distance, framerate), settings.category(SettingCategory.PERFORMANCE));
         assertEquals(
-                List.of(sky, clouds, blockLights),
+                List.of(blockLights),
                 settings.category(SettingCategory.LIGHTING));
+        assertEquals(List.of(sky, clouds), settings.category(SettingCategory.ATMOSPHERE));
         assertEquals(List.of(tone, adaptation), settings.category(SettingCategory.IMAGE));
         assertEquals(List.of(materials), settings.category(SettingCategory.MATERIALS));
     }
@@ -99,9 +101,15 @@ class RtxSettingsTest {
     }
 
     @Test
-    void lightingScreenResetDoesNotIncludeItsBlockLightsSubscreen() {
-        assertEquals(
-                List.of(SettingGroup.SKY, SettingGroup.CLOUDS),
-                RtxSettingsCategoryScreen.resettableGroups(SettingCategory.LIGHTING));
+    void lightingCategoryResetDoesNotReachAtmosphere() {
+        var torch = intSetting("torch", SettingGroup.BLOCK_LIGHTS, 1);
+        var cloud = intSetting("cloud", SettingGroup.CLOUDS, 2);
+        torch.apply(5);
+        cloud.apply(6);
+        var edit = new RtxSettingsSession(new RtxSettings(List.of(torch, cloud)));
+        edit.reset(value -> value.group().category() == SettingCategory.LIGHTING);
+        edit.apply();
+        assertEquals(1, torch.get());
+        assertEquals(6, cloud.get());
     }
 }

@@ -41,5 +41,19 @@ public final class StructType {
     public static final int SUBMIT_INFO = 30;
     public static final int CONFIG_VARIABLE_RESOLVED_INFO = 31;
 
+    public static final int VULKAN_INTEROP_INFO = 32;
+    public static final int INTEROP_FRAME_STATUS_EXT = 33;
+    public static final int SHARED_BUFFER_INFO = 34;
+    public static final int SHARED_BUFFER_COMMIT_INFO = 35;
+    public static final int MESH_INFO_SHARED_BUFFERS_EXT = 36;
+    public static final int TEXTURE_MIP_CHAIN_EXT = 37;
+    public static final int INSTANCE_INFO_VOXEL_COVERAGE_EXT = 38;
+    public static final int VOXEL_COVERAGE_INFO = 39;
+    public static final int MATERIAL_INFO_VERTEX_COLOR_MASK_EXT = 40;
+    public static final int TEXTURE_IMMUTABLE_EXT = 41;
+    public static final int HOST_VULKAN_DEVICE_INFO = 42;
+    public static final int FRAME_GENERATION_CAPABILITIES_EXT = 43;
+    public static final int VULKAN_CLIENT_FRAME_INFO_EXT = 44;
+
     private StructType() {}
 }

@@ -17,6 +17,9 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,8 +29,8 @@ import java.util.stream.Collectors;
 /**
  * Extracts the bundled native payload (remix-sdk, rtx.conf, the runtime
  * textures, and other directories such as rtx-remix/mods/minecraft-logic) from
- * the mod JAR to the game directory on first launch, version change, or missing
- * runtime.
+ * the mod JAR to the game directory on first launch, version or bundled runtime
+ * change, or missing runtime.
  *
  * <p>Mirrors the runtime layout produced by the installer so existing native
  * path resolution works unchanged. The runtime textures land in
@@ -60,13 +63,28 @@ public final class NativeExtractor {
         return "aarch64".equals(osArch) ? "remix-sdk-arm64" : "remix-sdk-win64";
     }
 
-    /**
-     * Composes the version marker written to .rtx-remix-version.
-     * Format: "{modVersion}|{archDir}" so both version bumps AND arch changes
-     * invalidate the marker, triggering re-extraction.
-     */
-    static String buildMarker(String modVersion, String archDir) {
-        return modVersion + "|" + archDir;
+    /** Identifies the bundled runtime without hashing the entire SDK. */
+    static String buildMarker(String modVersion, String archDir, Path sdkDir) throws IOException {
+        return modVersion + "|" + archDir + "|"
+                + sha256(sdkDir.resolve(".runtime-provenance.json")) + "|"
+                + sha256(sdkDir.resolve("rtxremix-support.dll"));
+    }
+
+    private static String sha256(Path file) throws IOException {
+        final MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = in.read(buffer)) != -1) {
+                digest.update(buffer, 0, count);
+            }
+        }
+        return HexFormat.of().formatHex(digest.digest());
     }
 
     /** Compares two markers for byte equality, treating a missing marker as unequal. */
@@ -91,8 +109,7 @@ public final class NativeExtractor {
      * <p>Non-SDK directories other than {@code textures/}, such as the
      * {@code rtx-remix/} gameplay conf payload, are copied into the game
      * directory but never over a file that already exists. The mod version
-     * string embeds a build timestamp and git hash, so every new build makes
-     * the marker stale;
+     * and bundled runtime identity can change between launches, so extraction can recur;
      * overwriting would mean each new build silently reverted an
      * author's tuned profiles. New files still land, so profiles added by a
      * release reach existing installs. The cost is that an edit to a shipped
@@ -151,38 +168,12 @@ public final class NativeExtractor {
      */
     static void extractIfNeeded(Path nativeRoot, Path gameDir, String modVersion, String archDir,
                                 Executor retiredSdkCleanup) throws IOException {
-        String expectedMarker = buildMarker(modVersion, archDir);
         Path versionFile = gameDir.resolve(VERSION_MARKER);
         Path remixSdkDir = gameDir.resolve("remix-sdk");
 
-        // Reclaim retired SDKs even when the current payload needs no repair.
-        cleanupRetiredSdkDirs(gameDir);
         if (!Files.isDirectory(nativeRoot)) {
             LOGGER.warn("No native/ directory in mod JAR, skipping extraction");
             return;
-        }
-
-        AtomicInteger fileCount = new AtomicInteger();
-        AtomicLong totalBytes = new AtomicLong();
-        AtomicInteger keptCount = new AtomicInteger();
-        if (Files.exists(versionFile)) {
-            String existing = Files.readString(versionFile).strip();
-            if (markerMatches(existing, expectedMarker)) {
-                if (Files.isRegularFile(remixSdkDir.resolve("d3d9.dll"))) {
-                    if (restoreMissingRtxConf(nativeRoot, gameDir)) {
-                        LOGGER.info("Restored mod-owned {} after it was deleted since the last extraction",
-                                RTX_CONF);
-                    }
-                    extractTextures(nativeRoot, gameDir, true, fileCount, totalBytes);
-                    extractAuthorPayload(nativeRoot, gameDir, fileCount, totalBytes, keptCount);
-                    LOGGER.info("Native runtime {} already extracted; restored {} missing payload file(s)",
-                            expectedMarker, fileCount.get());
-                    return;
-                }
-                LOGGER.info("Native runtime {} is missing, re-extracting natives", expectedMarker);
-            } else {
-                LOGGER.info("Marker changed ({} -> {}), re-extracting natives", existing, expectedMarker);
-            }
         }
 
         // Single-platform JARs must fail before changing the live payload when
@@ -204,6 +195,34 @@ public final class NativeExtractor {
                     + "or matching single-platform JAR instead.",
                     jarArchDirs, archDir);
             return;  // No marker written; mod init will fail loudly later.
+        }
+
+        String expectedMarker = buildMarker(modVersion, archDir, nativeRoot.resolve(archDir));
+        cleanupRetiredSdkDirs(gameDir);
+
+        AtomicInteger fileCount = new AtomicInteger();
+        AtomicLong totalBytes = new AtomicLong();
+        AtomicInteger keptCount = new AtomicInteger();
+        if (Files.exists(versionFile)) {
+            String existing = Files.readString(versionFile).strip();
+            if (markerMatches(existing, expectedMarker)) {
+                if (Files.isRegularFile(remixSdkDir.resolve("d3d9.dll"))
+                        && Files.isRegularFile(remixSdkDir.resolve("rtxremix-support.dll"))
+                        && Files.isRegularFile(remixSdkDir.resolve(".runtime-provenance.json"))) {
+                    if (restoreMissingRtxConf(nativeRoot, gameDir)) {
+                        LOGGER.info("Restored mod-owned {} after it was deleted since the last extraction",
+                                RTX_CONF);
+                    }
+                    extractTextures(nativeRoot, gameDir, true, fileCount, totalBytes);
+                    extractAuthorPayload(nativeRoot, gameDir, fileCount, totalBytes, keptCount);
+                    LOGGER.info("Native runtime {} already extracted; restored {} missing payload file(s)",
+                            expectedMarker, fileCount.get());
+                    return;
+                }
+                LOGGER.info("Native runtime {} is missing, re-extracting natives", expectedMarker);
+            } else {
+                LOGGER.info("Marker changed ({} -> {}), re-extracting natives", existing, expectedMarker);
+            }
         }
 
         Path sdkStaging = gameDir.resolve("remix-sdk.staging");

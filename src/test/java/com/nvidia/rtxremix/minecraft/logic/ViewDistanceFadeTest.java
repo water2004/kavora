@@ -73,11 +73,44 @@ class ViewDistanceFadeTest {
         Map<String, Float> baseline = readConf(Path.of("packaging", "rtx.conf"));
         Map<String, Float> minimum = readConf(Path.of("packaging", "rtx-remix", "mods",
                 "minecraft-logic", "confs", "view_distance.conf"));
+        Map<String, Float> far = readConf(Path.of("packaging", "rtx-remix", "mods",
+                "minecraft-logic", "confs", "view_distance_voxy.conf"));
 
         assertEquals(ViewDistanceFade.RESTORE_FADE_MIN, baseline.get(FADE_MIN_KEY));
         assertEquals(ViewDistanceFade.RESTORE_FADE_MAX, baseline.get(FADE_MAX_KEY));
         assertEquals(ViewDistanceFade.LAYER_FADE_MIN, minimum.get(FADE_MIN_KEY));
         assertEquals(ViewDistanceFade.LAYER_FADE_MAX, minimum.get(FADE_MAX_KEY));
+        assertEquals(ViewDistanceFade.FAR_FADE_MIN, far.get(FADE_MIN_KEY));
+        assertEquals(ViewDistanceFade.FAR_FADE_MAX, far.get(FADE_MAX_KEY));
+    }
+
+    @Test
+    void farSceneExtendsTheBandWithoutTheNearEndpointMaskingIt() {
+        ViewDistanceFade fade = new ViewDistanceFade();
+        for (int chunks = 33; chunks <= 256; chunks++) {
+            assertEquals(0, fade.layerStrength(12, chunks));
+            float strength = fade.farLayerStrength();
+            assertEquals(ViewDistanceFade.computeFadeMin(chunks),
+                    lerp(ViewDistanceFade.RESTORE_FADE_MIN, ViewDistanceFade.FAR_FADE_MIN, strength), 0.001f);
+            assertEquals(ViewDistanceFade.computeFadeMax(chunks),
+                    lerp(ViewDistanceFade.RESTORE_FADE_MAX, ViewDistanceFade.FAR_FADE_MAX, strength), 0.001f);
+        }
+        fade.layerStrength(12, 48);
+        assertEquals("auto (from render distance), fade 538 to 614 blocks", fade.describe());
+    }
+
+    @Test
+    void farCoverageDisablingAndManualModeReleaseTheFarLayer() {
+        ViewDistanceFade fade = new ViewDistanceFade();
+        fade.layerStrength(12, 48);
+        assertEquals(2.0f / 3, fade.layerStrength(12, 0), 1e-6f);
+        assertEquals(0, fade.farLayerStrength());
+        assertEquals(0, fade.layerStrength(12, 32));
+        assertEquals(0, fade.farLayerStrength());
+        fade.layerStrength(12, 48);
+        fade.setAuto(false);
+        assertEquals(0, fade.layerStrength(12, 48));
+        assertEquals(0, fade.farLayerStrength());
     }
 
     private static float lerp(float from, float to, float amount) {

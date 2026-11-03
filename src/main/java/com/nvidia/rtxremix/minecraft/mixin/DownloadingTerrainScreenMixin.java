@@ -6,8 +6,10 @@ package com.nvidia.rtxremix.minecraft.mixin;
 
 import com.nvidia.rtxremix.minecraft.JoinBurstHold;
 import com.nvidia.rtxremix.minecraft.RemixRenderer;
-import net.minecraft.client.gui.screen.DownloadingTerrainScreen;
+import net.minecraft.client.gui.screens.LevelLoadingScreen;
+import net.minecraft.client.multiplayer.LevelLoadTracker;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -20,13 +22,27 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * cancelled while {@link JoinBurstHold#keepScreen(long)} says so; vanilla retries every
  * tick, so the screen closes on the first tick after the hold ends.
  */
-@Mixin(DownloadingTerrainScreen.class)
+@Mixin(LevelLoadingScreen.class)
 public abstract class DownloadingTerrainScreenMixin {
 
     private boolean rtxremix$holdBegun;
+    @Shadow private LevelLoadTracker loadTracker;
 
-    @Inject(method = "close", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "update", at = @At("HEAD"))
+    private void rtxremix$beginNewLoad(LevelLoadTracker tracker, LevelLoadingScreen.Reason reason, CallbackInfo ci) {
+        if (loadTracker != tracker) rtxremix$holdBegun = false;
+    }
+
+    @Inject(method = "onClose", at = @At("HEAD"), cancellable = true)
     private void rtxremix$holdUntilSettled(CallbackInfo ci) {
+        RemixRenderer renderer = com.nvidia.rtxremix.minecraft.RtxRemixMod.renderer;
+        if (com.nvidia.rtxremix.minecraft.RtxRemixMod.isRtxEnabled()
+                && renderer != null && renderer.isInitialized() && !renderer.isSceneReady()) {
+            net.minecraft.client.Minecraft.getInstance().gui.setScreen(
+                    new com.nvidia.rtxremix.minecraft.RemixPreparationScreen((LevelLoadingScreen) (Object) this));
+            ci.cancel();
+            return;
+        }
         JoinBurstHold hold = RemixRenderer.activeJoinBurstHold();
         if (hold == null) {
             return;

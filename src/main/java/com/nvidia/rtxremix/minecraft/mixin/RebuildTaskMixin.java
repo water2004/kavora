@@ -5,44 +5,47 @@
 package com.nvidia.rtxremix.minecraft.mixin;
 
 import com.nvidia.rtxremix.minecraft.terrain.capture.RegionSnapshotRelease;
-import net.minecraft.client.render.chunk.BlockBufferAllocatorStorage;
-import net.minecraft.client.render.chunk.ChunkBuilder;
-import net.minecraft.client.render.chunk.ChunkRendererRegion;
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.concurrent.CompletableFuture;
+import net.minecraft.client.renderer.SectionBufferBuilderPack;
+import net.minecraft.client.renderer.chunk.RenderSectionRegion;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher.RenderSection.SectionTask.SectionTaskResult;
 
 /**
- * Releases a rebuild task's region snapshot once the section build that read it has
- * returned. The worker running {@code run} is the region's only reader: {@code cancel} on the
- * render thread merely drops the task's reference, so the region captured at the start of
- * {@code run} is owned by this worker whichever branch vanilla takes, including the early
- * returns that never read it. A task cancelled before it ever runs leaves its region to the
- * collector, which only forgoes the reuse.
+ * Releases the task's region after its only worker reader finishes. Cancellation claims
+ * a task that has not begun; an executing task retains ownership through its return.
  */
-@Mixin(targets = "net.minecraft.client.render.chunk.ChunkBuilder$BuiltChunk$RebuildTask")
+@Mixin(targets = "net.minecraft.client.renderer.chunk.SectionRenderDispatcher$RenderSection$CompileTask")
 public abstract class RebuildTaskMixin {
 
-    @Shadow
-    protected ChunkRendererRegion region;
+    @Shadow @Final
+    private RenderSectionRegion region;
 
-    private ChunkRendererRegion rtxremix$consumed;
+    private RenderSectionRegion rtxremix$consumed;
+    private final java.util.concurrent.atomic.AtomicBoolean rtxremix$claimed = new java.util.concurrent.atomic.AtomicBoolean();
 
-    @Inject(method = "run", at = @At("HEAD"))
-    private void rtxremix$captureRegion(BlockBufferAllocatorStorage buffers, CallbackInfoReturnable<CompletableFuture<ChunkBuilder.Result>> cir) {
-        rtxremix$consumed = region;
-    }
-
-    @Inject(method = "run", at = @At("RETURN"))
-    private void rtxremix$releaseRegion(BlockBufferAllocatorStorage buffers, CallbackInfoReturnable<CompletableFuture<ChunkBuilder.Result>> cir) {
-        ChunkRendererRegion consumed = rtxremix$consumed;
-        rtxremix$consumed = null;
-        if (consumed != null) {
-            ((RegionSnapshotRelease) consumed).rtxremix$release();
+    @WrapMethod(method = "doTask")
+    private SectionTaskResult rtxremix$withOwnedRegion(SectionBufferBuilderPack buffers, Operation<SectionTaskResult> original) {
+        if (rtxremix$claimed.compareAndSet(false, true)) rtxremix$consumed = region;
+        try {
+            return original.call(buffers);
+        } finally {
+            RenderSectionRegion consumed = rtxremix$consumed;
+            rtxremix$consumed = null;
+            if (consumed != null) ((RegionSnapshotRelease) consumed).rtxremix$release();
         }
     }
+    @Inject(method = "cancel", at = @At("RETURN"))
+    private void rtxremix$releaseCancelledRegion(org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+        if (rtxremix$claimed.compareAndSet(false, true)) {
+            ((RegionSnapshotRelease) region).rtxremix$release();
+        }
+    }
+
 }

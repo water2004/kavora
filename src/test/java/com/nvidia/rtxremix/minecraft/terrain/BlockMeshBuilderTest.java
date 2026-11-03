@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class BlockMeshBuilderTest {
 
     private static final int QUAD_BYTES =
-            4 * HardcodedVertex.STRIDE + 6 * Integer.BYTES;
+            4 * HardcodedVertex.STORAGE_STRIDE + 6 * Integer.BYTES;
 
     @Test
     void canonicalIndexWriterRepeatsTheQuadPatternFromZero() {
@@ -115,7 +115,7 @@ class BlockMeshBuilderTest {
     @Test
     void surfaceWithoutCanonicalQuadIndicesFailsLoudly() {
         BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
-        ByteBuffer vertices = ByteBuffer.allocate(4 * HardcodedVertex.STRIDE)
+        ByteBuffer vertices = ByteBuffer.allocate(4 * SectionMeshData.VERTEX_STRIDE)
                 .order(ByteOrder.LITTLE_ENDIAN);
         SectionMeshData ownIndices = meshData(new SectionMeshData.Surface(
                 ChunkManager.CAT_SOLID, "solid", vertices, 4, 6, false));
@@ -129,7 +129,7 @@ class BlockMeshBuilderTest {
     @Test
     void surfaceWhoseCountsContradictItsCanonicalFlagFailsLoudly() {
         BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
-        ByteBuffer vertices = ByteBuffer.allocate(5 * HardcodedVertex.STRIDE)
+        ByteBuffer vertices = ByteBuffer.allocate(5 * SectionMeshData.VERTEX_STRIDE)
                 .order(ByteOrder.LITTLE_ENDIAN);
         SectionMeshData partialQuad = meshData(new SectionMeshData.Surface(
                 ChunkManager.CAT_SOLID, "solid", vertices, 5, 6, true));
@@ -143,11 +143,11 @@ class BlockMeshBuilderTest {
     @Test
     void splitPagesApplySectionOffsetWithinColumnAndRestartCanonicalIndices() throws Exception {
         BlockMeshBuilder builder = new BlockMeshBuilder(QUAD_BYTES);
-        ByteBuffer vertices = ByteBuffer.allocate(3 * 4 * HardcodedVertex.STRIDE)
+        ByteBuffer vertices = ByteBuffer.allocate(3 * 4 * SectionMeshData.VERTEX_STRIDE)
                 .order(ByteOrder.LITTLE_ENDIAN);
         for (int quad = 0; quad < 3; quad++) {
             for (int vertex = 0; vertex < 4; vertex++) {
-                int offset = (quad * 4 + vertex) * HardcodedVertex.STRIDE;
+                int offset = (quad * 4 + vertex) * SectionMeshData.VERTEX_STRIDE;
                 vertices.putFloat(offset, quad);
                 vertices.putFloat(offset + 4, 2.0f);
                 vertices.putFloat(offset + 8, 3.0f);
@@ -177,6 +177,42 @@ class BlockMeshBuilderTest {
     }
 
     @Test
+    void compactSectionCopyPreservesEveryAttributeWithoutMutatingCapture() throws Exception {
+        ByteBuffer captured = ByteBuffer.allocate(4 * SectionMeshData.VERTEX_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer expected = ByteBuffer.allocate(4 * HardcodedVertex.STORAGE_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (int v = 0; v < 4; v++) {
+            int src = v * SectionMeshData.VERTEX_STRIDE;
+            int dst = v * HardcodedVertex.STORAGE_STRIDE;
+            captured.putFloat(src, v + .25f);
+            captured.putFloat(src + 4, v + .5f);
+            captured.putFloat(src + 8, v + .75f);
+            for (int word = 12; word < SectionMeshData.VERTEX_STRIDE; word += 4) {
+                captured.putInt(src + word, 0x9e3779b9 * (v * 11 + word));
+            }
+            expected.put(dst, captured, src, SectionMeshData.VERTEX_STRIDE);
+            expected.putFloat(dst + 4, captured.getFloat(src + 4) + 32);
+        }
+        byte[] original = captured.array().clone();
+        var data = meshData(new SectionMeshData.Surface(
+                ChunkManager.CAT_SOLID, "solid", captured, 4, 6, true));
+        var pages = new BlockMeshBuilder().buildColumnMesh(1, -2,
+                List.of(snapshot(1, 2, -2, data)), BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            ByteBuffer uploaded = surfaceBuffer(firstSurface(pages[0].mesh()), "vertexData");
+            byte[] actual = new byte[expected.capacity()];
+            uploaded.get(0, actual);
+            assertArrayEquals(expected.array(), actual);
+            assertArrayEquals(original, captured.array());
+            assertEquals(0, captured.position());
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
     void siblingSectionsShareColumnPagesWithIndependentVerticalOffsets() throws Exception {
         BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
         SectionMeshData lower = meshData(canonicalSurface(
@@ -194,7 +230,7 @@ class BlockMeshBuilderTest {
             RemixMeshSurface surface = firstSurface(pages[0].mesh());
             ByteBuffer vertices = surfaceBuffer(surface, "vertexData");
             assertEquals(-16.0f, vertices.getFloat(4));
-            assertEquals(32.0f, vertices.getFloat(4 * HardcodedVertex.STRIDE + 4));
+            assertEquals(32.0f, vertices.getFloat(4 * HardcodedVertex.STORAGE_STRIDE + 4));
         } finally {
             dispose(pages);
         }
@@ -227,7 +263,7 @@ class BlockMeshBuilderTest {
         return new SectionMeshData.Surface(
                 category,
                 bucket,
-                ByteBuffer.allocate(vertexCount * HardcodedVertex.STRIDE)
+                ByteBuffer.allocate(vertexCount * SectionMeshData.VERTEX_STRIDE)
                         .order(ByteOrder.LITTLE_ENDIAN),
                 vertexCount,
                 quadCount * 6,

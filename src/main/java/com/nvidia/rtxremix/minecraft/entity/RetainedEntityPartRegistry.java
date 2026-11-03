@@ -132,9 +132,9 @@ final class RetainedEntityPartRegistry<O, V> {
     }
 
     void discardIf(Predicate<? super V> predicate, Consumer<? super V> retire) {
-        Iterator<Map.Entry<O, Map<Slot, Entry<V>>>> ownerIt = owners.entrySet().iterator();
+        Iterator<Map<Slot, Entry<V>>> ownerIt = owners.values().iterator();
         while (ownerIt.hasNext()) {
-            Map<Slot, Entry<V>> parts = ownerIt.next().getValue();
+            Map<Slot, Entry<V>> parts = ownerIt.next();
             Iterator<Entry<V>> partIt = parts.values().iterator();
             while (partIt.hasNext()) {
                 Entry<V> entry = partIt.next();
@@ -151,9 +151,9 @@ final class RetainedEntityPartRegistry<O, V> {
     void endFrame(Consumer<? super V> retire) {
         requireOpenFrame();
         try {
-            Iterator<Map.Entry<O, Map<Slot, Entry<V>>>> ownerIt = owners.entrySet().iterator();
+            Iterator<Map<Slot, Entry<V>>> ownerIt = owners.values().iterator();
             while (ownerIt.hasNext()) {
-                Map<Slot, Entry<V>> parts = ownerIt.next().getValue();
+                Map<Slot, Entry<V>> parts = ownerIt.next();
                 Iterator<Entry<V>> partIt = parts.values().iterator();
                 while (partIt.hasNext()) {
                     Entry<V> entry = partIt.next();

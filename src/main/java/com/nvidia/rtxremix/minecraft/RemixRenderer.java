@@ -4,14 +4,14 @@
  */
 package com.nvidia.rtxremix.minecraft;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.nvidia.rtxremix.CameraInfo;
 import com.nvidia.rtxremix.CameraInfoParameterizedEXT;
 import com.nvidia.rtxremix.CameraType;
-import com.nvidia.rtxremix.InteropInfo;
 import com.nvidia.rtxremix.PresentInfo;
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.RemixException;
-import com.nvidia.rtxremix.StartupInfo;
+import com.nvidia.rtxremix.SubmitInfo;
 import com.nvidia.rtxremix.minecraft.asset.RemixInstanceStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixLightStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixMaterial;
@@ -20,7 +20,10 @@ import com.nvidia.rtxremix.minecraft.asset.RemixMeshStore;
 import com.nvidia.rtxremix.minecraft.asset.RemixTexture;
 import com.nvidia.rtxremix.minecraft.asset.RemixTextureStore;
 import com.nvidia.rtxremix.minecraft.benchmark.BenchmarkController;
-import com.nvidia.rtxremix.minecraft.gl.GlInterop;
+import com.nvidia.rtxremix.minecraft.render.RemixInterop;
+import com.nvidia.rtxremix.minecraft.render.RenderBackend;
+import com.nvidia.rtxremix.minecraft.render.NativeMenuOverlay;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.nvidia.rtxremix.minecraft.light.LightManager;
 import com.nvidia.rtxremix.minecraft.logic.ViewDistanceFade;
 import com.nvidia.rtxremix.minecraft.profiling.PerformanceTimer;
@@ -46,30 +49,32 @@ import com.nvidia.rtxremix.minecraft.entity.RemixEntitySubmitter;
 import com.nvidia.rtxremix.minecraft.entity.RemixFirstPersonPass;
 import com.nvidia.rtxremix.minecraft.cloud.CloudRenderer;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.minecraft.client.renderer.state.level.BlockOutlineRenderState;
+import net.minecraft.client.renderer.state.level.BlockBreakingRenderState;
+import net.minecraft.client.renderer.entity.state.EntityRenderState;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.enums.CameraSubmersionType;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.entity.EntityRenderDispatcher;
-import net.minecraft.client.render.item.HeldItemRenderer;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-import org.lwjgl.glfw.GLFWNativeWin32;
-import org.lwjgl.opengl.GL;
-import org.lwjgl.opengl.GLCapabilities;
+import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.FirstPersonHandsAndItemsRenderer;
+import net.minecraft.client.renderer.state.level.PlayerRenderState;
+import org.joml.Matrix4fc;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.material.FogType;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -85,33 +90,27 @@ import java.util.concurrent.TimeUnit;
  * frame submission. All of it runs once per rendered frame on the render
  * thread, not once per client tick.
  *
- * <p>Remix renders into a Vulkan image that {@link GlInterop} imports into
- * OpenGL through {@code EXT_memory_object} and {@code EXT_semaphore}. Minecraft
- * composites its own GL output onto that shared image, and {@link
- * #presentFrameVk()} hands the result back to Remix to put on screen.
+ * <p>{@link RemixInterop} imports the runtime's dedicated Vulkan allocations
+ * onto Minecraft's device. Timeline semaphores and external queue-family
+ * transfers protect the shared images; Minecraft owns the final presentation.
  */
 public class RemixRenderer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RemixRenderer.class);
 
-    /**
-     * Launcher options that carry the player's name, session token and account
-     * IDs. The runtime's crash dumps copy the process command line, so their
-     * values are blanked before the runtime loads. Minecraft parsed them at
-     * startup.
-     */
-    private static final List<String> ACCOUNT_OPTIONS =
-            List.of("--username", "--accessToken", "--uuid", "--xuid", "--clientId");
-
     // Remix API instance
     private RemixAPI remixApi;
+    // Publish the runtime's Vulkan signal before Minecraft waits on it during presentation.
+    private final SubmitInfo vulkanSubmit = new SubmitInfo();
     private boolean initialized = false;
     private long windowHandle;
     
-    private GlInterop interopGlVk = null;
+    private RemixInterop interop = null;
+    private RenderBackend backend;
+    private final NativeMenuOverlay nativeMenuOverlay = new NativeMenuOverlay();
     
     private boolean submitFrameCalled = false;
-    private boolean presentFailureLogged = false;
+    private final PresentInfo presentInfo = new PresentInfo();
 
     // Scene managers
     private ChunkManager chunkManager;
@@ -158,7 +157,7 @@ public class RemixRenderer {
     private PreparedFrame pendingParticleFrame;
     private long particleNanosThisFrame;
     /** World the pending payload was prepared against, so a swap cannot publish it. */
-    private ClientWorld pendingParticleFrameWorld;
+    private ClientLevel pendingParticleFrameWorld;
     
     // Deferred operations: flags are set from any thread, executed on the render thread.
     private volatile boolean pendingTextureReload = false;
@@ -178,6 +177,12 @@ public class RemixRenderer {
     private int perfCloudGen = -1;
     private int perfAtlas = -1;
     private int perfSubmit = -1;
+    private int cntTextureSharedSavedMB = -1;
+    private int cntPresentedFrames = -1, cntGeneratedFrames = -1;
+    private int cntDeviceLocalUsedMB = -1, cntDeviceLocalBudgetMB = -1;
+    private int cntRenderWidth = -1, cntRenderHeight = -1;
+    private int cntInteropSnapshots = -1, cntInteropSnapshotCopies = -1;
+    private long presentationEpoch, lastPresentedFrames, lastGeneratedFrames;
     private int cntEntities = -1;
     private int cntEntLayers = -1;
     private int cntEntDraws = -1;
@@ -214,9 +219,6 @@ public class RemixRenderer {
     private int cntParticleCapacity = -1;
     private int cntParticleMeshUpdates = -1;
     
-    public RemixRenderer() {
-    }
-    
     /**
      * Initializes the RTX Remix runtime with the Minecraft window
      */
@@ -226,100 +228,15 @@ public class RemixRenderer {
         try {
             lastCameraMediumHandle = Long.MIN_VALUE;
 
-            MinecraftClient client = MinecraftClient.getInstance();
-            long glfwHandle = client.getWindow().getHandle();
-            
-            windowHandle = getHwndFromGlfw(glfwHandle);
-            
-            if (windowHandle == 0) {
-                throw new RuntimeException("Failed to get native window handle");
-            }
-            
-            LOGGER.info("Got window handle: 0x{}", Long.toHexString(windowHandle));
-            
-            Path dll = runtimeDll(FabricLoader.getInstance().getGameDir());
-            if (!Files.isRegularFile(dll)) {
-                throw new IllegalStateException("RTX Remix runtime not found at " + dll
-                        + "; reinstall the mod or run gradlew setupRuntime");
-            }
-            LOGGER.info("Loading Remix from: {}", dll);
-
-            String dllPath = dll.toAbsolutePath().toString();
-            int blankedValues = RemixAPI.redactCommandLineOptions(dllPath, ACCOUNT_OPTIONS);
-            LOGGER.info("Blanked {} account values in the process command line", blankedValues);
-
-            remixApi = RemixAPI.load(dllPath);
-            LOGGER.info("RTX Remix API loaded successfully");
-
-            // RTXREMIX_EXTRA_RTXCONF="rtx.a=1;rtx.b=true" applies arbitrary rtx.conf
-            // overrides for this session. Applied before startup() so options that
-            // are only read at device/swapchain creation (e.g. frame generation)
-            // take effect. Benchmark runs use this for per-run config matrices.
-            String extraConf = System.getenv("RTXREMIX_EXTRA_RTXCONF");
-            if (extraConf != null && !extraConf.isBlank()) {
-                for (String pair : extraConf.split(";")) {
-                    int eq = pair.indexOf('=');
-                    if (eq <= 0) {
-                        LOGGER.warn("RTXREMIX_EXTRA_RTXCONF: skipping malformed entry '{}'", pair);
-                        continue;
-                    }
-                    String key = pair.substring(0, eq).trim();
-                    String value = pair.substring(eq + 1).trim();
-                    LOGGER.info("RTXREMIX_EXTRA_RTXCONF: {} = {}", key, value);
-                    remixApi.setConfigVariable(key, value);
-                }
-            }
-
-            // RTXREMIX_WINDOW_POS="x,y" moves the window before startup() so the
-            // swapchain is created on the monitor that will display it (benchmarks
-            // use this to target a specific monitor, e.g. a 4K panel at a negative
-            // desktop coordinate). Must run on the render thread, which owns GLFW.
-            String windowPos = System.getenv("RTXREMIX_WINDOW_POS");
-            if (windowPos != null && !windowPos.isBlank()) {
-                String[] parts = windowPos.split(",");
-                try {
-                    int x = Integer.parseInt(parts[0].trim());
-                    int y = Integer.parseInt(parts[1].trim());
-                    org.lwjgl.glfw.GLFW.glfwSetWindowPos(glfwHandle, x, y);
-                    LOGGER.info("RTXREMIX_WINDOW_POS: moved window to ({}, {})", x, y);
-                } catch (RuntimeException e) {
-                    LOGGER.warn("RTXREMIX_WINDOW_POS: could not apply '{}': {}", windowPos, e.getMessage());
-                }
-            }
-
-            {
-                if (checkExternalMemorySupport()){
-                    LOGGER.info("GL interop: required GL extensions are supported");
-                } else {
-                    LOGGER.error("GL interop: required GL extensions are not supported. Remix present via GL-VK interop will not work.");
-                    throw new RuntimeException("GL interop: required GL extensions are not supported");
-                }
-
-                StartupInfo startupInfo = StartupInfo.builder()
-                    .hwnd(windowHandle)
-                    .interopImage(true)
-                    .build();
-                remixApi.startup(startupInfo);
-                LOGGER.info("RTX Remix API started");
-
-            }
+            Minecraft client = Minecraft.getInstance();
+            remixApi = NativeRuntime.startup(client.getWindow().handle());
+            windowHandle = NativeRuntime.windowHandle();
 
             postProcessingSettings = new PostProcessingSettings(remixApi::setConfigVariable);
             
-            // NOTE: Submit() allocates the image, but semaphores are always ready
-            InteropInfo interopInfo = remixApi.dxvkGetInteropInfo();
-            LOGGER.info(
-                    "GL interop: got Remix info: dxvkDoneSemaphore_Handle=0x{}, clientDoneSemaphore_Handle=0x{}, imageMemory_Handle=0x{}, w={}, h={}",
-                    Long.toHexString(interopInfo.dxvkDoneSemaphore_Handle),
-                    Long.toHexString(interopInfo.clientDoneSemaphore_Handle),
-                    Long.toHexString(interopInfo.imageMemory_Handle),
-                    interopInfo.width, interopInfo.height);
-
-            interopGlVk = new GlInterop(interopInfo);
-            LOGGER.info(
-                    "GL interop created: vkDoneSemaphore=0x{}, clientDoneSemaphore=0x{}",
-                    Integer.toHexString(interopGlVk.getVkDoneSemaphore()),
-                    Integer.toHexString(interopGlVk.getClientDoneSemaphore()));
+            backend = RenderBackend.current();
+            interop = backend.createInterop(remixApi);
+            LOGGER.info("{} runtime interop initialized", backend);
             
             textureManager = new BlockTextureManager(this);
             chunkManager = new ChunkManager(this);
@@ -346,6 +263,15 @@ public class RemixRenderer {
             perfSky = perfTimer.registerSection("Sky");
             perfClouds = perfTimer.registerSection("Clouds");
             perfCloudGen = perfTimer.registerSection("Cloud.Gen");
+            cntTextureSharedSavedMB = perfTimer.registerCounter("Texture.SharedSavedMiB");
+            cntPresentedFrames = perfTimer.registerCounter("DLSS.RenderedPresents");
+            cntGeneratedFrames = perfTimer.registerCounter("DLSS.GeneratedPresents");
+            cntDeviceLocalUsedMB = perfTimer.registerCounter("Vulkan.DeviceLocalUsedMiB");
+            cntDeviceLocalBudgetMB = perfTimer.registerCounter("Vulkan.DeviceLocalBudgetMiB");
+            cntRenderWidth = perfTimer.registerCounter("Vulkan.RenderWidth");
+            cntRenderHeight = perfTimer.registerCounter("Vulkan.RenderHeight");
+            cntInteropSnapshots = perfTimer.registerCounter("Interop.SnapshotBytes");
+            cntInteropSnapshotCopies = perfTimer.registerCounter("Interop.SnapshotCopiedBytes");
             cntEntities = perfTimer.registerCounter("Ent.Count");
             cntEntLayers = perfTimer.registerCounter("Ent.Layers");
             cntEntDraws = perfTimer.registerCounter("Ent.Draws");
@@ -420,11 +346,11 @@ public class RemixRenderer {
         } catch (RemixException e) {
             LOGGER.error("Failed to initialize RTX Remix: {} (error code: {})",
                 e.getMessage(), e.getErrorCode());
-            releasePartialInitialization();
+            releasePartialInitialization(e);
             throw e;
         } catch (Exception e) {
             LOGGER.error("Failed to initialize RTX Remix", e);
-            releasePartialInitialization();
+            releasePartialInitialization(e);
             throw new RuntimeException("RTX Remix initialization failed", e);
         }
     }
@@ -436,11 +362,12 @@ public class RemixRenderer {
      * inside the teardown is logged rather than thrown, because the caller is
      * about to rethrow the original cause.
      */
-    private void releasePartialInitialization() {
+    private void releasePartialInitialization(Exception initializationFailure) {
         initialized = false;
         try {
             shutdown();
         } catch (Exception e) {
+            initializationFailure.addSuppressed(e);
             LOGGER.error("Error tearing down a failed RTX Remix initialization", e);
         }
     }
@@ -461,47 +388,6 @@ public class RemixRenderer {
         if (RemixLightStore.get() != null)     RemixLightStore.get().gc();
     }
 
-    /**
-     * Checks if GL/VK interop extensions are available
-     */
-    static boolean checkExternalMemorySupport() {
-        try {
-            GLCapabilities caps = GL.getCapabilities();
-
-            if (!caps.GL_EXT_memory_object) {
-                LOGGER.error("GL_EXT_memory_object not supported. Remix present via GL-VK interop will not work.");
-                return false;
-            }
-            if (!caps.GL_EXT_semaphore) {
-                LOGGER.error("GL_EXT_semaphore not supported. Remix present via GL-VK interop will not work.");
-                return false;
-            }
-            if (!caps.GL_EXT_memory_object_win32) {
-                LOGGER.error("GL_EXT_memory_object_win32 not supported. Remix present via GL-VK interop will not work.");
-                return false;
-            }
-            if (!caps.GL_EXT_semaphore_win32) {
-                LOGGER.error("GL_EXT_semaphore_win32 not supported. Remix present via GL-VK interop will not work.");
-                return false;
-            }
-            if (!caps.GL_NV_timeline_semaphore) {
-                LOGGER.warn("GL_NV_timeline_semaphore reported as unsupported. Remix present via GL-VK interop might not work.");
-                // Driver capability reports under-report GL_NV_timeline_semaphore, so this check only warns; interop initialization is the authoritative test.
-            }
-            return true;
-        } catch (Exception e) {
-            LOGGER.warn("Could not check GL capabilities: {}", e.getMessage());
-            return false;
-        }
-    }
-    
-    /**
-     * Gets the Win32 HWND from a GLFW window handle.
-     */
-    private long getHwndFromGlfw(long glfwHandle) {
-        return GLFWNativeWin32.glfwGetWin32Window(glfwHandle);
-    }
-    
     /**
      * The single location of the RTX Remix runtime. The extractor installs the
      * packaged runtime here and development launches stage it here, so no other
@@ -555,10 +441,10 @@ public class RemixRenderer {
             }
         }
         if (recaptureTerrain) {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client != null && client.worldRenderer != null) {
+            Minecraft client = Minecraft.getInstance();
+            if (client != null && client.levelRenderer != null) {
                 LongSet built = RtxRemixMod.builtSections(client);
-                client.worldRenderer.reload();
+                client.levelExtractor.allChanged();
                 RtxRemixMod.recaptureTerrainForRemix(client, built);
             }
             pendingTerrainRecaptureAfterTextureReload = false;
@@ -604,11 +490,11 @@ public class RemixRenderer {
      * {@code renderWorld} must not advance an interactive camera timeline or a
      * deterministic benchmark frame.</p>
      */
-    public void onMinecraftWorldRenderFrameStart(MinecraftClient client, boolean tick) {
+    public void onMinecraftWorldRenderFrameStart(Minecraft client, boolean tick) {
         if (!initialized || remixApi == null || client == null) {
             return;
         }
-        if (!shouldAdvanceWorldRenderFrame(tick, client.isFinishedLoading(), client.world != null)) {
+        if (!shouldAdvanceWorldRenderFrame(tick, client.isGameLoadFinished(), client.level != null)) {
             return;
         }
 
@@ -642,7 +528,7 @@ public class RemixRenderer {
 
     /**
      * Captures one entity at vanilla's own traversal point, in place of the render
-     * that would have gone to OpenGL.
+     * that would have gone to the vanilla render passes.
      *
      * <p>Called from {@code WorldRendererMixin}'s wrap of
      * {@code WorldRenderer.renderEntity}. Returning true tells the mixin to skip
@@ -657,7 +543,7 @@ public class RemixRenderer {
         if (!RtxRemixMod.isRtxEnabled() || !RtxRemixMod.isEntitiesEnabled()) {
             return false;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         EntityRenderDispatcher dispatcher = client == null ? null : client.getEntityRenderDispatcher();
         if (dispatcher == null) {
             return false;
@@ -667,9 +553,18 @@ public class RemixRenderer {
         return true;
     }
 
+    public boolean renderEntityInPlace(Entity entity, EntityRenderState state,
+                                      EntityRenderDispatcher dispatcher, float tickDelta) {
+        if (!initialized || entityPass == null || entitySubmitter == null
+                || !RtxRemixMod.isRtxEnabled() || !RtxRemixMod.isEntitiesEnabled()) return false;
+        entityPass.beginFrame(entitySubmitter);
+        entityPass.captureAndSubmit(entity, state, dispatcher, tickDelta, entitySubmitter);
+        return true;
+    }
+
     /**
      * Captures one block entity at vanilla's own dispatch point, in place of the
-     * render that would have gone to OpenGL.
+     * render that would have gone to the vanilla render passes.
      *
      * <p>Called from {@code BlockEntityRenderDispatcherMixin}. Returning true tells
      * the mixin to skip vanilla's call; returning false hands the block entity back
@@ -692,7 +587,7 @@ public class RemixRenderer {
         if (EntityRenderContext.get().isActive()) {
             return false;
         }
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         EntityRenderDispatcher dispatcher = client == null ? null : client.getEntityRenderDispatcher();
         if (dispatcher == null) {
             return false;
@@ -704,7 +599,7 @@ public class RemixRenderer {
 
     /**
      * Captures one block's breaking crack at vanilla's own render point, in place of
-     * the render that would have gone to OpenGL.
+     * the render that would have gone to the vanilla render passes.
      *
      * <p>Called from {@code WorldRendererMixin}'s wrap of
      * {@code BlockRenderManager.renderDamage}. Returning true tells the mixin to skip
@@ -715,8 +610,7 @@ public class RemixRenderer {
      * requires an open frame and the entity pass, which normally opens it, runs only
      * while the entity toggle is on.
      */
-    public boolean renderBlockDamageInPlace(BlockPos pos, int stage,
-                                            RemixBlockDamagePass.BlockDamageRenderCall call) {
+    public boolean renderBlockDamageInPlace(BlockBreakingRenderState state) {
         if (!initialized || remixApi == null || blockDamagePass == null || entitySubmitter == null) {
             return false;
         }
@@ -724,7 +618,7 @@ public class RemixRenderer {
             return false;
         }
         entitySubmitter.beginFrame();
-        blockDamagePass.capture(pos, stage, call, entitySubmitter);
+        blockDamagePass.capture(state, entitySubmitter);
         return true;
     }
 
@@ -741,12 +635,30 @@ public class RemixRenderer {
         }
 
         perfTimer.beginFrame();
+        long epoch = com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.presentationEpoch();
+        long rendered = com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.renderedFrames();
+        long generated = com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.generatedFrames();
+        if (epoch == presentationEpoch) {
+            perfTimer.count(cntPresentedFrames, Math.max(0, rendered - lastPresentedFrames));
+            perfTimer.count(cntGeneratedFrames, Math.max(0, generated - lastGeneratedFrames));
+        }
+        presentationEpoch = epoch;
+        lastPresentedFrames = rendered;
+        lastGeneratedFrames = generated;
+        perfTimer.count(cntDeviceLocalUsedMB,
+                com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.deviceLocalUsageBytes() / (1024L * 1024L));
+        perfTimer.count(cntDeviceLocalBudgetMB,
+                com.nvidia.rtxremix.minecraft.vulkan.NativeVulkanSurface.deviceLocalBudgetBytes() / (1024L * 1024L));
+        perfTimer.count(cntRenderWidth, interop.renderWidth());
+        perfTimer.count(cntRenderHeight, interop.renderHeight());
+        perfTimer.count(cntInteropSnapshots, interop.snapshotTextureBytes());
+        perfTimer.count(cntInteropSnapshotCopies, interop.copiedSnapshotBytes());
 
         CompletableFuture<ParticleRenderResult> particleFuture = null;
         boolean entityFrameClosed = false;
         try (ProfileScope frameScope = ProfileScope.begin("renderAndSubmitFrame")) {
-            MinecraftClient client = MinecraftClient.getInstance();
-            ClientWorld world = client.world;
+            Minecraft client = Minecraft.getInstance();
+            ClientLevel world = client.level;
             
             if (world == null || client.gameRenderer == null) {
                 if (chunkManager != null) chunkManager.hideRetainedInstances();
@@ -760,10 +672,10 @@ public class RemixRenderer {
             // RTX disabled: hand all rendering back to vanilla's GL path. Skip every
             // scene-submission step below (particle task, camera, lights, chunks,
             // entities, block entities, sky, atlas flush, Submit). The present path
-            // (RenderSystemMixin -> presentFrameVk -> blitGlToRemix) still runs
-            // unconditionally and composites vanilla's GL frame, exactly like the
+            // (RenderSystemMixin -> preparePresentFrame -> releaseInteropFrame) still runs
+            // unconditionally and composites vanilla's Vulkan frame, exactly like the
             // no-world case above. The finally block closes the frame (gc, endFrame,
-            // benchmark). VK<->GL semaphore signaling lives in the present path and is
+            // benchmark). Vulkan shared-image semaphore signaling lives in the present path and is
             // intentionally left untouched so off<->on transitions don't desync.
             if (!RtxRemixMod.isRtxEnabled()) {
                 if (chunkManager != null) chunkManager.hideRetainedInstances();
@@ -784,8 +696,8 @@ public class RemixRenderer {
             }
             submitPendingParticleFrame();
 
-            Camera camera = client.gameRenderer.getCamera();
-            float tickDelta = client.getRenderTickCounter().getTickDelta(true);
+            Camera camera = client.gameRenderer.mainCamera();
+            float tickDelta = client.getDeltaTracker().getGameTimeDeltaPartialTick(true);
             particleFuture = startParticleRenderTask(tickDelta, ProfileScope.currentFrameIndex());
             
             perfTimer.begin(perfCamera);
@@ -795,7 +707,7 @@ public class RemixRenderer {
                 perfTimer.end(perfCamera);
             }
             
-            Vec3d cameraPos = camera.getPos();
+            Vec3 cameraPos = camera.position();
 
             perfTimer.begin(perfLights);
             try (ProfileScope lightsScope = ProfileScope.begin("Lights")) {
@@ -980,6 +892,7 @@ public class RemixRenderer {
             try (ProfileScope gcScope = ProfileScope.begin("gcAssetStores")) {
                 gcAssetStores();
             }
+            perfTimer.count(cntTextureSharedSavedMB, RemixTextureStore.get().getSharedImageSavingsBytes() / (1024L * 1024L));
             perfTimer.endFrame();
             benchmarkController.onFrameEnd(perfTimer);
         }
@@ -1115,7 +1028,7 @@ public class RemixRenderer {
      *                    payload so the next frame can refuse it after a world swap
      */
     private void joinAndStoreParticleFrame(CompletableFuture<ParticleRenderResult> future,
-                                           ClientWorld preparedFor) {
+                                           ClientLevel preparedFor) {
         if (future == null) return;
         try {
             long waitStart = System.nanoTime();
@@ -1189,9 +1102,9 @@ public class RemixRenderer {
      */
     private void updateCamera(Camera camera, float tickDelta) {
         try {
-            Vec3d pos = camera.getPos();
-            float pitch = camera.getPitch();
-            float yaw = camera.getYaw();
+            Vec3 pos = camera.position();
+            float pitch = camera.xRot();
+            float yaw = camera.yRot();
     
             float yawRad = (float) Math.toRadians(-yaw);
             float pitchRad = (float) Math.toRadians(pitch);
@@ -1208,11 +1121,12 @@ public class RemixRenderer {
             float upY = rightZ * forwardX - rightX * forwardZ;
             float upZ = rightX * forwardY - rightY * forwardX;
     
-            MinecraftClient client = MinecraftClient.getInstance();
-            float worldFov = (float) client.gameRenderer.getFov(camera, tickDelta, true);
-            int width = client.getWindow().getFramebufferWidth();
-            int height = client.getWindow().getFramebufferHeight();
+            Minecraft client = Minecraft.getInstance();
+            float worldFov = camera.getFov();
+            int width = client.getWindow().getWidth();
+            int height = client.getWindow().getHeight();
             float aspect = (float) width / (float) height;
+            int farDistanceChunks = chunkManager == null ? 0 : chunkManager.getFarRenderDistanceChunks();
             if (weatherRenderer != null) {
                 weatherRenderer.updateCamera(
                         camera,
@@ -1228,7 +1142,7 @@ public class RemixRenderer {
                 .fovYInDegrees(worldFov)
                 .aspect(aspect)
                 .nearPlane(0.05f)
-                .farPlane(1000.0f)
+                .farPlane(Math.max(1000.0f, farDistanceChunks * 16.0f))
                 .build();
     
             CameraInfo worldCameraInfo = CameraInfo.builder()
@@ -1247,7 +1161,9 @@ public class RemixRenderer {
     
             remixApi.setupCamera(worldCameraInfo);
             remixApi.setupCamera(viewModelCameraInfo);
-            float viewDistanceStrength = viewDistanceFade.layerStrength(ClientViewDistance.chunks());
+            float viewDistanceStrength = viewDistanceFade.layerStrength(ClientViewDistance.chunks(),
+                    farDistanceChunks);
+            if (confLayerDriver != null) confLayerDriver.setFarViewDistanceStrength(viewDistanceFade.farLayerStrength());
             updateCameraMedium(camera, pos, viewDistanceStrength, tickDelta);
         } catch (RemixException e) {
             LOGGER.error("Error updating camera: {} (code: {})", e.getMessage(), e.getErrorCode());
@@ -1279,17 +1195,18 @@ public class RemixRenderer {
         if (!initialized) {
             return;
         }
-        viewDistanceFade.layerStrength(ClientViewDistance.chunks());
+        viewDistanceFade.layerStrength(ClientViewDistance.chunks(),
+                chunkManager == null ? 0 : chunkManager.getFarRenderDistanceChunks());
     }
 
-    private void updateCameraMedium(Camera camera, Vec3d cameraPos, float viewDistanceStrength, float tickDelta) {
+    private void updateCameraMedium(Camera camera, Vec3 cameraPos, float viewDistanceStrength, float tickDelta) {
         try {
-            MinecraftClient client = MinecraftClient.getInstance();
-            ClientWorld world = client != null ? client.world : null;
+            Minecraft client = Minecraft.getInstance();
+            ClientLevel world = client != null ? client.level : null;
     
             // Submersion is read before material readiness so the driver sees
             // it on early frames.
-            boolean underwater = camera.getSubmersionType() == CameraSubmersionType.WATER;
+            boolean underwater = camera.getFluidInCamera() == FogType.WATER;
             long materialHandle = 0;
             if (underwater && textureManager != null) {
                 RemixMaterial cameraMediumMaterial = textureManager.getWaterCameraMediumMaterial();
@@ -1318,98 +1235,73 @@ public class RemixRenderer {
     }
     
     private void submitFrame() {
-        remixApi.submit(null);
+        remixApi.submit(vulkanSubmit);
+        submitFrameCalled = true;
+    }
+
+    /** Draws the runtime's independent menu layer above Minecraft screens, immediately before the surface blit. */
+    public void compositeRemixMenus() {
+        if (!RtxRemixMod.getRemixInputGate().isCaptureSessionOpen()) return;
+        if (!submitFrameCalled) submitFrame();
+        interop.refreshImages();
+        interop.acquireImages();
+        nativeMenuOverlay.render(interop.menuTexture());
     }
     
-    /**
-     * Presents the frame through Remix, which owns the swapchain for as long as the
-     * renderer is initialized: this method replaces the GLFW buffer swap, so returning
-     * without calling present leaves the window frozen on the last presented image.
-     * A failed GL-to-Remix copy therefore still presents, and a failure is logged once
-     * per run rather than once per frame.
-     */
-    public void presentFrameVk() {
-        boolean failed = false;
-        try {
-            try (ProfileScope ignored = ProfileScope.begin("Interop.GLToVK")) {
-                blitGlToRemix();
-            } catch (RuntimeException e) {
-                failed = true;
-                logPresentFailureOnce("Error copying GL frame to Remix", e);
-            }
-            PresentInfo presentInfo = new PresentInfo();
-            presentInfo.hwndOverride = windowHandle;
-            presentInfo.skipVulkanSwapchain = 0;
-            presentInfo.interopFlipY = 1;
-            presentInfo.clientDoneSemaphore_ValueToWait =
-                    interopGlVk.getClientDoneSemaphoreValue();
-            presentInfo.disableCpuWaitForExternalSemaphores = 0;
-            try (ProfileScope ignored = ProfileScope.begin("Remix.Present")) {
-                remixApi.present(presentInfo);
-            }
-            submitFrameCalled = false;
-        } catch (Exception e) {
-            failed = true;
-            logPresentFailureOnce("Error presenting frame", e);
-        }
-        if (!failed) {
-            presentFailureLogged = false;
+    /** Records the shared-image release in Minecraft's frame submission. */
+    public void preparePresentFrame() {
+        try (ProfileScope ignored = ProfileScope.begin("Interop.ClientToRemix")) {
+            releaseInteropFrame();
         }
     }
 
-    private void logPresentFailureOnce(String message, Exception e) {
-        if (presentFailureLogged) {
-            return;
+    /** Completes the runtime frame after Minecraft submits the shared-image release. */
+    public void presentFrame(com.nvidia.rtxremix.VulkanClientFrameInfo frame) {
+        presentInfo.hwndOverride = windowHandle;
+        presentInfo.vulkanFrame = frame;
+        presentInfo.clientDoneSemaphore_ValueToWait = interop.clientDoneValue();
+        try (ProfileScope ignored = ProfileScope.begin("Remix.Present")) {
+            remixApi.present(presentInfo);
         }
-        presentFailureLogged = true;
-        LOGGER.error("{}; further present failures stay unlogged until one frame presents",
-                message, e);
+        submitFrameCalled = false;
     }
-    
-    /**
-     * Returns the GL texture ID containing the Remix output for this frame, or 0 when
-     * no interop texture exists this frame; the caller then skips compositing.
-     */
-    public int blitVkImageToGL() {
-        try (ProfileScope ignored = ProfileScope.begin("Interop.VKToGL")) {
-            // must be called after Submit(), which allocates the image
-            InteropInfo interopInfo = remixApi.dxvkGetInteropInfo();
-            interopGlVk.recreateImagesIf(interopInfo);
 
-            // to blit, we need to wait for VK to finish writing into GPU image
-            interopGlVk.waitForVk(interopInfo);
-
-            // return VK-GL shared image, so GL can copy/draw on top
-            return interopGlVk.getTexture();
+    /** Acquires runtime images even when disabled, then composites the world before screen effects and HUD. */
+    public boolean compositeFrameColor() {
+        try (ProfileScope ignored = ProfileScope.begin("Interop.RemixToClient")) {
+            if (!submitFrameCalled) submitFrame();
+            interop.refreshImages();
+            interop.acquireImages();
+            return RtxRemixMod.isRtxEnabled() && interop.blitColor(
+                    Minecraft.getInstance().gameRenderer.mainRenderTarget().getColorTexture());
         }
     }
 
-    private void blitGlToRemix() {
+    public long getInteropSnapshotTextureBytes() { return interop.snapshotTextureBytes(); }
+    public long getInteropCopiedSnapshotBytes() { return interop.copiedSnapshotBytes(); }
+
+    public void renderWeather() {
+        if (weatherRenderer == null || !isSceneReady()) return;
+        try (ProfileScope scope = ProfileScope.begin("Weather")) {
+            weatherRenderer.render(interop);
+            scope.drawCalls(weatherRenderer.getLastDrawCount()).vertexCount(weatherRenderer.getLastQuadCount() * 4);
+        }
+    }
+
+    private void releaseInteropFrame() {
         if (!submitFrameCalled) {
-            // if there was no submitFrame, then interop image might not be allocated yet
-            // we must have a image to blit into (e.g. UI if there's no world)
             submitFrame();
         }
 
-        // must be called after Submit(), which allocates the image
-        InteropInfo interopInfo = remixApi.dxvkGetInteropInfo();
-        interopGlVk.recreateImagesIf(interopInfo);
-
-        int srcFbo = 0; // 0 is a default framebuffer
-        interopGlVk.copyFromFramebuffer(srcFbo);
-
-        // signal that GL is done copying, so VK can read the image and present
-        interopGlVk.signalDone();
+        interop.refreshImages();
+        interop.acquireImages();
+        interop.releaseImages();
     }
 
-    public int getInteropDepthTexture() {
-        return interopGlVk.getDepthTexture();
-    }
-    
     /** Runs on the client executor so the clear lands during teardown, before the next world initializes. */
     public void clearWorld() {
         LOGGER.info("World clear requested (will execute on render thread)");
-        MinecraftClient.getInstance().execute(() -> {
+        Minecraft.getInstance().execute(() -> {
             if (initialized) {
                 doClearWorld();
             }
@@ -1421,7 +1313,10 @@ public class RemixRenderer {
      * Call when the sprite atlas changes (resource pack add/remove/reorder).
      */
     public void requestTextureReload() {
-        if (initialized) pendingTextureReload = true;
+        // Resource loading may finish section builds before the next world frame.
+        // Clearing their captured meshes without also invalidating vanilla's compiled
+        // sections leaves no reason for those sections to be captured again.
+        requestMaterialSettingsReload();
     }
 
     /** Requests a material reload followed by one complete loaded-terrain recapture. */
@@ -1443,8 +1338,8 @@ public class RemixRenderer {
      * the same frame.
      */
     public void captureBlockOutline(
-            WorldRenderContext context,
-            WorldRenderContext.BlockOutlineContext outline) {
+            LevelRenderContext context,
+            BlockOutlineRenderState outline) {
         if (blockOutlinePass != null) {
             blockOutlinePass.captureBlockOutline(context, outline);
         }
@@ -1452,7 +1347,7 @@ public class RemixRenderer {
     
     /**
      * Actually clears all world-specific Remix resources (meshes, materials, lights)
-     * without tearing down the API or GL state. Must be called on the render thread.
+     * without tearing down the API or Vulkan device state. Must be called on the render thread.
      */
     private void doClearWorld() {
         LOGGER.info("Clearing world resources...");
@@ -1499,93 +1394,90 @@ public class RemixRenderer {
      */
     public void shutdown() {
         LOGGER.info("Shutting down RTX Remix renderer...");
-
         initialized = false;
         pendingTextureReload = false;
         pendingTerrainRecaptureAfterTextureReload = false;
+        List<RuntimeException> failures = new ArrayList<>();
 
-        // Deactivate patch forwarding so the sprite-upload mixin stops queuing
-        // records into a list that will never be drained.
-        AtlasAnimationForwarder.clear();
-
-        joinInFlightParticleRenderTask();
-        discardPendingParticleFrame();
-        shutdownParticleExecutor();
-        doClearWorld();
+        runShutdownStep(failures, AtlasAnimationForwarder::clear);
+        runShutdownStep(failures, this::joinInFlightParticleRenderTask);
+        runShutdownStep(failures, this::discardPendingParticleFrame);
+        runShutdownStep(failures, this::shutdownParticleExecutor);
+        runShutdownStep(failures, this::doClearWorld);
         if (skyRenderer != null) {
-            skyRenderer.shutdown();
+            var resource = skyRenderer;
             skyRenderer = null;
+            runShutdownStep(failures, resource::shutdown);
         }
-
-        // Release the conf option-layers while the runtime is still alive
-        // (remixApi shutdown itself is deferred until window close).
         if (confLayerDriver != null) {
-            confLayerDriver.releaseAll();
+            var resource = confLayerDriver;
             confLayerDriver = null;
+            runShutdownStep(failures, resource::releaseAll);
         }
-
         if (chunkManager != null) {
-            chunkManager.destroy();
+            var resource = chunkManager;
+            chunkManager = null;
+            runShutdownStep(failures, resource::destroy);
         }
-
-        // Retained entity meshes reference the block atlas and particle atlas
-        // materials their managers own, so the submitter goes before both.
         if (entitySubmitter != null) {
-            entitySubmitter.close();
+            var resource = entitySubmitter;
             entitySubmitter = null;
+            runShutdownStep(failures, resource::close);
         }
         if (particleRenderer != null) {
-            particleRenderer.cleanup();
+            var resource = particleRenderer;
             particleRenderer = null;
+            runShutdownStep(failures, resource::cleanup);
         }
         if (weatherRenderer != null) {
-            weatherRenderer.cleanup();
+            var resource = weatherRenderer;
             weatherRenderer = null;
+            runShutdownStep(failures, resource::cleanup);
         }
         if (particleAtlasManager != null) {
-            particleAtlasManager.cleanup();
+            var resource = particleAtlasManager;
             particleAtlasManager = null;
+            runShutdownStep(failures, resource::cleanup);
         }
         if (textureManager != null) {
-            textureManager.cleanup();
+            var resource = textureManager;
             textureManager = null;
+            runShutdownStep(failures, resource::cleanup);
         }
         if (firstPersonPass != null) {
-            firstPersonPass.close();
+            var resource = firstPersonPass;
             firstPersonPass = null;
+            runShutdownStep(failures, resource::close);
         }
         if (blockOutlinePass != null) {
-            blockOutlinePass.close();
+            var resource = blockOutlinePass;
             blockOutlinePass = null;
+            runShutdownStep(failures, resource::close);
         }
-
-        shutdownAssetStores();
-
-        if (interopGlVk != null) {
-            interopGlVk.destroy();
-            interopGlVk = null;
+        runShutdownStep(failures, this::shutdownAssetStores);
+        runShutdownStep(failures, nativeMenuOverlay::close);
+        if (interop != null) {
+            var resource = interop;
+            interop = null;
+            runShutdownStep(failures, resource::close);
         }
-
-        LOGGER.info("RTX Remix native runtime shutdown deferred until Minecraft window close");
+        // Presentation outlives scene capture and is released with the host Vulkan device.
+        remixApi = null;
         LOGGER.info("RTX Remix renderer shut down");
-    }
-
-    /**
-     * Completes native runtime shutdown after Minecraft has destroyed its GLFW window.
-     */
-    public void shutdownNativeRuntime() {
-        shutdownRemixApi();
-    }
-
-    private void shutdownRemixApi() {
-        if (remixApi != null) {
-            try {
-                remixApi.shutdown();
-            } catch (Exception e) {
-                LOGGER.error("Error during Remix shutdown", e);
+        if (!failures.isEmpty()) {
+            RuntimeException failure = failures.getFirst();
+            for (int i = 1; i < failures.size(); i++) {
+                failure.addSuppressed(failures.get(i));
             }
-            remixApi = null;
-            LOGGER.info("RTX Remix native runtime shut down");
+            throw failure;
+        }
+    }
+
+    private static void runShutdownStep(List<RuntimeException> failures, Runnable step) {
+        try {
+            step.run();
+        } catch (RuntimeException failure) {
+            failures.add(failure);
         }
     }
 
@@ -1612,9 +1504,17 @@ public class RemixRenderer {
     public boolean isInitialized() {
         return initialized;
     }
+
+    public boolean isSceneReady() {
+        return initialized && interop != null && interop.isSceneReady();
+    }
     
     public RemixAPI getRemixApi() {
         return remixApi;
+    }
+
+    public RenderBackend getBackend() {
+        return backend;
     }
     
     public ChunkManager getChunkManager() {
@@ -1676,20 +1576,21 @@ public class RemixRenderer {
     }
 
     /** Returns the current captured first-person held-beacon emitter anchor, if available. */
-    public Vec3d getFirstPersonHeldLightPosition(EquipmentSlot slot) {
+    public Vec3 getFirstPersonHeldLightPosition(EquipmentSlot slot) {
         return firstPersonPass != null
                 ? firstPersonPass.getPendingHeldLightPosition(slot)
                 : null;
     }
 
     public void captureFirstPersonModel(
-            HeldItemRenderer heldItemRenderer,
+            FirstPersonHandsAndItemsRenderer heldItemRenderer,
             float tickDelta,
-            MatrixStack matrices,
-            ClientPlayerEntity player,
-            int light) {
+            PoseStack matrices,
+            LocalPlayer player,
+            PlayerRenderState playerState,
+            Matrix4fc modelView) {
         if (firstPersonPass != null && initialized && RtxRemixMod.isRtxEnabled()) {
-            firstPersonPass.capture(heldItemRenderer, tickDelta, matrices, player, light);
+            firstPersonPass.capture(heldItemRenderer, tickDelta, matrices, player, playerState, modelView);
         }
     }
 }

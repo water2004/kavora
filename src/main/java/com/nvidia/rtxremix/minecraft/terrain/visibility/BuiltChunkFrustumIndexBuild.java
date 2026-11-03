@@ -4,9 +4,8 @@
  */
 package com.nvidia.rtxremix.minecraft.terrain.visibility;
 
-import net.minecraft.client.render.chunk.ChunkBuilder;
-
 import java.util.LinkedHashSet;
+import net.minecraft.client.renderer.chunk.SectionRenderDispatcher;
 
 /**
  * A frustum index under construction while vanilla's full visibility walk runs off the render
@@ -18,14 +17,15 @@ import java.util.LinkedHashSet;
  */
 public final class BuiltChunkFrustumIndexBuild {
     private final long moveSequence;
-    private final HierarchicalFrustumCuller<ChunkBuilder.BuiltChunk> culler;
+    private final HierarchicalFrustumCuller<SectionRenderDispatcher.RenderSection> culler;
     private LinkedHashSet<?> chunks;
+    private net.minecraft.core.BlockPos cameraCenter = net.minecraft.core.BlockPos.ZERO;
 
     /**
      * @param recycled a culler taken back from a retired index, cleared here before reuse, or
      *                 null to start from an empty one
      */
-    public BuiltChunkFrustumIndexBuild(long moveSequence, HierarchicalFrustumCuller<ChunkBuilder.BuiltChunk> recycled) {
+    public BuiltChunkFrustumIndexBuild(long moveSequence, HierarchicalFrustumCuller<SectionRenderDispatcher.RenderSection> recycled) {
         this.moveSequence = moveSequence;
         if (recycled != null) {
             recycled.clear();
@@ -35,13 +35,15 @@ public final class BuiltChunkFrustumIndexBuild {
         }
     }
 
+    public void setCameraCenter(net.minecraft.core.BlockPos center) { cameraCenter = center; }
+
     /**
      * Records a section the walk reached.
      *
      * @param chunks the reached-section set the walk is filling; one build serves one set
      * @throws IllegalStateException if the walk switches to another set mid-build
      */
-    public void add(LinkedHashSet<?> chunks, ChunkBuilder.BuiltChunk chunk) {
+    public void add(LinkedHashSet<?> chunks, SectionRenderDispatcher.RenderSection chunk) {
         if (this.chunks == null) {
             this.chunks = chunks;
         } else if (this.chunks != chunks) {
@@ -58,6 +60,8 @@ public final class BuiltChunkFrustumIndexBuild {
         if (chunks == null) {
             return null;
         }
-        return new BuiltChunkFrustumIndex(state, chunks, culler, moveSequence);
+        BuiltChunkFrustumIndex result = new BuiltChunkFrustumIndex(state, chunks, culler, moveSequence);
+        result.setCameraCenter(cameraCenter);
+        return result;
     }
 }

@@ -16,6 +16,10 @@ public class TextureFromMemoryInfo {
     public int height;
     public int format;
     public int purpose;
+    /** Zero generates mips; positive values supply packed authored mip levels in pixelData. */
+    public int mipLevels;
+    /** Drops the native CPU copy after upload. Texture patches are rejected when true. */
+    public boolean immutable;
 
     public TextureFromMemoryInfo() {}
 
@@ -26,6 +30,8 @@ public class TextureFromMemoryInfo {
         private int height;
         private int format = TextureFormat.RGBA8_SRGB;
         private int purpose = TexturePurpose.COLOR;
+        private int mipLevels;
+        private boolean immutable;
 
         public Builder hash(long hash) {
             this.hash = hash;
@@ -53,6 +59,9 @@ public class TextureFromMemoryInfo {
             return this;
         }
 
+        public Builder mipLevels(int levels) { this.mipLevels = levels; return this; }
+        public Builder immutable(boolean immutable) { this.immutable = immutable; return this; }
+
         public TextureFromMemoryInfo build() {
             TextureFromMemoryInfo info = new TextureFromMemoryInfo();
             info.hash = this.hash;
@@ -61,6 +70,8 @@ public class TextureFromMemoryInfo {
             info.height = this.height;
             info.format = this.format;
             info.purpose = this.purpose;
+            info.mipLevels = this.mipLevels;
+            info.immutable = this.immutable;
             return info;
         }
     }

@@ -30,6 +30,7 @@ class BenchmarkControllerTest {
     void isWorldLoadScreenNameMatchesLoadingScreensOnly() {
         assertTrue(BenchmarkController.isWorldLoadScreenName("DownloadingTerrainScreen"));
         assertTrue(BenchmarkController.isWorldLoadScreenName("LevelLoadingScreen"));
+        assertTrue(BenchmarkController.isWorldLoadScreenName("RemixPreparationScreen"));
         assertFalse(BenchmarkController.isWorldLoadScreenName("GameMenuScreen"));
         assertFalse(BenchmarkController.isWorldLoadScreenName("ChatScreen"));
     }

@@ -6,12 +6,6 @@ package com.nvidia.rtxremix.minecraft.logic;
 
 import com.nvidia.rtxremix.RemixAPI;
 import com.nvidia.rtxremix.RemixException;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-import net.minecraft.world.biome.BiomeKeys;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +24,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BiomeTags;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biomes;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Drives the minecraft-logic conf option-layers directly: one runtime layer
@@ -68,8 +69,8 @@ import java.util.regex.Pattern;
  * unsmoothed because it is already an envelope: full while a weather, biome,
  * or zone transition is in progress and for a short hold afterwards, zero
  * once the scene is still.
- * Strengths persist runtime-side, so a layer costs a JNI call only when the
- * value to send actually changes.
+     * Strengths persist runtime-side, so a layer costs a foreign call only when the
+     * value to send actually changes.
  *
  * Acquire failures are normally tolerated per layer: a layer that fails to
  * acquire is skipped (visible in snapshot(), retried by reload()) while the
@@ -145,13 +146,14 @@ public final class ConfLayerDriver {
 
     /**
      * The fixed layer catalog: water, automatic view distance, volumetric
-     * settling, weather, and four fixed time-of-day profiles (9 rows, one per
+     * settling, weather, local mist, and four fixed time-of-day profiles (11 rows, one per
      * shipped conf; ConfLayerDriverTest cross-checks them against the shipped
      * confs). Biome and zone layers are NOT listed here: they are discovered
      * from their conf file names at acquire and reload time, so a new authored
      * look needs no code.
      * Priorities: water dominates everything, zones beat biomes, thunder
-     * beats rain, time supplies the environmental foundation, and the two
+     * beats rain, time supplies the environmental foundation, local mist sits below time,
+     * and the two
      * integration-owned controllers (automatic view distance, volumetric
      * settling) sit below every situational profile so authors can
      * intentionally override their keys. The four time priorities must stay
@@ -176,8 +178,12 @@ public final class ConfLayerDriver {
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.VIEW_DISTANCE,
                 "confs/view_distance.conf", 3000f, 0.01f, false, LayerSource.MOD));
+        table.add(new LayerSpec(LogicChannels.VIEW_DISTANCE_FAR,
+                "confs/view_distance_voxy.conf", 2999f, 0.0001f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.VOLUMETRICS_SETTLING,
                 "confs/volumetrics/settling.conf", 3100f, 0.01f, false, LayerSource.MOD));
+        table.add(new LayerSpec(LogicChannels.WEATHER_MIST,
+                "confs/weather/mist.conf", 3500f, 0.01f, true, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_THUNDER, "confs/weather/thunder.conf", 5500f, 0.01f, false,
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_RAIN, "confs/weather/rain.conf", 5000f, 0.01f, false,
@@ -300,12 +306,12 @@ public final class ConfLayerDriver {
      */
     static List<String> vanillaBiomeNames() {
         List<String> names = new ArrayList<>();
-        for (Field field : BiomeKeys.class.getFields()) {
-            if (!Modifier.isStatic(field.getModifiers()) || field.getType() != RegistryKey.class) {
+        for (Field field : Biomes.class.getFields()) {
+            if (!Modifier.isStatic(field.getModifiers()) || field.getType() != ResourceKey.class) {
                 continue;
             }
             try {
-                names.add(((RegistryKey<?>) field.get(null)).getValue().getPath());
+                names.add(((ResourceKey<?>) field.get(null)).identifier().getPath());
             } catch (IllegalAccessException e) {
                 throw new AssertionError("BiomeKeys public field not readable: " + field.getName(), e);
             }
@@ -393,6 +399,9 @@ public final class ConfLayerDriver {
     private final SettlingEnvelope settling = new SettlingEnvelope();
     private float lastRainGradient;
     private float lastThunderGradient;
+    private boolean automaticMist = true;
+    private float mistStrength = 1.0f;
+    private final BlockPos.MutableBlockPos biomeProbe = new BlockPos.MutableBlockPos();
 
     public ConfLayerDriver() {
         for (LayerSpec spec : STATIC_LAYER_TABLE) {
@@ -706,12 +715,17 @@ public final class ConfLayerDriver {
         return false;
     }
 
+    /** Render-thread target for the optional far-scene fade endpoint. */
+    public void setFarViewDistanceStrength(float strength) {
+        setTarget(LogicChannels.VIEW_DISTANCE_FAR, Math.clamp(strength, 0.0f, 1.0f));
+    }
+
     /**
      * Render thread, once per frame (from RemixRenderer's camera update).
      * Computes per-layer targets, eases smoothed layers toward them, and
      * sends changed strengths to the runtime.
      */
-    public void update(ClientWorld world, Vec3d cameraPos, boolean underwater,
+    public void update(ClientLevel world, Vec3 cameraPos, boolean underwater,
                        float viewDistanceStrength, float tickDelta, ZoneRegistry zones) {
         if (!active) {
             return;
@@ -722,8 +736,8 @@ public final class ConfLayerDriver {
         setTarget(LogicChannels.VIEW_DISTANCE, Math.clamp(viewDistanceStrength, 0.0f, 1.0f));
         // Time layers follow the shared Overworld clock only; other dimensions
         // contribute no time-of-day strength.
-        TimeLayerStrengths time = World.OVERWORLD.equals(world.getRegistryKey())
-                ? timeLayerStrengths(world.getTimeOfDay())
+        TimeLayerStrengths time = Level.OVERWORLD.equals(world.dimension())
+                ? timeLayerStrengths(world.getOverworldClockTime())
                 : TimeLayerStrengths.ZERO;
         setTarget(LogicChannels.TIME_DAWN, time.dawn());
         setTarget(LogicChannels.TIME_DAY, time.day());
@@ -734,9 +748,18 @@ public final class ConfLayerDriver {
         // Resolve the camera-position biome once (vanilla namespace only) and
         // target its authored layer when one was discovered. An unconfigured
         // or modded biome targets every discovered biome layer back to 0.
-        String biomeLayerName = world.getBiome(BlockPos.ofFloored(cameraPos)).getKey()
-                .filter(key -> "minecraft".equals(key.getValue().getNamespace()))
-                .map(key -> LogicChannels.BIOME_PREFIX + key.getValue().getPath())
+        var biome = world.getBiome(biomeProbe.set(cameraPos.x, cameraPos.y, cameraPos.z));
+        float humidity = biome.is(Biomes.SWAMP) || biome.is(Biomes.MANGROVE_SWAMP) ? 1.0f
+                : biome.is(BiomeTags.IS_JUNGLE) ? 0.9f : biome.is(BiomeTags.IS_RIVER) ? 0.75f
+                : biome.is(BiomeTags.IS_TAIGA) ? 0.65f : biome.is(BiomeTags.IS_FOREST) ? 0.55f
+                : biome.is(BiomeTags.IS_OCEAN) ? 0.45f : biome.is(Biomes.PLAINS) ? 0.25f : 0.0f;
+        float mist = automaticMist && !underwater && Level.OVERWORLD.equals(world.dimension())
+                ? LocalMistPolicy.strength(world.getOverworldClockTime(), humidity, world.getRainLevel(tickDelta))
+                : 0.0f;
+        setTarget(LogicChannels.WEATHER_MIST, Math.clamp(mist * mistStrength, 0.0f, 1.0f));
+        String biomeLayerName = biome.unwrapKey()
+                .filter(key -> "minecraft".equals(key.identifier().getNamespace()))
+                .map(key -> LogicChannels.BIOME_PREFIX + key.identifier().getPath())
                 .orElse(null);
         for (LayerState layer : biomeLayers) {
             layer.target = layer.spec.name().equals(biomeLayerName) ? 1.0f : 0.0f;
@@ -772,9 +795,9 @@ public final class ConfLayerDriver {
      * either gradient moved since the previous frame, the leading edge of a
      * weather transition.
      */
-    private boolean targetWeather(ClientWorld world, float tickDelta) {
-        float rain = world.getRainGradient(tickDelta);
-        float thunder = world.getThunderGradient(tickDelta);
+    private boolean targetWeather(ClientLevel world, float tickDelta) {
+        float rain = world.getRainLevel(tickDelta);
+        float thunder = world.getThunderLevel(tickDelta);
         boolean moving = moved(lastRainGradient, rain) || moved(lastThunderGradient, thunder);
         lastRainGradient = rain;
         lastThunderGradient = thunder;
@@ -864,6 +887,11 @@ public final class ConfLayerDriver {
     /** Weather strengths as driven into the conf layers, shared with render systems. */
     public record WeatherStrengths(float rain, float thunder) {
     }
+
+    public boolean isAutomaticMist() { return automaticMist; }
+    public void setAutomaticMist(boolean enabled) { automaticMist = enabled; }
+    public float getMistStrength() { return mistStrength; }
+    public void setMistStrength(float strength) { mistStrength = Math.clamp(strength, 0.0f, 2.0f); }
 
     public WeatherStrengths weatherStrengths() {
         return new WeatherStrengths(
@@ -972,12 +1000,14 @@ public final class ConfLayerDriver {
                         time++;
                     } else if (channel.equals(LogicChannels.UNDERWATER)) {
                         water = true;
-                    } else if (channel.equals(LogicChannels.VIEW_DISTANCE)) {
+                    } else if (channel.equals(LogicChannels.VIEW_DISTANCE)
+                            || channel.equals(LogicChannels.VIEW_DISTANCE_FAR)) {
                         viewDistance++;
                     } else if (channel.equals(LogicChannels.VOLUMETRICS_SETTLING)) {
                         volumetricSettling++;
                     } else if (channel.equals(LogicChannels.WEATHER_RAIN)
-                            || channel.equals(LogicChannels.WEATHER_THUNDER)) {
+                            || channel.equals(LogicChannels.WEATHER_THUNDER)
+                            || channel.equals(LogicChannels.WEATHER_MIST)) {
                         weather++;
                     } else {
                         other++;
