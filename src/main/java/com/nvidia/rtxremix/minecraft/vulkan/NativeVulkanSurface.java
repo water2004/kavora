@@ -168,7 +168,7 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
     private void waitFor(long semaphore, long value) {
         try (MemoryStack stack = MemoryStack.stackPush()) {
             var wait = VkSemaphoreWaitInfo.calloc(stack).sType$Default()
-                    .pSemaphores(stack.longs(semaphore)).pValues(stack.longs(value));
+                    .semaphoreCount(1).pSemaphores(stack.longs(semaphore)).pValues(stack.longs(value));
             check(vkWaitSemaphores(device, wait, 5_000_000_000L), "vkWaitSemaphores(client presentation)");
         }
     }

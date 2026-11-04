@@ -23,6 +23,13 @@ unless the key name says otherwise.
 
 ## Vulkan Frame Submission
 
+The active development branch, `codex/traditional-renderer`, uses ordinary
+Vulkan BLAS and TLAS. The mod, runtime and far-terrain repositories retain
+their CLAS/PTLAS work on `codex/clas-ptlas-experimental`. That experiment is
+paused. Runtime snapshots must be rebuilt and restaged when switching these
+branches; a runtime built from the experimental branch does not represent the
+traditional branch's source.
+
 `RemixRenderer` keeps the runtime Submit call's default host-submission ordering:
 the runtime's Vulkan signal is submitted to the driver before Minecraft consumes
 the shared images. This waits for command submission, not GPU completion.
