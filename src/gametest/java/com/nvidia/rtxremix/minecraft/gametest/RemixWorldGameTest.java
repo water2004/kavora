@@ -88,7 +88,10 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
                 return;
             }
             if (Boolean.getBoolean("rtxremix.gametest.joinOnly")) return;
-            if (Boolean.getBoolean("rtxremix.gametest.streamingOnly")) {
+            if (Boolean.getBoolean("rtxremix.gametest.reconstructionInputs")) {
+                assertReconstructionInputs(context);
+                assertWorldResize(context);
+            } else if (Boolean.getBoolean("rtxremix.gametest.streamingOnly")) {
                 farProbe = RemixStreamingChecks.run(context, world);
             } else {
                 RemixSettingsChecks.run(context);
@@ -246,6 +249,54 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
             context.runOnClient(client -> client.player.setXRot(previousPitch));
         }
         assertWorldRenders(context, world, "material-reloaded");
+    }
+
+    private static void assertReconstructionInputs(ClientGameTestContext context) {
+        String[] keys = {"rtx.graphicsPreset", "rtx.upscalerType", "rtx.enableRayReconstruction",
+                "rtx.sparseRendering.enableSparseRendering", "rtx.rayreconstruction.enableDisocclusionMaskBlur",
+                "rtx.rayreconstruction.useSpecularHitDistance"};
+        var original = context.computeOnClient(client -> {
+            var values = new java.util.LinkedHashMap<String, String>();
+            for (String key : keys) values.put(key, RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key));
+            return values;
+        });
+        try {
+            context.runOnClient(client -> {
+                var api = RtxRemixMod.renderer.getRemixApi();
+                api.setConfigVariable(keys[0], "4");
+                api.setConfigVariable(keys[1], "1");
+                api.setConfigVariable(keys[2], "true");
+            });
+            for (boolean sparse : new boolean[] {false, true}) {
+                for (boolean blur : new boolean[] {false, true}) {
+                    for (boolean hitDistance : new boolean[] {false, true}) {
+                        context.runOnClient(client -> {
+                            var api = RtxRemixMod.renderer.getRemixApi();
+                            api.setConfigVariable(keys[3], Boolean.toString(sparse));
+                            api.setConfigVariable(keys[4], Boolean.toString(blur));
+                            api.setConfigVariable(keys[5], Boolean.toString(hitDistance));
+                        });
+                        context.waitFor(client -> {
+                            var api = RtxRemixMod.renderer.getRemixApi();
+                            return Boolean.parseBoolean(api.getConfigVariableResolved(keys[2]))
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[3])) == sparse
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[4])) == blur
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[5])) == hitDistance;
+                        }, 200);
+                        long frame = context.computeOnClient(client -> RemixFrameProbe.presents);
+                        context.waitFor(client -> RemixFrameProbe.presents >= frame + 40
+                                && RtxRemixMod.renderer.isSceneReady(), READY_TIMEOUT_TICKS);
+                        String phase = "rr-sparse-" + sparse + "-blur-" + blur + "-hit-" + hitDistance;
+                        requireVisibleWorld(captureCompletedFrame(context, phase));
+                        context.runOnClient(client -> require(RemixFrameProbe.failures == 0,
+                                "Native frame failed while switching RR inputs: " + phase));
+                    }
+                }
+            }
+        } finally {
+            context.runOnClient(client -> original.forEach((key, value) ->
+                    RtxRemixMod.renderer.getRemixApi().setConfigVariable(key, value)));
+        }
     }
 
     private static void assertWorldResize(ClientGameTestContext context) {
