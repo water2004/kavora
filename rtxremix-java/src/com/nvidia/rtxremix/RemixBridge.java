@@ -204,6 +204,7 @@ public final class RemixBridge {
             int result = (int) bind(runtime, "remixapi_InitializeLibrary", descriptor(ADDRESS, ADDRESS)).invokeExact(init, table);
             if (result != ErrorCode.SUCCESS) { arena.close(); runtime = null; return result; }
             bindTable(table);
+            functions.put("GetNrcStatus", bind(runtime, "remixinternal_GetNrcStatus", descriptor(ADDRESS)));
             sessionArena = arena;
             return ErrorCode.SUCCESS;
         } catch (Throwable e) {
@@ -566,6 +567,15 @@ public final class RemixBridge {
             return call("SetConfigVariable", arena.allocateFrom(key), arena.allocateFrom(value));
         }
     }
+    public static long getNeuralRadianceCacheTrainingRecords() {
+        try (Scratch arena = scratch()) {
+            MemorySegment records = arena.allocate(JAVA_INT);
+            int status = call("GetNrcStatus", records);
+            if (status < 0) throw new IllegalStateException("No Remix device registered");
+            return status == 0 ? -1 : Integer.toUnsignedLong(records.get(JAVA_INT, 0));
+        }
+    }
+
     public static int getConfigVariableResolved(String key, byte[] outValue) {
         if (key == null) return -ErrorCode.INVALID_ARGUMENTS;
         try (Scratch arena = scratch()) {

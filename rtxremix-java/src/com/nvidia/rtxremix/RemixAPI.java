@@ -1014,6 +1014,17 @@ public class RemixAPI {
         if (result != ErrorCode.SUCCESS) throw new RemixException("dxvk_GetVulkanInteropInfo failed", result);
     }
 
+    /**
+     * Returns the active NRC context's training record count, or -1 when NRC is inactive.
+     * The runtime's atomic readout trails GPU work by four frames. Zero means that the
+     * context is active but no completed training batch has been read back yet.
+     * This reads the source runtime's {@code remixinternal_GetNrcStatus} export.
+     */
+    public long getNeuralRadianceCacheTrainingRecords() {
+        checkInitialized();
+        return RemixBridge.getNeuralRadianceCacheTrainingRecords();
+    }
+
     /** Queries NGX after Vulkan interop initialization; does not enable or allocate frame generation. */
     public void getFrameGenerationCapabilities(FrameGenerationCapabilities output) {
         checkInitialized();

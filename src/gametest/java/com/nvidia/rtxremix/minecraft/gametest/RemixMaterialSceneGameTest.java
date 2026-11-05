@@ -204,8 +204,21 @@ public final class RemixMaterialSceneGameTest implements FabricClientGameTest {
                         com.nvidia.rtxremix.minecraft.RtxRemixMod.renderer.getRemixApi().setConfigVariable(key, requested));
                 context.waitFor(client -> requested.equals(
                         com.nvidia.rtxremix.minecraft.RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key)), 100);
+                if (mode == 2) {
+                    context.waitFor(client -> RtxRemixMod.renderer.getRemixApi()
+                            .getNeuralRadianceCacheTrainingRecords() > 0, 100);
+                }
                 context.waitTicks(60);
                 capture(context, world, mode == 3 ? "materials-foliage-sharc" : "materials-foliage-nrc");
+                context.runOnClient(client -> {
+                    var api = RtxRemixMod.renderer.getRemixApi();
+                    RemixWorldGameTest.require(requested.equals(api.getConfigVariableResolved(key)),
+                            "Radiance cache mode changed while rendering: " + requested);
+                    if (mode == 2) {
+                        RemixWorldGameTest.require(api.getNeuralRadianceCacheTrainingRecords() > 0,
+                                "NRC screenshot rendered without an active training context");
+                    }
+                });
             }
         } finally {
             context.runOnClient(client ->
