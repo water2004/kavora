@@ -32,16 +32,20 @@ public abstract class VulkanInstanceMixin {
         NativeRuntime.prepareVulkan();
         // Keep the extension names on the constructor's stack until its LWJGL dispatch table has read them.
         MemoryStack stack = MemoryStack.stackGet();
-        String surfaceCapabilities = org.lwjgl.vulkan.KHRGetSurfaceCapabilities2.VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME;
+        String[] required = {
+                org.lwjgl.vulkan.KHRGetSurfaceCapabilities2.VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+                // NRC resolves the KHR entry points even when their core equivalents are available.
+                org.lwjgl.vulkan.KHRGetPhysicalDeviceProperties2.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
+        };
         PointerBuffer requested = info.ppEnabledExtensionNames();
-        boolean present = false;
-        for (int i = 0; i < info.enabledExtensionCount(); i++) present |= surfaceCapabilities.equals(requested.getStringUTF8(i));
-        if (!present) {
-            PointerBuffer extensions = stack.mallocPointer(info.enabledExtensionCount() + 1);
-            for (int i = 0; i < info.enabledExtensionCount(); i++) extensions.put(requested.get(i));
-            extensions.put(stack.UTF8(surfaceCapabilities)).flip();
-            info.ppEnabledExtensionNames(extensions);
+        PointerBuffer extensions = stack.mallocPointer(info.enabledExtensionCount() + required.length);
+        for (int i = 0; i < info.enabledExtensionCount(); i++) extensions.put(requested.get(i));
+        for (String name : required) {
+            boolean present = false;
+            for (int i = 0; i < info.enabledExtensionCount(); i++) present |= name.equals(requested.getStringUTF8(i));
+            if (!present) extensions.put(stack.UTF8(name));
         }
+        info.ppEnabledExtensionNames(extensions.flip());
         int result = original.call(info, allocator, output);
         if (result == org.lwjgl.vulkan.VK10.VK_SUCCESS) NativeRuntime.recordInstance(output.get(0), info);
         return result;
