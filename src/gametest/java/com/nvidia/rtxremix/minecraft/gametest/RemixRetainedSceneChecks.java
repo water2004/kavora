@@ -73,6 +73,7 @@ final class RemixRetainedSceneChecks {
                 return;
             }
             checkImmutableGeometry(context, probe);
+            checkDecalCacheTransitions(context, probe);
 
             context.runOnClient(client -> api().updateMaterial(probe.red, material(0x7f001, 0, 0, 1)));
             Pixels recolored = capture(context, "material-updated");
@@ -179,6 +180,42 @@ final class RemixRetainedSceneChecks {
         require(difference(original, restored, mask) < mask.cardinality() * 3L,
                 "SmoothNormals overwrote the immutable mesh source");
         context.runOnClient(client -> api().setConfigVariable(OPTIONS[1], "32"));
+    }
+
+    private static void checkDecalCacheTransitions(ClientGameTestContext context, Probe probe) {
+        String previousMode = context.computeOnClient(client -> api().getConfigVariableResolved("rtx.integrateIndirectMode"));
+        String previousPreset = context.computeOnClient(client -> api().getConfigVariableResolved("rtx.graphicsPreset"));
+        try {
+            context.runOnClient(client -> {
+                api().setConfigVariable("rtx.graphicsPreset", "4");
+                api().setConfigVariable(OPTIONS[2], "False");
+                api().updateMaterial(probe.red, MaterialInfo.builder().hash(0x7f001)
+                        .opaqueExt(MaterialInfoOpaqueEXT.builder().albedoConstant(1, 0, 0)
+                                .roughnessConstant(0).metallicConstant(1).build()).build());
+                probe.createDecal();
+            });
+            for (String mode : new String[] { "3", "2" }) {
+                context.runOnClient(client -> api().setConfigVariable("rtx.integrateIndirectMode", mode));
+                context.waitFor(client -> mode.equals(api().getConfigVariableResolved("rtx.integrateIndirectMode")), 100);
+                if (mode.equals("2")) context.waitFor(client -> api().getNeuralRadianceCacheTrainingRecords() > 0, 100);
+                Pixels clear = capture(context, "cached-decal-" + mode + "-clear");
+                context.runOnClient(client -> probe.showDecal());
+                Pixels painted = capture(context, "cached-decal-" + mode + "-painted");
+                require(painted.blue > clear.blue + 500,
+                        "Decal is not visible with radiance cache mode " + mode + ": " + clear + " -> " + painted);
+                context.runOnClient(client -> probe.hideDecal());
+                Pixels removed = capture(context, "cached-decal-" + mode + "-removed");
+                require(removed.blue < clear.blue + 50, "Removed cached decal remains visible: " + removed);
+            }
+        } finally {
+            context.runOnClient(client -> {
+                probe.closeDecal();
+                api().updateMaterial(probe.red, material(0x7f001, 1, 0, 0));
+                api().setConfigVariable(OPTIONS[2], "True");
+                api().setConfigVariable("rtx.integrateIndirectMode", previousMode);
+                api().setConfigVariable("rtx.graphicsPreset", previousPreset);
+            });
+        }
     }
 
     private static long difference(BufferedImage first, BufferedImage second, BitSet mask) {
@@ -347,6 +384,7 @@ final class RemixRetainedSceneChecks {
 
     private static final class Probe {
         long red, green, yellow, mesh, replacement, first, second, leftTexture, rightTexture;
+        long decalMaterial, decalMesh, decalInstance;
         void create() {
             red = api().createMaterial(material(0x7f001, 1, 0, 0));
             green = api().createMaterial(material(0x7f002, 0, 1, 0));
@@ -360,6 +398,28 @@ final class RemixRetainedSceneChecks {
         void setFlags(int flags) {
             updateFirst(-1.6f, 122, flags);
             api().sceneInstanceUpdate(second, mesh, transform(1.6f, 122), flags, 1, 0);
+        }
+        void createDecal() {
+            decalMaterial = api().createMaterial(MaterialInfo.builder().hash(0x7f00a)
+                    .opaqueExt(MaterialInfoOpaqueEXT.builder().albedoConstant(0, 0, 1)
+                            .roughnessConstant(1).metallicConstant(0)
+                            .blendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA).build()).build());
+            decalMesh = api().createMesh(MeshInfo.builder().hash(0x7f00b)
+                    .surfaces(new MeshInfoSurfaceTriangles[] { quad(decalMaterial, -1.2f, -0.1f, false) }).build());
+        }
+        void showDecal() {
+            float[] pose = transform(-1.6f, 122);
+            pose[11] = -0.001f;
+            decalInstance = api().sceneInstanceAdd(decalMesh, pose,
+                    InstanceCategoryBit.DECAL_STATIC | InstanceCategoryBit.DECAL_NO_OFFSET, 1, 0);
+        }
+        void hideDecal() {
+            if (decalInstance != 0) { api().sceneInstanceRemove(decalInstance); decalInstance = 0; }
+        }
+        void closeDecal() {
+            hideDecal();
+            if (decalMesh != 0) { api().destroyMesh(decalMesh); decalMesh = 0; }
+            if (decalMaterial != 0) { api().destroyMaterial(decalMaterial); decalMaterial = 0; }
         }
         void addTextures() {
             leftTexture = texture(0x7f006, 0, 0, 255);
@@ -437,6 +497,7 @@ final class RemixRetainedSceneChecks {
             if (second != 0) { api().sceneInstanceRemove(second); second = 0; }
         }
         void close() {
+            closeDecal();
             removeInstances();
             if (replacement != 0) api().destroyMesh(replacement);
             if (mesh != 0) api().destroyMesh(mesh);
