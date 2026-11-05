@@ -1,7 +1,7 @@
 # Native client GameTest
 
 `gradlew.bat runClientGameTest` runs Fabric's client GameTest harness on Java 25.
-It creates a flat single-player world through Minecraft's create-world screen,
+It creates a flat creative single-player world through Minecraft's create-world screen,
 checks that the Copper Beacon recipe loaded, waits for native Remix initialization
 and published terrain geometry plus 40 successful native submit/present calls,
 rejects native frame failures and an all-black daylight scene, captures a screenshot, leaves, reopens the same

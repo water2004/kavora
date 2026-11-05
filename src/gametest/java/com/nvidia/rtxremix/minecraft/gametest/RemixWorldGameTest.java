@@ -14,6 +14,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
 import net.minecraft.client.PreferredGraphicsApi;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.screens.worldselection.WorldCreationUiState;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -59,27 +60,33 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
         long farGeneration;
         RemixStreamingChecks.FarProbe farProbe = null;
         var worldBuilder = context.worldBuilder();
-        if (Boolean.getBoolean("rtxremix.gametest.streamingNatural")) {
+        boolean naturalTerrain = Boolean.getBoolean("rtxremix.gametest.streamingNatural");
+        boolean waterTerrain = Boolean.getBoolean("rtxremix.gametest.streamingWater");
+        if (naturalTerrain) {
             // Keep the terrain within Sodium's section distance while flying above hills.
             context.runOnClient(client -> client.options.renderDistance().set(
                     Integer.getInteger("rtxremix.gametest.renderDistance", 8)));
-            worldBuilder.setUseConsistentSettings(false).adjustSettings(settings -> {
+            worldBuilder.setUseConsistentSettings(false);
+        }
+        worldBuilder.adjustSettings(settings -> {
+            settings.setGameMode(WorldCreationUiState.SelectedGameMode.CREATIVE);
+            if (naturalTerrain) {
                 settings.setSeed("1");
                 settings.setGenerateStructures(false);
-            });
-        }
-        if (Boolean.getBoolean("rtxremix.gametest.streamingWater")) {
-            worldBuilder.adjustSettings(settings -> settings.updateDimensions((registries, dimensions) -> {
-                var generator = (net.minecraft.world.level.levelgen.FlatLevelSource) dimensions.overworld();
-                var flat = generator.settings().withBiomeAndLayers(java.util.List.of(
-                        new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(1, net.minecraft.world.level.block.Blocks.BEDROCK),
-                        new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(1, net.minecraft.world.level.block.Blocks.SAND),
-                        new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(4, net.minecraft.world.level.block.Blocks.WATER)),
-                        generator.settings().structureOverrides(), generator.settings().getBiome());
-                return dimensions.replaceOverworldGenerator(registries,
-                        new net.minecraft.world.level.levelgen.FlatLevelSource(flat));
-            }));
-        }
+            }
+            if (waterTerrain) {
+                settings.updateDimensions((registries, dimensions) -> {
+                    var generator = (net.minecraft.world.level.levelgen.FlatLevelSource) dimensions.overworld();
+                    var flat = generator.settings().withBiomeAndLayers(java.util.List.of(
+                            new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(1, net.minecraft.world.level.block.Blocks.BEDROCK),
+                            new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(1, net.minecraft.world.level.block.Blocks.SAND),
+                            new net.minecraft.world.level.levelgen.flat.FlatLayerInfo(4, net.minecraft.world.level.block.Blocks.WATER)),
+                            generator.settings().structureOverrides(), generator.settings().getBiome());
+                    return dimensions.replaceOverworldGenerator(registries,
+                            new net.minecraft.world.level.levelgen.FlatLevelSource(flat));
+                });
+            }
+        });
         try (TestSingleplayerContext world = worldBuilder.create()) {
             save = world.getWorldSave();
             assertWorldRenders(context, world, "created");
