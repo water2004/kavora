@@ -313,20 +313,23 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
 
     private static void assertPipelineFeatureTransitions(ClientGameTestContext context) {
         String[] keys = {"rtx.enableRayReconstruction", "rtx.enablePSRR", "rtx.enablePSTR",
-                "rtx.raytracedRenderTarget.enable", "rtx.enableStochasticAlphaBlend"};
+                "rtx.raytracedRenderTarget.enable", "rtx.enableStochasticAlphaBlend",
+                "rtx.enableShaderExecutionReorderingInPathtracerGbuffer"};
         var original = context.computeOnClient(client -> {
             var values = new java.util.LinkedHashMap<String, String>();
             for (String key : keys) values.put(key, RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key));
             return values;
         });
         boolean[][] cases = {
-                {false, false, false, false, false},
-                {false, true, true, false, false},
-                {true, false, false, false, false},
-                {true, true, true, false, false},
-                {true, true, true, true, false},
-                {true, true, true, false, true},
-                {true, true, true, false, false}
+                {false, false, false, false, false, true},
+                {false, true, true, false, false, true},
+                {true, false, false, false, false, true},
+                {true, true, true, false, false, true},
+                {true, true, true, true, false, true},
+                {true, true, true, false, true, true},
+                {true, true, true, false, false, true},
+                {true, true, true, false, false, false},
+                {true, true, true, false, false, true}
         };
         try {
             for (int index = 0; index < cases.length; index++) {

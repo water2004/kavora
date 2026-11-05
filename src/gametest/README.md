@@ -66,8 +66,8 @@ that flight for render-thread and worker analysis.
 isolates the RR input-resource regression. It renders all eight combinations of
 sparse rendering, disocclusion-mask blur and specular hit distance with motion blur enabled, checks completed
 frames, then switches RR and PSR off and on, exercises ray-traced render targets
-and stochastic alpha, and returns to the RR/PSR pipeline. It restores the original
-options, then resizes and reopens the world.
+and stochastic alpha, switches SER off and on, and returns to the RR/PSR pipeline.
+It restores the original options, then resizes and reopens the world.
 It uses successful native presentation and image readback rather than a fixed delay.
 
 `-Drtxremix.gametest.beaconOnly=true` isolates an active vanilla beacon with a
