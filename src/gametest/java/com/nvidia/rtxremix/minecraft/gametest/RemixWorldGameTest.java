@@ -304,6 +304,54 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
                     }
                 }
             }
+            assertPipelineFeatureTransitions(context);
+        } finally {
+            context.runOnClient(client -> original.forEach((key, value) ->
+                    RtxRemixMod.renderer.getRemixApi().setConfigVariable(key, value)));
+        }
+    }
+
+    private static void assertPipelineFeatureTransitions(ClientGameTestContext context) {
+        String[] keys = {"rtx.enableRayReconstruction", "rtx.enablePSRR", "rtx.enablePSTR",
+                "rtx.raytracedRenderTarget.enable", "rtx.enableStochasticAlphaBlend"};
+        var original = context.computeOnClient(client -> {
+            var values = new java.util.LinkedHashMap<String, String>();
+            for (String key : keys) values.put(key, RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key));
+            return values;
+        });
+        boolean[][] cases = {
+                {false, false, false, false, false},
+                {false, true, true, false, false},
+                {true, false, false, false, false},
+                {true, true, true, false, false},
+                {true, true, true, true, false},
+                {true, true, true, false, true},
+                {true, true, true, false, false}
+        };
+        try {
+            for (int index = 0; index < cases.length; index++) {
+                boolean[] values = cases[index];
+                context.runOnClient(client -> {
+                    var api = RtxRemixMod.renderer.getRemixApi();
+                    for (int key = 0; key < keys.length; key++) {
+                        api.setConfigVariable(keys[key], Boolean.toString(values[key]));
+                    }
+                });
+                context.waitFor(client -> {
+                    var api = RtxRemixMod.renderer.getRemixApi();
+                    for (int key = 0; key < keys.length; key++) {
+                        if (Boolean.parseBoolean(api.getConfigVariableResolved(keys[key])) != values[key]) return false;
+                    }
+                    return true;
+                }, 200);
+                long frame = context.computeOnClient(client -> RemixFrameProbe.presents);
+                context.waitFor(client -> RemixFrameProbe.presents >= frame + 40
+                        && RtxRemixMod.renderer.isSceneReady(), READY_TIMEOUT_TICKS);
+                String phase = "pipeline-features-" + index;
+                requireVisibleWorld(captureCompletedFrame(context, phase));
+                context.runOnClient(client -> require(RemixFrameProbe.failures == 0,
+                        "Native frame failed while switching pipeline features: " + phase));
+            }
         } finally {
             context.runOnClient(client -> original.forEach((key, value) ->
                     RtxRemixMod.renderer.getRemixApi().setConfigVariable(key, value)));
