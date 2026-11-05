@@ -28,6 +28,13 @@ and mod callers aligned. Do not edit the copied
 `rtxremix-java/native/include/remix_c.h` in isolation or substitute a published
 upstream 0.x SDK.
 
+Upstream fixes define behavior, not the implementation shape of this port.
+Preserve their rendering, API lifetime, and synchronization guarantees while
+adapting the implementation to this branch's Vulkan, FFM, and Sodium owners.
+Replace superseded code rather than retaining parallel compatibility paths.
+Validate correctness and measure whole-frame time and memory before accepting
+an optimization; a smaller shader register count alone is not a speedup.
+
 ## Set Up
 
 [Getting Started](docs/GETTING_STARTED.md) covers the prerequisites, how to
