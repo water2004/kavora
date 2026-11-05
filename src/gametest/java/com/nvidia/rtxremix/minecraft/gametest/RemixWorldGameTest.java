@@ -254,7 +254,7 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
     private static void assertReconstructionInputs(ClientGameTestContext context) {
         String[] keys = {"rtx.graphicsPreset", "rtx.upscalerType", "rtx.enableRayReconstruction",
                 "rtx.sparseRendering.enableSparseRendering", "rtx.rayreconstruction.enableDisocclusionMaskBlur",
-                "rtx.rayreconstruction.useSpecularHitDistance"};
+                "rtx.rayreconstruction.useSpecularHitDistance", "rtx.postfx.enable", "rtx.postfx.enableMotionBlur"};
         var original = context.computeOnClient(client -> {
             var values = new java.util.LinkedHashMap<String, String>();
             for (String key : keys) values.put(key, RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key));
@@ -266,6 +266,8 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
                 api.setConfigVariable(keys[0], "4");
                 api.setConfigVariable(keys[1], "1");
                 api.setConfigVariable(keys[2], "true");
+                api.setConfigVariable(keys[6], "true");
+                api.setConfigVariable(keys[7], "true");
             });
             for (boolean sparse : new boolean[] {false, true}) {
                 for (boolean blur : new boolean[] {false, true}) {
@@ -281,7 +283,9 @@ public final class RemixWorldGameTest implements FabricClientGameTest {
                             return Boolean.parseBoolean(api.getConfigVariableResolved(keys[2]))
                                     && Boolean.parseBoolean(api.getConfigVariableResolved(keys[3])) == sparse
                                     && Boolean.parseBoolean(api.getConfigVariableResolved(keys[4])) == blur
-                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[5])) == hitDistance;
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[5])) == hitDistance
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[6]))
+                                    && Boolean.parseBoolean(api.getConfigVariableResolved(keys[7]));
                         }, 200);
                         long frame = context.computeOnClient(client -> RemixFrameProbe.presents);
                         context.waitFor(client -> RemixFrameProbe.presents >= frame + 40

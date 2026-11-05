@@ -116,6 +116,10 @@ public class BenchmarkController {
     private int quickPlayWaitTicks = 0;
     private boolean jfrFlushed = false;
     private boolean disableWorldSaving = false;
+    private LocalPlayer heldBenchmarkPlayer;
+    private boolean benchmarkPlayerWasFlying;
+    private float recordedFovMin;
+    private float recordedFovMax;
     private boolean worldSavingDisabled = false;
     private final CameraController cameraController;
     private final IdentityHashMap<ServerLevel, Boolean> previousWorldSavingDisabled = new IdentityHashMap<>();
@@ -462,6 +466,7 @@ public class BenchmarkController {
                 disableWorldSavingForBenchmark(client);
                 resetBenchmarkStatus();
                 state = State.WARMUP;
+                holdBenchmarkPlayer(client);
                 currentFrame = 0;
                 warmupHeldForLoadScreen = false;
                 perfTimer.setBenchmarkMode(true);
@@ -490,6 +495,8 @@ public class BenchmarkController {
         }
 
         if (state == State.IDLE) return;
+
+        holdBenchmarkPlayer(Minecraft.getInstance());
 
         if (state == State.WAITING_FOR_WORLD) {
             Minecraft client = Minecraft.getInstance();
@@ -722,6 +729,13 @@ public class BenchmarkController {
     }
 
     private void restoreWorldSavingAfterBenchmark() {
+        if (heldBenchmarkPlayer != null) {
+            if (heldBenchmarkPlayer == Minecraft.getInstance().player) {
+                heldBenchmarkPlayer.getAbilities().flying = benchmarkPlayerWasFlying;
+                heldBenchmarkPlayer.onUpdateAbilities();
+            }
+            heldBenchmarkPlayer = null;
+        }
         if (!worldSavingDisabled) {
             disableWorldSaving = false;
             return;
@@ -739,6 +753,27 @@ public class BenchmarkController {
 
     public boolean isRunning() {
         return state != State.IDLE && state != State.COMPLETE;
+    }
+
+    /** Opt-in camera fixture: keep creative players from falling or entering a swimming pose. */
+    private void holdBenchmarkPlayer(Minecraft client) {
+        if (state != State.WARMUP && state != State.RECORDING) return;
+        if (!Boolean.getBoolean("rtxremix.benchmark.holdPlayer") || client.player == null) return;
+        LocalPlayer player = client.player;
+        if (!player.getAbilities().mayfly) {
+            throw new IllegalStateException("The held-player benchmark fixture requires creative or spectator mode");
+        }
+        if (heldBenchmarkPlayer != player) {
+            heldBenchmarkPlayer = player;
+            benchmarkPlayerWasFlying = player.getAbilities().flying;
+        }
+        if (!player.getAbilities().flying) {
+            player.getAbilities().flying = true;
+            player.onUpdateAbilities();
+        }
+        player.setSprinting(false);
+        player.setSwimming(false);
+        player.setPose(net.minecraft.world.entity.Pose.STANDING);
     }
 
     public String getStatus() {
@@ -761,6 +796,19 @@ public class BenchmarkController {
     private void resetBenchmarkStatus() {
         lastStatusHeartbeatMillis = 0L;
         statusSequence = 0L;
+    }
+
+    private static JsonObject actualCameraState(Minecraft client) {
+        var camera = client.gameRenderer.mainCamera();
+        JsonObject result = new JsonObject();
+        result.addProperty("x", camera.position().x);
+        result.addProperty("y", camera.position().y);
+        result.addProperty("z", camera.position().z);
+        result.addProperty("yaw", camera.yRot());
+        result.addProperty("pitch", camera.xRot());
+        result.addProperty("fov", camera.getFov());
+        result.addProperty("fluid", camera.getFluidInCamera().toString());
+        return result;
     }
 
     private void writeBenchmarkStatus(String phase, boolean force) {
@@ -799,6 +847,11 @@ public class BenchmarkController {
             camera.addProperty("yaw", player.getYRot());
             camera.addProperty("pitch", player.getXRot());
             status.add("camera", camera);
+            status.add("actualCamera", actualCameraState(client));
+            if (state == State.RECORDING && Float.isFinite(recordedFovMin)) {
+                status.addProperty("effectiveFovMin", recordedFovMin);
+                status.addProperty("effectiveFovMax", recordedFovMax);
+            }
         }
 
         RtxRemixMod mod = RtxRemixMod.getInstance();
@@ -1326,6 +1379,8 @@ public class BenchmarkController {
     // --- Data capture ---
 
     private void allocateRecordingArrays(PerformanceTimer perfTimer) {
+        recordedFovMin = Float.POSITIVE_INFINITY;
+        recordedFovMax = Float.NEGATIVE_INFINITY;
         sectionCount = perfTimer.getSectionCount();
         counterCount = perfTimer.getCounterCount();
         frameTimeNanos = new long[recordFrames];
@@ -1337,6 +1392,9 @@ public class BenchmarkController {
 
     private void captureFrame(PerformanceTimer perfTimer) {
         if (currentFrame >= recordFrames) return;
+        float fov = Minecraft.getInstance().gameRenderer.mainCamera().getFov();
+        recordedFovMin = Math.min(recordedFovMin, fov);
+        recordedFovMax = Math.max(recordedFovMax, fov);
         for (int i = 0; i < sectionCount; i++) {
             sectionTimeNanos[i][currentFrame] = perfTimer.getSectionTimeNanos(i);
         }
@@ -1535,8 +1593,13 @@ public class BenchmarkController {
             for (String key : new String[] { "rtx.graphicsPreset", "rtx.upscalerType", "rtx.qualityDLSS",
                     "rtx.dlssPreset", "rtx.resolutionScale", "rtx.enableRayReconstruction", "rtx.pathMaxBounces",
                     "rtx.dlfg.enable", "rtx.dlfg.maxInterpolatedFrames", "rtx.displacement.mode",
+                    "rtx.displacement.maxIterations", "rtx.integrateIndirectMode",
+                    "rtx.sparseRendering.enableSparseRendering", "rtx.sparseRendering.enableAdaptiveSamplingRate",
+                    "rtx.sparseRendering.samplingRate", "rtx.sparseRendering.samplingRateResolutionExponent",
+                    "rtx.sparseRendering.maxSamplingRate",
                     "rtx.raytraceModePreset", "rtx.renderPassGBufferRaytraceMode",
                     "rtx.renderPassIntegrateDirectRaytraceMode", "rtx.renderPassIntegrateIndirectRaytraceMode",
+                    "rtx.advanceTime", "rtx.timeDeltaBetweenFrames",
                     "rtx.enableShaderExecutionReorderingInPathtracerGbuffer" }) {
                 runtime.addProperty(key, renderer.getRemixApi().getConfigVariableResolved(key));
             }
@@ -1546,6 +1609,11 @@ public class BenchmarkController {
         metadata.addProperty("renderDistance", mc.options.renderDistance().get());
         metadata.addProperty("simulationDistance", mc.options.simulationDistance().get());
         metadata.addProperty("fov", mc.options.fov().get());
+        if (Float.isFinite(recordedFovMin)) {
+            metadata.addProperty("effectiveFovMin", recordedFovMin);
+            metadata.addProperty("effectiveFovMax", recordedFovMax);
+        }
+        metadata.add("actualCamera", actualCameraState(mc));
         metadata.addProperty("graphicsMode", mc.options.graphicsPreset().get().toString());
         metadata.addProperty("entityDistanceScaling", mc.options.entityDistanceScaling().get());
         root.add("metadata", metadata);

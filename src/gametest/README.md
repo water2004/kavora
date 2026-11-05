@@ -64,7 +64,7 @@ that flight for render-thread and worker analysis.
 
 `-Drtxremix.gametest.settingsOnly=true -Drtxremix.gametest.reconstructionInputs=true`
 isolates the RR input-resource regression. It renders all eight combinations of
-sparse rendering, disocclusion-mask blur and specular hit distance, checks completed
+sparse rendering, disocclusion-mask blur and specular hit distance with motion blur enabled, checks completed
 frames, restores the original options, then resizes and reopens the world.
 It uses successful native presentation and image readback rather than a fixed delay.
 

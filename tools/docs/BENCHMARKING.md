@@ -94,6 +94,15 @@ One measured run, repeated `runs` times:
    `tools/results/<timestamp>/run_N/`, generates
    `profile-data.json`, aggregates across runs, and writes `manifest.json`.
 
+Results record `effectiveFovMin`, `effectiveFovMax` and `actualCamera` in addition
+to the FOV option. Flight, swimming and death can change the rendered projection
+without changing that option. Compare actual camera position, FOV, fluid and
+terrain/LOD counters before attributing a timing change to a renderer change.
+For an isolated creative-mode camera fixture, the opt-in JVM argument
+`-Drtxremix.benchmark.holdPlayer=true` holds flight and a standing pose during
+warmup and recording, then restores the previous flight setting. Fix FOV effects
+and view bobbing in that fixture's options when a constant projection is needed.
+
 Three files are the entire contract between the two sides:
 
 | File | Direction | Meaning |
@@ -776,6 +785,13 @@ choose another internal resolution. The runtime's graphics-preset and DLSS
 sources own the exact expansion. `RTXREMIX_EXTRA_RTXCONF=rtx.dlfg.enable=True`
 can deliberately enable supported frame generation for an experiment, but it
 changes the workload and does not turn the result into a presented-FPS counter.
+
+Native resolution does not establish full pixel sampling: sparse rendering can
+still shade only part of that resolution. Results record its resolved enable,
+adaptive-rate and sampling-rate options alongside the indirect integration mode
+and POM iteration limit. For a full-sampling native comparison, disable
+`rtx.sparseRendering.enableSparseRendering` in both builds, verify `sparseMode=0`
+in the GBuffer dispatch log, and keep the remaining quality settings identical.
 
 ### Reading Frame Metrics, Sections And Zones
 
