@@ -33,7 +33,7 @@ Use **Fabric Loader 0.20.1 or newer**, and place these JARs in your instance's `
 | Fabric API 0.165.0+26.3 or newer for 26.3 | Required, installed separately |
 | `Kavora-horizon.jar` | Optional distant-terrain add-on |
 
-Add `--enable-native-access=ALL-UNNAMED` to your launcher's Java arguments. The runtime is extracted automatically; the first launch and shader compilation can take some time. Large resource packs and long view distances increase RAM and VRAM requirements.
+The runtime is extracted automatically; the first launch and shader compilation can take some time. Large resource packs and long view distances increase RAM and VRAM requirements.
 
 Kavora uses Vulkan exclusively, so some OpenGL-based mods are incompatible. It does not load Iris shader packs. Voxy is unsupported, and Kavora Horizon cannot be installed alongside Distant Horizons.
 

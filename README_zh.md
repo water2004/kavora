@@ -33,7 +33,7 @@ Kavora 是面向 Minecraft 的渲染模组，通过 Vulkan 和 NVIDIA RTX Remix 
 | Fabric API 0.165.0+26.3 或适用于 26.3 的更新版本 | 必需，独立安装 |
 | `Kavora-horizon.jar` | 可选，远景附加包 |
 
-在启动器的 Java 参数中加入 `--enable-native-access=ALL-UNNAMED`。首次启动会自动解压运行时，着色器编译可能需要一些时间。复杂资源包和较高的视距会增加内存与显存需求。
+首次启动会自动解压运行时，着色器编译可能需要一些时间。复杂资源包和较高的视距会增加内存与显存需求。
 
 Kavora 仅使用 Vulkan，可能与部分基于 OpenGL 的模组不兼容。本项目不加载 Iris 光影包；Voxy 不受支持，Kavora Horizon 也不能与 Distant Horizons 同时安装。
 
