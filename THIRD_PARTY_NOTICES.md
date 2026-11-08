@@ -32,7 +32,8 @@ locations given.
 
 Packaged release JARs bundle the NVIDIA RTX Remix runtime (staged under
 `native/` inside the JAR). The runtime is built from
-[kavora-runtime](https://github.com/NVIDIAGameWorks/dxvk-remix) and carries the
+the modified [dxvk-remix](https://github.com/NVIDIAGameWorks/dxvk-remix) source in
+[kavora-runtime/](kavora-runtime/) and carries the
 third-party components that project redistributes. For the pinned runtime
 version those are:
 
@@ -65,7 +66,7 @@ the OpenUSD core libraries (`usd_*.dll`), their plugin resources under `usd/`,
 and oneTBB 2021.12 as `tbb12.dll` / `tbbmalloc.dll`. That distribution ships
 no license files of its own, so the upstream license texts for its components
 are reproduced under
-[kavora/packaging/licenses/runtime/openusd/](kavora/packaging/licenses/runtime/openusd/).
+[kavora/packaging/licenses/remix-runtime/openusd/](kavora/packaging/licenses/remix-runtime/openusd/).
 OpenUSD is licensed under the Tomorrow Open Source Technology License 1.0, and
 its license file also carries the notices for the third-party code compiled
 into the OpenUSD libraries, among them RapidJSON, double-conversion, LZ4,
@@ -74,57 +75,57 @@ libdeflate, pugixml, Tessil robin-map, CLI11, and PEGTL.
 The applicable license texts are included in this repository and in packaged
 JARs:
 
-- [kavora/packaging/licenses/runtime/LICENSE.dxvk.txt](kavora/packaging/licenses/runtime/LICENSE.dxvk.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.dxvk.txt](kavora/packaging/licenses/remix-runtime/LICENSE.dxvk.txt)
   covers DXVK, zlib/libpng license
-- [kavora/packaging/licenses/runtime/LICENSE-MIT.txt](kavora/packaging/licenses/runtime/LICENSE-MIT.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE-MIT.txt](kavora/packaging/licenses/remix-runtime/LICENSE-MIT.txt)
   covers the RTX Remix runtime additions, MIT license
-- [kavora/packaging/licenses/runtime/openusd/openusd-LICENSE.txt](kavora/packaging/licenses/runtime/openusd/openusd-LICENSE.txt)
+- [kavora/packaging/licenses/remix-runtime/openusd/openusd-LICENSE.txt](kavora/packaging/licenses/remix-runtime/openusd/openusd-LICENSE.txt)
   covers OpenUSD, Tomorrow Open Source Technology License 1.0, together with
   the notices for the components compiled into it
-- [kavora/packaging/licenses/runtime/openusd/onetbb-LICENSE.txt](kavora/packaging/licenses/runtime/openusd/onetbb-LICENSE.txt)
+- [kavora/packaging/licenses/remix-runtime/openusd/onetbb-LICENSE.txt](kavora/packaging/licenses/remix-runtime/openusd/onetbb-LICENSE.txt)
   covers oneTBB (`tbb12.dll`, `tbbmalloc.dll`), Apache License, Version 2.0
-- [kavora/packaging/licenses/runtime/openusd/onetbb-itt-notify-LICENSE.txt](kavora/packaging/licenses/runtime/openusd/onetbb-itt-notify-LICENSE.txt)
+- [kavora/packaging/licenses/remix-runtime/openusd/onetbb-itt-notify-LICENSE.txt](kavora/packaging/licenses/remix-runtime/openusd/onetbb-itt-notify-LICENSE.txt)
   covers the Intel Instrumentation and Tracing Technology (ITT) Notify code
   compiled into both oneTBB DLLs, BSD 3-Clause; it is entry 1 of the oneTBB
   2021.12.0 third-party programs file, whose other entries concern code that
   is not compiled into these Windows binaries
-- [kavora/packaging/licenses/runtime/LICENSE.xess.txt](kavora/packaging/licenses/runtime/LICENSE.xess.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.xess.txt](kavora/packaging/licenses/remix-runtime/LICENSE.xess.txt)
   covers Intel XeSS (`libxess.dll`), Intel Simplified Software License
-- [kavora/packaging/licenses/runtime/LICENSE.sentry-native.txt](kavora/packaging/licenses/runtime/LICENSE.sentry-native.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.sentry-native.txt](kavora/packaging/licenses/remix-runtime/LICENSE.sentry-native.txt)
   covers the Sentry Native SDK 0.15.3 linked into the runtime, MIT license
-- [kavora/packaging/licenses/runtime/LICENSE.crashpad.txt](kavora/packaging/licenses/runtime/LICENSE.crashpad.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.crashpad.txt](kavora/packaging/licenses/remix-runtime/LICENSE.crashpad.txt)
   covers Google Crashpad, Apache License, Version 2.0: `crashpad_handler.exe`,
   `crashpad_wer.dll`, and the Crashpad client statically linked into `d3d9.dll`
-- [kavora/packaging/licenses/runtime/crashpad/](kavora/packaging/licenses/runtime/crashpad/)
+- [kavora/packaging/licenses/remix-runtime/crashpad/](kavora/packaging/licenses/remix-runtime/crashpad/)
   covers the third-party code Crashpad vendors and the runtime therefore
   carries: mini_chromium (BSD 3-Clause, The Chromium Authors) in `d3d9.dll`
   and `crashpad_handler.exe`, and MPack (MIT) and Gregory Pietsch's getopt
   (public domain, credit requested) in `crashpad_handler.exe`
-- [kavora/packaging/licenses/runtime/LICENSE.zlib.txt](kavora/packaging/licenses/runtime/LICENSE.zlib.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.zlib.txt](kavora/packaging/licenses/remix-runtime/LICENSE.zlib.txt)
   covers zlib, zlib license, compiled into `crashpad_handler.exe` (1.2.13) and
   the Nsight Aftermath library (`GFSDK_Aftermath_Lib.*.dll`, 1.2.7 on win64
   and 1.3.1 on arm64)
-- [kavora/packaging/licenses/runtime/LICENSE.imgui.txt](kavora/packaging/licenses/runtime/LICENSE.imgui.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.imgui.txt](kavora/packaging/licenses/remix-runtime/LICENSE.imgui.txt)
   covers Dear ImGui 1.88, MIT license, compiled into `d3d9.dll` for the
   runtime menu
-- [kavora/packaging/licenses/runtime/LICENSE.xxhash.txt](kavora/packaging/licenses/runtime/LICENSE.xxhash.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.xxhash.txt](kavora/packaging/licenses/remix-runtime/LICENSE.xxhash.txt)
   covers xxHash 0.8, BSD 2-Clause License, compiled into `d3d9.dll`
-- [kavora/packaging/licenses/runtime/ThirdPartyLicenses.txt](kavora/packaging/licenses/runtime/ThirdPartyLicenses.txt)
+- [kavora/packaging/licenses/remix-runtime/ThirdPartyLicenses.txt](kavora/packaging/licenses/remix-runtime/ThirdPartyLicenses.txt)
   collects license texts carried by the kavora-runtime build. This file covers GLI,
   Tracy, Slang, Omni-core-materials, glslangvalidator, the NVIDIA RTX SDKs
   license (DLSS, NGX, RTXGI, RTXDI, and NRD), the NVIDIA Aftermath SDK, the
   Turbo colormap approximation, the Meson build system, the ACES tonemapper,
   and xxHash. It is not a complete inventory of the redistributed runtime
   payload, which is why the texts above are shipped separately.
-- [kavora/packaging/licenses/runtime/LICENSE.sharc.txt](kavora/packaging/licenses/runtime/LICENSE.sharc.txt)
+- [kavora/packaging/licenses/remix-runtime/LICENSE.sharc.txt](kavora/packaging/licenses/remix-runtime/LICENSE.sharc.txt)
   covers the NVIDIA Spatial Hash Radiance Cache at the pinned source revision, whose shader headers
   are compiled into `d3d9.dll`; it is the NVIDIA RTX SDKs license as that
   project publishes it, with its own supplement
-- [kavora/packaging/licenses/runtime/rtxio/licenses.txt](kavora/packaging/licenses/runtime/rtxio/licenses.txt)
+- [kavora/packaging/licenses/remix-runtime/rtxio/licenses.txt](kavora/packaging/licenses/remix-runtime/rtxio/licenses.txt)
   is the third-party notice file shipped with the RTX IO SDK, reproduced
   verbatim: libdeflate 1.8 (MIT) and NVIDIA's Apache License, Version 2.0
   GDeflate changes, compiled into `rtxio.dll`
-- [kavora/packaging/licenses/runtime/nrc/](kavora/packaging/licenses/runtime/nrc/)
+- [kavora/packaging/licenses/remix-runtime/nrc/](kavora/packaging/licenses/remix-runtime/nrc/)
   covers the open-source code compiled into the Neural Radiance Cache library
   (`NRC_Vulkan.dll`), which embeds tiny-cuda-nn and its dependencies as source
   for runtime compilation: tiny-cuda-nn and CUTLASS (BSD 3-Clause, NVIDIA),

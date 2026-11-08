@@ -1,6 +1,6 @@
 # 许可范围
 
-这是包含多个组件的源码仓库。根目录的 `LICENSE` 是索引，各组件与文件原有的许可声明继续适用。不要删除原始版权头，也不要用一个根目录许可证覆盖所有代码和二进制。
+这是包含多个组件的源码仓库。根目录的 [LICENSE](../LICENSE) 提供完整的 Apache 2.0 文本，适用于主模组、Java SDK 等采用 Apache 2.0 的部分；它不替代各组件、源文件和资源已有的许可声明。运行时、LGPL 派生代码和 NVIDIA SDK 等分别遵循下表所列条款，不能以根目录许可证覆盖整个仓库及随包二进制。
 
 | 范围 | 许可 | 原始文本与说明 |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | 远景的独立材质描述代码 | Apache-2.0 | [原始文本](../kavora-horizon/common/src/main/resources/LICENSE-APACHE-2.0.txt) |
 | 远景内嵌的 RocksDB | 选择 Apache-2.0 许可 | [RocksDB 和 LevelDB 声明](../kavora-horizon/licenses/) |
 | NASA 银河和月面数据 | NASA 公有领域数据及各自署名 | [银河](../kavora/packaging/licenses/NASA-Deep-Star-Maps.txt)、[月面](../kavora/packaging/licenses/NASA-CGI-Moon.txt) |
-| DLSS、NRC、NRD 等 NVIDIA SDK 二进制 | NVIDIA 各组件的 SDK 条款 | [运行时第三方文本](../kavora/packaging/licenses/runtime/)、[总清单](../THIRD_PARTY_NOTICES.md) |
+| DLSS、NRC、NRD 等 NVIDIA SDK 二进制 | NVIDIA 各组件的 SDK 条款 | [运行时第三方文本](../kavora/packaging/licenses/remix-runtime/)、[总清单](../THIRD_PARTY_NOTICES.md) |
 | 其他原生依赖 | 各依赖的原始许可 | [DXVK Remix 第三方清单](../kavora-runtime/ThirdPartyLicenses.txt)及随包文本 |
 
 通用许可证全文集中在本目录：

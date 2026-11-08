@@ -32,7 +32,7 @@ git submodule update --init --recursive
 | `gradlew.bat :kavora-sdk:build` | 独立 Java SDK 和源码 JAR |
 | `gradlew.bat :kavora:compileGametestJava` | 编译客户端 GameTest |
 | `gradlew.bat :kavora:runClient` | 在独立开发目录启动客户端 |
-| `gradlew.bat release` | 校验并收集两个发布 JAR 到 `dist/` |
+| `gradlew.bat release` | 校验并收集主模组、附加包、SDK、源码 JAR 及校验和到 `dist/` |
 
 主模组通过 Gradle 项目依赖使用 Java SDK，并将其类直接放进主模组 JAR。远景附加包只编译依赖主模组的扩展接口，不嵌入主模组。Sodium、Fabric API 和 Fabric Loader 始终是外部依赖。
 
