@@ -1,5 +1,0 @@
-{
-  "sources": [
-    {"type": "minecraft:single", "resource": "rtx-remix-client-tests:particle/alpha_probe", "sprite": "rtx-remix-client-tests:alpha_probe"}
-  ]
-}

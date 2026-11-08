@@ -26,7 +26,7 @@ unless the key name says otherwise.
 The released renderer uses ordinary Vulkan BLAS and TLAS. CLAS/PTLAS experiments
 are not part of this source tree.
 
-`RemixRenderer` keeps the runtime Submit call's default host-submission ordering:
+`KavoraRenderer` keeps the runtime Submit call's default host-submission ordering:
 the runtime's Vulkan signal is submitted to the driver before Minecraft consumes
 the shared images. This waits for command submission, not GPU completion.
 The shared-device path leaves generated frames in the presenter's asynchronous
@@ -99,7 +99,7 @@ geometry cache allocates its GPU copy when needed.
 
 ### Optional Far Terrain
 
-Remix Horizons is a separate voxel addon. Its RocksDB cache stores observed
+Kavora Horizon is a separate voxel addon. Its RocksDB cache stores observed
 terrain; its CPU workers build meshes for a screen-space-selected octree.
 The addon converts completed CPU quads to
 Remix meshes and uses the main renderer's atlas, PBR, water, and lighting.
@@ -141,26 +141,26 @@ long a worker may wait.
 
 | Key | Effect | Owner |
 |---|---|---|
-| `rtxremix.chunk.sectionBuilders` | Concurrent vanilla section builds. Vanilla allocates one buffer per logical CPU, which floods the frame that a chunk-boundary crossing lands in | `SectionBuildConcurrency` |
-| `rtxremix.blockDataQueue.maxPendingItems` | Section captures queued for the render thread | `BlockDataQueue` |
-| `rtxremix.blockDataQueue.maxPendingBytes` | Bytes of queued captures | `BlockDataQueue` |
-| `rtxremix.blockDataQueue.maxDrainItems` | Captures drained per render-thread pass | `BlockDataQueue` |
-| `rtxremix.blockDataQueue.maxDrainBytes` | Bytes drained per pass | `BlockDataQueue` |
-| `rtxremix.blockDataQueue.publishWaitBudgetNs` | Initial worker wait budget before attempting FIFO eviction. In-flight reservations can require additional waits; it is not a total-wait limit | `BlockDataQueue` |
-| `rtxremix.chunk.localBatchPacing` | Pace the integrated server's chunk delivery while capture is on, spreading chunk-load bursts across frames. Set to false to restore vanilla's single batch per tick | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localBatchBudgetMs` | Measured render-thread chunk-apply time, in milliseconds, the paced batch may fill per tick | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localBacklogBudgetMs` | Ceiling, in milliseconds, the per-tick budget rises to while a backlog is waiting, so a join burst streams in rather than landing in one frame | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localBatchBacklogDivisor` | Share of the backlog, one chunk per this many waiting, added to the per-tick budget | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localBatchMaxChunks` | Cap on chunks in one paced batch, whichever of the time budget and this cap is smaller; keeps a row spread even where the apply is cheap, because the rebuilds a row triggers cost the frame more than its deserialization | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localBacklogMaxChunks` | Ceiling that cap rises to while a backlog is waiting | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localUnloadPacing` | Pace the integrated server's chunk unload packets alongside its chunk data, so a crossing's trailing row does not land in the same drain as the new row. Set to false to send unloads the tick a column leaves the filter; off whenever `rtxremix.chunk.localBatchPacing` is off | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.localUnloadBudgetMs` | Measured render-thread unload time, in milliseconds, the paced unloads may fill per tick | `LocalChunkBatchPacing` |
-| `rtxremix.chunk.neighbourReflagFilter` | Drop vanilla's chunk-load and light-data neighbour rebuild flags when the neighbour's last build already saw the loading column. Set to false to restore those flags. Block updates and the loading column itself stay vanilla | `NeighbourReflagFilter` |
-| `rtxremix.light.vanillaSnapshot` | Set to true to make the client light engine clone its section map every pass as vanilla does. With false, while capture is on, the live map is published as the snapshot, which rests on nothing but the render thread reading client light | `ClientLightSnapshotPolicy` |
-| `rtxremix.light.vanillaSurfaceScan` | Set to true to start each column's sky-light surface walk at the top of the chunk as vanilla does. With false the walk is seeded at the packet's `WORLD_SURFACE` height, which skips the air-over-air pairs that were most of the render thread's chunk-apply cost; the remedy for a sender whose heightmaps do not match its blocks | `SkyLightSurfaceScanPolicy` |
-| `rtxremix.vanillaVisibilityWalk` | Set to true to leave the chunk visibility walk to vanilla with RTX on instead of the mod's allocation-free port, which must produce the same visible set | `ChunkRenderingDataPreparerMixin` |
-| `rtxremix.logVisibleSet` | Log the size and a position hash of every full visibility walk's result whenever it changes, to compare the port against vanilla over one camera | `ChunkRenderingDataPreparerMixin` |
-| `rtxremix.joinHold` | Keep vanilla's terrain-download screen up until frame times settle after a world join, with a short bounded hold, so the first-sight mesh, pipeline, and BLAS costs land behind the screen. Set to false to disable the hold | `JoinBurstHold` |
+| `kavora.chunk.sectionBuilders` | Concurrent vanilla section builds. Vanilla allocates one buffer per logical CPU, which floods the frame that a chunk-boundary crossing lands in | `SectionBuildConcurrency` |
+| `kavora.blockDataQueue.maxPendingItems` | Section captures queued for the render thread | `BlockDataQueue` |
+| `kavora.blockDataQueue.maxPendingBytes` | Bytes of queued captures | `BlockDataQueue` |
+| `kavora.blockDataQueue.maxDrainItems` | Captures drained per render-thread pass | `BlockDataQueue` |
+| `kavora.blockDataQueue.maxDrainBytes` | Bytes drained per pass | `BlockDataQueue` |
+| `kavora.blockDataQueue.publishWaitBudgetNs` | Initial worker wait budget before attempting FIFO eviction. In-flight reservations can require additional waits; it is not a total-wait limit | `BlockDataQueue` |
+| `kavora.chunk.localBatchPacing` | Pace the integrated server's chunk delivery while capture is on, spreading chunk-load bursts across frames. Set to false to restore vanilla's single batch per tick | `LocalChunkBatchPacing` |
+| `kavora.chunk.localBatchBudgetMs` | Measured render-thread chunk-apply time, in milliseconds, the paced batch may fill per tick | `LocalChunkBatchPacing` |
+| `kavora.chunk.localBacklogBudgetMs` | Ceiling, in milliseconds, the per-tick budget rises to while a backlog is waiting, so a join burst streams in rather than landing in one frame | `LocalChunkBatchPacing` |
+| `kavora.chunk.localBatchBacklogDivisor` | Share of the backlog, one chunk per this many waiting, added to the per-tick budget | `LocalChunkBatchPacing` |
+| `kavora.chunk.localBatchMaxChunks` | Cap on chunks in one paced batch, whichever of the time budget and this cap is smaller; keeps a row spread even where the apply is cheap, because the rebuilds a row triggers cost the frame more than its deserialization | `LocalChunkBatchPacing` |
+| `kavora.chunk.localBacklogMaxChunks` | Ceiling that cap rises to while a backlog is waiting | `LocalChunkBatchPacing` |
+| `kavora.chunk.localUnloadPacing` | Pace the integrated server's chunk unload packets alongside its chunk data, so a crossing's trailing row does not land in the same drain as the new row. Set to false to send unloads the tick a column leaves the filter; off whenever `kavora.chunk.localBatchPacing` is off | `LocalChunkBatchPacing` |
+| `kavora.chunk.localUnloadBudgetMs` | Measured render-thread unload time, in milliseconds, the paced unloads may fill per tick | `LocalChunkBatchPacing` |
+| `kavora.chunk.neighbourReflagFilter` | Drop vanilla's chunk-load and light-data neighbour rebuild flags when the neighbour's last build already saw the loading column. Set to false to restore those flags. Block updates and the loading column itself stay vanilla | `NeighbourReflagFilter` |
+| `kavora.light.vanillaSnapshot` | Set to true to make the client light engine clone its section map every pass as vanilla does. With false, while capture is on, the live map is published as the snapshot, which rests on nothing but the render thread reading client light | `ClientLightSnapshotPolicy` |
+| `kavora.light.vanillaSurfaceScan` | Set to true to start each column's sky-light surface walk at the top of the chunk as vanilla does. With false the walk is seeded at the packet's `WORLD_SURFACE` height, which skips the air-over-air pairs that were most of the render thread's chunk-apply cost; the remedy for a sender whose heightmaps do not match its blocks | `SkyLightSurfaceScanPolicy` |
+| `kavora.vanillaVisibilityWalk` | Set to true to leave the chunk visibility walk to vanilla with RTX on instead of the mod's allocation-free port, which must produce the same visible set | `ChunkRenderingDataPreparerMixin` |
+| `kavora.logVisibleSet` | Log the size and a position hash of every full visibility walk's result whenever it changes, to compare the port against vanilla over one camera | `ChunkRenderingDataPreparerMixin` |
+| `kavora.joinHold` | Keep vanilla's terrain-download screen up until frame times settle after a world join, with a short bounded hold, so the first-sight mesh, pipeline, and BLAS costs land behind the screen. Set to false to disable the hold | `JoinBurstHold` |
 
 `BlockDataQueue.acquireCapacity` is authoritative for waiting: a worker
 initially waits up to the configured budget (500 ms by default, with a 50 ms
@@ -184,23 +184,23 @@ per-frame budgets.
 
 | Key | Effect | Owner |
 |---|---|---|
-| `rtxremix.chunk.meshBuildThreads` | Threads in the column merge executor | `ChunkManager` |
-| `rtxremix.chunk.maxPendingBuilds` | Merges outstanding at once | `ChunkManager` |
-| `rtxremix.chunk.maxPendingMeshBytes` | Bytes of merged but not yet installed geometry | `ChunkManager` |
-| `rtxremix.chunk.installBudgetNs` | Render-thread time per frame spent installing columns | `ChunkManager` |
-| `rtxremix.chunk.maxInstalledColumnsPerFrame` | Columns published per frame | `ChunkManager` |
-| `rtxremix.chunk.columnStreamSettleFrames` | Frames a column waits for its neighbours before publishing | `ChunkManager` |
-| `rtxremix.chunk.columnStreamMaxWaitFrames` | Hard cap, in frames, on that wait | `ChunkManager` |
-| `rtxremix.chunk.maxSectionRemovalsPerFrame` | Deferred section removals per frame | `ChunkManager` |
-| `rtxremix.chunk.maxSectionRemovalValidationsPerFrame` | Removal checks per frame | `ChunkManager` |
-| `rtxremix.chunk.maintenanceBudgetNs` | Render-thread time per frame for terrain maintenance | `ChunkManager` |
-| `rtxremix.chunk.maxColumnUnloadsPerFrame` | Column unloads processed per frame | `ChunkManager` |
-| `rtxremix.chunk.meshPageBytes` | Byte cap on one terrain mesh page | `BlockMeshBuilder` |
-| `rtxremix.chunk.meshRetireBudgetNs` | Render-thread time per frame spent retiring replaced pages | `TerrainAssetRetirementQueue` |
-| `rtxremix.chunk.meshRetireSoftCount` | Queued retirements before backpressure starts | `TerrainAssetRetirementQueue` |
-| `rtxremix.chunk.meshRetireHardCount` | Queued retirements that force the queue to drain | `TerrainAssetRetirementQueue` |
-| `rtxremix.chunk.meshRetireSoftBytes` | Byte equivalent of the soft count | `TerrainAssetRetirementQueue` |
-| `rtxremix.chunk.meshRetireHardBytes` | Byte equivalent of the hard count | `TerrainAssetRetirementQueue` |
+| `kavora.chunk.meshBuildThreads` | Threads in the column merge executor | `ChunkManager` |
+| `kavora.chunk.maxPendingBuilds` | Merges outstanding at once | `ChunkManager` |
+| `kavora.chunk.maxPendingMeshBytes` | Bytes of merged but not yet installed geometry | `ChunkManager` |
+| `kavora.chunk.installBudgetNs` | Render-thread time per frame spent installing columns | `ChunkManager` |
+| `kavora.chunk.maxInstalledColumnsPerFrame` | Columns published per frame | `ChunkManager` |
+| `kavora.chunk.columnStreamSettleFrames` | Frames a column waits for its neighbours before publishing | `ChunkManager` |
+| `kavora.chunk.columnStreamMaxWaitFrames` | Hard cap, in frames, on that wait | `ChunkManager` |
+| `kavora.chunk.maxSectionRemovalsPerFrame` | Deferred section removals per frame | `ChunkManager` |
+| `kavora.chunk.maxSectionRemovalValidationsPerFrame` | Removal checks per frame | `ChunkManager` |
+| `kavora.chunk.maintenanceBudgetNs` | Render-thread time per frame for terrain maintenance | `ChunkManager` |
+| `kavora.chunk.maxColumnUnloadsPerFrame` | Column unloads processed per frame | `ChunkManager` |
+| `kavora.chunk.meshPageBytes` | Byte cap on one terrain mesh page | `BlockMeshBuilder` |
+| `kavora.chunk.meshRetireBudgetNs` | Render-thread time per frame spent retiring replaced pages | `TerrainAssetRetirementQueue` |
+| `kavora.chunk.meshRetireSoftCount` | Queued retirements before backpressure starts | `TerrainAssetRetirementQueue` |
+| `kavora.chunk.meshRetireHardCount` | Queued retirements that force the queue to drain | `TerrainAssetRetirementQueue` |
+| `kavora.chunk.meshRetireSoftBytes` | Byte equivalent of the soft count | `TerrainAssetRetirementQueue` |
+| `kavora.chunk.meshRetireHardBytes` | Byte equivalent of the hard count | `TerrainAssetRetirementQueue` |
 
 Retirement has two different gates in `TerrainAssetRetirementQueue`.
 `retirementBackpressured()` is a hysteretic count-or-bytes limit for teardown
@@ -225,33 +225,33 @@ their distance.
 
 | Key | Effect | Owner |
 |---|---|---|
-| `rtxremix.chunk.maxLightOpsPerFrame` | Light create, update, and destroy calls per frame | `ChunkManager` |
-| `rtxremix.chunk.lightBudgetNs` | Render-thread time per frame for those calls | `ChunkManager` |
-| `rtxremix.chunk.maxPendingLightOps` | Queued light work before backpressure | `ChunkManager` |
-| `rtxremix.light.floodSliceNs` | Render-thread time per frame a connectivity rebuild may take. The rebuild fills a second set across frames and swaps it in when complete, so a larger slice finishes sooner and a smaller one costs less per frame | `TerrainState` |
+| `kavora.chunk.maxLightOpsPerFrame` | Light create, update, and destroy calls per frame | `ChunkManager` |
+| `kavora.chunk.lightBudgetNs` | Render-thread time per frame for those calls | `ChunkManager` |
+| `kavora.chunk.maxPendingLightOps` | Queued light work before backpressure | `ChunkManager` |
+| `kavora.light.floodSliceNs` | Render-thread time per frame a connectivity rebuild may take. The rebuild fills a second set across frames and swaps it in when complete, so a larger slice finishes sooner and a smaller one costs less per frame | `TerrainState` |
 
 ## Entities, Textures, And Particles
 
 | Key | Effect | Owner |
 |---|---|---|
-| `rtxremix.entity.meshCache.maxEntries` | Pooled entity meshes kept for reuse | `RemixEntitySubmitter` |
-| `rtxremix.dynamicTextureCache.maxEntries` | Entries in the dynamic texture cache that serves skins and glyph pages | `DynamicTextureCache` |
-| `rtxremix.directBufferPool.maxBytes` | Bytes of idle direct buffers kept pooled. 0 disables pooling | `DirectBufferPool` |
-| `rtxremix.waterRapids.spawnBudgetPerTick` | Foam and mist particles spawned per tick near fast water. 0 turns the effect off | `WaterRapidParticleSpawner` |
-| `rtxremix.particles.fastAirCollision` | Take a fast path through particle collision when every swept cell is air. Set to false to disable the fast path | `ParticleStateMixin` |
-| `rtxremix.particles.fastAirCollisionMaxBlocks` | Largest sweep, in cells, that the fast path handles | `ParticleStateMixin` |
+| `kavora.entity.meshCache.maxEntries` | Pooled entity meshes kept for reuse | `KavoraEntitySubmitter` |
+| `kavora.dynamicTextureCache.maxEntries` | Entries in the dynamic texture cache that serves skins and glyph pages | `DynamicTextureCache` |
+| `kavora.directBufferPool.maxBytes` | Bytes of idle direct buffers kept pooled. 0 disables pooling | `DirectBufferPool` |
+| `kavora.waterRapids.spawnBudgetPerTick` | Foam and mist particles spawned per tick near fast water. 0 turns the effect off | `WaterRapidParticleSpawner` |
+| `kavora.particles.fastAirCollision` | Take a fast path through particle collision when every swept cell is air. Set to false to disable the fast path | `ParticleStateMixin` |
+| `kavora.particles.fastAirCollisionMaxBlocks` | Largest sweep, in cells, that the fast path handles | `ParticleStateMixin` |
 
 ## Profiling And Diagnostics
 
 | Key | Effect | Owner |
 |---|---|---|
-| `rtxremix.benchmark.jfrPath` | Names the JFR dump the benchmark flushes before it writes its result. A non-empty value also turns Java phase events on | `ProfileScope`, `BenchmarkController` |
-| `rtxremix.profile.javaPhases` | Enable Java phase events in JFR. A non-empty `jfrPath` forces them on | `ProfileScope` |
-| `rtxremix.profile.tracyJavaZones` | Mirror the same phases as Tracy zones; follows `javaPhases` unless explicitly set. Set to true for a Tracy-only session with no JFR recording | `ProfileScope` |
-| `rtxremix.profile.tracyJavaMaxDepth` | Nesting depth limit for those Tracy zones. -1 means unlimited | `ProfileScope` |
-| `rtxremix.profile.clientTasks` | Enable per-client-task JFR events; only read when Java phase events are on | `ProfileScope` |
-| `rtxremix.profile.clientTaskSlowThresholdNs` | A client task slower than this gets its own JFR event | `ProfileScope` |
-| `rtxremix.debug.entityTypeSummary` | Enable a periodic per-entity-type capture summary in the log. It costs a map probe per entity per frame and a sort and format pass on the render thread, so it is a diagnostic, not a setting | `RemixEntityPass` |
+| `kavora.benchmark.jfrPath` | Names the JFR dump the benchmark flushes before it writes its result. A non-empty value also turns Java phase events on | `ProfileScope`, `BenchmarkController` |
+| `kavora.profile.javaPhases` | Enable Java phase events in JFR. A non-empty `jfrPath` forces them on | `ProfileScope` |
+| `kavora.profile.tracyJavaZones` | Mirror the same phases as Tracy zones; follows `javaPhases` unless explicitly set. Set to true for a Tracy-only session with no JFR recording | `ProfileScope` |
+| `kavora.profile.tracyJavaMaxDepth` | Nesting depth limit for those Tracy zones. -1 means unlimited | `ProfileScope` |
+| `kavora.profile.clientTasks` | Enable per-client-task JFR events; only read when Java phase events are on | `ProfileScope` |
+| `kavora.profile.clientTaskSlowThresholdNs` | A client task slower than this gets its own JFR event | `ProfileScope` |
+| `kavora.debug.entityTypeSummary` | Enable a periodic per-entity-type capture summary in the log. It costs a map probe per entity per frame and a sort and format pass on the render thread, so it is a diagnostic, not a setting | `KavoraEntityPass` |
 
 Tracy zones only appear when the staged runtime was built with Tracy support.
 JFR works with any runtime.
@@ -282,10 +282,10 @@ clients the developer tools launch.
 | Property | Effect |
 |---|---|
 | `-Parch=win64` or `-Parch=arm64` | Build and package one architecture instead of both |
-| `-PrtxPreset=<low|medium|high|ultra>` | Sets `rtxremix.preset`, which fills editable visual settings for that session without changing DLSS or frame generation |
+| `-PrtxPreset=<low|medium|high|ultra>` | Sets `kavora.preset`, which fills editable visual settings for that session without changing DLSS or frame generation |
 | `-PmcQuickPlayServer=<host:port>` | Join a server on launch |
-| `-PbenchmarkJfrPath=<file.jfr>` | Starts a JFR recording, sets `rtxremix.benchmark.jfrPath`, and turns Java phases on |
-| `-PbenchmarkTracyJavaMaxDepth=<n>` | Sets `rtxremix.profile.tracyJavaMaxDepth`; only applies when a JFR path is given |
+| `-PbenchmarkJfrPath=<file.jfr>` | Starts a JFR recording, sets `kavora.benchmark.jfrPath`, and turns Java phases on |
+| `-PbenchmarkTracyJavaMaxDepth=<n>` | Sets `kavora.profile.tracyJavaMaxDepth`; only applies when a JFR path is given |
 | `-PbenchmarkJfrThrowables=true` | Adds exception and error throw events to that recording |
 | `-PbenchmarkQuickPlayWorld=<name>` | Loads a single-player world on launch |
 
@@ -295,8 +295,8 @@ short commit hash, and a dirty marker to it.
 ## JVM Arguments
 
 Use Java 25 and `--enable-native-access=ALL-UNNAMED`. Development Gradle arguments
-are in `rtx-remix-minecraft/build.gradle`; the optional Prism workflow reads
-`rtx-remix-minecraft/packaging/launcher-defaults.json`. Keep those two defaults
+are in `kavora/build.gradle`; the optional Prism workflow reads
+`kavora/packaging/launcher-defaults.json`. Keep those two defaults
 aligned. Benchmarks add profiling flags separately. Players choose their heap
 size in their own launcher; resource packs and view distance affect its needs.
 
@@ -309,17 +309,17 @@ There is no release installer and no automatic rewrite of a player's JVM options
 Paths are relative to the game directory, which is the checkout-specific Prism
 instance for a client the developer tools launch and the instance or profile
 directory for an installed client. Portable Prism keeps the former at
-`run-prism/instances/rtx-remix-dev/.minecraft`.
+`run-prism/instances/kavora-dev/.minecraft`.
 
 | Path | Owner | Access | Deleting it |
 |---|---|---|---|
-| `remix-sdk/` | mod | Validated source runtime, provenance, and separately built `rtxremix-support.dll`; replaced on full extraction | Missing runtime, support library, or provenance triggers full extraction even with a matching marker |
+| `kavora-runtime/` | mod | Validated source runtime, provenance, and separately built `kavora-support.dll`; replaced on full extraction | Missing runtime, support library, or provenance triggers full extraction even with a matching marker |
 | `rtx.conf` | mod | Replaced on full extraction; with a matching marker and runtime present, copied only if missing | Restored on the next launch |
-| `.rtx-remix-version` | mod | Marker recording the extracted version, architecture, and SHA-256 fingerprints of bundled runtime provenance and the support library | Forces full re-extraction of the runtime and `rtx.conf`, preserving existing files under `rtx-remix/` |
-| `remix-sdk.old-*/` | mod | Left behind when the previous runtime was locked at upgrade time | Safe, and cleaned up opportunistically |
+| `.kavora-version` | mod | Marker recording the extracted version, architecture, and SHA-256 fingerprints of bundled runtime provenance and the support library | Forces full re-extraction of the runtime and `rtx.conf`, preserving existing files under `rtx-remix/` |
+| `kavora-runtime.old-*/` | mod | Left behind when the previous runtime was locked at upgrade time | Safe, and cleaned up opportunistically |
 | `rtx-remix/mods/minecraft-logic/` | map or profile author | Missing shipped files are added on launch even with a matching marker; existing files, including edited confs, are never overwritten | A deleted shipped conf returns to its default on the next launch |
 | `textures/` | mod | The shipped runtime DDS textures, read by name and replaced on full extraction; other files there are left alone | Restored on the next launch even with a matching marker |
-| `config/rtxremix.json` | settings screen | Written when a settings screen closes, and deleted when nothing differs from the defaults | Resets every setting |
+| `config/kavora.json` | settings screen | Written when a settings screen closes, and deleted when nothing differs from the defaults | Resets every setting |
 | `camera-paths/<world-key>/` | you | Your recordings | Loses them, so keep this one |
 | `benchmark/` | benchmark harness | Trigger file, status heartbeat, results, and screenshots | Safe |
 | `saves/<world>/rtx-remix/confs/` | map author | Read when you join that world | Part of the map, not of the install |

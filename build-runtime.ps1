@@ -3,7 +3,7 @@ param(
     [switch]$Profiling
 )
 $ErrorActionPreference = 'Stop'
-$runtimeRoot = Join-Path $PSScriptRoot 'dxvk-remix'
+$runtimeRoot = Join-Path $PSScriptRoot 'kavora-runtime'
 $compilerPath = (Resolve-Path -LiteralPath $SlangCompiler).Path
 Push-Location $PSScriptRoot
 try {

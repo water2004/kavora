@@ -6,7 +6,7 @@ generation state. Preserve logs before another launch replaces them.
 
 ## Startup and world transitions
 
-The runtime is the custom Vulkan 1.5.0 API build under `dxvk-remix/`.
+The runtime is the custom Vulkan 1.5.0 API build under `kavora-runtime/`.
 An old DLL or missing dependent payload can fail before world capture starts.
 Check the extraction/provenance log and the earliest native error.
 
@@ -28,9 +28,9 @@ the runtime. A retained instance must be submitted after mutation.
 
 A recapture snapshots built sections before vanilla reload, clears native
 terrain, reloads vanilla terrain and explicitly queues the preceding built set.
-`RtxRemixMod.rebuildLoadedTerrain()` owns this sequence.
+`KavoraMod.rebuildLoadedTerrain()` owns this sequence.
 
-Remix Horizons observes delivered chunks only. Its metadata, read, mesh, expand,
+Kavora Horizon observes delivered chunks only. Its metadata, read, mesh, expand,
 upload and retire stages have separate counters. Check its bounded queues and
 committed near-coverage mask before changing distance or adding wait times.
 See [far terrain](FAR_TERRAIN.md).
@@ -59,7 +59,7 @@ state when comparing captures.
 Compare equal visual settings and camera poses. Whole-frame budgets matter;
 pass times can overlap or include children. Native-resolution performance,
 DLSS, frame generation and quality-tier tradeoffs are separate measurements.
-See [profiling tools](../rtx-remix-minecraft/tools/docs/PROFILING.md).
+See [profiling tools](../kavora/tools/docs/PROFILING.md).
 
 Intermediate image/readback probes are opt-in. Do not keep unconditional
 readbacks, extra synchronization or persistent CPU texture copies in normal

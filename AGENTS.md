@@ -2,10 +2,10 @@
 
 This repository contains four independently named components:
 
-- `rtx-remix-minecraft/`: Fabric 26.3 integration, Sodium capture and settings.
-- `dxvk-remix/`: native Vulkan runtime, custom Remix C API 1.5.0 and Slang.
-- `rtxremix-java/`: Minecraft-independent Java 25 FFM SDK and support DLL.
-- `remix-horizons/`: optional voxel far-terrain add-on.
+- `kavora/`: Fabric 26.3 integration, Sodium capture and settings.
+- `kavora-runtime/`: native Vulkan runtime, custom Remix C API 1.5.0 and Slang.
+- `kavora-sdk/`: Minecraft-independent Java 25 FFM SDK and support DLL.
+- `kavora-horizon/`: optional voxel far-terrain add-on.
 
 Read the nearest component guide and [CONTRIBUTING.md](CONTRIBUTING.md).
 Source and build definitions take precedence over prose. Shared guides live in
@@ -37,7 +37,7 @@ does not prove Vulkan sharing, presentation or image correctness.
 - Every retained mesh/buffer reference has one corresponding release.
 - Visual presets fill editable options; DLSS and frame generation are separate.
 - Keep Gradle JVM defaults and the development launcher's
-  `rtx-remix-minecraft/packaging/launcher-defaults.json` aligned.
+  `kavora/packaging/launcher-defaults.json` aligned.
 
 ## Licenses and local files
 

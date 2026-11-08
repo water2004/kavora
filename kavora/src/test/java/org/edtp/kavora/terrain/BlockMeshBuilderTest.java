@@ -1,0 +1,311 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.edtp.kavora.terrain;
+
+import org.edtp.kavora.sdk.HardcodedVertex;
+import org.edtp.kavora.sdk.MaterialInfo;
+import org.edtp.kavora.asset.KavoraMaterial;
+import org.edtp.kavora.asset.KavoraMesh;
+import org.edtp.kavora.asset.KavoraMeshSurface;
+import org.edtp.kavora.terrain.capture.SectionMeshData;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class BlockMeshBuilderTest {
+
+    private static final int QUAD_BYTES =
+            4 * HardcodedVertex.STORAGE_STRIDE + 6 * Integer.BYTES;
+
+    @Test
+    void canonicalIndexWriterRepeatsTheQuadPatternFromZero() {
+        ByteBuffer indices = ByteBuffer.allocateDirect(12 * 4).order(ByteOrder.LITTLE_ENDIAN);
+        BlockMeshBuilder.putCanonicalQuadIndices(indices, 8);
+
+        assertArrayEquals(new int[] {
+                0, 2, 1, 0, 3, 2,
+                4, 6, 5, 4, 7, 6
+        }, readInts(indices, 12));
+    }
+
+    @Test
+    void canonicalTerrainSurfaceSplitsAtQuadBoundaries() {
+        long pageCap = 2L * QUAD_BYTES;
+        BlockMeshBuilder builder = new BlockMeshBuilder(pageCap);
+        SectionMeshData meshData = meshData(canonicalSurface(
+                ChunkManager.CAT_SOLID, "solid", 5));
+
+        BlockMeshBuilder.MeshPage[] pages = builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, meshData)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            assertEquals(3, pages.length);
+            assertArrayEquals(new long[]{2L * QUAD_BYTES, 2L * QUAD_BYTES, QUAD_BYTES},
+                    pageBytes(pages));
+            for (BlockMeshBuilder.MeshPage page : pages) {
+                assertEquals(ChunkManager.CAT_SOLID, page.category());
+            }
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void pagesPackMaterialBucketsButNeverMixCategories() {
+        long pageCap = 2L * QUAD_BYTES;
+        BlockMeshBuilder builder = new BlockMeshBuilder(pageCap);
+        SectionMeshData meshData = meshData(
+                canonicalSurface(ChunkManager.CAT_SOLID, "solid", 1),
+                canonicalSurface(ChunkManager.CAT_SOLID, "solid_sss", 1),
+                canonicalSurface(ChunkManager.CAT_OVERLAY, "solid", 1));
+
+        BlockMeshBuilder.MeshPage[] pages = builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, meshData)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            assertEquals(2, pages.length);
+            assertEquals(ChunkManager.CAT_SOLID, pages[0].category());
+            assertEquals(2L * QUAD_BYTES, pages[0].estimatedNativeBytes());
+            assertEquals(ChunkManager.CAT_OVERLAY, pages[1].category());
+            assertEquals(QUAD_BYTES, pages[1].estimatedNativeBytes());
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void categoryMaskBuildsOnlySelectedCategories() {
+        BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
+        SectionMeshData meshData = meshData(
+                canonicalSurface(ChunkManager.CAT_SOLID, "solid", 1),
+                canonicalSurface(ChunkManager.CAT_OVERLAY, "solid", 1));
+
+        BlockMeshBuilder.MeshPage[] pages = builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, meshData)),
+                1 << ChunkManager.CAT_OVERLAY,
+                key -> testMaterial());
+        try {
+            assertEquals(1, pages.length);
+            assertEquals(ChunkManager.CAT_OVERLAY, pages[0].category());
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void categoryMaskRejectsUnknownBits() {
+        BlockMeshBuilder builder = new BlockMeshBuilder(QUAD_BYTES);
+
+        assertThrows(IllegalArgumentException.class, () -> builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, meshData())),
+                1 << ChunkManager.CAT_COUNT, key -> testMaterial()));
+    }
+
+    @Test
+    void surfaceWithoutCanonicalQuadIndicesFailsLoudly() {
+        BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
+        ByteBuffer vertices = ByteBuffer.allocate(4 * SectionMeshData.VERTEX_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        SectionMeshData ownIndices = meshData(new SectionMeshData.Surface(
+                ChunkManager.CAT_SOLID, "solid", vertices, 4, 6, false));
+
+        assertThrows(IllegalArgumentException.class, () -> builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, ownIndices)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial()));
+    }
+
+    @Test
+    void surfaceWhoseCountsContradictItsCanonicalFlagFailsLoudly() {
+        BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
+        ByteBuffer vertices = ByteBuffer.allocate(5 * SectionMeshData.VERTEX_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        SectionMeshData partialQuad = meshData(new SectionMeshData.Surface(
+                ChunkManager.CAT_SOLID, "solid", vertices, 5, 6, true));
+
+        assertThrows(IllegalArgumentException.class, () -> builder.buildColumnMesh(
+                0, 0, List.of(snapshot(0, 0, 0, partialQuad)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial()));
+    }
+
+    @Test
+    void splitPagesApplySectionOffsetWithinColumnAndRestartCanonicalIndices() throws Exception {
+        BlockMeshBuilder builder = new BlockMeshBuilder(QUAD_BYTES);
+        ByteBuffer vertices = ByteBuffer.allocate(3 * 4 * SectionMeshData.VERTEX_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (int quad = 0; quad < 3; quad++) {
+            for (int vertex = 0; vertex < 4; vertex++) {
+                int offset = (quad * 4 + vertex) * SectionMeshData.VERTEX_STRIDE;
+                vertices.putFloat(offset, quad);
+                vertices.putFloat(offset + 4, 2.0f);
+                vertices.putFloat(offset + 8, 3.0f);
+            }
+        }
+        SectionMeshData meshData = meshData(new SectionMeshData.Surface(
+                ChunkManager.CAT_SOLID, "solid", vertices, 12, 18, true));
+
+        BlockMeshBuilder.MeshPage[] pages = builder.buildColumnMesh(
+                1, -2, List.of(snapshot(1, 2, -2, meshData)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            assertEquals(3, pages.length);
+            for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+                KavoraMeshSurface surface = firstSurface(pages[pageIndex].mesh());
+                ByteBuffer pageVertices = surfaceBuffer(surface, "vertexData");
+                ByteBuffer pageIndices = surfaceBuffer(surface, "indexData");
+                assertEquals((float) pageIndex, pageVertices.getFloat(0));
+                assertEquals(34.0f, pageVertices.getFloat(4));
+                assertEquals(3.0f, pageVertices.getFloat(8));
+                assertArrayEquals(new int[]{0, 2, 1, 0, 3, 2}, readInts(pageIndices, 6));
+            }
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void compactSectionCopyPreservesEveryAttributeWithoutMutatingCapture() throws Exception {
+        ByteBuffer captured = ByteBuffer.allocate(4 * SectionMeshData.VERTEX_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer expected = ByteBuffer.allocate(4 * HardcodedVertex.STORAGE_STRIDE)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (int v = 0; v < 4; v++) {
+            int src = v * SectionMeshData.VERTEX_STRIDE;
+            int dst = v * HardcodedVertex.STORAGE_STRIDE;
+            captured.putFloat(src, v + .25f);
+            captured.putFloat(src + 4, v + .5f);
+            captured.putFloat(src + 8, v + .75f);
+            for (int word = 12; word < SectionMeshData.VERTEX_STRIDE; word += 4) {
+                captured.putInt(src + word, 0x9e3779b9 * (v * 11 + word));
+            }
+            expected.put(dst, captured, src, SectionMeshData.VERTEX_STRIDE);
+            expected.putFloat(dst + 4, captured.getFloat(src + 4) + 32);
+        }
+        byte[] original = captured.array().clone();
+        var data = meshData(new SectionMeshData.Surface(
+                ChunkManager.CAT_SOLID, "solid", captured, 4, 6, true));
+        var pages = new BlockMeshBuilder().buildColumnMesh(1, -2,
+                List.of(snapshot(1, 2, -2, data)), BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            ByteBuffer uploaded = surfaceBuffer(firstSurface(pages[0].mesh()), "vertexData");
+            byte[] actual = new byte[expected.capacity()];
+            uploaded.get(0, actual);
+            assertArrayEquals(expected.array(), actual);
+            assertArrayEquals(original, captured.array());
+            assertEquals(0, captured.position());
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void siblingSectionsShareColumnPagesWithIndependentVerticalOffsets() throws Exception {
+        BlockMeshBuilder builder = new BlockMeshBuilder(2L * QUAD_BYTES);
+        SectionMeshData lower = meshData(canonicalSurface(
+                ChunkManager.CAT_SOLID, "solid", 1));
+        SectionMeshData upper = meshData(canonicalSurface(
+                ChunkManager.CAT_SOLID, "solid", 1));
+
+        BlockMeshBuilder.MeshPage[] pages = builder.buildColumnMesh(
+                -3, 7,
+                List.of(snapshot(-3, -1, 7, lower), snapshot(-3, 2, 7, upper)),
+                BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial());
+        try {
+            assertEquals(1, pages.length);
+            KavoraMeshSurface surface = firstSurface(pages[0].mesh());
+            ByteBuffer vertices = surfaceBuffer(surface, "vertexData");
+            assertEquals(-16.0f, vertices.getFloat(4));
+            assertEquals(32.0f, vertices.getFloat(4 * HardcodedVertex.STORAGE_STRIDE + 4));
+        } finally {
+            dispose(pages);
+        }
+    }
+
+    @Test
+    void columnBuilderRejectsSnapshotFromAnotherColumn() {
+        BlockMeshBuilder builder = new BlockMeshBuilder(QUAD_BYTES);
+        TerrainState.SectionSnapshot foreign = snapshot(
+                2, 0, 3, meshData(canonicalSurface(ChunkManager.CAT_SOLID, "solid", 1)));
+
+        assertThrows(IllegalArgumentException.class, () -> builder.buildColumnMesh(
+                1, 3, List.of(foreign), BlockMeshBuilder.ALL_CATEGORY_MASK,
+                key -> testMaterial()));
+    }
+
+    private static SectionMeshData meshData(SectionMeshData.Surface... surfaces) {
+        return new SectionMeshData(List.of(surfaces));
+    }
+
+    private static TerrainState.SectionSnapshot snapshot(
+            int chunkX, int sectionY, int chunkZ, SectionMeshData meshData) {
+        return new TerrainState.SectionSnapshot(
+                chunkX * 16, sectionY * 16, chunkZ * 16, meshData);
+    }
+
+    private static SectionMeshData.Surface canonicalSurface(
+            int category, String bucket, int quadCount) {
+        int vertexCount = quadCount * 4;
+        return new SectionMeshData.Surface(
+                category,
+                bucket,
+                ByteBuffer.allocate(vertexCount * SectionMeshData.VERTEX_STRIDE)
+                        .order(ByteOrder.LITTLE_ENDIAN),
+                vertexCount,
+                quadCount * 6,
+                true);
+    }
+
+    private static KavoraMaterial testMaterial() {
+        return new KavoraMaterial((MaterialInfo) null);
+    }
+
+    private static long[] pageBytes(BlockMeshBuilder.MeshPage[] pages) {
+        long[] bytes = new long[pages.length];
+        for (int i = 0; i < pages.length; i++) bytes[i] = pages[i].estimatedNativeBytes();
+        return bytes;
+    }
+
+    private static void dispose(BlockMeshBuilder.MeshPage[] pages) {
+        for (BlockMeshBuilder.MeshPage page : pages) page.mesh().disposeData();
+    }
+
+    private static KavoraMeshSurface firstSurface(KavoraMesh mesh) throws Exception {
+        return meshSurfaces(mesh)[0];
+    }
+
+    private static KavoraMeshSurface[] meshSurfaces(KavoraMesh mesh) throws Exception {
+        Field surfaces = KavoraMesh.class.getDeclaredField("surfaces");
+        surfaces.setAccessible(true);
+        return (KavoraMeshSurface[]) surfaces.get(mesh);
+    }
+
+    private static ByteBuffer surfaceBuffer(KavoraMeshSurface surface, String name) throws Exception {
+        Field field = KavoraMeshSurface.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return ((ByteBuffer) field.get(surface)).duplicate().order(ByteOrder.LITTLE_ENDIAN);
+    }
+
+    private static int[] readInts(ByteBuffer buffer, int count) {
+        int[] values = new int[count];
+        ByteBuffer src = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+        for (int i = 0; i < count; i++) {
+            values[i] = src.getInt(i * 4);
+        }
+        return values;
+    }
+}

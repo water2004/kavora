@@ -1,0 +1,5 @@
+{
+  "sources": [
+    {"type": "minecraft:single", "resource": "kavora-client-tests:particle/alpha_probe", "sprite": "kavora-client-tests:alpha_probe"}
+  ]
+}

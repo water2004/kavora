@@ -1,7 +1,0 @@
-{
-  "required":true,
-  "package":"com.gbwater.rtxremix.horizons.mixin",
-  "compatibilityLevel":"JAVA_25",
-  "client":["ClientLevelMixin"],
-  "injectors":{"defaultRequire":1}
-}

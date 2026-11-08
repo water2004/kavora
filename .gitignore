@@ -25,10 +25,10 @@ logs/
 remappedSrc/
 .fabric/
 .loom/
-rtx-remix-minecraft/remix-runtime/
-rtx-remix-minecraft/packaging/textures/
-rtx-remix-minecraft/tools/results/
-rtx-remix-minecraft/tools/tracy-tools/
+kavora/runtime/
+kavora/packaging/textures/
+kavora/tools/results/
+kavora/tools/tracy-tools/
 
 # Editors and OS
 .idea/
@@ -45,5 +45,5 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
-rtx-remix-minecraft/tools/config.local.json
-rtx-remix-minecraft/tools/.env
+kavora/tools/config.local.json
+kavora/tools/.env

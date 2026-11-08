@@ -1,0 +1,85 @@
+plugins { id 'net.fabricmc.fabric-loom' version '1.17.21'; id 'java' }
+base { archivesName = 'kavora-horizon' }
+java { toolchain { languageVersion = JavaLanguageVersion.of(25) }; withSourcesJar() }
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
+}
+configurations { storage }
+dependencies {
+    minecraft 'com.mojang:minecraft:26.3'
+    implementation 'net.fabricmc:fabric-loader:0.20.1'
+    implementation 'net.fabricmc.fabric-api:fabric-api:0.165.0+26.3'
+    implementation('maven.modrinth:sodium:mc26.3-0.9.2-fabric') { transitive = false }
+    implementation project(':kavora-horizon:core')
+    storage 'org.rocksdb:rocksdbjni:10.2.1'
+    compileOnly project(':kavora')
+    compileOnly project(':kavora-sdk')
+    testImplementation project(':kavora')
+    testImplementation project(':kavora-sdk')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.12.2'
+    testRuntimeOnly 'org.lwjgl:lwjgl:3.4.3:natives-windows'
+}
+sourceSets {
+    main {
+        java { srcDir '../common/src/main/java'; include 'org/edtp/kavora/horizon/**' }
+        resources {
+            srcDir '../common/src/main/resources'
+            include 'fabric.mod.json', 'kavora-horizon.mixins.json', 'assets/kavora-horizon/**', 'LICENSE-APACHE-2.0.txt'
+        }
+    }
+    test { java { srcDir '../common/src/test/java'; include 'org/edtp/kavora/horizon/**' } }
+}
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand version:project.version }
+    from(rootProject.file('design/Kavora_Horizon_256.png')) {
+        into 'assets/kavora-horizon'
+        rename { 'icon.png' }
+    }
+}
+sourcesJar {
+    from project(':kavora-horizon:core').sourceSets.main.allSource
+    from(project(':kavora-horizon').file('LICENSE.txt'))
+    from(project(':kavora-horizon').file('LICENSE.LESSER.txt'))
+    from(project(':kavora-horizon').file('licenses')) { into 'licenses' }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+jar {
+    archiveFileName.set('Kavora-horizon.jar')
+    manifest.attributes('Implementation-Title': 'Kavora Horizon',
+            'Implementation-Version': project.version,
+            'Automatic-Module-Name': 'org.edtp.kavora.horizon')
+    dependsOn ':kavora-horizon:core:classes'
+    from project(':kavora-horizon:core').sourceSets.main.output
+    from { configurations.storage.collect { zipTree(it) } }
+    exclude '**/*.so', '**/*.dylib', '**/*.jnilib', 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'
+    from(project(':kavora-horizon').file('LICENSE.txt'))
+    from(project(':kavora-horizon').file('LICENSE.LESSER.txt'))
+    from(project(':kavora-horizon').file('licenses')) { into 'licenses' }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+test { useJUnitPlatform(); systemProperty 'kavora.directBufferPool.maxBytes','0' }
+tasks.register('verifyAddonArtifact') {
+    dependsOn jar
+    doLast {
+        new java.util.zip.ZipFile(tasks.jar.archiveFile.get().asFile).withCloseable { zip ->
+            zip.entries().each { entry ->
+                if (!entry.directory && (entry.name.startsWith('com/seibel/') || entry.name.contains('sqlite')
+                        || entry.name.startsWith('net/fabricmc/') || entry.name.startsWith('net/caffeinemc/')
+                        || (entry.name.startsWith('org/edtp/kavora/') && !entry.name.startsWith('org/edtp/kavora/horizon/'))
+                        || entry.name.endsWith('.jar')))
+                    throw new GradleException("Unexpected bundled dependency: ${entry.name}")
+            }
+            if (zip.getEntry('org/rocksdb/RocksDB.class') == null) throw new GradleException('Missing voxel storage backend')
+            if (zip.getEntry('assets/kavora-horizon/icon.png') == null) throw new GradleException('Missing Kavora Horizon icon')
+            project(':kavora-horizon').file('licenses').eachFile { license ->
+                if (license.isFile() && zip.getEntry("licenses/${license.name}") == null)
+                    throw new GradleException("Missing bundled license: ${license.name}")
+            }
+        }
+    }
+}
+check.dependsOn verifyAddonArtifact

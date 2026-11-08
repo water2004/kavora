@@ -6,10 +6,10 @@ adaptation notices. See [the license overview](LICENSES/README.md).
 
 ## Source ownership
 
-- Game state, Fabric, Sodium and visual settings: `rtx-remix-minecraft/`.
-- Rendering, synchronization, shaders and C API: `dxvk-remix/`.
-- Java FFM layouts, marshalling and support DLL: `rtxremix-java/`.
-- Optional observed-terrain storage and meshing: `remix-horizons/`.
+- Game state, Fabric, Sodium and visual settings: `kavora/`.
+- Rendering, synchronization, shaders and C API: `kavora-runtime/`.
+- Java FFM layouts, marshalling and support DLL: `kavora-sdk/`.
+- Optional observed-terrain storage and meshing: `kavora-horizon/`.
 
 API changes update both C headers, FFM layouts and descriptors, facade and
 callers together. A matching version label cannot establish ABI compatibility.

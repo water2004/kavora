@@ -1,0 +1,39 @@
+plugins { id 'java-library' }
+
+group = providers.gradleProperty('maven_group').get()
+version = providers.gradleProperty('mod_version').get()
+base { archivesName = 'kavora-sdk' }
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(25) }
+    withSourcesJar()
+}
+sourceSets.main.java.srcDirs = ['src']
+repositories { mavenCentral() }
+dependencies { api 'org.joml:joml:1.10.8' }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}
+['Win64': 'x64', 'Arm64': 'arm64'].each { suffix, target ->
+    def arch = target == 'x64' ? 'win64' : 'arm64'
+    tasks.register("compileNative${suffix}", Exec) {
+        group = 'build'
+        description = "Builds the Windows ${arch} crash/process support library."
+        workingDir file('native')
+        commandLine 'cmd', '/c', file('native/build_native.bat').absolutePath, target
+        inputs.files 'native/build_native.bat', 'native/crash_support.cpp'
+        outputs.files "build/native/${arch}/kavora-support.dll", "build/native/${arch}/kavora-support.pdb"
+    }
+}
+jar {
+    manifest.attributes('Implementation-Title': 'Kavora SDK',
+            'Implementation-Version': project.version,
+            'Automatic-Module-Name': 'org.edtp.kavora.sdk')
+    from('LICENSE') { into 'META-INF/licenses/kavora-sdk' }
+    from('native/include/remix_c.h') { into 'META-INF/licenses/kavora-sdk/api' }
+}
+sourcesJar {
+    from('LICENSE')
+    from('native') { into 'native'; exclude '**/*.obj', '**/*.dll', '**/*.pdb', '**/*.lib', '**/*.exp' }
+    from('ffm-test') { into 'ffm-test' }
+}

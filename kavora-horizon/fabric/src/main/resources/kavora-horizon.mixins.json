@@ -1,0 +1,7 @@
+{
+  "required":true,
+  "package":"org.edtp.kavora.horizon.mixin",
+  "compatibilityLevel":"JAVA_25",
+  "client":["ClientLevelMixin"],
+  "injectors":{"defaultRequire":1}
+}

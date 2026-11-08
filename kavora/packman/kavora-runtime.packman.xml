@@ -1,0 +1,8 @@
+<project toolsVersion="7.6">
+  <dependency name="kavora-runtime-win64" linkPath="../runtime/win64">
+    <package name="rtx_remix_runtime" version="minecraft-rtx2-71a581da-win64-release" />
+  </dependency>
+  <dependency name="kavora-runtime-arm64" linkPath="../runtime/arm64">
+    <package name="rtx_remix_runtime" version="minecraft-rtx2-71a581da-arm64-release" />
+  </dependency>
+</project>

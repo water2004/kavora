@@ -1,31 +1,36 @@
 plugins { id 'base' }
 
+allprojects {
+    group = providers.gradleProperty('maven_group').get()
+    version = providers.gradleProperty('mod_version').get()
+}
+
 tasks.named('build') {
-    dependsOn ':rtx-remix-minecraft:build', ':rtxremix-java:build', ':remix-horizons:build'
+    dependsOn ':kavora:build', ':kavora-sdk:build', ':kavora-horizon:build'
 }
 tasks.named('check') {
-    dependsOn ':rtx-remix-minecraft:check', ':rtxremix-java:check', ':remix-horizons:check'
+    dependsOn ':kavora:check', ':kavora-sdk:check', ':kavora-horizon:check'
 }
 tasks.register('test') {
     group = 'verification'
-    dependsOn ':rtx-remix-minecraft:test', ':remix-horizons:test'
+    dependsOn ':kavora:test', ':kavora-horizon:test'
 }
 tasks.register('package') {
     group = 'build'
-    description = 'Packages the Minecraft mod and the optional Remix Horizons add-on.'
-    dependsOn ':rtx-remix-minecraft:verifyPackageJar', ':remix-horizons:fabric:verifyRemixArtifact'
+    description = 'Packages the Minecraft mod and the optional Kavora Horizon add-on.'
+    dependsOn ':kavora:verifyPackageJar', ':kavora-horizon:fabric:verifyAddonArtifact'
 }
-tasks.register('release', Copy) {
+tasks.register('release', Sync) {
     group = 'distribution'
     description = 'Copies the verified installable JARs to dist/.'
-    dependsOn 'package', ':rtx-remix-minecraft:sourcesJar', ':rtxremix-java:sourcesJar',
-            ':rtxremix-java:jar', ':remix-horizons:fabric:sourcesJar'
-    from project(':rtx-remix-minecraft').layout.buildDirectory.file('distributions/RTX-Remix.jar')
-    from project(':remix-horizons:fabric').layout.buildDirectory.file('libs/Remix-Horizons.jar')
-    from({ project(':rtx-remix-minecraft').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'RTX-Remix-sources.jar' } }
-    from({ project(':rtxremix-java').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'rtxremix-java-sources.jar' } }
-    from({ project(':rtxremix-java').tasks.named('jar').get().archiveFile.get().asFile }) { rename { 'rtxremix-java.jar' } }
-    from({ project(':remix-horizons:fabric').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Remix-Horizons-sources.jar' } }
+    dependsOn 'package', ':kavora:sourcesJar', ':kavora-sdk:sourcesJar',
+            ':kavora-sdk:jar', ':kavora-horizon:fabric:sourcesJar'
+    from project(':kavora').layout.buildDirectory.file('distributions/Kavora.jar')
+    from project(':kavora-horizon:fabric').layout.buildDirectory.file('libs/Kavora-horizon.jar')
+    from({ project(':kavora').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-sources.jar' } }
+    from({ project(':kavora-sdk').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-sdk-sources.jar' } }
+    from({ project(':kavora-sdk').tasks.named('jar').get().archiveFile.get().asFile }) { rename { 'Kavora-sdk.jar' } }
+    from({ project(':kavora-horizon:fabric').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-horizon-sources.jar' } }
     into layout.projectDirectory.dir('dist')
     doLast {
         def digests = fileTree('dist').matching { include '*.jar' }.files.sort { it.name }.collect { archive ->

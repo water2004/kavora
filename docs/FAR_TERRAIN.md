@@ -1,12 +1,12 @@
 # Far Terrain
 
-The base renderer exposes the Fabric entrypoint `rtxremix:far_terrain` and the
-capability `rtxremix-far-terrain-v1`. It contains no far-terrain storage or mesher.
+The base renderer exposes the Fabric entrypoint `kavora:far_terrain` and the
+capability `kavora-far-terrain-v1`. It contains no far-terrain storage or mesher.
 One optional addon supplies `FarTerrainExtension.Factory`; multiple factories
 are rejected. Sodium and Fabric API remain independent dependencies.
 
-Remix Horizons lives in `remix-horizons/` in this repository and uses the mod ID
-`remix-horizons`. Its active pipeline is an independent sparse 3D voxel engine.
+Kavora Horizon lives in `kavora-horizon/` in this repository and uses the mod ID
+`kavora-horizon`. Its active pipeline is an independent sparse 3D voxel engine.
 The previous DH storage, column mesher, selection, platform layers and world
 generation code have been removed. Neither DH nor Voxy is supported alongside
 this addon. Voxy was studied as an architectural reference; its code is not
@@ -33,8 +33,8 @@ records share a read-only zero array and do not run face generation.
 Neighbourhood and child metadata reads use ordered database batches. Known
 absent sections are cached separately from an unqueried entry; a subsequent
 observation replaces the absent entry with the new immutable section.
-Single-player caches live below the save's `remix-horizons/` directory;
-multiplayer caches live below the game directory's `remix-horizons/servers/`.
+Single-player caches live below the save's `kavora-horizon/` directory;
+multiplayer caches live below the game directory's `kavora-horizon/servers/`.
 The `voxels-v1` format does not import old DH databases and leaves them untouched.
 No unexplored terrain is generated or requested.
 
@@ -78,7 +78,7 @@ resident so removing near coverage restores it in the same scene submission.
 Bounds include the runtime's coverage-position offset and float rounding.
 Partly covered pages still use per-hit clipping. This decision applies to all
 rays and does not discard geometry merely because the camera cannot see it.
-`-Drtxremix.horizons.disableCoveredPageCulling=true` disables the page-level
+`-Dkavora.horizons.disableCoveredPageCulling=true` disables the page-level
 optimization for image and timing comparisons. Diagnostics report submitted
 and covered page counts separately.
 
@@ -102,15 +102,15 @@ Build the base renderer with its matching source-built runtime first, then:
 
 ```powershell
 # From the monorepo root, using Java 25:
-.\gradlew.bat :remix-horizons:fabric:build
+.\gradlew.bat :kavora-horizon:fabric:build
 ```
 
-Install `remix-horizons/fabric/build/libs/Remix-Horizons.jar` alongside the matching
+Install `kavora-horizon/fabric/build/libs/Kavora-horizon.jar` alongside the matching
 renderer, Sodium 0.9.2 and Fabric API. The addon contains neither the main mod
 nor the Remix native runtime. Its sources JAR includes both the core and Fabric
 sources. The base renderer still needs the native path tracer and DLSS libraries.
 
-Sodium's Remix Horizons page exposes enabled state, distance in chunks,
+Sodium's Kavora Horizon page exposes enabled state, distance in chunks,
 projected node size in pixels, and a geometry payload budget. Smaller pixel
 values select finer geometry. The memory budget excludes runtime textures and
 acceleration structures. Lighting and DLSS remain in the base renderer's settings.
@@ -122,7 +122,7 @@ atomic parent/child replacement, face generation, texture coordinates, native
 buffer ownership and reservation accounting. Artifact checks reject DH classes,
 SQLite, and embedded Sodium/Fabric/main-mod JARs.
 
-The [client GameTest](../rtx-remix-minecraft/src/gametest/README.md) checks continuous movement,
+The [client GameTest](../kavora/src/gametest/README.md) checks continuous movement,
 retained distant coverage, whole-view refinement and world exit/rejoin. It also
 captures diagnostic images and optional JFR recordings. A successful assertion
 is not an image-quality or performance baseline: inspect the screenshots and

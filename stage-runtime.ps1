@@ -1,4 +1,4 @@
-param([string]$Source = (Join-Path $PSScriptRoot 'dxvk-remix/_output'))
+param([string]$Source = (Join-Path $PSScriptRoot 'kavora-runtime/_output'))
 $ErrorActionPreference = 'Stop'
 $sourceRoot = (Resolve-Path -LiteralPath $Source).Path
 $metadata = Join-Path $sourceRoot '.runtime-provenance.json'
@@ -21,7 +21,7 @@ try {
         throw 'The runtime must be a Windows x64 PE executable.'
     }
 } finally { $stream.Dispose() }
-$stagingRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'rtx-remix-minecraft/remix-runtime'))
+$stagingRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'kavora/runtime'))
 $targetRoot = Join-Path $stagingRoot 'win64'
 if ($sourceRoot -eq $targetRoot -or $sourceRoot.StartsWith($targetRoot + [IO.Path]::DirectorySeparatorChar)) {
     throw 'The runtime output must be outside its staging destination.'

@@ -20,35 +20,35 @@
 # DEALINGS IN THE SOFTWARE.
 #############################################################################
 
-[submodule "dxvk-remix/include/vulkan"]
-	path = dxvk-remix/include/vulkan
+[submodule "kavora-runtime/include/vulkan"]
+	path = kavora-runtime/include/vulkan
 	url = https://github.com/KhronosGroup/Vulkan-Headers
-[submodule "dxvk-remix/submodules/rtxdi"]
-	path = dxvk-remix/submodules/rtxdi
+[submodule "kavora-runtime/submodules/rtxdi"]
+	path = kavora-runtime/submodules/rtxdi
 	url = https://github.com/NVIDIA-RTX/RTXDI.git
 	branch = remix
-[submodule "dxvk-remix/submodules/rtxcr"]
-	path = dxvk-remix/submodules/rtxcr
+[submodule "kavora-runtime/submodules/rtxcr"]
+	path = kavora-runtime/submodules/rtxcr
 	url = https://github.com/NVIDIA-RTX/RTXCR-Material-Library.git
-[submodule "dxvk-remix/submodules/nrc"]
-	path = dxvk-remix/submodules/nrc
+[submodule "kavora-runtime/submodules/nrc"]
+	path = kavora-runtime/submodules/nrc
 	url = https://github.com/NVIDIAGameWorks/Neural-Radiance-Cache.git
-[submodule "dxvk-remix/submodules/nvapi/nvapi"]
-	path = dxvk-remix/submodules/nvapi
+[submodule "kavora-runtime/submodules/nvapi/nvapi"]
+	path = kavora-runtime/submodules/nvapi
 	url = https://github.com/NVIDIA/nvapi.git
-[submodule "dxvk-remix/submodules/Detours"]
-	path = dxvk-remix/submodules/Detours
+[submodule "kavora-runtime/submodules/Detours"]
+	path = kavora-runtime/submodules/Detours
 	url = https://github.com/microsoft/Detours.git
-[submodule "dxvk-remix/submodules/xess"]
-	path = dxvk-remix/submodules/xess
+[submodule "kavora-runtime/submodules/xess"]
+	path = kavora-runtime/submodules/xess
 	url = https://github.com/intel/xess.git
 	shallow = false
-[submodule "dxvk-remix/include/MathLib/External/sse2neon"]
-	path = dxvk-remix/include/MathLib/External/sse2neon
+[submodule "kavora-runtime/include/MathLib/External/sse2neon"]
+	path = kavora-runtime/include/MathLib/External/sse2neon
 	url = https://github.com/DLTcollab/sse2neon.git
-[submodule "dxvk-remix/submodules/dlss"]
-	path = dxvk-remix/submodules/dlss
+[submodule "kavora-runtime/submodules/dlss"]
+	path = kavora-runtime/submodules/dlss
 	url = https://github.com/NVIDIA/DLSS.git
-[submodule "dxvk-remix/submodules/sharc"]
-	path = dxvk-remix/submodules/sharc
+[submodule "kavora-runtime/submodules/sharc"]
+	path = kavora-runtime/submodules/sharc
 	url = https://github.com/NVIDIAGameWorks/Spatial-Hash-Radiance-Cache.git

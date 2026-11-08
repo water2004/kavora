@@ -1,0 +1,9 @@
+plugins { id 'base' }
+subprojects {
+    group = providers.gradleProperty('maven_group').get()
+    version = providers.gradleProperty('mod_version').get()
+}
+tasks.named('build') { dependsOn ':kavora-horizon:core:build', ':kavora-horizon:fabric:build' }
+tasks.register('test') { dependsOn ':kavora-horizon:core:test', ':kavora-horizon:fabric:test' }
+
+tasks.named('check') { dependsOn ':kavora-horizon:core:check', ':kavora-horizon:fabric:check' }

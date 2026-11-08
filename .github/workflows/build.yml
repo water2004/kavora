@@ -24,4 +24,4 @@ jobs:
           java-version: "25"
       # These projects do not require a staged native runtime or a GPU.
       - name: Build Java SDK and check voxel core
-        run: '& "$env:GITHUB_WORKSPACE\gradlew.bat" :rtxremix-java:build :remix-horizons:core:build --no-daemon'
+        run: '& "$env:GITHUB_WORKSPACE\gradlew.bat" :kavora-sdk:build :kavora-horizon:core:build --no-daemon'

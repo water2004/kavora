@@ -188,8 +188,8 @@ warning in `logs/latest.log` naming the pack and the reason, such as
 ### Replacing a built-in rule
 
 The built-in rules are generated in Java by `BlockLightDefaults`, with
-identifiers under the `rtxremix` namespace, such as
-`rtxremix:rtx_remix/block_lights/torch.json`. Ship a file at the same path and
+identifiers under the `kavora` namespace, such as
+`kavora:rtx_remix/block_lights/torch.json`. Ship a file at the same path and
 it replaces the built-in rule completely. There are no shipped JSON files to
 copy.
 
@@ -210,7 +210,7 @@ pack list wins.
 ### Three examples
 
 Recolour the torch, keeping its shape and brightness, at
-`assets/rtxremix/rtx_remix/block_lights/torch.json`:
+`assets/kavora/rtx_remix/block_lights/torch.json`:
 
 ```json
 {
@@ -305,7 +305,7 @@ Two things worth knowing:
 ## Entities And Runtime Atlases
 
 Entity textures take the same three sidecars, beside the texture under
-`textures/entity/`. `RemixEntitySubmitter` reads `_n`, `_s`, and `_sss` for
+`textures/entity/`. `KavoraEntitySubmitter` reads `_n`, `_s`, and `_sss` for
 each, and entity surfaces emit at an intensity of 100.
 
 The atlases Minecraft stitches at runtime, for banner patterns, shield
@@ -319,7 +319,7 @@ their own.
 ## Sky And Weather
 
 The sun uses Minecraft 26.3's `minecraft:textures/environment/celestial/sun.png`.
-The moon uses `rtx-remix-renderer:textures/environment/moon_rgbh.png`, a 2048 by
+The moon uses `kavora:textures/environment/moon_rgbh.png`, a 2048 by
 1024 lunar map supplied through Caustica-Horizon from NASA's CGI Moon Kit.
 RGB stores lunar color and alpha stores elevation, not transparency. The
 Vulkan dome compositor applies spherical projection, phase lighting and relief
@@ -360,5 +360,5 @@ weather renderer.
 | You want to | Read |
 |---|---|
 | Understand every control in the settings screen | [Settings](SETTINGS.md) |
-| Give your own map its own lighting | [Gameplay-driven profiles](../rtx-remix-minecraft/packaging/rtx-remix/mods/minecraft-logic/README.md) |
+| Give your own map its own lighting | [Gameplay-driven profiles](../kavora/packaging/rtx-remix/mods/minecraft-logic/README.md) |
 | Look up a command or a key | [In-Game Guide](IN_GAME_GUIDE.md) |

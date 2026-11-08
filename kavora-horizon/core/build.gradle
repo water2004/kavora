@@ -1,0 +1,11 @@
+plugins { id 'java-library' }
+base { archivesName = 'kavora-horizon-core' }
+java { toolchain { languageVersion = JavaLanguageVersion.of(25) } }
+repositories { mavenCentral() }
+dependencies {
+    api 'org.rocksdb:rocksdbjni:10.2.1'
+    implementation 'it.unimi.dsi:fastutil:8.5.18'
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.12.2'
+}
+test { useJUnitPlatform() }

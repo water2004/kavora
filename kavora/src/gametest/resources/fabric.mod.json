@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "kavora-client-tests",
+  "version": "1.0.0",
+  "name": "Kavora Client GameTests",
+  "environment": "client",
+  "mixins": ["kavora-gametest.mixins.json"],
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "org.edtp.kavora.gametest.KavoraWorldGameTest",
+      "org.edtp.kavora.gametest.KavoraVolumetricCloudGameTest",
+      "org.edtp.kavora.gametest.KavoraMaterialSceneGameTest",
+      "org.edtp.kavora.gametest.KavoraDimensionGameTest",
+      "org.edtp.kavora.gametest.KavoraParticleGameTest"
+    ]
+  },
+  "depends": {
+    "kavora": "*",
+    "fabric-client-gametest-api-v1": "*"
+  }
+}

@@ -1,0 +1,26 @@
+Caustica-Horizon End environment
+===============================
+
+Copyright (c) 2026 ComfyFluffy and contributors.
+Caustica-Horizon is maintained by Ruiwen68 (West68).
+
+Source: https://github.com/West68/Caustica-Horizon
+Revision: ea3dc4bf67fc3bfce1860dbb025c71626b26e983
+File: shaders/world/end_environment.slang
+License: LGPL-3.0-or-later, with COPYING and COPYING.LESSER from that revision.
+
+The directional planet, rings, accretion flow and stellar environment are
+adapted into the current renderer's Vulkan dome compositor. Background
+generation is cached, and the composed environment supplies camera,
+reflection, refraction and illumination rays. Animation uses the host world
+clock. The reference's procedural noise is used without external textures.
+Its separate display-fog pass and renderer framework are not incorporated.
+
+Modified shader source:
+  kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/caustica_end.slangh
+  kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/generate_end_background.comp.slang
+
+These shader sources remain LGPL-3.0-or-later. The modified native runtime and build instructions are included in this
+repository under kavora-runtime/ and docs/GETTING_STARTED.md.
+No ITRP or SEUS source files, noise textures or other proprietary shader-pack
+assets are bundled by this integration.

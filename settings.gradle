@@ -14,6 +14,6 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'RTX-Remix-for-Minecraft'
-include 'rtx-remix-minecraft', 'rtxremix-java', 'remix-horizons'
-include 'remix-horizons:core', 'remix-horizons:fabric'
+rootProject.name = 'Kavora'
+include 'kavora', 'kavora-sdk', 'kavora-horizon'
+include 'kavora-horizon:core', 'kavora-horizon:fabric'

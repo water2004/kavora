@@ -7,13 +7,13 @@ body:
       value: |
         **The mod or RTX Remix?** This form is for the mod: something in the
         world missing, extra, misplaced, or with the wrong material or light,
-        the sky, water, or weather, the RTX Remix Settings screen, `/rtx`
+        the sky, water, or weather, the RTX Remix Settings screen, `/kavora`
         commands and keys, lighting profiles, the installer, and crashes.
         Denoiser, DLSS, or frame-generation artifacts, Remix's own menus
         (Alt+X and RTX Remix Graphics Settings), and anything that also
         happens in another RTX Remix game go to the
         [RTX Remix runtime tracker](https://github.com/NVIDIAGameWorks/rtx-remix/issues/new?template=runtime_bug_report.yml).
-        There, say you are playing RTX Remix for Minecraft and give the
+        There, say you are playing Kavora and give the
         `DXVK_Remix:` line from the top of `rtx-remix\logs\remix-dxvk.log` as
         the version. Not sure which it is? File it here, and we will move it.
 
@@ -37,7 +37,7 @@ body:
         Include the world, the place, the time of day, and the weather when
         they matter.
       placeholder: |
-        1. Launch the NVIDIA RTX Remix for Minecraft profile
+        1. Launch the NVIDIA RTX Remix profile
         2. ...
     validations:
       required: true
@@ -49,7 +49,7 @@ body:
       description: >-
         The full file name from the mods folder in your game directory. It
         carries the version and the build, and identifies the exact code.
-      placeholder: rtx-remix-renderer-0.1.0-<stamp>-<hash>.jar
+      placeholder: kavora-0.1.0-<stamp>-<hash>.jar
     validations:
       required: true
 
@@ -124,7 +124,7 @@ body:
   - type: textarea
     id: rtx-status
     attributes:
-      label: Output of /rtx status
+      label: Output of /kavora status
       description: Type it in chat and copy the lines out of the chat window.
       render: text
     validations:
@@ -156,7 +156,7 @@ body:
       label: Screenshots and an RTX on and off pair
       description: >-
         For a visual bug, attach two screenshots taken from the same position:
-        one as you found it, then one after `/rtx off`. The pair shows whether
+        one as you found it, then one after `/kavora off`. The pair shows whether
         the fault is in the world or in the path tracer.
     validations:
       required: false

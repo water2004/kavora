@@ -71,7 +71,7 @@ and relief shadows but approximates heightfield overlap and grazing angles.
 Its iteration control still sets the relief-shadow budget. Every value remains editable.
 These tiers are visual tradeoffs, not same-quality performance improvements.
 
-`/rtx preset <low|medium|high|ultra>` fills the same visual options for the current
+`/kavora preset <low|medium|high|ultra>` fills the same visual options for the current
 session. The developer launch preset uses the same path. Neither saves until
 the player saves settings from the menu.
 
@@ -240,7 +240,7 @@ Sodium's reset controls stage defaults; **Apply** commits them. Shader settings
 reset a folder, a category, or all visual settings, leaving performance
 settings alone. Their resets remain pending until Apply, including Block Lights.
 
-Visual settings use `config/rtxremix.json` format version 3. Earlier development
+Visual settings use `config/kavora.json` format version 3. Earlier development
 formats are not migrated. Preset-owned values and the source tier are saved;
 other visual controls are saved only when overridden, so unedited defaults
 remain available to world and biome profiles.
@@ -260,7 +260,7 @@ one in this list wins.
 it, the gameplay profiles fade in and out with the time of day, the weather,
 whether you are underwater, and which biome or authored zone you are standing
 in. This is the layer a map author writes, and it is described in
-[Gameplay-driven profiles](../rtx-remix-minecraft/packaging/rtx-remix/mods/minecraft-logic/README.md).
+[Gameplay-driven profiles](../kavora/packaging/rtx-remix/mods/minecraft-logic/README.md).
 
 **This settings screen.** Mod-owned controls drive the mod directly. Native
 effect controls write a user override: moving a control, or loading a saved
@@ -281,8 +281,8 @@ The developer menu's Option Layers view names the owner of any option.
 
 ## The Settings File
 
-Visual values and quality-profile provenance live in `config/rtxremix.json`.
-DLSS, Ray Reconstruction and frame generation live in `config/rtxremix-video.json`.
+Visual values and quality-profile provenance live in `config/kavora.json`.
+DLSS, Ray Reconstruction and frame generation live in `config/kavora-video.json`.
 Both interfaces save their respective files on Apply, including Block Lights.
 
 The visual file retains the profile's values, including explicit defaults,
@@ -303,11 +303,11 @@ their ranges. Delete the corresponding file to clear those saved overrides.
 
 The registry is built after `initializeRemix()` because its getters and
 appliers bind to the live renderer managers. A renderer reinitialization path
-must rebuild those bindings. `RtxSettingsFactory` defines controls,
-`RtxSodiumConfig` registers the public Sodium config API bindings. Its storage
+must rebuild those bindings. `KavoraSettingsFactory` defines controls,
+`KavoraSodiumConfig` registers the public Sodium config API bindings. Its storage
 handlers commit native overrides and terrain material changes after all changed
-bindings have been applied. `RtxSettingsSession` stages visual edits without
-calling their appliers. `RtxSettingsScreen` commits the session and performs
+bindings have been applied. `KavoraSettingsSession` stages visual edits without
+calling their appliers. `KavoraSettingsScreen` commits the session and performs
 any required terrain recapture once per Apply transaction.
 
 Ordinary `SimpleOption` sliders apply live, but their change-consumer runs only
@@ -318,7 +318,7 @@ the API has no clear operation.
 
 ### Settings Backed By A Remix Option
 
-`RtxSettingsFactory.remixBool` binds a boolean Remix option, such as Smooth
+`KavoraSettingsFactory.remixBool` binds a boolean Remix option, such as Smooth
 Relief Maps, without a default authored in Java. It reads the option once
 through `GetConfigVariableResolved` while the registry is built, before the
 settings file loads, so the default is whatever `rtx.conf` and Remix's own
@@ -344,7 +344,7 @@ the 98 px footer buttons have 94 px. Overflow scrolls as a marquee through
 catches an arbitrary clipped label or value.
 
 When adding a control, register its widest value in `SettingsRowWidthTest` and
-add its label and tooltip in `assets/rtx-remix-renderer/lang/en_us.json`.
+add its label and tooltip in `assets/kavora/lang/en_us.json`.
 The test measures real default-font advances. Keep values short and shorten
 labels before values; an overflowing existing label is not a precedent.
 
@@ -357,7 +357,7 @@ Open a fresh screen instance, as the settings reset paths do.
 | You want to | Read |
 |---|---|
 | Look up a command or a key | [In-Game Guide](IN_GAME_GUIDE.md) |
-| Give your own map its own lighting | [Gameplay-driven profiles](../rtx-remix-minecraft/packaging/rtx-remix/mods/minecraft-logic/README.md) |
+| Give your own map its own lighting | [Gameplay-driven profiles](../kavora/packaging/rtx-remix/mods/minecraft-logic/README.md) |
 | Make a texture pack this renderer understands | [Resource Packs](RESOURCE_PACKS.md) |
 | Record a camera flythrough | [Camera Paths](CAMERA_PATHS.md) |
 | Install, repair, or uninstall | [Playing](PLAYING.md) |

@@ -6,13 +6,13 @@ configurations.
 
 ## Quick Start
 
-All `/rtx camera` commands are typed in chat, are client-side, and do not need
+All `/kavora camera` commands are typed in chat, are client-side, and do not need
 cheats. They need the renderer to be running.
 
 1. Arm a named recording:
 
    ```text
-   /rtx camera record flythrough
+   /kavora camera record flythrough
    ```
 
 2. Press `R` to start. Sending the command closes chat, and `R` is ignored
@@ -21,7 +21,7 @@ cheats. They need the renderer to be running.
 4. Play it back:
 
    ```text
-   /rtx camera play flythrough
+   /kavora camera play flythrough
    ```
 
 The `record` command only arms the shortcut. Timing starts on the first `R`.
@@ -31,10 +31,10 @@ The `record` command only arms the shortcut. Timing starts on the first `R`.
 The [In-Game Guide](IN_GAME_GUIDE.md#camera-paths) lists the commands.
 Seeking in a loaded path keeps its playing or paused state unless the seek
 reaches the end, which finishes playback. Seeking by name loads a path and
-stands at that point without playing. `/rtx camera stop` stops playback or
+stands at that point without playing. `/kavora camera stop` stops playback or
 cancels an unsaved recording; cancellation never saves it.
 
-`/rtx camera time` changes the world's time of day. It has nothing to do with
+`/kavora camera time` changes the world's time of day. It has nothing to do with
 the `time` playback clock, which is the argument to `play`.
 
 While a recording is running and no screen is open, `=` moves the time of day
@@ -50,7 +50,7 @@ benchmark first.
 Playback moves the player, so fly the route in creative or spectator mode
 rather than in survival.
 
-Set the time of day before you record, with `/rtx camera time noon` or one of
+Set the time of day before you record, with `/kavora camera time noon` or one of
 its siblings. Time is stored per waypoint, so scrubbing it with `=` and `-`
 while recording is part of the shot: playback interpolates between the times
 you passed through, taking the shorter way around the day.
@@ -74,7 +74,7 @@ half. Use it to compare two rendering configurations, because every run sees
 the same ordered camera poses no matter how fast the machine is. Benchmarks
 replay the same files on the same fixed 60 Hz schedule.
 
-Use `/rtx camera status` to compare render-frame time with camera advance and
+Use `/kavora camera status` to compare render-frame time with camera advance and
 see any outstanding smoothing lag. A gap in `time` mode is stall smoothing;
 `fixed-60` keeps its fixed schedule.
 
@@ -154,9 +154,9 @@ of the same name, so refreshing the staged set never deletes your work.
 
 A camera path is a route. A still shot is one pose kept for a picture, and it
 carries what a waypoint cannot: the weather, whether path tracing is on, and
-which cloud style is showing. Mark one with `/rtx shot mark <name>` from the
-pose you want, list the set with `/rtx shot`, and drop one with
-`/rtx shot remove <name>`. Every mark is saved the moment it is made; there is
+which cloud style is showing. Mark one with `/kavora shot mark <name>` from the
+pose you want, list the set with `/kavora shot`, and drop one with
+`/kavora shot remove <name>`. Every mark is saved the moment it is made; there is
 nothing to arm or stop.
 
 Shots live beside the camera paths of the same world as `docs.shots.json`, a
@@ -171,9 +171,9 @@ current.
 ## Troubleshooting
 
 - **Pressing `R` types in chat or does something else:** close the screen and
-  run `/rtx camera record <name>` first. Plain `R` is only intercepted while a
+  run `/kavora camera record <name>` first. Plain `R` is only intercepted while a
   recording is armed or running.
-- **A path is reported as missing:** check `/rtx camera status` and the world
+- **A path is reported as missing:** check `/kavora camera status` and the world
   it was recorded in. Recordings do not cross worlds.
 - **A JSON file is rejected:** confirm it is version 1, starts at
   `timeMs: 0`, has strictly increasing timestamps, and has no unknown fields. A
@@ -181,7 +181,7 @@ current.
 - **Playback does not advance while paused:** that is intended. A game pause is
   not playback time on either clock.
 - **Playback briefly runs faster after a hitch on the `time` clock:** it repays
-  the time the hitch cost at a capped rate, and `/rtx camera status` shows the
+  the time the hitch cost at a capped rate, and `/kavora camera status` shows the
   outstanding lag. Long gaps are treated as renderer suspension instead, so
   the camera does not skip forward.
 - **`fixed-60` playback is too fast or too slow:** expected unless the renderer

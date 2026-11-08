@@ -1,0 +1,12 @@
+{
+  "kavora.horizon.video.terrain": "Far terrain",
+  "kavora.horizon.video.enabled": "Far terrain",
+  "kavora.horizon.video.enabled.tip": "Retain and render observed terrain beyond the normal view distance.",
+  "kavora.horizon.video.distance": "View distance",
+  "kavora.horizon.video.distance.tip": "Maximum radius of cached terrain. Unvisited terrain is never generated.",
+  "kavora.horizon.video.chunks": "%s chunks",
+  "kavora.horizon.video.pixels": "Section size on screen",
+  "kavora.horizon.video.pixels.tip": "Smaller values retain finer detail. Uses actual screen size and field of view.",
+  "kavora.horizon.video.memory": "Geometry budget",
+  "kavora.horizon.video.memory.tip": "Memory budget for far terrain mesh data. Ray tracing structures require additional GPU memory."
+}
