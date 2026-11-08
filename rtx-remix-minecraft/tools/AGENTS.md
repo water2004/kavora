@@ -213,7 +213,7 @@ benchmark SDK staging, and both target architectures.
 
 ## JVM Argument Copies
 
-`../docs/TUNING.md` documents the unconditional tuning arguments: the initial
+`../../docs/TUNING.md` documents the unconditional tuning arguments: the initial
 `vmArgs` in the `client` run configuration of `build.gradle` and
 `RECOMMENDED_JVM_ARGS` in `packaging/launcher-defaults.json`. Keep those two copies in sync.
 

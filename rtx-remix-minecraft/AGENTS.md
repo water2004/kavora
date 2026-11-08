@@ -80,8 +80,7 @@ SHA-256 hashes of the bundled provenance and support library, so a runtime
 rebuilt under the same mod version is installed too. Deleting
 `.rtx-remix-version` also forces full re-extraction. Full extraction replaces
 the mod-owned `remix-sdk/`, `rtx.conf`, and the shipped runtime textures in
-`textures/`, leaving anything else in that folder alone, so a JAR installed
-without the release installer is complete. With a matching marker and runtime
+`textures/`, leaving anything else in that folder alone, so a JAR installed directly is complete. With a matching marker and runtime
 present, launch restores a missing `rtx.conf`, a missing runtime texture, and
 any missing shipped files under `rtx-remix/` without replacing existing files. The `rtx-remix/` payload
 is author-owned: existing files, including edited confs, are never overwritten,
@@ -90,8 +89,7 @@ the next launch. A present conf that fails to acquire still prevents renderer
 initialization; the error identifies the file.
 
 Baseline LabPBR textures live in `src/main/resources/assets/` and load through
-Fabric's `fabric` resource pack below user packs. Development setup, `rtx install`,
-and the release installer use `packaging/migrate_resource_packs.ps1` to remove
+Fabric's `fabric` resource pack below user packs. Development setup and `rtx install` use `packaging/migrate_resource_packs.ps1` to remove
 their exactly identified legacy baseline copies and migrate existing pack order.
 
 ## Architecture
@@ -352,7 +350,7 @@ diluting the sampler's candidate pool.
   Avoid per-block/per-quad capture allocation and per-frame render allocation.
 - Terrain capture has one path; the pre-`SectionMeshData` paths are gone
   (`SodiumMeshingTaskMixin`, `SodiumCapture`). There is no optional vanilla
-  capture fallback; both graphics backends require Sodium.
+  capture fallback; the Vulkan renderer requires Sodium.
 - Every retained `SectionMeshData` or render-region reference is released
   exactly once: `SectionMeshData` rejects an over-release, `DirectBufferPool`
   ignores a buffer that is already idle, and `RenderRegionStoragePool` relies
@@ -449,7 +447,7 @@ The SDK subproject compiles Java with Java 25 and builds
 `rtxremix-support.dll` into `../rtxremix-java/build/native/{win64|arm64}/` using MSVC. It does
 not compile a JNI bridge or require `jni.h`. The JVM needs
 `--enable-native-access=ALL-UNNAMED`. Keep that argument in both Gradle and
-installer defaults, along with their history contract.
+the development launcher defaults in `packaging/launcher-defaults.json`.
 
 Runtime outputs live in `remix-runtime/{win64|arm64}/`. A staged source build
 must include `d3d9.dll`, dependent runtime DLLs, USD payload, and
