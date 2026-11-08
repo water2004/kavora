@@ -1,0 +1,176 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/algorithm/volume_integrator_helpers.slangh"
+#include "rtx/algorithm/lighting.slangh"
+#include "rtx/algorithm/rtxdi/rtxdi.slangh"
+#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/clouds.slangh"
+
+float3 volumeLightAttenuation(Ray ray)
+{
+  // Visibility already includes cloud extinction along this light path.
+  return calcVolumetricAttenuation(cb.volumeArgs, none, false, ray.tMax, ray.origin, ray.direction);
+}
+
+float volumeSkyRadicalInverse(uint index, uint base)
+{
+  float digitWeight = 1.0f / float(base);
+  float value = 0;
+  while (index > 0)
+  {
+    value += float(index % base) * digitWeight;
+    index /= base;
+    digitWeight /= float(base);
+  }
+  return value;
+}
+
+float3 sampleVolumeSkyDirection(uint3 cell, out float pdf)
+{
+  pdf = getUniformSphereSolidAnglePdf();
+  // The [1, 2, 1] reconstruction gives every 2x2x2 cell phase equal weight.
+  // Quarter-turn strata and antipodal pairs preserve a constant sky's SH moments.
+  uint sampleIndex = cb.frameIdx + 1;
+  float2 sample = float2(volumeSkyRadicalInverse(sampleIndex, 2), volumeSkyRadicalInverse(sampleIndex, 3));
+  sample.x = frac(sample.x + float((cell.x & 1) + 2 * (cell.z & 1)) * 0.25f);
+  sample.y = lerp(sample.y, 1.0f - sample.y, float(cell.y & 1));
+  return calcUniformSphereDirectionSample(sample, pdf);
+}
+
+bool sampleVolumeReservoir(inout RAB_RandomSamplerState random, uint volumeIndex,
+  RAB_VolumeInteraction receiver, out RAB_LightSample sample, out float inversePdf)
+{
+  VolumeDefinitionCamera camera = cb.volumeArgs.restirCameras[volumeIndex];
+  float3 uvw = translatedWorldPositionToFroxelUVW(camera.translatedWorldToView,
+    camera.translatedWorldToProjectionJittered, packedFlagGet(camera.flags, rightHandedFlag),
+    cb.volumeArgs.restirFroxelDepthSlices, cb.volumeArgs.froxelDepthSliceDistributionExponent,
+    cb.volumeArgs.froxelMaxDistance, camera.nearPlane, worldToTranslatedWorld(camera, receiver.volumeInteraction.position));
+  int3 dimensions = int3(cb.volumeArgs.restirFroxelGridDimensions, cb.volumeArgs.restirFroxelDepthSlices);
+  float3 jitter = float3(RAB_GetNextRandom(random), RAB_GetNextRandom(random), RAB_GetNextRandom(random)) * 2 - 1;
+  int3 index = clamp(int3(floor(uvw * dimensions + jitter)), 0, dimensions - 1);
+  index.x += volumeIndex * dimensions.x;
+  VolumeReSTIR_PackedReservoir packed;
+  packed.data0 = VolumeReservoirs[index];
+  return VolumeReSTIR_GetLightSample(VolumeReSTIR_Reservoir::createFromPacked(packed), receiver, sample, inversePdf);
+}
+
+SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 cell, uint volumeIndex,
+  Ray viewRay, MinimalRayInteraction interaction, VolumeInteraction volume)
+{
+  SphericalHarmonic irradiance = SphericalHarmonic();
+  // Each visibility result is consumed before the next traversal initializes this query.
+  RayQuery<0> rayQuery = RayQuery<0>();
+  RAB_VolumeInteraction receiver;
+  receiver.volumeInteraction = volume;
+  const uint referencePhase = 0;
+  const uint reservoirPhase = 1;
+  const uint skyPhase = 2;
+  const uint completePhase = 3;
+  uint phase = cb.volumeArgs.enableReferenceMode ? referencePhase : reservoirPhase;
+  uint lightType = 0;
+  uint lightIndex = 0;
+
+  // Requests retain light order and share one visibility evaluation site.
+  [loop]
+  while (phase != completePhase)
+  {
+    bool isSky = phase == skyPhase;
+    LightSample sample;
+    float inversePdf = 1.0f;
+    Ray shadowRay;
+    float3 direction;
+    if (isSky)
+    {
+      phase = completePhase;
+      direction = sampleVolumeSkyDirection(cell, sample.solidAnglePdf);
+      sample.position = volume.position + direction;
+      sample.normal = -direction;
+      sample.radiance = sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness,
+        VolumeSkyProbe, VolumeSkySampler, direction);
+      if (!any(sample.radiance > 0))
+      {
+        continue;
+      }
+      shadowRay = rayCreateInternal(interaction, volume, viewRay, direction, floatMax);
+    }
+    else
+    {
+      if (phase == referencePhase)
+      {
+        while (lightType < RAB_GetLightTypeCount())
+        {
+          if (lightIndex < RAB_GetLightRange(lightType).count)
+          {
+            break;
+          }
+          lightType++;
+          lightIndex = 0;
+        }
+        if (lightType == RAB_GetLightTypeCount())
+        {
+          phase = skyPhase;
+          continue;
+        }
+        float2 uv = float2(RAB_GetNextRandom(random), RAB_GetNextRandom(random));
+        sample = RAB_GetLightSampleWithTypeHint(RAB_GetLightRange(lightType).firstIndex + lightIndex,
+          uv, lightType, receiver);
+        lightIndex++;
+      }
+      else
+      {
+        phase = skyPhase;
+        if (!sampleVolumeReservoir(random, volumeIndex, receiver, sample, inversePdf))
+        {
+          continue;
+        }
+      }
+      if (sample.solidAnglePdf <= 0 || inversePdf <= 0)
+      {
+        continue;
+      }
+      shadowRay = rayCreatePosition(interaction, volume, viewRay, sample.position);
+      direction = shadowRay.direction;
+    }
+
+    VisibilityResult visibility = evalVolumeNEEVisibility(rayQuery, sample, invalidRayPortalIndex, shadowRay);
+    if (visibility.hasOpaqueHit)
+    {
+      continue;
+    }
+    if (isSky)
+    {
+      irradiance.addRadiance(sanitize(sample.radiance * visibility.attenuation * volumeLightAttenuation(shadowRay)
+        / sample.solidAnglePdf, float3(0)), direction);
+    }
+    else
+    {
+      float3 radiance = sample.radiance * visibility.attenuation * volumeLightAttenuation(shadowRay)
+        * (inversePdf / sample.solidAnglePdf);
+      irradiance.addRadiance(fireflyFiltering(sanitize(radiance, float3(0)),
+        cb.volumeArgs.froxelFireflyFilteringLuminanceThreshold), direction);
+    }
+  }
+  return irradiance;
+}
+
+void accumulateVolumeIrradiance(inout RAB_RandomSamplerState random, uint3 index, uint volumeIndex,
+  uint previousVolumeIndex, bool historyValid, Ray viewRay, MinimalRayInteraction interaction,
+  VolumeInteraction volume, float3 previousUVW)
+{
+  SphericalHarmonic irradiance = sampleVolumeLights(random, index, volumeIndex, viewRay, interaction, volume);
+  float age = 1;
+  if (historyValid && all(previousUVW > 0) && all(previousUVW < 1))
+  {
+    previousUVW = virtualFroxelUVWToPhysicalFroxelUVW(previousUVW, previousVolumeIndex,
+      cb.volumeArgs.minFilteredRadianceU, cb.volumeArgs.maxFilteredRadianceU, cb.volumeArgs.inverseNumFroxelVolumes);
+    age = min(1 + PrevAccumulatedRadianceAge.SampleLevel(previousUVW, 0) * cb.volumeArgs.maxAccumulationFrames,
+      float(cb.volumeArgs.maxAccumulationFrames));
+    SphericalHarmonic history = HarmonicsHelpers::loadFiltered3D<SphericalHarmonic>(
+      PrevAccumulatedRadianceY, PrevAccumulatedRadianceCoCg, previousUVW);
+    irradiance = HarmonicsHelpers::mix(history, irradiance, 1.0f / age);
+  }
+  index.x += volumeIndex * cb.volumeArgs.froxelGridDimensions.x;
+  HarmonicsHelpers::store3D<SphericalHarmonic>(irradiance, AccumulatedRadianceY, AccumulatedRadianceCoCg, index);
+  AccumulatedRadianceAge[index] = age / cb.volumeArgs.maxAccumulationFrames;
+}

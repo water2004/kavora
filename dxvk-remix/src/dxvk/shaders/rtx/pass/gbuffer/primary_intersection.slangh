@@ -1,0 +1,73 @@
+/*
+* Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/gbuffer/path_storage.slangh"
+#include "rtx/utility/debug_view_helpers.slangh"
+#include "rtx/concept/ray/ray.slangh"
+
+uint8_t primaryRayMask()
+{
+  uint8_t mask = OBJECT_MASK_ALL | OBJECT_MASK_VIEWMODEL | OBJECT_MASK_PLAYER_MODEL_VIRTUAL;
+  if (cb.enablePlayerModelInPrimarySpace)
+  {
+    mask |= OBJECT_MASK_PLAYER_MODEL;
+  }
+  return mask;
+}
+
+uint primaryRayFlags()
+{
+  return RAY_FLAG_FORCE_OPAQUE | (cb.startInMediumMaterialIndex != SURFACE_INDEX_INVALID
+    ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES);
+}
+
+uint primaryIntersectionOffset(uint2 pixel)
+{
+  return primaryIntersectionBase(pixel.y * cb.camera.resolution.x + pixel.x);
+}
+
+void storePrimaryIntersection(uint2 pixel, RayHitInfo hit)
+{
+  const uint offset = primaryIntersectionOffset(pixel);
+  PathStorage[offset] = asuint(hit.hitDistance);
+  PathStorage[offset + 1] = hit.barycentricCoordinates;
+  PathStorage[offset + 2] = hit.primitiveIndex;
+  // Vulkan instance custom indices occupy 24 bits. The geometry index stays full width.
+  PathStorage[offset + 3] = hit.customIndex | (uint(hit.frontHit) << 24) | (uint(hit.hasHit) << 25);
+  PathStorage[offset + 4] = hit.geometryIndex;
+}
+
+RayHitInfo loadPrimaryIntersection(uint2 pixel)
+{
+  const uint offset = primaryIntersectionOffset(pixel);
+  RayHitInfo hit;
+  hit.hitDistance = asfloat(PathStorage[offset]);
+  hit.barycentricCoordinates = PathStorage[offset + 1];
+  hit.primitiveIndex = PathStorage[offset + 2];
+  const uint packedIndex = PathStorage[offset + 3];
+  hit.customIndex = packedIndex & 0xffffffu;
+  hit.frontHit = (packedIndex & (1u << 24)) != 0;
+  hit.hasHit = (packedIndex & (1u << 25)) != 0;
+  hit.geometryIndex = PathStorage[offset + 4];
+  return hit;
+}

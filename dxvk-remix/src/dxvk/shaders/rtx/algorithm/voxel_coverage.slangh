@@ -1,0 +1,28 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+ * SPDX-License-Identifier: MIT
+ */
+#pragma once
+
+#include "rtx/concept/ray/ray.slangh"
+
+bool hasVoxelCoverage()
+{
+  return (voxelCoverage[7] & 1) != 0 || voxelCoverage[9] != 0;
+}
+
+// Reject overlapping LOD candidates without stepping past a coincident replacement.
+bool isVoxelCoverageCandidateClipped(Ray ray, RayHitInfo hit)
+{
+  Surface surface = surfaces[calculateSurfaceIndex(hit)];
+  if (surface.voxelCoverageLevel == 0)
+  {
+    return false;
+  }
+  surface.isClipPlaneEnabled = false;
+  surface.normalBufferIndex = BINDING_INDEX_INVALID;
+  surface.normalObjectToWorld = getIdentityMatrix();
+  const RayInteraction interaction = rayInteractionCreate(ray, hit);
+  const SurfaceInteraction point = surfaceInteractionCreateWithoutMotion<SurfaceIgnoreTangents>(surface, interaction, ray, false);
+  return isSurfaceClipped(surface, point);
+}

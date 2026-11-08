@@ -23,12 +23,8 @@ unless the key name says otherwise.
 
 ## Vulkan Frame Submission
 
-The active development branch, `codex/traditional-renderer`, uses ordinary
-Vulkan BLAS and TLAS. The mod, runtime and far-terrain repositories retain
-their CLAS/PTLAS work on `codex/clas-ptlas-experimental`. That experiment is
-paused. Runtime snapshots must be rebuilt and restaged when switching these
-branches; a runtime built from the experimental branch does not represent the
-traditional branch's source.
+The released renderer uses ordinary Vulkan BLAS and TLAS. CLAS/PTLAS experiments
+are not part of this source tree.
 
 `RemixRenderer` keeps the runtime Submit call's default host-submission ordering:
 the runtime's Vulkan signal is submitted to the driver before Minecraft consumes
@@ -286,7 +282,7 @@ clients the developer tools launch.
 | Property | Effect |
 |---|---|
 | `-Parch=win64` or `-Parch=arm64` | Build and package one architecture instead of both |
-| `-PrtxPreset=<low|medium|high|ultra>` | Sets `rtxremix.preset`, which selects Remix's graphics tier for that session only |
+| `-PrtxPreset=<low|medium|high|ultra>` | Sets `rtxremix.preset`, which fills editable visual settings for that session without changing DLSS or frame generation |
 | `-PmcQuickPlayServer=<host:port>` | Join a server on launch |
 | `-PbenchmarkJfrPath=<file.jfr>` | Starts a JFR recording, sets `rtxremix.benchmark.jfrPath`, and turns Java phases on |
 | `-PbenchmarkTracyJavaMaxDepth=<n>` | Sets `rtxremix.profile.tracyJavaMaxDepth`; only applies when a JFR path is given |
@@ -298,88 +294,15 @@ short commit hash, and a dirty marker to it.
 
 ## JVM Arguments
 
-This Minecraft 26.3 integration branch runs on Java 25 and calls the custom
-Remix 1.5.0 C API through FFM. Keep
-`--enable-native-access=ALL-UNNAMED` in every launch configuration, including
-direct Gradle `runClient` launches. Stage the matching source-built Vulkan
-runtime before running tasks that reach `setupRuntime`; published upstream
-0.x SDKs are incompatible. See [Getting Started](GETTING_STARTED.md#get-a-runtime).
+Use Java 25 and `--enable-native-access=ALL-UNNAMED`. Development Gradle arguments
+are in `rtx-remix-minecraft/build.gradle`; the optional Prism workflow reads
+`rtx-remix-minecraft/packaging/launcher-defaults.json`. Keep those two defaults
+aligned. Benchmarks add profiling flags separately. Players choose their heap
+size in their own launcher; resource packs and view distance affect its needs.
 
-A development client and a fresh install share the unconditional tuning
-arguments in `loom.runs.client.vmArgs` in [build.gradle](../build.gradle) and
-`RECOMMENDED_JVM_ARGS` in
-[packaging/installer.ps1](../packaging/installer.ps1). The developer tools
-read `RECOMMENDED_JVM_ARGS` for every launch. Keep those unconditional
-arguments identical in the same commit. Opt-in benchmark and profiling
-arguments, such as the recording flags a benchmark run adds, are excluded: do
-not copy them into every installed client. The installer keeps differing
-existing arguments unless the user accepts replacement, but replaces
-without asking any set an earlier installer wrote, in each form it wrote it. It
-also replaces Prism memory that its record, `rtx-remix-installer.json` in the
-instance folder, shows it wrote, while the user has not changed it. When you
-change `RECOMMENDED_JVM_ARGS`, append the outgoing value to
-`PREVIOUS_RECOMMENDED_JVM_ARGS` beside it so that upgrades recognise it.
-`tools/tests/benchmark/test_installer_prism_jvm.py` checks the list against the
-git history of the installer.
-
-Prism has no command-line option for JVM arguments, so the developer tools
-write them into the instance's `instance.cfg` on every launch: the recommended
-arguments, then `launch.jvmArgs` from the tools configuration, then that
-launch's preset and benchmark recording arguments. Prism refuses to launch an
-instance whose JVM arguments hold a heap option such as `-Xmx` or `-Xms`, so
-the tools move the last `-Xmx` and `-Xms` in that list into the instance's
-memory settings instead, and a `-Xmx` in `launch.jvmArgs` still sets the
-game's heap. To add your own arguments, such as an
-`rtxremix.*` switch from this guide, list them in ignored
-`tools/config.local.json`:
-
-```json
-{
-    "launch": {
-        "jvmArgs": ["-Drtxremix.vanillaVisibilityWalk=true", "-Drtxremix.logVisibleSet=true"]
-    }
-}
-```
-
-They apply to every launch from that checkout, benchmark runs included, so
-remove an experiment's arguments when it is done. `JAVA_TOOL_OPTIONS` does not
-reach a game Prism launches, because Prism removes it from the game's
-environment; the tools print a warning naming `launch.jvmArgs` when it is set.
-Other environment variables, such as `RTXREMIX_*` and `DXVK_*`, do reach the
-game.
-
-The Microsoft launcher profile gets `RECOMMENDED_JVM_ARGS` as written. Prism
-refuses to launch an instance whose JVM arguments hold a heap option such as
-`-Xmx` or `-Xms`, and gives the game its heap from the instance's memory
-settings instead. The installer therefore writes `RECOMMENDED_JVM_ARGS` to the
-Prism instance without its heap sizes, and sets the instance's memory from those
-sizes unless a memory choice was saved for the instance in Prism. Without it the
-instance gets Prism's global maximum, by default 4096 MiB on a machine with
-6 GiB of RAM or more.
-
-Path tracing does not remove Minecraft's allocation rate, it adds a render
-thread that must not be paused.
-
-The retained launcher tuning uses a 2 GB heap with G1GC. The N1X comparison
-against generational ZGC was measured on the upstream Minecraft 1.21.1 mod;
-it has not established the best collector or heap for this Java 25 Vulkan port.
-Reducing allocation volume stays
-necessary regardless of collector, since concurrent collector work competes with
-the render thread.
-
-The Intel driver workaround must keep this exact spelling:
-
-```
--XX:HeapDumpPath=MojangTricksIntelDriversForPerformance_javaw.exe_minecraft.exe.heapdump
-```
-
-`-XX:HeapDumpPath` is not a heap-dump setting here. Nothing in the tree sets
-`-XX:+HeapDumpOnOutOfMemoryError`, so no dump is ever written. The argument is
-there for its value, which says what it is for: it puts the names `javaw.exe`
-and `minecraft.exe` on the process command line, where Intel's graphics driver
-looks for them before applying its Minecraft profile. Copy the string exactly.
-Tidying the file name removes the behaviour and leaves nothing behind to
-explain it.
+Prism takes heap sizes through its memory settings, not duplicate `-Xmx` flags
+in `JvmArgs`. The development launcher separates these when writing its instance.
+There is no release installer and no automatic rewrite of a player's JVM options.
 
 ## Files In The Game Directory
 
@@ -409,11 +332,59 @@ Directory atlas sources exclude paired `_n`, `_s`, and `_sss` material maps from
 the color atlas. Their original pixels remain available to the PBR loader; this
 does not reduce texture resolution. Unpaired texture names are left alone.
 The renderer uses shared atlas textures instead of allocating another set of
-GPU textures for every block sprite. Immutable texture uploads release their
-native CPU mip chains after staging. Animated atlas channels and dynamic entity
-textures retain the CPU data needed for incremental updates. Texture memory also
+GPU textures for every block sprite. Immutable images with identical pixels,
+dimensions, formats and mip filters share one native allocation, including
+across atlas channels. Color and data channels can share when their mip
+generation is identical; generated sRGB, normal and height filters stay distinct.
+Uniform immutable scalar data maps use a single texel. Mutable channels and
+authored mip chains keep their original extents.
+Memory textures keep no persistent native CPU pixel copy. Uploads snapshot only
+the supplied base level, authored levels, or dirty patches before the foreign
+call returns. Generated mips run on the shared Vulkan device in affected 8 by 8
+tiles, with one writer per tile and the same color, normal and height filters.
+Authored mip levels remain verbatim and are updated only when supplied.
+Sprite atlases use their existing `SpriteContents` instead of a second upload
+mirror, and font uploads write directly into their glyph mirror.
+Minecraft's animation and dynamic entity sources retain the CPU data needed
+to supply incremental patches. Texture memory also
 includes driver and GPU allocations, so Java heap usage alone does not measure
 the process's texture footprint.
+
+SHaRC allocates its surface-filter resources only while that filter is selected.
+Its two filtered-lighting histories retain RGB at the original half-float
+precision; hash-slot ownership is held once in the guidance buffer. At the
+default four million entries, the two histories occupy 64 MiB together.
+
+API meshes without skinning use build-only BLAS storage. Instance transforms,
+material changes, and smooth-normal generation do not require mutable vertex
+positions. Skinned meshes and view models retain BLAS update support; once a
+BLAS needs deformation, it keeps that support for its remaining lifetime.
+Immutable BLAS are compacted after the GPU reports their final sizes. A bounded
+query queue and copy budget spread this work across frames without a CPU wait.
+New geometry is visible before compaction completes. Relocation updates cached
+TLAS addresses without invalidating surface or material data; command-list
+references retain old storage for in-flight and previous-frame tracing.
+
+Allocation chunks default to 32 MiB in system memory and 128 MiB in device-local
+memory. Their sizes change allocator slack, not resource resolution or capacity.
+`dxvk.otherMemoryChunkSizeMB` and `dxvk.deviceLocalMemoryChunkSizeMB` override
+these startup settings.
+
+For resource attribution, start with both `RTX_MEMORY_SNAPSHOTS=1` and
+`RTX_PROFILER_MEMORY_ENABLE=1`. The runtime logs named allocation groups and heap
+budgets on ray-traced frames 1, 300 and 600. Groups below 1 MiB are included in
+the totals but omitted from the list. Logical image and buffer sizes differ
+from allocator block sizes and driver residency. The acceleration-structure
+category also contains geometry buffers, so its total is not the BVH size.
+`API mutable texture` lines give the logical mip payload and persistent native
+CPU pixel bytes for each creation. `BLAS compaction` lines report cumulative copy
+sizes, which differ from live allocator usage when geometry has been retired.
+
+To check generated mip pixels, set `RTX_API_TEXTURE_CAPTURE_PATH` to a local
+directory and `RTX_API_TEXTURE_CAPTURE_HASH` to the texture's decimal or `0x`
+hash. Matching uploads write a five-uint32 header (width, height, canonical
+format, purpose, mip count), followed by tightly packed raw levels. This opt-in
+diagnostic waits for its readback and must be disabled during performance runs.
 
 Textures, material maps, and block light rules come from resource packs, not
 from properties. Their formats are in [Resource Packs](RESOURCE_PACKS.md).

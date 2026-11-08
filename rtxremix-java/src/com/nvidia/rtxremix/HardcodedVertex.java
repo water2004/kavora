@@ -19,6 +19,8 @@ public class HardcodedVertex {
     /** Compact CPU input and runtime vertex storage, excluding trailing padding.
      * Shared GPU buffers retain {@link #STRIDE}. This counts no indices, skinning or BLAS storage. */
     public static final int STORAGE_STRIDE = 44;
+    public static final int PREVIOUS_POSITION_OFFSET = 44;
+    public static final int MOTION_STORAGE_STRIDE = 56;
 
     public float[] position = new float[3];
     public float[] normal = new float[3];
@@ -28,9 +30,10 @@ public class HardcodedVertex {
     public int texcoordBoundsMin;
     /** Packed half2: max.u, max.v. Leave both bounds zero to disable atlas wrapping bounds. */
     public int texcoordBoundsMax;
-    public int _pad0;
-    public int _pad1;
-    public int _pad2;
+    /** Object-space position of the same vertex in the previous rendered frame. */
+    public float previousPositionX;
+    public float previousPositionY;
+    public float previousPositionZ;
     public int _pad3;
     public int _pad4;
 
@@ -57,9 +60,7 @@ public class HardcodedVertex {
     /** Writes this vertex's fields into a direct ByteBuffer at its current position. */
     public void writeTo(ByteBuffer buf) {
         writeCompactTo(buf);
-        buf.putInt(_pad0);
-        buf.putInt(_pad1);
-        buf.putInt(_pad2);
+        buf.putFloat(previousPositionX).putFloat(previousPositionY).putFloat(previousPositionZ);
         buf.putInt(_pad3);
         buf.putInt(_pad4);
     }

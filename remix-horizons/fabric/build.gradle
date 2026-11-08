@@ -1,0 +1,73 @@
+plugins { id 'net.fabricmc.fabric-loom' version '1.17.21'; id 'java' }
+base { archivesName = 'RemixHorizons' }
+java { toolchain { languageVersion = JavaLanguageVersion.of(25) }; withSourcesJar() }
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
+}
+configurations { storage }
+dependencies {
+    minecraft 'com.mojang:minecraft:26.3'
+    implementation 'net.fabricmc:fabric-loader:0.20.1'
+    implementation 'net.fabricmc.fabric-api:fabric-api:0.165.0+26.3'
+    implementation('maven.modrinth:sodium:mc26.3-0.9.2-fabric') { transitive = false }
+    implementation project(':remix-horizons:core')
+    storage 'org.rocksdb:rocksdbjni:10.2.1'
+    compileOnly project(':rtx-remix-minecraft')
+    compileOnly project(':rtxremix-java')
+    testImplementation project(':rtx-remix-minecraft')
+    testImplementation project(':rtxremix-java')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.12.2'
+    testRuntimeOnly 'org.lwjgl:lwjgl:3.4.3:natives-windows'
+}
+sourceSets {
+    main {
+        java { srcDir '../common/src/main/java'; include 'com/gbwater/**' }
+        resources {
+            srcDir '../common/src/main/resources'
+            include 'fabric.mod.json', 'remix-horizons.mixins.json', 'assets/remix-horizons/**', 'LICENSE-APACHE-2.0.txt'
+        }
+    }
+    test { java { srcDir '../common/src/test/java'; include 'com/gbwater/**' } }
+}
+processResources { inputs.property 'version', project.version; filesMatching('fabric.mod.json') { expand version:project.version } }
+sourcesJar {
+    from project(':remix-horizons:core').sourceSets.main.allSource
+    from(project(':remix-horizons').file('LICENSE.txt'))
+    from(project(':remix-horizons').file('LICENSE.LESSER.txt'))
+    from(project(':remix-horizons').file('licenses')) { into 'licenses' }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+jar {
+    archiveFileName.set('Remix-Horizons.jar')
+    dependsOn ':remix-horizons:core:classes'
+    from project(':remix-horizons:core').sourceSets.main.output
+    from { configurations.storage.collect { zipTree(it) } }
+    exclude '**/*.so', '**/*.dylib', '**/*.jnilib', 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'
+    from(project(':remix-horizons').file('LICENSE.txt'))
+    from(project(':remix-horizons').file('LICENSE.LESSER.txt'))
+    from(project(':remix-horizons').file('licenses')) { into 'licenses' }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+test { useJUnitPlatform(); systemProperty 'rtxremix.directBufferPool.maxBytes','0' }
+tasks.register('verifyRemixArtifact') {
+    dependsOn jar
+    doLast {
+        new java.util.zip.ZipFile(tasks.jar.archiveFile.get().asFile).withCloseable { zip ->
+            zip.entries().each { entry ->
+                if (entry.name.startsWith('com/seibel/') || entry.name.contains('sqlite')
+                        || entry.name.startsWith('net/fabricmc/') || entry.name.startsWith('net/caffeinemc/')
+                        || entry.name.startsWith('com/nvidia/') || entry.name.endsWith('.jar'))
+                    throw new GradleException("Unexpected bundled dependency: ${entry.name}")
+            }
+            if (zip.getEntry('org/rocksdb/RocksDB.class') == null) throw new GradleException('Missing voxel storage backend')
+            project(':remix-horizons').file('licenses').eachFile { license ->
+                if (license.isFile() && zip.getEntry("licenses/${license.name}") == null)
+                    throw new GradleException("Missing bundled license: ${license.name}")
+            }
+        }
+    }
+}
+check.dependsOn verifyRemixArtifact

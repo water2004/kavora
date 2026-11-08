@@ -2,7 +2,8 @@
 setlocal EnableDelayedExpansion
 if "%JAVA_HOME%"=="" exit /b 1
 if "%VSCMD_ARG_TGT_ARCH%"=="" (
-  call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul
+  set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+  for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat" ^>nul
   if errorlevel 1 exit /b 1
 )
 set "ROOT=%~dp0..\.."

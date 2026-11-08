@@ -1,0 +1,109 @@
+/*
+* Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/gbuffer/path_storage.slangh"
+#include "rtx/algorithm/geometry_resolver_state.slangh"
+
+layout(binding = GBUFFER_BINDING_PSR_QUEUE_INPUT) RWStructuredBuffer<uint> PSRQueueInput;
+layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PSRQueueOutput;
+
+uint psrPixelIndex(uint2 pixel)
+{
+  return pixel.y * cb.camera.resolution.x + pixel.x;
+}
+
+uint2 psrPixelCoordinate(uint index)
+{
+  return uint2(index % cb.camera.resolution.x, index / cb.camera.resolution.x);
+}
+
+uint psrQueueIndex(uint2 invocation)
+{
+  return invocation.x + invocation.y * GBUFFER_PSR_QUEUE_ROW_WIDTH;
+}
+
+void enqueuePSRPixel(uint pixel)
+{
+  uint base = 0;
+  const uint count = WaveActiveCountBits(true);
+  if (WaveIsFirstLane())
+  {
+    InterlockedAdd(PSRQueueOutput[0], count, base);
+  }
+  base = WaveReadLaneFirst(base);
+  PSRQueueOutput[GBUFFER_PSR_QUEUE_HEADER_WORDS + base + WavePrefixCountBits(true)] = pixel;
+}
+
+// The resolver already rounds these fields to half at each assignment.
+uint psrPackHalf2(float2 value)
+{
+  return f32tof16(value.x) | (f32tof16(value.y) << 16);
+}
+
+float2 psrUnpackHalf2(uint value)
+{
+  return float2(f16tof32(value & 0xffff), f16tof32(value >> 16));
+}
+
+void storePSRState(uint pixel, GeometryPSRResolverState state, uint seed)
+{
+  const uint b = pixel * GBUFFER_PSR_STATE_WORDS;
+  PathStorage[b + 0] = asuint(state._origin.x);
+  PathStorage[b + 1] = asuint(state._origin.y);
+  PathStorage[b + 2] = asuint(state._origin.z);
+  PathStorage[b + 3] = f32tof16(state._coneRadius) | (uint(state._encodedFlags) << 16);
+  PathStorage[b + 4] = asuint(state.radiance.x);
+  PathStorage[b + 5] = asuint(state.radiance.y);
+  PathStorage[b + 6] = asuint(state.radiance.z);
+  PathStorage[b + 7] = asuint(state._segmentHitDistance);
+  PathStorage[b + 8] = psrPackHalf2(state._accumulatedRotation.xy);
+  PathStorage[b + 9] = psrPackHalf2(state._accumulatedRotation.zw);
+  PathStorage[b + 10] = asuint(state.accumulatedHitDistance);
+  PathStorage[b + 11] = state.mediumMaterialIndex;
+  PathStorage[b + 12] = psrPackHalf2(state._direction.xy);
+  PathStorage[b + 13] = f32tof16(state._direction.z) | (uint(state._rayMask) << 16) | (uint(state.bounceIteration) << 24);
+  PathStorage[b + 14] = psrPackHalf2(state.attenuation.xy);
+  PathStorage[b + 15] = f32tof16(state.attenuation.z) | (uint(state._compactedCoordinate.x) << 16);
+  PathStorage[b + 16] = state._compactedCoordinate.y;
+  PathStorage[b + 17] = seed;
+}
+
+GeometryPSRResolverState loadPSRState(uint pixel)
+{
+  const uint b = pixel * GBUFFER_PSR_STATE_WORDS;
+  GeometryPSRResolverState state;
+  state._origin = asfloat(uint3(PathStorage[b], PathStorage[b + 1], PathStorage[b + 2]));
+  state._coneRadius = float16_t(f16tof32(PathStorage[b + 3] & 0xffff));
+  state._encodedFlags = uint16_t(PathStorage[b + 3] >> 16);
+  state.radiance = asfloat(uint3(PathStorage[b + 4], PathStorage[b + 5], PathStorage[b + 6]));
+  state._segmentHitDistance = asfloat(PathStorage[b + 7]);
+  state._accumulatedRotation = f16vec4(psrUnpackHalf2(PathStorage[b + 8]), psrUnpackHalf2(PathStorage[b + 9]));
+  state.accumulatedHitDistance = asfloat(PathStorage[b + 10]);
+  state.mediumMaterialIndex = PathStorage[b + 11];
+  state._direction = f16vec3(psrUnpackHalf2(PathStorage[b + 12]), f16tof32(PathStorage[b + 13] & 0xffff));
+  state._rayMask = uint8_t(PathStorage[b + 13] >> 16);
+  state.bounceIteration = uint8_t(PathStorage[b + 13] >> 24);
+  state.attenuation = f16vec3(psrUnpackHalf2(PathStorage[b + 14]), f16tof32(PathStorage[b + 15] & 0xffff));
+  state._compactedCoordinate = u16vec2(PathStorage[b + 15] >> 16, PathStorage[b + 16]);
+  return state;
+}

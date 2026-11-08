@@ -702,6 +702,33 @@ public final class RemixBridge {
         }
     }
 
+    public static long createQuadMesh(long hash, MeshQuadSurface[] descriptions) {
+        if (descriptions.length == 0 || descriptions.length > 65536)
+            throw new IllegalArgumentException("Invalid quad surface count");
+        try (Scratch arena = scratch()) {
+            String type = "MeshQuadSurface";
+            long stride = RemixLayouts.size(type);
+            MemorySegment surfaces = arena.allocate(stride * descriptions.length, 8);
+            for (int i = 0; i < descriptions.length; i++) {
+                var source = descriptions[i];
+                var target = surfaces.asSlice(i * stride, stride);
+                put(target, type, "material", source.material());
+                put(target, type, "vertices", direct(source.vertices(), (long) source.quadCount() * 64).address());
+                put(target, type, "materials", direct(source.materials(), (long) source.materialCount() * 40).address());
+                put(target, type, "quadCount", source.quadCount());
+                put(target, type, "materialCount", source.materialCount());
+            }
+            String extensionType = "MeshInfoQuadsEXT";
+            MemorySegment extension = info(arena, extensionType, StructType.MESH_INFO_QUADS_EXT, 0);
+            put(extension, extensionType, "surfaces", surfaces.address());
+            put(extension, extensionType, "surfaceCount", descriptions.length);
+            MemorySegment mesh = info(arena, "MeshInfo", StructType.MESH_INFO, extension.address());
+            put(mesh, "MeshInfo", "hash", hash);
+            try { return create("CreateMesh", mesh, arena); }
+            finally { Reference.reachabilityFence(descriptions); }
+        }
+    }
+
     public static long createMesh(long hash, int surfaceCount, ByteBuffer[] vertexBuffers, int[] vertexCounts,
             ByteBuffer[] indexBuffers, int[] indexCounts, long[] materialHandles, int[] flags,
             int[] bonesPerVertex, ByteBuffer[] blendWeightBuffers, int[] blendWeightCounts,
@@ -713,6 +740,11 @@ public final class RemixBridge {
             MemorySegment surfaces = arena.allocate(Math.multiplyExact(stride, surfaceCount), 8);
             for (int i = 0; i < surfaceCount; i++) {
                 MemorySegment surface = surfaces.asSlice(i * stride, stride);
+                if ((flags[i] & MeshInfoSurfaceTriangles.PREVIOUS_POSITIONS) != 0
+                        && ((flags[i] & MeshInfoSurfaceTriangles.COMPACT_VERTICES) != 0
+                            || (bonesPerVertex != null && bonesPerVertex[i] > 0))) {
+                    throw new IllegalArgumentException("Explicit mesh motion requires full-stride, unskinned vertices");
+                }
                 int vertexStride = (flags[i] & MeshInfoSurfaceTriangles.COMPACT_VERTICES) != 0
                         ? HardcodedVertex.STORAGE_STRIDE : HardcodedVertex.STRIDE;
                 put(surface, type, "vertices_values", direct(vertexBuffers[i], Math.multiplyExact((long) vertexCounts[i], vertexStride)).address());
@@ -1337,13 +1369,29 @@ public final class RemixBridge {
 
     public static long allocDomeExt(float[] transform12,
                                            long colorTexture,
+                                           long transmittanceTexture,
                                            float opacity,
                                            int blendType,
+                                           int projection,
+                                           boolean backgroundOnly,
                                            long chainNext) {
         Arena arena = Arena.ofShared();
         try {
             MemorySegment ext = arena.allocate(RemixLayouts.layout("LightInfoDomeEXT"));
             put(ext, "LightInfoDomeEXT", "sType", StructType.LIGHT_INFO_DOME_EXT);
+            if (projection != 0 || backgroundOnly) {
+                MemorySegment mapping = info(arena, "LightInfoDomeProjectionEXT",
+                        StructType.LIGHT_INFO_DOME_PROJECTION_EXT, chainNext);
+                put(mapping, "LightInfoDomeProjectionEXT", "projection", projection);
+                put(mapping, "LightInfoDomeProjectionEXT", "backgroundOnly", backgroundOnly ? 1 : 0);
+                chainNext = mapping.address();
+            }
+            if (transmittanceTexture != 0) {
+                MemorySegment transmission = info(arena, "LightInfoDomeTransmittanceEXT",
+                        StructType.LIGHT_INFO_DOME_TRANSMITTANCE_EXT, chainNext);
+                put(transmission, "LightInfoDomeTransmittanceEXT", "transmittanceTexture", transmittanceTexture);
+                chainNext = transmission.address();
+            }
             put(ext, "LightInfoDomeEXT", "pNext", chainNext);
             put(ext, "LightInfoDomeEXT", "colorTexture", colorTexture);
             put(ext, "LightInfoDomeEXT", "opacity", opacity);

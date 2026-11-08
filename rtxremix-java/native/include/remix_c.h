@@ -161,6 +161,9 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_HOST_VULKAN_DEVICE_INFO               = 42,
     REMIXAPI_STRUCT_TYPE_FRAME_GENERATION_CAPABILITIES_EXT     = 43,
     REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_FRAME_INFO_EXT          = 44,
+    REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_TRANSMITTANCE_EXT     = 45,
+    REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_PROJECTION_EXT        = 46,
+    REMIXAPI_STRUCT_TYPE_MESH_INFO_QUADS_EXT                   = 47,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -415,7 +418,7 @@ extern "C" {
     uint64_t dataSize;
   } remixapi_TextureMipChainEXT;
 
-  // Optional creation-only marker. Releases CPU pixels after upload and rejects all patches.
+  // Optional creation-only marker. Rejects all patches. Uploads keep no persistent CPU pixel copy.
   // May be chained with TextureMipChainEXT. Without this marker, textures remain updateable.
   typedef struct remixapi_TextureImmutableEXT {
     remixapi_StructType sType;
@@ -478,9 +481,9 @@ extern "C" {
     // Optional texture atlas region for UV wrapping: min.u, min.v, max.u, max.v as IEEE 754 half-floats.
     // Enabled if remixapi_MeshInfoSurfaceTriangles sets REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_TEXCOORD_BOUNDS.
     uint16_t texcoordBounds[4];
-    uint32_t _pad0;
-    uint32_t _pad1;
-    uint32_t _pad2;
+    // Object-space positions of the corresponding vertices in the previous rendered frame.
+    // Used only with REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS.
+    float previousPosition[3];
     uint32_t _pad3;
     uint32_t _pad4;
   } remixapi_HardcodedVertex;
@@ -504,8 +507,11 @@ extern "C" {
   typedef enum remixapi_MeshInfoSurfaceTrianglesFlagBit {
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_TEXCOORD_BOUNDS = 1 << 0,
     // CreateMesh CPU input only: vertices_values points to consecutive 44-byte records,
-    // containing all fields before _pad0. The runtime copies them before returning.
+    // containing all fields before previousPosition. The runtime copies them before returning.
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_COMPACT_VERTICES = 1 << 1,
+    // previousPosition is explicit motion history, including deformation. New vertices
+    // must use their current position. Cannot be combined with compact input or skinning.
+    REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS = 1 << 2,
   } remixapi_MeshInfoSurfaceTrianglesFlagBit;
   typedef uint32_t remixapi_MeshInfoSurfaceTrianglesFlags;
 
@@ -574,6 +580,35 @@ extern "C" {
     const remixapi_MeshSharedSurface* surfaces;
     uint32_t surfaceCount;
   } remixapi_MeshInfoSharedBuffersEXT;
+
+  // Affine UVs on the two cyclic axes of a flat quad, with one color and atlas rectangle.
+  typedef struct remixapi_QuadMaterial {
+    float uvOrigin[2];
+    float uvS[2];
+    float uvT[2];
+    uint32_t texcoordBoundsMin;
+    uint32_t texcoordBoundsMax;
+    uint32_t color;
+    uint32_t axis;
+  } remixapi_QuadMaterial;
+
+  // Four 16-byte vertices per quad: float xyz followed by uint32 material-table index.
+  // Vertices are in cyclic winding order. Normals are geometric and indices are shared.
+  typedef struct remixapi_MeshQuadSurface {
+    remixapi_MaterialHandle material;
+    const void* vertices;
+    const remixapi_QuadMaterial* materials;
+    uint32_t quadCount;
+    uint32_t materialCount;
+  } remixapi_MeshQuadSurface;
+
+  // Extends an otherwise empty MeshInfo. All pointed-to data is copied by CreateMesh.
+  typedef struct remixapi_MeshInfoQuadsEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    const remixapi_MeshQuadSurface* surfaces;
+    uint32_t surfaceCount;
+  } remixapi_MeshInfoQuadsEXT;
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CreateSharedBuffer)(remixapi_SharedBufferInfo* info);
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CommitSharedBuffers)(const remixapi_SharedBufferCommitInfo* info);
@@ -885,6 +920,32 @@ extern "C" {
     float                           opacity;
     int                             blendType;
   } remixapi_LightInfoDomeEXT;
+
+  // Attachable to remixapi_LightInfo together with remixapi_LightInfoDomeEXT.
+  // The dome represents participating media: output = radiance + transmittance * background.
+  // RGB transmission is linear, in [0,1], and uses the dome's direction transform.
+  // The background includes procedural celestial light on the first layer.
+  // Opacity interpolates this complete operation; source alpha and blendType are unused.
+  // Removing this extension on update restores the ordinary dome blend operation.
+  typedef struct remixapi_LightInfoDomeTransmittanceEXT {
+    remixapi_StructType             sType;
+    void*                          pNext;
+    remixapi_TextureHandle         transmittanceTexture;
+  } remixapi_LightInfoDomeTransmittanceEXT;
+
+  // Attachable with LightInfoDomeEXT. Projection 0 is latitude-longitude.
+  // Projection 1 maps local (x/z,y/z) from [-1,1] to UV, with +Y at the top.
+  // Only local +Z inside the rectangle contributes. Transform scale sets its angular extent.
+  // Projection 2 shades a spherical lunar RGB/elevation map in the same rectangle.
+  // Its phase follows the host's rtx.nightSky.moonPhase (0: Full, 4: New).
+  // backgroundOnly excludes this layer from lighting, for emitters already represented
+  // by analytic lights. It remains visible to camera and specular continuation rays.
+  typedef struct remixapi_LightInfoDomeProjectionEXT {
+    remixapi_StructType             sType;
+    void*                          pNext;
+    uint32_t                       projection;
+    remixapi_Bool                   backgroundOnly;
+  } remixapi_LightInfoDomeProjectionEXT;
 
   // Attachable to remixapi_LightInfo.
   // If attached, 'remixapi_LightInfo::radiance' is ignored.

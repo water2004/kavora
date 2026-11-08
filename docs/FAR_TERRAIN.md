@@ -5,7 +5,7 @@ capability `rtxremix-far-terrain-v1`. It contains no far-terrain storage or mesh
 One optional addon supplies `FarTerrainExtension.Factory`; multiple factories
 are rejected. Sodium and Fabric API remain independent dependencies.
 
-Remix Horizons lives in the separate `rtx-remix-dh` checkout and uses the mod ID
+Remix Horizons lives in `remix-horizons/` in this repository and uses the mod ID
 `remix-horizons`. Its active pipeline is an independent sparse 3D voxel engine.
 The previous DH storage, column mesher, selection, platform layers and world
 generation code have been removed. Neither DH nor Voxy is supported alongside
@@ -101,11 +101,11 @@ applied to an older DLL.
 Build the base renderer with its matching source-built runtime first, then:
 
 ```powershell
-# In rtx-remix-dh, using Java 25:
-.\gradlew.bat :fabric:build -PremixProjectDir=../rtx-remix
+# From the monorepo root, using Java 25:
+.\gradlew.bat :remix-horizons:fabric:build
 ```
 
-Install `fabric/build/libs/RemixHorizons-0.2.0-26.3.jar` alongside the matching
+Install `remix-horizons/fabric/build/libs/Remix-Horizons.jar` alongside the matching
 renderer, Sodium 0.9.2 and Fabric API. The addon contains neither the main mod
 nor the Remix native runtime. Its sources JAR includes both the core and Fabric
 sources. The base renderer still needs the native path tracer and DLSS libraries.
@@ -122,7 +122,7 @@ atomic parent/child replacement, face generation, texture coordinates, native
 buffer ownership and reservation accounting. Artifact checks reject DH classes,
 SQLite, and embedded Sodium/Fabric/main-mod JARs.
 
-The [client GameTest](../src/gametest/README.md) checks continuous movement,
+The [client GameTest](../rtx-remix-minecraft/src/gametest/README.md) checks continuous movement,
 retained distant coverage, whole-view refinement and world exit/rejoin. It also
 captures diagnostic images and optional JFR recordings. A successful assertion
 is not an image-quality or performance baseline: inspect the screenshots and

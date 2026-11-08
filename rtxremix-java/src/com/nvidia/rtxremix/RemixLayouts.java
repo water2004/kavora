@@ -159,9 +159,7 @@ final class RemixLayouts {
                 MemoryLayout.sequenceLayout(2, JAVA_FLOAT).withName("texcoord"),
                 JAVA_INT.withName("color"),
                 MemoryLayout.sequenceLayout(4, JAVA_SHORT).withName("texcoordBounds"),
-                JAVA_INT.withName("_pad0"),
-                JAVA_INT.withName("_pad1"),
-                JAVA_INT.withName("_pad2"),
+                MemoryLayout.sequenceLayout(3, JAVA_FLOAT).withName("previousPosition"),
                 JAVA_INT.withName("_pad3"),
                 JAVA_INT.withName("_pad4"));
         define("MeshInfoSkinning",
@@ -213,6 +211,25 @@ final class RemixLayouts {
                 JAVA_INT.withName("flags"),
                 JAVA_INT.withName("reserved"));
         define("MeshInfoSharedBuffersEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                ADDRESS.withName("surfaces"),
+                JAVA_INT.withName("surfaceCount"));
+        define("QuadMaterial",
+                MemoryLayout.sequenceLayout(2, JAVA_FLOAT).withName("uvOrigin"),
+                MemoryLayout.sequenceLayout(2, JAVA_FLOAT).withName("uvS"),
+                MemoryLayout.sequenceLayout(2, JAVA_FLOAT).withName("uvT"),
+                JAVA_INT.withName("texcoordBoundsMin"),
+                JAVA_INT.withName("texcoordBoundsMax"),
+                JAVA_INT.withName("color"),
+                JAVA_INT.withName("axis"));
+        define("MeshQuadSurface",
+                ADDRESS.withName("material"),
+                ADDRESS.withName("vertices"),
+                ADDRESS.withName("materials"),
+                JAVA_INT.withName("quadCount"),
+                JAVA_INT.withName("materialCount"));
+        define("MeshInfoQuadsEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 ADDRESS.withName("surfaces"),
@@ -394,6 +411,15 @@ final class RemixLayouts {
                 ADDRESS.withName("colorTexture"),
                 JAVA_FLOAT.withName("opacity"),
                 JAVA_INT.withName("blendType"));
+        define("LightInfoDomeTransmittanceEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                ADDRESS.withName("transmittanceTexture"));
+        define("LightInfoDomeProjectionEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_INT.withName("projection"),
+                JAVA_INT.withName("backgroundOnly"));
         define("LightInfoUSDEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

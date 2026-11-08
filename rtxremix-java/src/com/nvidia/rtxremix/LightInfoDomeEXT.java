@@ -11,6 +11,13 @@ package com.nvidia.rtxremix;
 public class LightInfoDomeEXT {
     public float[] transform = new float[12];
     public long colorTexture;
+    /** Optional RGB transmission in the same projection: radiance + transmission * background. */
+    public long transmittanceTexture;
+    /** 0: latitude-longitude; 1: rectilinear local +Z; 2: spherical lunar RGB/elevation map.
+     * The transform sets angular extent. Lunar phase follows the host's rtx.nightSky.moonPhase. */
+    public int projection;
+    /** For visible emitters whose illumination is supplied by a separate analytic light. */
+    public boolean backgroundOnly;
     public float opacity = 1.0f;
     public int blendType = MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA;
 

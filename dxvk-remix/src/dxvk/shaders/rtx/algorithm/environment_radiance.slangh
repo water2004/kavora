@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/concept/light/light_helper.slangh"
+#include "rtx/algorithm/cloud_sky.slangh"
+
+float3 sampleEnvironmentRadiance(DomeLightArgs dome, float brightness, SamplerCube<float3> probe,
+  SamplerState sampler, float3 direction)
+{
+  if (dome.active)
+  {
+    return dome.radiance * sampleDomeLightTexture(sampler, direction, dome.textureIndex, dome.worldToLightTransform);
+  }
+  return brightness * probe.SampleLevel(direction, 0);
+}
+
+float3 sampleIndirectEnvironmentRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler)
+{
+  return applyCloudSky(cb.volumeArgs.clouds, direction,
+    sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, probe, sampler, direction));
+}
+
+// Analytic emitters already participate in direct-light sampling. Their visible disks
+// belong to the camera and specular-continuation background, not the indirect environment.
+float3 sampleBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
+  DomeLightArgs dome = cb.domeLightArgs;
+  dome.textureIndex = dome.backgroundTextureIndex;
+  return applyCloudSky(cb.volumeArgs.clouds, direction,
+    sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction));
+}

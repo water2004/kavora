@@ -1,0 +1,20 @@
+RTX Remix for Minecraft Community Edition - cloud field
+
+Source: https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce
+Revision: 94400621dabc6b315d8e53b701c7be7beffa9303
+Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors
+License: Apache License, Version 2.0 (included in the accompanying license file).
+
+Adapted from CloudNoise.java and CloudField.java to the native Vulkan cloud
+pipeline. The periodic base-shape, erosion and weather fields are generated
+on the GPU once per device. All scene rays consume the same density.
+The OpenGL compositor, CPU near-cloud meshes, occupancy and history systems
+are not incorporated. Self-shadow rays retain the complete density field,
+including erosion, rather than Community Edition's base-only approximation.
+The current runtime's ray-segment and multiple-scattering integrators remain.
+
+Modified shader source in water2004/dxvk-remix:
+  src/dxvk/shaders/rtx/utility/cloud_noise.slangh
+  src/dxvk/shaders/rtx/utility/cloud_density.slangh
+  src/dxvk/shaders/rtx/pass/clouds/generate_cloud_noise.comp.slang
+  src/dxvk/shaders/rtx/pass/clouds/generate_cloud_weather.comp.slang

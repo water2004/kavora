@@ -468,6 +468,14 @@ public class RemixAPI {
         return handle;
     }
 
+    /** Copies the direct quad buffers during this call; native code owns the resulting geometry. */
+    public long createQuadMesh(long hash, MeshQuadSurface... surfaces) {
+        checkInitialized();
+        long handle = RemixBridge.createQuadMesh(hash, surfaces);
+        if (handle == 0) throw new RemixException("CreateQuadMesh failed", ErrorCode.GENERAL_FAILURE);
+        return handle;
+    }
+
     public long createMesh(MeshInfo info) {
         checkInitialized();
         int n = info.surfaces != null ? info.surfaces.length : 0;
@@ -741,7 +749,7 @@ public class RemixAPI {
         } else if (info.domeExt != null) {
             LightInfoDomeEXT d = info.domeExt;
             return RemixBridge.allocDomeExt(
-                    d.transform, d.colorTexture, d.opacity, d.blendType, 0);
+                    d.transform, d.colorTexture, d.transmittanceTexture, d.opacity, d.blendType, d.projection, d.backgroundOnly, 0);
         }
         return 0;
     }

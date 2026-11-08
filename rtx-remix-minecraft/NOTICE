@@ -1,0 +1,12 @@
+RTX Remix for Minecraft
+Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Community port and extensions: GBwater (water2004) and contributors.
+
+This product includes software developed by NVIDIA CORPORATION & AFFILIATES.
+It contains adapted Iris UI, Caustica-Horizon shaders, and RTX Remix Minecraft
+Community Edition code, each under its original license, with modifications
+identified in source and the accompanying notices. NASA data credits are
+included with the shipped texture notices.
+
+See LICENSES/README.md and THIRD_PARTY_NOTICES.md for component scope.
+This is not an official NVIDIA or Minecraft product.

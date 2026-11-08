@@ -14,4 +14,6 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'rtx-remix-renderer'
+rootProject.name = 'RTX-Remix-for-Minecraft'
+include 'rtx-remix-minecraft', 'rtxremix-java', 'remix-horizons'
+include 'remix-horizons:core', 'remix-horizons:fabric'

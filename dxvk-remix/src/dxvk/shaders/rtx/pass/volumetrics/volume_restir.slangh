@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/utility/froxel.slangh"
+
+// The SDK's reservoir pass uses its own grid and guard-band camera for reprojection.
+#define froxelCoordinateToPrev reservoirCoordinateToPrev
+#include "rtxdi/rtxdi-sdk/include/volumetrics/rtx/pass/volumetrics/volume_restir.slangh"
+#undef froxelCoordinateToPrev

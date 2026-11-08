@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "remix-horizons",
+  "version": "${version}",
+  "name": "Remix Horizons",
+  "description": "Observed voxel terrain in the RTX Remix Vulkan scene.",
+  "environment": "client",
+  "license": "LGPL-3.0-only",
+  "authors": ["GBwater"],
+  "entrypoints": {
+    "client": ["com.gbwater.rtxremix.horizons.HorizonsClient"],
+    "rtxremix:far_terrain": ["com.gbwater.rtxremix.horizons.RemixHorizonsFactory"],
+    "sodium:config_api_user": ["com.gbwater.rtxremix.horizons.HorizonsSodiumConfig"]
+  },
+  "mixins": ["remix-horizons.mixins.json"],
+  "depends": {
+    "rtx-remix-renderer": "*", "rtxremix-far-terrain-v1": "*", "rtxremix-quad-mesh-v1": "*", "sodium": ">=0.9.2",
+    "fabricloader": ">=0.20.1", "fabric-api": "*", "minecraft": "26.3", "java": ">=25"
+  },
+  "breaks": {"distanthorizons": "*", "voxy": "*"}
+}

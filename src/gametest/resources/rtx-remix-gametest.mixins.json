@@ -1,7 +1,0 @@
-{
-  "required": true,
-  "package": "com.nvidia.rtxremix.minecraft.gametest.mixin",
-  "compatibilityLevel": "JAVA_25",
-  "client": ["RemixFrameProbeMixin", "RemixEntityTextureProbeMixin", "RemixEntityCaptureProbeMixin", "RemixSectionCaptureProbeMixin", "RemixTestSurfaceBoundsMixin", "RemixWaterGeometryProbeMixin"],
-  "injectors": {"defaultRequire": 1}
-}

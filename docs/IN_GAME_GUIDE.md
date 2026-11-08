@@ -52,7 +52,6 @@ repeat.
 | `/rtx sky ambient night <strength>` | Strength of that soft light at night |
 | `/rtx sky sun <brightness>` | Sun brightness |
 | `/rtx sky moon <brightness>` | Moon brightness |
-| `/rtx sky minimumopacity <opacity>` | How much rain and thunder are allowed to hide the sun, moon, and stars, as a normalized opacity |
 | `/rtx skyDomeMult <value>` | Brightness multiplier for the sky dome itself |
 | `/rtx water` | Show the water surface settings |
 | `/rtx water ior <ior>` | How strongly the water surface bends light. Real water is about `1.33` |
@@ -67,9 +66,8 @@ repeat.
 | `/rtx sss cutout reset` | Put the subsurface settings back to their defaults |
 
 Changing a water or subsurface value rebuilds the loaded terrain, so the world
-blinks for a moment. Of these commands, only `/rtx sky minimumopacity` writes
-your settings file. Change a value in the settings screen when you want it kept
-across launches.
+blinks for a moment. These commands change the current session. Change a value
+in the settings screen when you want it kept across launches.
 
 ## Lighting Profiles And Zones
 
@@ -77,7 +75,7 @@ The mod ships lighting profiles that fade in and out with the time of day, the
 weather, whether you are in water, and which biome you are in. A map author can
 add more, including profiles that belong to one place in the world, called
 zones. The authoring guide is
-[Gameplay-driven profiles](../packaging/rtx-remix/mods/minecraft-logic/README.md);
+[Gameplay-driven profiles](../rtx-remix-minecraft/packaging/rtx-remix/mods/minecraft-logic/README.md);
 these are the commands you use while editing.
 
 | Command | What it does |

@@ -1,0 +1,62 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/dome_composite/night_sky_args.h"
+
+float3 nightSkyDirection(NightSkyArgs args, float3 direction) {
+  // The host's celestial rotation is Rx(tilt) Ry(-pi/2) Rx(starAngle).
+  float3 view = args.intensity.w > 0 ? direction.xzy : direction;
+  const float3 tilt = float3(view.x, args.rotation.z * view.y + args.rotation.w * view.z,
+    -args.rotation.w * view.y + args.rotation.z * view.z);
+  const float3 orbital = float3(tilt.z, tilt.y, -tilt.x);
+  return float3(orbital.x, args.rotation.x * orbital.y + args.rotation.y * orbital.z,
+    -args.rotation.y * orbital.y + args.rotation.x * orbital.z);
+}
+
+float3 galaxyDirection(float3 local) {
+  const float3 galacticPole = normalize(float3(-0.86f, -0.29f, -0.41f));
+  const float3 galacticSide = normalize(cross(float3(0.44f, -0.83f, -0.34f), galacticPole));
+  const float3 galacticCenter = cross(galacticPole, galacticSide);
+  return float3(dot(local, galacticSide), dot(local, galacticCenter), dot(local, galacticPole));
+}
+
+float2 nightMapGradient(float2 origin, float2 neighbor) {
+  float2 difference = neighbor - origin;
+  difference.x -= round(difference.x);
+  return difference;
+}
+
+
+float3 nightSkyRadiance(NightSkyArgs args, Sampler2D<float> starMap, Sampler2D<float3> galaxyMap,
+                       float3 direction, float3 directionX, float3 directionY) {
+  if (args.intensity.z <= 0) return 0;
+  const float3 local = nightSkyDirection(args, direction);
+  const float3 localX = nightSkyDirection(args, directionX);
+  const float3 localY = nightSkyDirection(args, directionY);
+  const float2 starUV = cartesianDirectionToLatLongSphere(local);
+  const float stars = starMap.SampleGrad(starUV,
+    nightMapGradient(starUV, cartesianDirectionToLatLongSphere(localX)),
+    nightMapGradient(starUV, cartesianDirectionToLatLongSphere(localY)));
+  const float2 galaxyUV = cartesianDirectionToLatLongSphere(galaxyDirection(local));
+  const float3 galaxy = galaxyMap.SampleGrad(galaxyUV,
+    nightMapGradient(galaxyUV, cartesianDirectionToLatLongSphere(galaxyDirection(localX))),
+    nightMapGradient(galaxyUV, cartesianDirectionToLatLongSphere(galaxyDirection(localY))));
+  const float footprint = max(length(directionX - direction), length(directionY - direction));
+  const float3 view = args.intensity.w > 0 ? direction.xzy : direction;
+  float3 radiance = stars * args.intensity.x * float3(0.94f, 0.97f, 1.0f)
+    + galaxy * args.intensity.y * 0.08f;
+  for (uint i = 0; i < 2; i++) {
+    if (args.meteorHead[i].w <= 0) continue;
+    const float3 head = args.meteorHead[i].xyz;
+    const float3 tail = args.meteorTail[i].xyz;
+    const float3 segment = head - tail;
+    const float along = saturate(dot(view - tail, segment) / max(dot(segment, segment), 1e-10f));
+    const float3 nearest = normalize(tail + along * segment);
+    const float angularDistance = length(view - nearest);
+    const float width = max(0.001f, footprint * 0.6f);
+    const float profile = exp(-angularDistance * angularDistance / (2.0f * width * width));
+    radiance += args.meteorHead[i].w * profile * (0.1f + 0.9f * along * along)
+      * float3(0.75f, 0.88f, 1.0f);
+  }
+  return radiance * args.intensity.z;
+}

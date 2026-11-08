@@ -23,6 +23,9 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_CreateMesh(
     } else {
       CHECK(info->surfaces_count == 1 && info->surfaces_values[0].vertices_count == 3 && info->surfaces_values[0].indices_count == 3);
       CHECK(info->surfaces_values[0].vertices_values[0].position[0] == 1.5f);
+      if (info->surfaces_values[0].flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS) {
+        CHECK(info->surfaces_values[0].vertices_values[0].previousPosition[0] == -3.25f);
+      }
     }
     *out_handle=(void*)0x1234; return REMIXAPI_ERROR_CODE_SUCCESS;
 }
@@ -303,7 +306,8 @@ out_result->dxvk_AdoptVulkanDevice=mock_AdoptVulkanDevice;
 return 0; }
 __declspec(dllexport) int mock_validate_extension(int type, const void* ptr) {
   const remixapi_InitializeLibraryInfo* header=(const remixapi_InitializeLibraryInfo*)ptr;
-  CHECK(header && header->sType == type && header->pNext == (void*)0x1234);
+  CHECK(header && header->sType == type);
+  if (type != REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_EXT) CHECK(header->pNext == (void*)0x1234);
   switch(type) {
     case 40: { const remixapi_MaterialInfoVertexColorMaskEXT* p=ptr; CHECK(p->texture == (void*)0x1234); break; }
     case 38: { const remixapi_InstanceInfoVoxelCoverageEXT* p=ptr; CHECK(p->level == 1); break; }
@@ -363,7 +367,14 @@ __declspec(dllexport) int mock_validate_extension(int type, const void* ptr) {
     }
     case 20: {
       const remixapi_LightInfoDomeEXT* p=ptr;
-      CHECK(p->transform.matrix[0][0] == 0 && p->colorTexture == (void*)0x1234 && p->opacity == 1.5f && p->blendType == 1); break;
+      CHECK(p->transform.matrix[0][0] == 0 && p->colorTexture == (void*)0x1234 && p->opacity == 1.5f && p->blendType == 1);
+      const remixapi_LightInfoDomeTransmittanceEXT* transmission = p->pNext;
+      CHECK(transmission && transmission->sType == REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_TRANSMITTANCE_EXT);
+      CHECK(transmission->transmittanceTexture == (void*)0x1234);
+      const remixapi_LightInfoDomeProjectionEXT* projection = transmission->pNext;
+      CHECK(projection->sType == REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_PROJECTION_EXT);
+      CHECK(projection->projection == 1 && projection->backgroundOnly == 1 && projection->pNext == (void*)0x1234);
+      break;
     }
     case 17: {
       const remixapi_CameraInfoParameterizedEXT* p=ptr;
@@ -393,6 +404,11 @@ __declspec(dllexport) void ___tracy_emit_plot(const char* name, double value) { 
 __declspec(dllexport) void ___tracy_emit_message(const char* text, size_t length, int callstack) { if(length != 7 || memcmp(text,"message",7) || callstack) mock_tracy_errors++; mock_tracy_calls |= 32; }
 __declspec(dllexport) void ___tracy_emit_frame_mark(const char* name) { if(strcmp(name,"frame")) mock_tracy_errors++; mock_tracy_calls |= 64; }
 __declspec(dllexport) int mock_tracy_validate(void) { return mock_tracy_calls == 127 && mock_tracy_errors == 0; }
+
+__declspec(dllexport) int remixinternal_GetNrcStatus(uint32_t* records) {
+    if (records) *records = 0;
+    return 0;
+}
 
 /* Match the runtime's Tracy destructor: explicit unload terminates even with a success exit code. */
 BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID reserved) {

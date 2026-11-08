@@ -1,0 +1,25 @@
+Milky Way texture
+================
+
+Derived from NASA SVS, Deep Star Maps 2020 (Ernie Wright).
+https://svs.gsfc.nasa.gov/4851/
+
+Credit: NASA/Goddard Space Flight Center Scientific Visualization Studio.
+Gaia DR2: ESA/Gaia/DPAC.
+
+This asset uses only the Milky Way image, without constellation figures.
+The image is a visualization of astronomical catalogue data, not a photograph.
+
+The NASA SVS FAQ states that its content is in the public domain unless
+otherwise noted, and may be downloaded, used, and redistributed:
+https://svs.gsfc.nasa.gov/help/
+NASA media usage guidelines: https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+Original: milkyway_2020_4k_gal.exr, 4096 x 2048, linear RGB.
+https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/milkyway_2020_4k_gal.exr
+Original SHA-256:
+fad63b36aa632c691d521cd9d8b828de9d29b4c2784276eec44e54c6cb159a49
+
+Modifications: 2 x 2 area downsampling in linear light to 2048 x 1024,
+BC6H unsigned compression with mipmaps. No image from a shader pack is used.
+See packaging/runtime-textures/prepare_milky_way.py for the conversion.

@@ -1,0 +1,125 @@
+/*
+* Copyright (c) 2026, GBwater. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+
+#pragma once
+
+namespace SharcCellFilter {
+static const uint kThin = 1;
+static const uint kMixed = 2;
+static const uint kResetHistory = 4;
+
+uint2 keyWords(uint64_t key) {
+  return uint2(uint(key), uint(key >> 32));
+}
+
+bool matches(uint4 value, uint64_t key) {
+  return key != 0 && all(value.xy == keyWords(key));
+}
+
+bool eligible(uint4 guidance, uint64_t key) {
+  return matches(guidance, key) && (guidance.w & (kThin | kMixed)) == kThin;
+}
+
+uint packNormal(float3 normal) {
+  uint3 encoded = uint3(round(saturate(normal * 0.5f + 0.5f) * 1023.f));
+  return encoded.x | (encoded.y << 10) | (encoded.z << 20);
+}
+
+float3 unpackNormal(uint encoded) {
+  return normalize(float3(encoded & 1023, (encoded >> 10) & 1023, (encoded >> 20) & 1023) * (2.f / 1023.f) - 1.f);
+}
+
+// Resolve resets guidance whenever a hash slot changes owner, before filtered history is read.
+bool validHistory(uint2 history, uint4 guidance) {
+  return !(guidance.w & kResetHistory) && (history.y >> 16) != 0;
+}
+
+float3 unpackRadiance(uint2 value) {
+  return float3(uint16BitsToHalf(uint16_t(value.x)), uint16BitsToHalf(uint16_t(value.x >> 16)),
+    uint16BitsToHalf(uint16_t(value.y)));
+}
+
+uint2 packRadiance(float3 radiance) {
+  uint3 value = uint3(float16BitsToUint16(float16_t(clamp(radiance.x, 0.f, 65504.f))),
+    float16BitsToUint16(float16_t(clamp(radiance.y, 0.f, 65504.f))),
+    float16BitsToUint16(float16_t(clamp(radiance.z, 0.f, 65504.f))));
+  return uint2(value.x | (value.y << 16), value.z | (0x3c00u << 16));
+}
+
+uint4 updateGuidance(uint64_t key, uint4 previous, uint4 observations) {
+  if (key == 0) {
+    return uint4(0);
+  }
+  uint flags = matches(previous, key) ? previous.w & ~kResetHistory : kResetHistory;
+  uint normal = matches(previous, key) ? previous.z : 0;
+  if (observations.w & 0x80000000u) {
+    flags |= kMixed;
+  }
+  uint count = min(observations.w & 0x7fffffffu, 65535u);
+  if (count) {
+    float3 average = float3(int3(observations.xyz)) / (float(count) * 1023.f);
+    float coherence = length(average);
+    if (coherence < 0.9f) {
+      flags |= kMixed;
+    } else {
+      average /= coherence;
+      if (!(flags & kThin) || dot(unpackNormal(normal), average) < 0.95f) {
+        flags |= kResetHistory;
+      }
+      normal = packNormal(average);
+      flags |= kThin;
+    }
+  }
+  return uint4(keyWords(key), normal, flags);
+}
+
+float confidence(SharcVoxelData cell) {
+  float samples = max(cell.accumulatedSampleNum, 0.f);
+  return samples / (samples + 8.f) / (1.f + float(cell.staleFrameNum) * 0.125f);
+}
+
+float neighborWeight(float3 centerNormal, float3 neighborNormal, int3 offset, float normalCosine) {
+  float normalWeight = saturate((dot(centerNormal, neighborNormal) - normalCosine) / max(1.f - normalCosine, 0.01f));
+  float distanceSquared = dot(float3(offset), float3(offset));
+  float planeDistance = max(abs(dot(centerNormal, float3(offset))), abs(dot(neighborNormal, float3(offset))));
+  return normalWeight * normalWeight * saturate(1.f - planeDistance * planeDistance / max(distanceSquared, 1.e-6f)) /
+    max(distanceSquared, 1.f);
+}
+
+// Three opposite pairs cycle through the 26 adjacent cells without a full neighborhood traversal per frame.
+int3 neighborOffset(uint index, uint frame, uint neighbor) {
+  uint direction = ((frame + index * 7u) % 13u + (neighbor / 2u) * 4u) % 13u;
+  int3 offset = int3((uint3(11102871u, 36344989u, 42502517u) >> (2u * direction)) & 3u) - 1;
+  return offset * ((neighbor & 1u) ? 1 : -1);
+}
+
+uint64_t offsetKey(uint64_t key, int3 offset) {
+  uint64_t result = key;
+  for (uint axis = 0; axis < 3; axis++) {
+    uint shift = axis * HASH_GRID_POSITION_BIT_NUM;
+    uint64_t mask = uint64_t(HASH_GRID_POSITION_BIT_MASK) << shift;
+    uint coordinate = uint((key >> shift) & HASH_GRID_POSITION_BIT_MASK);
+    result = (result & ~mask) | ((uint64_t(coordinate + offset[axis]) & HASH_GRID_POSITION_BIT_MASK) << shift);
+  }
+  return result;
+}
+} // namespace SharcCellFilter

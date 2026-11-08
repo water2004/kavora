@@ -1,0 +1,169 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/gbuffer/primary_atmosphere_cache.h"
+#include "rtx/pass/gbuffer/primary_intersection.slangh"
+#include "rtx/utility/brdf.slangh"
+#include "rtx/concept/surface_material/translucent_surface_material.slangh"
+#include "rtx/algorithm/atmosphere.slangh"
+#include "rtx/algorithm/view_distance.slangh"
+
+uint atmosphereColumnStride()
+{
+  return cb.volumeArgs.fogIntegrationMode == 1
+    ? cb.volumeArgs.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
+}
+
+uint2 atmosphereColumnExtent()
+{
+  return cb.camera.resolution / atmosphereColumnStride() + 1;
+}
+
+uint atmosphereCheckpointStride()
+{
+  return max(8u, (uint(cb.volumeArgs.froxelDepthSlices) + GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY - 1)
+    / GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY);
+}
+
+float atmosphereCheckpointDepth(uint checkpoint)
+{
+  const float w = cb.volumeArgs.fogIntegrationMode == 1
+    ? float(checkpoint) / float(min(cb.volumeArgs.froxelDepthSlices, GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY))
+    : float(checkpoint * atmosphereCheckpointStride()) / float(cb.volumeArgs.froxelDepthSlices);
+  return cb.volumeArgs.cameras[0].nearPlane
+    + pow(w, cb.volumeArgs.froxelDepthSliceDistributionExponent) * cb.volumeArgs.froxelMaxDistance;
+}
+
+float atmosphereCheckpointDistance(FogRayProjection projection, uint checkpoint)
+{
+  return max(0.0f, (atmosphereCheckpointDepth(checkpoint) - projection.originDepth) / projection.directionDepth);
+}
+
+Ray primaryAtmosphereRay(uint2 pixel)
+{
+  Ray ray = rayCreatePrimaryFromPixel(cb.camera, pixel);
+  ray.spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
+  return ray;
+}
+
+float primaryAtmosphereDistance(Ray ray, RayHitInfo hit)
+{
+  if (hit.hasHit)
+  {
+    const RayInteraction interaction = rayInteractionCreate(ray, hit);
+    const Surface surface = surfaces[uint(interaction.surfaceIndex)];
+    const SurfaceInteraction point = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, interaction, ray);
+    const bool clipped = isSurfaceClipped(surface, point) && 1 < cb.primaryRayMaxInteractions;
+    if (clipped || evalViewDistance(cb.viewDistanceArgs, cb.isZUp, cb.camera, point.position))
+    {
+      return hit.hitDistance;
+    }
+  }
+  return floatMax;
+}
+
+// The endpoint record is consumed before this pixel's six-word transfer replaces it.
+void storeAtmosphereEndpoint(uint2 pixel, RayHitInfo hit)
+{
+  const Ray ray = primaryAtmosphereRay(pixel);
+  const float distance = primaryAtmosphereDistance(ray, hit);
+  const FogRayProjection projection = createFogRayProjection(cb.volumeArgs, ray.origin, ray.direction, 0);
+  const float depth = min(projection.originDepth + projection.directionDepth * distance,
+    projection.nearPlane + cb.volumeArgs.froxelMaxDistance);
+  const float w = pow(saturate((depth - projection.nearPlane) / cb.volumeArgs.froxelMaxDistance),
+    1.0f / cb.volumeArgs.froxelDepthSliceDistributionExponent);
+  const uint stride = atmosphereCheckpointStride();
+  uint checkpoint;
+  if (cb.volumeArgs.fogIntegrationMode == 1)
+  {
+    const uint count = min(cb.volumeArgs.froxelDepthSlices, GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY);
+    checkpoint = min(count - 1, uint(floor(w * float(count))));
+  }
+  else
+  {
+    checkpoint = min(uint(cb.volumeArgs.froxelDepthSlices) / stride,
+      uint(floor(w * float(cb.volumeArgs.froxelDepthSlices) / float(stride))));
+  }
+  if (checkpoint > 0 && atmosphereCheckpointDistance(projection, checkpoint) > distance)
+  {
+    checkpoint--;
+  }
+  const uint offset = primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
+  PathStorage[offset] = asuint(distance);
+  PathStorage[offset + 1] = checkpoint;
+}
+
+uint2 loadAtmosphereEndpoint(uint2 pixel)
+{
+  const uint offset = primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
+  return uint2(PathStorage[offset], PathStorage[offset + 1]);
+}
+
+// Checkpoints occupy Primary's tail slab until the dense transfer dispatch completes.
+uint atmosphereCheckpointOffset(uint2 column, uint checkpoint)
+{
+  const uint2 extent = atmosphereColumnExtent();
+  return primaryTailBase(0)
+    + ((checkpoint - 1) * extent.y * extent.x + column.y * extent.x + column.x)
+      * GBUFFER_ATMOSPHERE_CHECKPOINT_WORDS;
+}
+
+void storeAtmosphereCheckpoint(uint2 column, uint checkpoint, AtmosphereSegment segment)
+{
+  const uint offset = atmosphereCheckpointOffset(column, checkpoint);
+  PathStorage[offset] = asuint(segment.radiance.x);
+  PathStorage[offset + 1] = asuint(segment.radiance.y);
+  PathStorage[offset + 2] = asuint(segment.radiance.z);
+  PathStorage[offset + 3] = asuint(segment.transmittance.x);
+  PathStorage[offset + 4] = asuint(segment.transmittance.y);
+  PathStorage[offset + 5] = asuint(segment.transmittance.z);
+}
+
+AtmosphereSegment loadAtmosphereCheckpoint(uint2 column, uint checkpoint)
+{
+  const uint offset = atmosphereCheckpointOffset(column, checkpoint);
+  AtmosphereSegment segment;
+  segment.radiance = asfloat(uint3(PathStorage[offset], PathStorage[offset + 1], PathStorage[offset + 2]));
+  segment.transmittance = asfloat(uint3(PathStorage[offset + 3], PathStorage[offset + 4], PathStorage[offset + 5]));
+  return segment;
+}
+
+AtmosphereSegment interpolateAtmosphereCheckpoints(uint2 pixel, uint checkpoint)
+{
+  if (checkpoint == 0)
+  {
+    return emptyAtmosphereSegment();
+  }
+  const uint stride = atmosphereColumnStride();
+  const uint2 left = pixel / stride;
+  const uint2 right = min(left + 1, atmosphereColumnExtent() - 1);
+  const uint2 leftPixel = left * stride;
+  const uint2 rightPixel = min(right * stride, cb.camera.resolution - 1);
+  const float2 blend = float2(pixel - leftPixel) / float2(max(uint2(1), rightPixel - leftPixel));
+  const AtmosphereSegment a = loadAtmosphereCheckpoint(left, checkpoint);
+  const AtmosphereSegment b = loadAtmosphereCheckpoint(uint2(right.x, left.y), checkpoint);
+  const AtmosphereSegment c = loadAtmosphereCheckpoint(uint2(left.x, right.y), checkpoint);
+  const AtmosphereSegment d = loadAtmosphereCheckpoint(right, checkpoint);
+  AtmosphereSegment result;
+  result.radiance = lerp(lerp(a.radiance, b.radiance, blend.x), lerp(c.radiance, d.radiance, blend.x), blend.y);
+  result.transmittance = lerp(lerp(a.transmittance, b.transmittance, blend.x),
+    lerp(c.transmittance, d.transmittance, blend.x), blend.y);
+  return result;
+}
+
+AtmosphereSegment samplePreintegratedAtmosphere(uint2 pixel, FogRayProjection projection,
+  float distance, uint checkpoint)
+{
+  const float begin = checkpoint ? atmosphereCheckpointDistance(projection, checkpoint) : 0.0f;
+  const float end = atmosphereCheckpointDistance(projection, checkpoint + 1);
+  const float fraction = saturate((distance - begin) / max(end - begin, 1e-6f));
+  const AtmosphereSegment from = interpolateAtmosphereCheckpoints(pixel, checkpoint);
+  const AtmosphereSegment to = interpolateAtmosphereCheckpoints(pixel, checkpoint + 1);
+  const float3 ratio = saturate(to.transmittance / max(from.transmittance, 1e-30f));
+  const float3 partial = exp(log(max(ratio, 1e-30f)) * fraction);
+  const float3 weight = select(ratio < 0.9999f, (1.0f - partial) / max(1.0f - ratio, 1e-30f), fraction.xxx);
+  AtmosphereSegment result;
+  result.radiance = from.radiance + (to.radiance - from.radiance) * weight;
+  result.transmittance = from.transmittance * partial;
+  return result;
+}

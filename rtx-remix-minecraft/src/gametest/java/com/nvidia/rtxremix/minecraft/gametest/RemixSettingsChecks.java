@@ -1,0 +1,576 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package com.nvidia.rtxremix.minecraft.gametest;
+
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.nvidia.rtxremix.minecraft.QualityPreset;
+import com.nvidia.rtxremix.minecraft.RtxRemixMod;
+import com.nvidia.rtxremix.minecraft.settings.RtxQualityPresets;
+import com.nvidia.rtxremix.minecraft.settings.RtxQualitySelection;
+import com.nvidia.rtxremix.minecraft.settings.RtxSodiumConfig;
+import com.nvidia.rtxremix.minecraft.settings.RtxSetting;
+import com.nvidia.rtxremix.minecraft.settings.RtxSettingsScreen;
+import com.nvidia.rtxremix.minecraft.settings.RtxSettingsStore;
+import com.nvidia.rtxremix.minecraft.settings.RtxVideoSettings;
+import com.nvidia.rtxremix.minecraft.texture.BlockTextureManager;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import net.caffeinemc.mods.sodium.client.config.ConfigManager;
+import net.caffeinemc.mods.sodium.client.config.structure.EnumOption;
+import net.caffeinemc.mods.sodium.client.config.structure.ExternalPage;
+import net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen;
+import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.events.ContainerEventHandler;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+
+/** Exercises the visual and Sodium settings transactions with native option readback. */
+final class RemixSettingsChecks {
+    private static final String CLOUD_TRANSPORT = "rtx.clouds.transportMode";
+    private static final String BOUNCES_ID = "lighting.bounces";
+    private static final String[] QUALITY_SNAPSHOT_KEYS = {
+        "rtx.graphicsPreset",
+        "rtx.dlssPreset",
+        "rtx.upscalerType",
+        "rtx.qualityDLSS",
+        "rtx.enableRayReconstruction",
+        "rtx.dlfg.enable",
+        "rtx.dlfg.maxInterpolatedFrames",
+        "rtx.dlfg.litePreset",
+        "rtx.dlfg.enablePresentMetering",
+        "rtx.integrateIndirectMode",
+        "rtx.useRTXDI",
+        "rtx.pathMinBounces",
+        "rtx.pathMaxBounces",
+        "rtx.enablePSRR",
+        "rtx.enablePSTR",
+        "rtx.psrrMaxBounces",
+        "rtx.pstrMaxBounces",
+        "rtx.displacement.mode",
+        "rtx.displacement.enableDirectLighting",
+        "rtx.displacement.enableIndirectLighting",
+        "rtx.displacement.enableNEECache",
+        "rtx.displacement.enableReSTIRGI",
+        "rtx.displacement.enableIndirectHit",
+        "rtx.displacement.enablePSR",
+        "rtx.displacement.displacementFactor",
+        "rtx.displacement.displacementInFactor",
+        "rtx.displacement.displacementOutFactor",
+        "rtx.displacement.maxIterations",
+        "rtx.spatiallyHashedRadianceCache.qualityPreset",
+        "rtx.spatiallyHashedRadianceCache.queryForThinOpaquePrimaryView",
+        "rtx.spatiallyHashedRadianceCache.primaryQuerySpatialJitter",
+        "rtx.spatiallyHashedRadianceCache.primaryQueryLodJitter",
+        "rtx.spatiallyHashedRadianceCache.primaryQuerySpatialJitterRadius",
+        "rtx.spatiallyHashedRadianceCache.primaryQueryLodJitterWidth",
+        "rtx.spatiallyHashedRadianceCache.cellFilterMode",
+        "rtx.spatiallyHashedRadianceCache.cellFilterSpatialStrength",
+        "rtx.spatiallyHashedRadianceCache.cellFilterFeedback",
+        "rtx.spatiallyHashedRadianceCache.cellFilterNormalCosine",
+        "rtx.spatiallyHashedRadianceCache.enableUpdate",
+        "rtx.spatiallyHashedRadianceCache.enableResolve",
+        "rtx.spatiallyHashedRadianceCache.combineUpdateAndQuery",
+        "rtx.spatiallyHashedRadianceCache.downscaleFactor",
+        "rtx.spatiallyHashedRadianceCache.targetNumUpdateRecords",
+        "rtx.spatiallyHashedRadianceCache.excludePrimaryVerticesFromTarget",
+        "rtx.spatiallyHashedRadianceCache.averageUpdateRecordsPerPath",
+        "rtx.spatiallyHashedRadianceCache.numFramesToSmoothOutUpdateDimensions",
+        "rtx.spatiallyHashedRadianceCache.voxelSize",
+        "rtx.spatiallyHashedRadianceCache.maxNumFramesToAccumulate",
+        "rtx.spatiallyHashedRadianceCache.staleFrameNumber",
+        "rtx.spatiallyHashedRadianceCache.perceptualRoughnessThreshold",
+        "rtx.spatiallyHashedRadianceCache.fireflyClampMultiplier",
+        "rtx.spatiallyHashedRadianceCache.jitterSequenceLength",
+        "rtx.sparseRendering.enableSparseRendering",
+        "rtx.sparseRendering.enableAdaptiveSamplingRate",
+        "rtx.sparseRendering.quality",
+        "rtx.sparseRendering.samplingRate",
+        "rtx.sparseRendering.samplingRateResolutionExponent",
+        "rtx.sparseRendering.enableSparseAwareAlphaBlendSearch",
+        "rtx.volumetrics.froxelGridResolutionScale",
+        "rtx.volumetrics.froxelDepthSlices",
+        "rtx.volumetrics.froxelDepthSliceDistributionExponent",
+        "rtx.volumetrics.froxelMaxDistanceMeters",
+        "rtx.volumetrics.maxAccumulationFrames",
+        "rtx.volumetrics.restirGridGuardBandFactor",
+        "rtx.volumetrics.restirGridScale",
+        "rtx.volumetrics.restirFroxelDepthSlices",
+        "rtx.volumetrics.initialRISSampleCount",
+        "rtx.volumetrics.noiseFieldOctaves",
+        "rtx.clouds.steps",
+        "rtx.clouds.lightSteps",
+    };
+
+    private RemixSettingsChecks() {}
+
+    static void run(ClientGameTestContext context) {
+        if (Boolean.getBoolean("rtxremix.gametest.qualitySnapshotOnly")) {
+            writeQualitySnapshot(context);
+            return;
+        }
+        boolean originalReconstruction = context.computeOnClient(client -> ConfigManager.CONFIG.readBooleanOption(id("video.reconstruction")));
+        var originalDlss = context.computeOnClient(client -> ConfigManager.CONFIG.readEnumOption(
+                id("video.dlss"), RtxSodiumConfig.Dlss.class));
+        context.runOnClient(client -> {
+            var mod = ConfigManager.CONFIG.getModOptions().stream()
+                    .filter(value -> value.configId().equals("rtx-remix-renderer")).findFirst().orElseThrow();
+            require(mod.pages().size() == 3, "Expected Sodium rendering, performance and visual-settings pages");
+            require(mod.pages().getLast() instanceof ExternalPage,
+                    "Visual settings were embedded into the Sodium performance pages");
+            require(ConfigManager.CONFIG.getOption(id("video.preset")) == null
+                    && ConfigManager.CONFIG.getOption(id("runtime.bounces")) == null,
+                    "Visual quality controls remained registered in Sodium");
+            RtxSodiumConfig.open(client.gui.screen());
+            require(client.gui.screen() instanceof VideoSettingsScreen, "RTX menu did not open Sodium settings");
+            require(dlss().isEnabled() && reconstruction().isEnabled(), "Display reconstruction controls are unavailable");
+        });
+        var sodiumScreen = context.computeOnClient(client -> client.gui.screen());
+        context.waitTicks(10);
+        RemixWorldGameTest.captureCompletedFrame(context, "settings");
+        context.runOnClient(client -> {
+            RtxSodiumConfig.openEffects(client.gui.screen());
+            require(client.gui.screen() instanceof RtxSettingsScreen,
+                    "Visual settings did not open their independent category screen");
+        });
+        context.waitTicks(3);
+        context.runOnClient(client -> requireNonOverlappingWidgets(client.gui.screen()));
+        RemixWorldGameTest.captureCompletedFrame(context, "settings-effects");
+        checkEffects(context);
+        checkFolderNavigation(context, sodiumScreen);
+        checkQualityPresets(context, sodiumScreen);
+        try {
+            context.runOnClient(client -> {
+                dlss().modifyValue(RtxSodiumConfig.Dlss.DLAA);
+                ConfigManager.CONFIG.applyAllOptions();
+            });
+            context.waitFor(client -> read(RtxVideoSettings.UPSCALER).equals("1")
+                    && read(RtxVideoSettings.DLSS).equals("5"), 200);
+            context.runOnClient(client -> {
+                reconstruction().modifyValue(false);
+                ConfigManager.CONFIG.applyAllOptions();
+            });
+            context.waitFor(client -> read(RtxVideoSettings.UPSCALER).equals("1")
+                    && read(RtxVideoSettings.RECONSTRUCTION).equalsIgnoreCase("false"), 200);
+            for (var mode : RtxSodiumConfig.Dlss.values()) {
+                context.runOnClient(client -> {
+                    dlss().modifyValue(mode);
+                    ConfigManager.CONFIG.applyAllOptions();
+                });
+                String expected = switch (mode) {
+                    case ULTRA_PERFORMANCE -> "0";
+                    case PERFORMANCE -> "1";
+                    case BALANCED -> "2";
+                    case QUALITY -> "3";
+                    case AUTO -> "4";
+                    case DLAA -> "5";
+                };
+                context.waitFor(client -> read(RtxVideoSettings.DLSS).equals(expected), 200);
+            }
+            context.runOnClient(client -> {
+                reconstruction().modifyValue(true);
+                ConfigManager.CONFIG.applyAllOptions();
+            });
+            context.waitFor(client -> read(RtxVideoSettings.RECONSTRUCTION).equalsIgnoreCase("true"), 200);
+            String before = context.computeOnClient(client -> read(RtxVideoSettings.DLSS));
+            var target = before.equals("2") ? RtxSodiumConfig.Dlss.QUALITY : RtxSodiumConfig.Dlss.BALANCED;
+            String targetNative = target == RtxSodiumConfig.Dlss.QUALITY ? "3" : "2";
+            context.runOnClient(client -> {
+                dlss().modifyValue(target);
+                require(read(RtxVideoSettings.DLSS).equals(before), "Editing a control applied before Apply");
+                ConfigManager.CONFIG.resetAllOptionsFromBindings();
+                require(!dlss().hasChanged(), "Undo retained the modified DLSS value");
+                dlss().modifyValue(target);
+                ConfigManager.CONFIG.applyAllOptions();
+            });
+            context.waitFor(client -> read(RtxVideoSettings.DLSS).equals(targetNative), 200);
+            context.runOnClient(client -> {
+                var file = client.gameDirectory.toPath().resolve("config/rtxremix-video.json");
+                try {
+                    var json = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+                    require(json.get(RtxVideoSettings.DLSS).getAsString().equals(targetNative), "Video setting was not persisted");
+                } catch (IOException e) {
+                    throw new AssertionError("Cannot read saved video settings", e);
+                }
+                RtxVideoSettings.load();
+            });
+            context.waitTicks(5);
+            context.runOnClient(client -> require(read(RtxVideoSettings.DLSS).equals(targetNative),
+                    "Reload changed the saved DLSS setting"));
+        } finally {
+            context.runOnClient(client -> {
+                reconstruction().modifyValue(originalReconstruction);
+                dlss().modifyValue(originalDlss);
+                ConfigManager.CONFIG.applyAllOptions();
+                client.gui.setScreen(null);
+            });
+            context.waitTicks(5);
+        }
+    }
+
+    private static void writeQualitySnapshot(ClientGameTestContext context) {
+        context.runOnClient(client -> {
+            var gson = new GsonBuilder().setPrettyPrinting().create();
+            var runtime = new JsonObject();
+            for (String key : QUALITY_SNAPSHOT_KEYS) {
+                try {
+                    runtime.addProperty(key, read(key));
+                } catch (RuntimeException e) {
+                    throw new AssertionError("Cannot read resolved quality option " + key, e);
+                }
+            }
+            var settings = new JsonObject();
+            for (var setting : RtxRemixMod.getRtxSettings().all()) {
+                try {
+                    settings.add(setting.id(), gson.toJsonTree(setting.get()));
+                } catch (RuntimeException e) {
+                    throw new AssertionError("Cannot read RTX setting " + setting.id(), e);
+                }
+            }
+            var snapshot = new JsonObject();
+            snapshot.add("runtime", runtime);
+            snapshot.add("settings", settings);
+            var file = client.gameDirectory.toPath().resolve("quality-settings-snapshot.json");
+            try {
+                Files.writeString(file, gson.toJson(snapshot) + "\n");
+            } catch (IOException e) {
+                throw new AssertionError("Cannot write quality settings snapshot to " + file, e);
+            }
+        });
+    }
+
+    private static void checkEffects(ClientGameTestContext context) {
+        var root = context.computeOnClient(client -> (RtxSettingsScreen) client.gui.screen());
+        var originalQuality = context.computeOnClient(client -> RtxRemixMod.getRtxSettings().quality());
+        Map<String, Double> original = context.computeOnClient(client -> {
+            var values = new LinkedHashMap<String, Double>();
+            for (String id : new String[] {"clouds.coverage", "fog.transmittance.red", "fog.transmittance.green",
+                    "water.ior", "water.red", "water.absorptionDistance"}) values.put(id, floating(id).get());
+            return values;
+        });
+        try {
+            context.runOnClient(client -> press(client.gui.screen(), "rtxremix.settings.category.weather"));
+            context.waitTicks(2);
+            RemixWorldGameTest.captureCompletedFrame(context, "settings-atmosphere");
+            context.runOnClient(client -> {
+                press(client.gui.screen(), "rtxremix.settings.group.clouds");
+                editNumber("clouds.coverage", "0.7");
+                require(floating("clouds.coverage").get().equals(original.get("clouds.coverage")),
+                        "Shader control applied before Apply");
+            });
+            context.waitTicks(2);
+            context.runOnClient(client -> requireNonOverlappingWidgets(client.gui.screen()));
+            RemixWorldGameTest.captureCompletedFrame(context, "settings-clouds");
+            context.runOnClient(client -> {
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.group.fog");
+                editNumber("fog.transmittance.red", "0.8");
+                editNumber("fog.transmittance.green", "0.85");
+            });
+            context.waitTicks(2);
+            context.runOnClient(client -> requireNonOverlappingWidgets(client.gui.screen()));
+            RemixWorldGameTest.captureCompletedFrame(context, "settings-fog");
+            context.runOnClient(client -> press(client.gui.screen(), "rtxremix.settings.apply"));
+            context.waitFor(client -> Math.abs(Double.parseDouble(read("rtx.clouds.coverage")) - 0.7) < 1e-5
+                    && read("rtx.volumetrics.transmittanceColor").startsWith("0.8, 0.85,"), 100);
+            var references = context.computeOnClient(client -> new com.nvidia.rtxremix.minecraft.asset.RemixMaterial[] {
+                    BlockTextureManager.get().getWaterSurfaceMaterial(), BlockTextureManager.get().getWaterCameraMediumMaterial()});
+            context.runOnClient(client -> {
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.category.materials");
+                press(client.gui.screen(), "rtxremix.settings.group.water");
+                editNumber("water.ior", "1.4");
+                editNumber("water.red", "0.7");
+                editNumber("water.absorptionDistance", "3.0");
+            });
+            context.waitTicks(2);
+            RemixWorldGameTest.captureCompletedFrame(context, "settings-water");
+            context.runOnClient(client -> {
+                press(client.gui.screen(), "rtxremix.settings.apply");
+                var textures = BlockTextureManager.get();
+                require(references[0] != null && references[1] != null, "Water materials were not initialized");
+                require(textures.getWaterSurfaceMaterial() == references[0] && textures.getWaterCameraMediumMaterial() == references[1],
+                        "Water parameters replaced live material handles");
+                require(Math.abs(textures.getWaterIor() - 1.4) < 1e-5 && textures.getWaterTransmittanceDistance() == 3,
+                        "Water settings did not update the live material state");
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.category.weather");
+                press(client.gui.screen(), "rtxremix.settings.group.clouds");
+                editNumber("clouds.coverage", "0.1");
+                press(client.gui.screen(), "gui.cancel");
+                require(Math.abs(floating("clouds.coverage").get() - 0.7) < 1e-5,
+                        "Cancel changed the last applied cloud setting");
+            });
+        } finally {
+            context.runOnClient(client -> {
+                original.forEach((id, value) -> floating(id).apply(value));
+                RtxRemixMod.getRtxSettings().setQuality(originalQuality);
+                RtxRemixMod.saveRtxSettings();
+                root.onClose();
+                RtxSodiumConfig.openEffects(client.gui.screen());
+            });
+        }
+    }
+
+    private static void editNumber(String id, String value) {
+        var client = net.minecraft.client.Minecraft.getInstance();
+        var widget = findWidget(client.gui.screen(), Component.translatable(setting(id).labelKey()).getString());
+        require(widget != null, "Missing shader option " + id);
+        int remaining = client.gui.screen().children().size();
+        while (!widget.visible && remaining-- > 0) {
+            client.gui.screen().keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_PAGEDOWN, 0, 0));
+        }
+        require(widget.visible, "Shader option cannot be reached by scrolling: " + id);
+        widget.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_RETURN, 0, 0));
+        var input = client.gui.screen().children().stream().filter(child -> child instanceof net.minecraft.client.gui.components.EditBox)
+                .map(child -> (net.minecraft.client.gui.components.EditBox) child).findFirst().orElseThrow();
+        input.setValue(value);
+        press(client.gui.screen(), "gui.done");
+    }
+
+    private static void checkFolderNavigation(ClientGameTestContext context, Screen parent) {
+        Map<String, List<String>> routes = new LinkedHashMap<>();
+        routes.put("cloud-quality", List.of("weather", "clouds", "cloudQuality"));
+        routes.put("fog-quality", List.of("weather", "fog", "fogQuality"));
+        routes.put("parallax", List.of("materials", "materials", "parallax"));
+        routes.put("radiance-cache", List.of("rayTracing", "pathTracing", "radianceCache"));
+        for (var route : routes.entrySet()) {
+            context.runOnClient(client -> {
+                RtxSodiumConfig.openEffects(parent);
+                var path = route.getValue();
+                press(client.gui.screen(), "rtxremix.settings.category." + path.getFirst());
+                for (String folder : path.subList(1, path.size())) {
+                    press(client.gui.screen(), "rtxremix.settings.group." + folder);
+                }
+                requireNonOverlappingWidgets(client.gui.screen());
+            });
+            context.waitTick();
+            RemixWorldGameTest.captureCompletedFrame(context, "settings-" + route.getKey());
+        }
+        context.runOnClient(client -> RtxSodiumConfig.openEffects(parent));
+    }
+
+    private static void requireNonOverlappingWidgets(net.minecraft.client.gui.screens.Screen screen) {
+        var visible = screen.children().stream().filter(child -> child instanceof AbstractWidget)
+                .map(child -> (AbstractWidget) child).filter(widget -> widget.visible).toList();
+        for (int i = 0; i < visible.size(); i++) {
+            var a = visible.get(i);
+            require(a.getX() >= 0 && a.getY() >= 0 && a.getRight() <= screen.width && a.getBottom() <= screen.height,
+                    "Shader widget is outside the screen: " + a.getMessage().getString());
+            for (int j = 0; j < i; j++) {
+                var b = visible.get(j);
+                require(a.getRight() <= b.getX() || b.getRight() <= a.getX()
+                                || a.getBottom() <= b.getY() || b.getBottom() <= a.getY(),
+                        "Overlapping shader widgets: " + a.getMessage().getString() + " / " + b.getMessage().getString());
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static RtxSetting<Double> floating(String id) {
+        return (RtxSetting<Double>) setting(id);
+    }
+
+    private static RtxSetting<?> setting(String id) {
+        return Objects.requireNonNull(RtxRemixMod.getRtxSettings().byId(id), id);
+    }
+
+    static void press(ContainerEventHandler container, String labelKey) {
+        press(container, Component.translatable(labelKey));
+    }
+
+    private static void press(ContainerEventHandler container, Component label) {
+        AbstractWidget button = findWidget(container, label.getString());
+        require(button != null, "Missing settings control " + label.getString());
+        button.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_RETURN, 0, 0));
+    }
+
+    private static AbstractWidget findWidget(ContainerEventHandler container, String label) {
+        for (var child : container.children()) {
+            if (child instanceof AbstractWidget button && button.getMessage().getString().equals(label)) return button;
+            if (child instanceof ContainerEventHandler nested) {
+                AbstractWidget button = findWidget(nested, label);
+                if (button != null) return button;
+            }
+        }
+        return null;
+    }
+
+    private static void checkQualityPresets(ClientGameTestContext context, Screen sodiumScreen) {
+        var settings = context.computeOnClient(client -> RtxRemixMod.getRtxSettings());
+        var originalQuality = context.computeOnClient(client -> settings.quality());
+        var originalDisplay = context.computeOnClient(client -> displaySettings());
+        var restoreValues = context.computeOnClient(client -> RtxQualityPresets.values(QualityPreset.ULTRA).keySet()
+                .stream().map(id -> restoreSetting(setting(id))).toList());
+        Path file = FabricLoader.getInstance().getConfigDir().resolve("rtxremix.json");
+        byte[] originalFile = readSettingsFile(file);
+        var ultra = new RtxQualitySelection(QualityPreset.ULTRA, false);
+        var high = new RtxQualitySelection(QualityPreset.HIGH, false);
+        var customHigh = new RtxQualitySelection(QualityPreset.HIGH, true);
+        int highBounces = (Integer) RtxQualityPresets.values(QualityPreset.HIGH).get(BOUNCES_ID);
+        int ultraBounces = (Integer) RtxQualityPresets.values(QualityPreset.ULTRA).get(BOUNCES_ID);
+        int editedBounces = java.util.stream.IntStream.of(3, 4, 5)
+                .filter(value -> value != highBounces && value != ultraBounces).findFirst().orElseThrow();
+        try {
+            context.runOnClient(client -> {
+                RtxQualityPresets.apply(settings, QualityPreset.ULTRA);
+                RtxSodiumConfig.openEffects(sodiumScreen);
+            });
+            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("0"), 100);
+            context.runOnClient(client -> {
+                selectQuality(client.gui.screen(), ultra, QualityPreset.HIGH);
+                requireQualityLabel(client.gui.screen(), high);
+            });
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                require(read(CLOUD_TRANSPORT).equals("0") && settings.quality().equals(ultra),
+                        "Selecting High changed the committed settings before Apply");
+                press(client.gui.screen(), "gui.cancel");
+                require(client.gui.screen() == sodiumScreen, "Cancel did not return to Sodium");
+                RtxSodiumConfig.openEffects(sodiumScreen);
+                requireQualityLabel(client.gui.screen(), ultra);
+                require(read(CLOUD_TRANSPORT).equals("0"), "Cancel changed native cloud transport");
+                selectQuality(client.gui.screen(), ultra, QualityPreset.HIGH);
+                press(client.gui.screen(), "rtxremix.settings.apply");
+            });
+            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("1"), 100);
+            context.runOnClient(client -> {
+                require(settings.quality().equals(high), "Apply did not commit High");
+                require(displaySettings().equals(originalDisplay), "High changed display reconstruction or frame generation");
+                press(client.gui.screen(), "rtxremix.settings.category.rayTracing");
+                press(client.gui.screen(), "rtxremix.settings.group.pathTracing");
+                editNumber(BOUNCES_ID, Integer.toString(editedBounces));
+                press(client.gui.screen(), "rtxremix.settings.back");
+                press(client.gui.screen(), "rtxremix.settings.back");
+                requireQualityLabel(client.gui.screen(), customHigh);
+                press(client.gui.screen(), "rtxremix.settings.apply");
+            });
+            context.waitFor(client -> read("rtx.pathMaxBounces").equals(Integer.toString(editedBounces)), 100);
+            context.runOnClient(client -> {
+                press(client.gui.screen(), "rtxremix.settings.category.weather");
+                press(client.gui.screen(), "rtxremix.settings.group.fog");
+                press(client.gui.screen(), "rtxremix.settings.group.fogQuality");
+                editNumber("fog.integration", "0");
+                editNumber("fog.integrationResolution", "7");
+                press(client.gui.screen(), "rtxremix.settings.apply");
+            });
+            context.waitFor(client -> read("rtx.volumetrics.fogIntegrationMode").equals("0")
+                    && read("rtx.volumetrics.fogIntegrationPixelStride").equals("7"), 100);
+            context.runOnClient(client -> {
+                require(settings.quality().equals(customHigh), "Editing a High value lost its preset source");
+                require(read(CLOUD_TRANSPORT).equals("1") && read("rtx.displacement.mode").equals("2")
+                        && displaySettings().equals(originalDisplay), "An individual fog edit changed other quality mechanisms");
+                RtxQualityPresets.apply(settings, QualityPreset.ULTRA);
+                require(settings.quality().equals(ultra) && setting(BOUNCES_ID).get().equals(ultraBounces),
+                        "Could not clear the live custom settings before reloading");
+                new RtxSettingsStore(file).load(settings);
+                require(settings.quality().equals(customHigh) && setting(BOUNCES_ID).get().equals(editedBounces),
+                        "Reload did not restore the custom High source and edited bounces");
+                RtxSodiumConfig.openEffects(sodiumScreen);
+                requireQualityLabel(client.gui.screen(), customHigh);
+                selectQuality(client.gui.screen(), customHigh, QualityPreset.ULTRA);
+                press(client.gui.screen(), "rtxremix.settings.apply");
+            });
+            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("0"), 100);
+            context.runOnClient(client -> {
+                require(settings.quality().equals(ultra), "Ultra did not clear the custom label");
+                require(displaySettings().equals(originalDisplay), "Ultra changed display reconstruction or frame generation");
+            });
+            // A developer-menu preset must not mask a later shader-menu transaction.
+            context.runOnClient(client -> RtxRemixMod.renderer.getRemixApi().setConfigVariable("rtx.graphicsPreset", "0"));
+            context.waitFor(client -> read("rtx.pathMinBounces").equals("1")
+                    && read("rtx.pathMaxBounces").equals("4"), 100);
+            context.runOnClient(client -> RtxQualityPresets.apply(settings, QualityPreset.HIGH));
+            context.waitFor(client -> read("rtx.graphicsPreset").equals("4")
+                    && read("rtx.pathMinBounces").equals("0")
+                    && read("rtx.pathMaxBounces").equals(Integer.toString(highBounces)), 100);
+            context.runOnClient(client -> require(displaySettings().equals(originalDisplay),
+                    "Reclaiming visual settings changed display reconstruction or frame generation"));
+        } finally {
+            context.runOnClient(client -> {
+                restoreValues.forEach(Runnable::run);
+                settings.setQuality(originalQuality);
+                restoreSettingsFile(file, originalFile);
+                client.gui.setScreen(sodiumScreen);
+            });
+        }
+    }
+
+    private static Map<String, String> displaySettings() {
+        var values = new LinkedHashMap<String, String>();
+        for (String key : new String[] { RtxVideoSettings.UPSCALER, "rtx.dlssPreset", RtxVideoSettings.DLSS,
+                RtxVideoSettings.RECONSTRUCTION, "rtx.dlfg.enable", "rtx.dlfg.maxInterpolatedFrames", "rtx.dlfg.litePreset",
+                "rtx.dlfg.enablePresentMetering" }) {
+            values.put(key, read(key));
+        }
+        return values;
+    }
+
+    private static void selectQuality(Screen screen, RtxQualitySelection current, QualityPreset next) {
+        press(screen, qualityLabel(current));
+        press(screen, "rtxremix.quality." + next.id());
+    }
+
+    private static void requireQualityLabel(Screen screen, RtxQualitySelection quality) {
+        Component label = qualityLabel(quality);
+        require(findWidget(screen, label.getString()) != null, "Missing quality selection " + label.getString());
+    }
+
+    private static Component qualityLabel(RtxQualitySelection quality) {
+        Component name = Component.translatable("rtxremix.quality." + quality.base().id());
+        if (quality.customized()) name = Component.translatable("rtxremix.quality.custom", name);
+        return Component.translatable("rtxremix.quality.selected", name);
+    }
+
+    private static <T> Runnable restoreSetting(RtxSetting<T> setting) {
+        T original = setting.get();
+        return () -> {
+            if (!Objects.equals(setting.get(), original)) setting.apply(original);
+        };
+    }
+
+    private static byte[] readSettingsFile(Path file) {
+        try {
+            return Files.exists(file) ? Files.readAllBytes(file) : null;
+        } catch (IOException e) {
+            throw new AssertionError("Cannot read visual settings " + file, e);
+        }
+    }
+
+    private static void restoreSettingsFile(Path file, byte[] contents) {
+        try {
+            if (contents == null) Files.deleteIfExists(file);
+            else Files.write(file, contents);
+        } catch (IOException e) {
+            throw new AssertionError("Cannot restore visual settings " + file, e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static EnumOption<RtxSodiumConfig.Dlss> dlss() {
+        return (EnumOption<RtxSodiumConfig.Dlss>) ConfigManager.CONFIG.getOption(id("video.dlss"));
+    }
+
+    private static net.caffeinemc.mods.sodium.client.config.structure.BooleanOption reconstruction() {
+        return (net.caffeinemc.mods.sodium.client.config.structure.BooleanOption) ConfigManager.CONFIG.getOption(id("video.reconstruction"));
+    }
+
+    private static Identifier id(String path) { return Identifier.fromNamespaceAndPath("rtx-remix-renderer", path); }
+    private static String read(String key) { return RtxRemixMod.renderer.getRemixApi().getConfigVariableResolved(key); }
+    private static void require(boolean value, String message) { if (!value) throw new AssertionError(message); }
+}
+

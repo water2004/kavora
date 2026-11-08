@@ -129,6 +129,19 @@ public final class RemixBridgeContractTest {
                 new ByteBuffer[]{ByteBuffer.allocateDirect(12)}, new int[]{3}, new long[]{HANDLE},
                 new int[]{0}, new int[]{0}, new ByteBuffer[]{null}, new int[]{0},
                 new ByteBuffer[]{null}, new int[]{0}));
+        vertices.putFloat(HardcodedVertex.PREVIOUS_POSITION_OFFSET, -3.25f);
+        equal(HANDLE, RemixBridge.createMesh(123, 1, new ByteBuffer[]{vertices}, new int[]{3},
+                new ByteBuffer[]{ByteBuffer.allocateDirect(12)}, new int[]{3}, new long[]{HANDLE},
+                new int[]{MeshInfoSurfaceTriangles.PREVIOUS_POSITIONS}, new int[]{0}, new ByteBuffer[]{null}, new int[]{0},
+                new ByteBuffer[]{null}, new int[]{0}));
+        rejected = false;
+        try {
+            RemixBridge.createMesh(123, 1, new ByteBuffer[]{vertices}, new int[]{3},
+                    new ByteBuffer[]{ByteBuffer.allocateDirect(12)}, new int[]{3}, new long[]{HANDLE},
+                    new int[]{MeshInfoSurfaceTriangles.PREVIOUS_POSITIONS | MeshInfoSurfaceTriangles.COMPACT_VERTICES},
+                    new int[]{0}, new ByteBuffer[]{null}, new int[]{0}, new ByteBuffer[]{null}, new int[]{0});
+        } catch (IllegalArgumentException expected) { rejected = true; }
+        check(rejected, "Compact vertices must not silently discard explicit motion");
         float[] matrix = new float[16];
         for (int i = 0; i < matrix.length; i++) matrix[i] = i + 1;
         equal(0, RemixBridge.setupCamera(0, matrix, matrix, 0));

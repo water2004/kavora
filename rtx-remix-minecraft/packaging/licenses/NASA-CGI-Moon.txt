@@ -1,0 +1,33 @@
+Lunar color and elevation map
+============================
+
+NASA Scientific Visualization Studio, CGI Moon Kit (Ernie Wright).
+https://svs.gsfc.nasa.gov/4720/
+
+Color: Lunar Reconnaissance Orbiter Camera (LROC) Wide Angle Camera mosaic.
+Elevation: Lunar Orbiter Laser Altimeter (LOLA).
+Credit: NASA's Scientific Visualization Studio and the LRO instrument teams.
+
+The 2048 x 1024 RGB/elevation PNG is supplied by Caustica-Horizon,
+revision ea3dc4bf67fc3bfce1860dbb025c71626b26e983:
+src/main/resources/assets/caustica/textures/environment/moon_rgbh.png
+https://github.com/West68/Caustica-Horizon
+RGB contains lunar color and alpha contains LOLA elevation. The file is
+included unchanged, with SHA-256:
+281972c3eb6c12302764b1edb4d283bcfe650879cdf89ad5ee238eeafbf823aa
+
+NASA SVS content is in the public domain unless otherwise noted:
+https://svs.gsfc.nasa.gov/help/
+NASA media usage guidelines:
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+Lunar surface shading is adapted from Caustica-Horizon realMoon() in
+shaders/world/world.rmiss.slang, Copyright (c) 2026 ComfyFluffy and contributors,
+under LGPL-3.0-or-later. The adapted module remains under that license:
+dxvk-remix/src/dxvk/shaders/rtx/pass/dome_composite/caustica_moon.slangh
+The existing Vulkan dome compositor supplies phase, projection, atmosphere,
+cloud occlusion and the shared background for camera and continuation rays.
+No proprietary ITRP/SEUS assets or renderer implementation are included.
+
+The LGPLv3 and GPLv3 texts accompany this notice. Matching native source and
+build instructions are available in the water2004/dxvk-remix source fork.

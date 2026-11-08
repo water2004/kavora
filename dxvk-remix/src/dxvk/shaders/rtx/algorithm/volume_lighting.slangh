@@ -1,0 +1,145 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+// Extend the SDK's volume sampling without copying or changing its source.
+#define calcVolumetricAttenuation calcBaseVolumetricAttenuation
+#define sampleDensityField sampleBaseDensityField
+#include "rtxdi/rtxdi-sdk/include/volumetrics/rtx/algorithm/volume_lighting.slangh"
+#undef sampleDensityField
+#undef calcVolumetricAttenuation
+
+#include "rtx/utility/height_fog.h"
+
+float heightFogBetween(VolumeArgs args, float3 fromWorld, float3 toWorld)
+{
+  return heightFogSegmentDensity(dot(fromWorld, args.sceneUpDirection), dot(toWorld, args.sceneUpDirection),
+    args.heightFogBaseHeight, args.heightFogFalloff);
+}
+
+float sampleDensityField(VolumeArgs args, VolumeDefinitionCamera camera,
+  float3 from, float3 to, float distance, float timeMS)
+{
+  if (args.heightFogFalloff <= 0.0f)
+  {
+    return sampleBaseDensityField(args, camera, from, to, distance, timeMS);
+  }
+  if (!args.enableNoiseFieldDensity)
+  {
+    return sampleBaseDensityField(args, camera, from, to, distance, timeMS)
+      * heightFogBetween(args, translatedWorldToWorld(camera, from), translatedWorldToWorld(camera, to));
+  }
+  // Sample noise and height together, keeping the SDK's bounded sampling cost.
+  uint steps = uint(clamp(ceil(distance / max(args.noiseFieldSubStepSize, 0.001f)), 1.0f, 10.0f));
+  VolumeArgs noiseArgs = args;
+  noiseArgs.enableAtmosphere = false;
+  float sum = 0.0f;
+  for (uint i = 0; i < steps; i++)
+  {
+    float3 a = lerp(from, to, float(i) / float(steps));
+    float3 b = lerp(from, to, float(i + 1) / float(steps));
+    float3 midpoint = (a + b) * 0.5f;
+    float noise = sampleBaseDensityField(noiseArgs, camera, midpoint, midpoint, 0.0f, timeMS);
+    sum += noise * evalAtmosphericDensityBetween(args, camera, a, b)
+      * heightFogBetween(args, translatedWorldToWorld(camera, a), translatedWorldToWorld(camera, b));
+  }
+  return sum / float(steps);
+}
+
+bool fogInterval(VolumeArgs args, float3 origin, float3 direction, float distance, out float2 interval)
+{
+  interval = float2(0, min(distance, args.maxAttenuationDistanceForNoAtmosphere));
+  if (!args.enable) return false;
+  if (args.enableAtmosphere)
+  {
+    float3 relative = origin - args.planetCenter;
+    float projection = dot(relative, direction);
+    float discriminant = projection * projection - dot(relative, relative) + args.atmosphereRadiusSquared;
+    if (discriminant <= 0) return false;
+    float radius = sqrt(discriminant);
+    interval = float2(max(0.0f, -projection - radius), min(distance, -projection + radius));
+  }
+  return interval.y > interval.x;
+}
+
+float fogSegmentDensity(VolumeArgs args, float3 fromWorld, float3 toWorld, float distance)
+{
+  if (args.enableNoiseFieldDensity)
+  {
+    VolumeArgs densityArgs = args;
+    densityArgs.enableAtmosphere = false;
+    VolumeDefinitionCamera densityCamera = args.cameras[froxelVolumeMain];
+    return sampleDensityField(densityArgs, densityCamera, worldToTranslatedWorld(densityCamera, fromWorld),
+      worldToTranslatedWorld(densityCamera, toWorld), distance, args.densityTimeMS);
+  }
+  return heightFogBetween(args, fromWorld, toWorld);
+}
+
+float groundMistSegmentDensity(VolumeArgs args, float3 fromWorld, float3 toWorld, float distance)
+{
+  if (args.groundMistExtinction <= 0)
+  {
+    return 0;
+  }
+  uint steps = uint(clamp(ceil(distance / (args.groundMistRegionSize * 0.125f)), 1.0f, 16.0f));
+  float sum = 0;
+  for (uint i = 0; i < steps; i++)
+  {
+    float3 a = lerp(fromWorld, toWorld, float(i) / float(steps));
+    float3 b = lerp(fromWorld, toWorld, float(i + 1) / float(steps));
+    float3 p = (a + b) * (0.5f / args.groundMistRegionSize);
+    p -= args.sceneUpDirection * dot(p, args.sceneUpDirection);
+    float broad = valueNoiseLutSample<false>(p + float3(11.3f, 7.1f, 23.9f)).x * 0.5f + 0.5f;
+    float detail = valueNoiseLutSample<false>(p * 3.1f + 31.7f).y * 0.5f + 0.5f;
+    float patch = smoothstep(0.3f, 0.65f, broad * 0.7f + detail * 0.3f);
+    sum += patch * heightFogSegmentDensity(dot(a, args.sceneUpDirection), dot(b, args.sceneUpDirection),
+      args.groundMistBaseHeight, args.groundMistFalloff);
+  }
+  return sum / float(steps);
+}
+
+struct FogMedium {
+  float3 extinction;
+  float3 scattering;
+};
+
+FogMedium fogSegmentMedium(VolumeArgs args, float3 fromWorld, float3 toWorld, float distance, float baseDensity)
+{
+  float mistExtinction = args.groundMistExtinction * groundMistSegmentDensity(args, fromWorld, toWorld, distance);
+  FogMedium medium;
+  medium.extinction = args.attenuationCoefficient * baseDensity + mistExtinction;
+  medium.scattering = args.scatteringCoefficient * baseDensity + mistExtinction * 0.98f;
+  return medium;
+}
+
+float3 fogAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
+  bool infinitelyDistant, float hitDistance, float3 origin, float3 direction, bool densityKnown, float density)
+{
+  float3 fromWorld = camera == none ? origin : translatedWorldToWorld(camera.value, origin);
+  float2 interval;
+  if (!fogInterval(args, fromWorld, direction, infinitelyDistant ? floatMax : hitDistance, interval))
+  {
+    return 1.0f;
+  }
+  fromWorld += direction * interval.x;
+  float distance = interval.y - interval.x;
+  float3 toWorld = fromWorld + direction * distance;
+  if (!densityKnown)
+  {
+    density = fogSegmentDensity(args, fromWorld, toWorld, distance);
+  }
+  FogMedium medium = fogSegmentMedium(args, fromWorld, toWorld, distance, density);
+  return evalBeerLambertAttenuation(medium.extinction, distance);
+}
+
+float3 calcVolumetricAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
+  bool infinitelyDistant, float hitDistance, float3 origin, float3 direction)
+{
+  return fogAttenuation(args, camera, infinitelyDistant, hitDistance, origin, direction, false, 0);
+}
+
+// An explicit base density already includes the authored fog's height and noise field.
+float3 calcVolumetricAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
+  bool infinitelyDistant, float hitDistance, float3 origin, float3 direction, float density)
+{
+  return fogAttenuation(args, camera, infinitelyDistant, hitDistance, origin, direction, true, density);
+}

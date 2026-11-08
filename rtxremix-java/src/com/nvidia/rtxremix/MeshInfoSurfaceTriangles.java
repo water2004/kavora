@@ -15,6 +15,9 @@ public class MeshInfoSurfaceTriangles {
     /** CPU vertices omit trailing padding and use {@link HardcodedVertex#STORAGE_STRIDE}.
      * The direct buffer must remain alive through CreateMesh; the runtime owns its copy. */
     public static final int COMPACT_VERTICES = 1 << 1;
+    /** Full-stride records include previous rendered-frame positions at offset 44.
+     * New vertices must set previous=current. Incompatible with COMPACT_VERTICES and skinning. */
+    public static final int PREVIOUS_POSITIONS = 1 << 2;
 
     /** Direct, native-order records starting at offset zero; capacity must cover vertexCount times the stride. */
     public ByteBuffer vertexBuffer;

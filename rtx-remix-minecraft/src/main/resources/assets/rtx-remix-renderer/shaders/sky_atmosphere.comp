@@ -1,0 +1,343 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba32f, binding = 0) uniform image2D TransmittanceLutImage;
+layout(rgba32f, binding = 1) uniform image2D ScatteringLutImage;
+layout(rgba16f, binding = 2) uniform image2D FinalSkyImage;
+layout(binding = 3) uniform sampler2D TransmittanceLut;
+layout(binding = 4) uniform sampler2D ScatteringLut;
+layout(rgba16f, binding = 6) uniform image2D SkyTransmittanceImage;
+
+layout(push_constant) uniform SkyPass { int Pass; };
+layout(std140, binding = 5) uniform SkyParameters {
+    vec4 SunDirectionAndRadius;
+    vec4 MoonDirectionAndRadius;
+    vec4 SunIrradianceValue;
+    vec4 MoonIrradianceValue;
+    vec4 AtmosphereParameters;
+};
+
+#define SunDirection SunDirectionAndRadius.xyz
+#define SunAngularRadius SunDirectionAndRadius.w
+#define MoonDirection MoonDirectionAndRadius.xyz
+#define MoonAngularRadius MoonDirectionAndRadius.w
+#define SunIrradiance SunIrradianceValue.xyz
+#define MoonIrradiance MoonIrradianceValue.xyz
+#define MieScatteringAnisotropy AtmosphereParameters.x
+#define ObserverHeight AtmosphereParameters.y
+
+#ifndef SKY_WIDTH
+#define SKY_WIDTH 256
+#endif
+#ifndef SKY_HEIGHT
+#define SKY_HEIGHT 128
+#endif
+const int VIEW_STEPS = 24;
+const int ANGULAR_SAMPLES = 64;
+const int LUT_WIDTH = 1024;
+const int LUT_HEIGHT = 256;
+const int SCATTERING_WIDTH = 64;
+const int SCATTERING_HEIGHT = 64;
+
+const float PI = 3.14159265358979323846;
+// Lengths and extinction use kilometres. Positions are relative to the ground
+// at the lower optical boundary, retaining precision near sea level.
+// Its vertical optical depth exceeds 500: it cannot contribute a visible surface.
+const float LIGHT_ANGULAR_RADIUS = 0.004625123;
+shared vec4 Reduction[64];
+
+float radiusDifference(float height) {
+    return height * (2.0 * INNER_RADIUS + height);
+}
+
+float altitude(vec3 position) {
+    float difference = dot(position, position) + 2.0 * INNER_RADIUS * position.y;
+    return max(0.0, difference / (sqrt(INNER_RADIUS * INNER_RADIUS + difference) + INNER_RADIUS));
+}
+
+vec3 vertical(vec3 position) {
+    return normalize(position + vec3(0.0, INNER_RADIUS, 0.0));
+}
+
+float atmosphereDistance(vec3 origin, vec3 direction) {
+    float b = dot(origin, direction) + INNER_RADIUS * direction.y;
+    float c = dot(origin, origin) + 2.0 * INNER_RADIUS * origin.y - radiusDifference(ATMOSPHERE_HEIGHT);
+    float root = sqrt(max(0.0, b * b - c));
+    // Origins are inside or on the top boundary. The outward intersection is the
+    // far root, including inward rays starting exactly on that boundary.
+    return b < 0.0 ? -b + root : -c / max(b + root, 1e-6);
+}
+
+float rayLength(vec3 origin, vec3 direction) {
+    float b = dot(origin, direction) + INNER_RADIUS * direction.y;
+    float c = dot(origin, origin) + 2.0 * INNER_RADIUS * origin.y;
+    float discriminant = b * b - c;
+    bool lowerBoundary = b < 0.0 && discriminant >= 0.0;
+    return lowerBoundary ? c / (-b + sqrt(discriminant))
+        : atmosphereDistance(origin, direction);
+}
+
+float sampleBoundary(float distance, int index, int count) {
+    float fraction = float(index) / float(count);
+    return distance * fraction * fraction;
+}
+
+vec3 segmentIntegral(vec3 extinction, float distance, vec3 transmittance) {
+    vec3 tau = extinction * distance;
+    return distance * mix(vec3(1.0) - 0.5 * tau,
+        (vec3(1.0) - transmittance) / max(tau, vec3(1e-8)),
+        greaterThan(tau, vec3(1e-3)));
+}
+
+void medium(float height, out vec3 rayleigh, out float mie) {
+    float seaLevelHeight = height - LOWER_DEPTH;
+    rayleigh = BETA_R * exp(-seaLevelHeight / RAYLEIGH_HEIGHT);
+    mie = BETA_M * exp(-seaLevelHeight / MIE_HEIGHT);
+}
+
+float heightCoordinate(float height) {
+    float h = height - LOWER_DEPTH;
+    return h < 0.0 ? 0.5 - 0.5 * sqrt(clamp(-h / LOWER_DEPTH, 0.0, 1.0))
+        : 0.5 + 0.5 * sqrt(clamp(h / (ATMOSPHERE_HEIGHT - LOWER_DEPTH), 0.0, 1.0));
+}
+
+float tableHeight(float coordinate) {
+    float h = 2.0 * coordinate - 1.0;
+    return LOWER_DEPTH + h * abs(h) * (h < 0.0 ? LOWER_DEPTH : ATMOSPHERE_HEIGHT - LOWER_DEPTH);
+}
+
+vec2 texelUv(vec2 fraction, vec2 extent) {
+    return (clamp(fraction, 0.0, 1.0) * (extent - 1.0) + 0.5) / extent;
+}
+
+float lowerBoundaryCosine(float height) {
+    return -sqrt(radiusDifference(height)) / (INNER_RADIUS + height);
+}
+
+vec3 transmittanceToSpace(float height, float lightCos) {
+    float horizon = lowerBoundaryCosine(height);
+    float mu = max(lightCos, horizon);
+    float r = INNER_RADIUS + height;
+    float rho = sqrt(radiusDifference(height));
+    float h = sqrt(radiusDifference(ATMOSPHERE_HEIGHT));
+    float distance = -r * mu + sqrt(max(0.0, r * r * mu * mu
+        + radiusDifference(ATMOSPHERE_HEIGHT) - radiusDifference(height)));
+    float minimum = ATMOSPHERE_HEIGHT - height;
+    vec2 fraction = vec2((distance - minimum) / max(rho + h - minimum, 1e-6), heightCoordinate(height));
+    return texture(TransmittanceLut, texelUv(fraction, vec2(LUT_WIDTH, LUT_HEIGHT))).rgb;
+}
+
+vec3 transmittanceToLight(float height, float lightCos, float angularRadius) {
+    float extent = sin(angularRadius) * sqrt(max(0.0, 1.0 - lightCos * lightCos));
+    float first = clamp((lowerBoundaryCosine(height) - lightCos) / max(extent, 1e-6), -1.0, 1.0);
+    float visible = (acos(first) - first * sqrt(max(0.0, 1.0 - first * first))) / PI;
+    if (visible == 0.0) return vec3(0.0);
+    float centre = 0.5 * (1.0 + first);
+    float radius = 0.5 * (1.0 - first);
+    // Integrate the visible disk's chords. Their transmittance differs strongly
+    // near the horizon, where an area-scaled centre sample loses blue light.
+    vec3 sum = vec3(0.0);
+    float normalization = 0.0;
+    for (int index = 0; index < 4; ++index) {
+        float chord = centre + radius * DISK_NODES[index];
+        float weight = DISK_WEIGHTS[index] * sqrt(max(0.0, 1.0 - chord * chord));
+        float cosine = lightCos + extent * chord;
+        vec3 transmitted = weight * transmittanceToSpace(height, cosine);
+        sum += transmitted;
+        normalization += weight;
+    }
+    float scale = visible / max(normalization, 1e-8);
+    return sum * scale;
+}
+
+float lightCoordinate(float lightCos) {
+    return 0.5 + 0.5 * sign(lightCos) * sqrt(abs(lightCos));
+}
+
+float lightCosine(int x) {
+    float coordinate = 2.0 * float(x) / float(SCATTERING_WIDTH - 1) - 1.0;
+    return sign(coordinate) * coordinate * coordinate;
+}
+
+vec3 multipleScattering(float height, float lightCos) {
+    vec2 fraction = vec2(lightCoordinate(lightCos), heightCoordinate(height));
+    return texture(ScatteringLut, texelUv(fraction, vec2(SCATTERING_WIDTH, SCATTERING_HEIGHT))).rgb;
+}
+
+float rayleighPhase(float cosine) {
+    return 3.0 / (16.0 * PI) * (1.0 + cosine * cosine);
+}
+
+float miePhase(float cosine) {
+    float g = MieScatteringAnisotropy;
+    return 3.0 / (8.0 * PI) * (1.0 - g * g) * (1.0 + cosine * cosine)
+        / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * cosine, 1.5));
+}
+
+void buildTransmittance(ivec2 pixel) {
+    float height = tableHeight(float(pixel.y) / float(LUT_HEIGHT - 1));
+    float rho = sqrt(radiusDifference(height));
+    float minimum = ATMOSPHERE_HEIGHT - height;
+    float distance = mix(minimum, rho + sqrt(radiusDifference(ATMOSPHERE_HEIGHT)),
+        float(pixel.x) / float(LUT_WIDTH - 1));
+    float cosine = distance > 0.0
+        ? (radiusDifference(ATMOSPHERE_HEIGHT) - rho * rho - distance * distance)
+            / (2.0 * (INNER_RADIUS + height) * distance) : 1.0;
+    cosine = clamp(cosine, -1.0, 1.0);
+    vec3 direction = vec3(sqrt(max(0.0, 1.0 - cosine * cosine)), cosine, 0.0);
+    vec3 origin = vec3(0.0, height, 0.0);
+    vec3 opticalDepth = vec3(0.0);
+    float previous = 0.0;
+    vec3 previousRayleigh; float previousMie;
+    medium(height, previousRayleigh, previousMie);
+    for (int step = 0; step < LIGHT_STEPS; ++step) {
+        float next = sampleBoundary(distance, step + 1, LIGHT_STEPS);
+        vec3 rayleigh; float mie;
+        medium(altitude(origin + direction * (0.5 * (previous + next))), rayleigh, mie);
+        vec3 nextRayleigh; float nextMie;
+        medium(altitude(origin + direction * next), nextRayleigh, nextMie);
+        opticalDepth += (previousRayleigh + 4.0 * rayleigh + nextRayleigh
+            + previousMie + 4.0 * mie + nextMie) * ((next - previous) / 6.0);
+        previousRayleigh = nextRayleigh;
+        previousMie = nextMie;
+        previous = next;
+    }
+    imageStore(TransmittanceLutImage, pixel, vec4(exp(-opticalDepth), 1.0));
+}
+
+vec3 angularDirection(int index) {
+    float mu = 2.0 * (float(index) + 0.5) / float(ANGULAR_SAMPLES) - 1.0;
+    float phi = float(index) * 2.39996323;
+    float sine = sqrt(max(0.0, 1.0 - mu * mu));
+    return vec3(sine * cos(phi), mu, sine * sin(phi));
+}
+
+void buildMultipleScattering(ivec2 pixel) {
+    float fraction = float(pixel.y) / float(SCATTERING_HEIGHT - 1);
+    float height = tableHeight(fraction);
+    vec3 origin = vec3(0.0, height, 0.0);
+    float mu = lightCosine(pixel.x);
+    vec3 light = vec3(sqrt(max(0.0, 1.0 - mu * mu)), mu, 0.0);
+    vec3 radiance = vec3(0.0);
+    vec3 feedback = vec3(0.0);
+    for (int sampleIndex = 0; sampleIndex < ANGULAR_SAMPLES; ++sampleIndex) {
+        vec3 direction = angularDirection(sampleIndex);
+        float distance = rayLength(origin, direction);
+        vec3 throughput = vec3(1.0);
+        float previous = 0.0;
+        for (int step = 0; step < VIEW_STEPS; ++step) {
+            float next = sampleBoundary(distance, step + 1, VIEW_STEPS);
+            vec3 position = origin + direction * (0.5 * (previous + next));
+            float h = altitude(position);
+            vec3 rayleigh; float mie;
+            medium(h, rayleigh, mie);
+            vec3 extinction = rayleigh + mie;
+            vec3 stepT = exp(-extinction * (next - previous));
+            vec3 weight = throughput * segmentIntegral(extinction, next - previous, stepT) * (rayleigh + mie * MIE_ALBEDO);
+            radiance += weight * transmittanceToLight(h, dot(vertical(position), light), LIGHT_ANGULAR_RADIUS) / (4.0 * PI);
+            feedback += weight;
+            throughput *= stepT;
+            previous = next;
+        }
+    }
+    // Isotropized higher orders form a geometric series of transported scattering.
+    // Escape into space and aerosol absorption keep feedback below one.
+    radiance /= vec3(float(ANGULAR_SAMPLES)) - feedback;
+    imageStore(ScatteringLutImage, pixel, vec4(radiance, 1.0));
+}
+
+vec3 lightSource(float height, vec3 up, vec3 light, float angularRadius, vec2 phase, vec3 rayleigh, float mie) {
+    float mu = dot(up, light);
+    return (rayleigh * phase.x + mie * MIE_ALBEDO * phase.y) * transmittanceToLight(height, mu, angularRadius)
+        + (rayleigh + mie * MIE_ALBEDO) * multipleScattering(height, mu);
+}
+
+vec3 integrateSky(vec3 origin, vec3 direction) {
+    float distance = rayLength(origin, direction);
+    float sunCos = dot(direction, SunDirection);
+    float moonCos = dot(direction, MoonDirection);
+    vec2 sunPhase = vec2(rayleighPhase(sunCos), miePhase(sunCos));
+    vec2 moonPhase = vec2(rayleighPhase(moonCos), miePhase(moonCos));
+    vec3 radiance = vec3(0.0);
+    vec3 throughput = vec3(1.0);
+    float previous = 0.0;
+    for (int step = 0; step < VIEW_STEPS; ++step) {
+        float next = sampleBoundary(distance, step + 1, VIEW_STEPS);
+        vec3 position = origin + direction * (0.5 * (previous + next));
+        float height = altitude(position);
+        vec3 up = vertical(position);
+        vec3 rayleigh; float mie;
+        medium(height, rayleigh, mie);
+        vec3 extinction = rayleigh + mie;
+        vec3 source = SunIrradiance * lightSource(height, up, SunDirection, SunAngularRadius, sunPhase, rayleigh, mie)
+            + MoonIrradiance * lightSource(height, up, MoonDirection, MoonAngularRadius, moonPhase, rayleigh, mie);
+        vec3 stepT = exp(-extinction * (next - previous));
+        radiance += throughput * segmentIntegral(extinction, next - previous, stepT) * source;
+        throughput *= stepT;
+        previous = next;
+    }
+    // Celestial dome layers supply the direct disks before this air transfer.
+    return radiance;
+}
+
+vec3 skyDirection(ivec2 pixel) {
+    float theta = (float(pixel.y) + 0.5) / float(SKY_HEIGHT) * PI;
+    float phi = (float(pixel.x) + 0.5) / float(SKY_WIDTH) * 2.0 * PI - PI * 0.5;
+    // The dome transform preserves this angular concentration at the horizon.
+    return normalize(vec3(sin(theta) * cos(phi), cos(theta) / SKY_VERTICAL_SCALE, sin(theta) * sin(phi)));
+}
+
+float physicalZenithCosine(float theta) {
+    return cos(theta) / sqrt(SKY_VERTICAL_SCALE * SKY_VERTICAL_SCALE * sin(theta) * sin(theta)
+        + cos(theta) * cos(theta));
+}
+
+void generateSky(ivec2 pixel) {
+    vec3 origin = vec3(0.0, LOWER_DEPTH + ObserverHeight * 0.001, 0.0);
+    vec3 direction = skyDirection(pixel);
+    vec3 radiance = integrateSky(origin, direction);
+    imageStore(FinalSkyImage, pixel, vec4(max(radiance, vec3(0.0)), 1.0));
+    if (pixel.x == 0) {
+        float height = LOWER_DEPTH + ObserverHeight * 0.001;
+        vec3 transmission = direction.y <= lowerBoundaryCosine(height) ? vec3(0.0)
+            : transmittanceToSpace(height, direction.y);
+        imageStore(SkyTransmittanceImage, ivec2(0, pixel.y), vec4(transmission, 1.0));
+    }
+}
+
+void reduceSkyIrradiance() {
+    uint invocation = gl_LocalInvocationIndex;
+    vec4 sum = vec4(0.0);
+    for (uint index = invocation; index < uint(SKY_WIDTH * SKY_HEIGHT / 2); index += 64u) {
+        ivec2 pixel = ivec2(int(index) % SKY_WIDTH, int(index) / SKY_WIDTH);
+        // Integrate cosine-weighted solid angle over each transformed latitude band.
+        float top = physicalZenithCosine(float(pixel.y) * PI / float(SKY_HEIGHT));
+        float bottom = physicalZenithCosine(float(pixel.y + 1) * PI / float(SKY_HEIGHT));
+        float weight = top * top - bottom * bottom;
+        sum += vec4(imageLoad(FinalSkyImage, pixel).rgb * weight, weight);
+    }
+    Reduction[invocation] = sum;
+    barrier();
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (invocation < stride) Reduction[invocation] += Reduction[invocation + stride];
+        barrier();
+    }
+    if (invocation == 0u) imageStore(FinalSkyImage, ivec2(0, SKY_HEIGHT), vec4(Reduction[0].rgb / Reduction[0].w, 1.0));
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (Pass == 0) {
+        if (pixel.x < LUT_WIDTH && pixel.y < LUT_HEIGHT) buildTransmittance(pixel);
+    } else if (Pass == 1) {
+        if (pixel.x < SCATTERING_WIDTH && pixel.y < SCATTERING_HEIGHT) buildMultipleScattering(pixel);
+    } else if (Pass == 2) {
+        if (pixel.x < SKY_WIDTH && pixel.y < SKY_HEIGHT) generateSky(pixel);
+    } else if (Pass == 3) {
+        reduceSkyIrradiance();
+    }
+}

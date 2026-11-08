@@ -1,0 +1,23 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "com.nvidia.rtxremix.minecraft.compat.sodium.mixin",
+    "compatibilityLevel": "JAVA_25",
+    "client": [
+        "SodiumBlockMaterialMixin",
+        "SodiumBuildOutputMixin",
+        "SodiumMeshBufferMixin",
+        "SodiumMeshingTaskMixin",
+        "SodiumRegionUploadMixin",
+        "SodiumRenderSectionMixin",
+        "SodiumSectionManagerAccessor",
+        "SodiumSectionManagerMixin",
+        "SodiumTaskAccessor",
+        "SodiumTerrainDrawMixin",
+        "SodiumWorldRendererAccessor",
+        "SodiumWorldRendererMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

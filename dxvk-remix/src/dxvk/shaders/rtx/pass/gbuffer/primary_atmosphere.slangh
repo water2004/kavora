@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/gbuffer/path_storage.slangh"
+#include "rtx/algorithm/atmosphere.slangh"
+
+uint primaryAtmosphereOffset(uint2 pixel)
+{
+  return primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
+}
+
+void storePrimaryAtmosphere(uint2 pixel, AtmosphereSegment segment)
+{
+  const uint offset = primaryAtmosphereOffset(pixel);
+  PathStorage[offset] = asuint(segment.radiance.x);
+  PathStorage[offset + 1] = asuint(segment.radiance.y);
+  PathStorage[offset + 2] = asuint(segment.radiance.z);
+  PathStorage[offset + 3] = asuint(segment.transmittance.x);
+  PathStorage[offset + 4] = asuint(segment.transmittance.y);
+  PathStorage[offset + 5] = asuint(segment.transmittance.z);
+}
+
+AtmosphereSegment loadPrimaryAtmosphere(uint2 pixel)
+{
+  const uint offset = primaryAtmosphereOffset(pixel);
+  AtmosphereSegment segment;
+  segment.radiance = asfloat(uint3(PathStorage[offset], PathStorage[offset + 1], PathStorage[offset + 2]));
+  segment.transmittance = asfloat(uint3(PathStorage[offset + 3], PathStorage[offset + 4], PathStorage[offset + 5]));
+  return segment;
+}

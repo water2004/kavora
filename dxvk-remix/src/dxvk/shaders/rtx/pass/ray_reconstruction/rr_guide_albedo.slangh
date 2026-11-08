@@ -1,0 +1,27 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+// Path throughput supplies the guide's tint. The input color already carries its magnitude.
+vec3 rrPathTint(vec3 throughput)
+{
+  const float peak = max(throughput.x, max(throughput.y, throughput.z));
+  return peak > 0.0f ? throughput / peak : vec3(0.0f);
+}
+
+// Every lobe behind a specular PSR reflection belongs to the camera's specular signal.
+vec3 rrReflectedAlbedo(vec3 diffuseAlbedo, vec3 specularAlbedo, vec3 throughput)
+{
+  return (diffuseAlbedo + specularAlbedo) * rrPathTint(throughput);
+}
+
+vec3 rrVirtualNormal(vec3 worldNormal, vec4 accumulatedRotation, bool transformNormal)
+{
+  vec3 normal = transformNormal
+    ? normalize(quaternionTransformVector(accumulatedRotation, worldNormal, true))
+    : worldNormal;
+  if (any(isnan(normal)) || any(isinf(normal)) || all(normal == vec3(0.0f)))
+  {
+    normal = vec3(0.0f, 0.0f, 1.0f);
+  }
+  return normal;
+}

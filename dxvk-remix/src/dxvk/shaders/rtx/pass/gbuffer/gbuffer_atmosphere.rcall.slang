@@ -1,0 +1,33 @@
+/* SPDX-License-Identifier: MIT */
+#define RAY_PIPELINE 1
+
+#include "rtx/pass/common_binding_indices.h"
+#include "rtx/pass/common_bindings.slangh"
+#include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
+#include "rtx/utility/shader_types.slangh"
+#include "rtx/utility/brdf.slangh"
+
+layout(binding = GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
+SamplerState LinearWrapSampler;
+layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
+Sampler3D<float4> VolumeFilteredRadianceY;
+layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT)
+Sampler3D<float2> VolumeFilteredRadianceCoCg;
+layout(binding = GBUFFER_BINDING_SKYPROBE)
+SamplerCube<float3> SkyProbe;
+
+#include "rtx/pass/gbuffer/atmosphere_call.slangh"
+#include "rtx/algorithm/atmosphere.slangh"
+#include "rtx/algorithm/environment_radiance.slangh"
+
+[shader("callable")]
+void main(inout AtmosphereCallData data)
+{
+  const float3 ambient = cb.volumeArgs.clouds.enable
+    ? sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, LinearWrapSampler, cb.volumeArgs.sceneUpDirection) * 0.5f
+    : float3(0);
+  const AtmosphereSegment segment = integrateAtmosphereSegment(cb.volumeArgs, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg, data.origin, data.direction, data.distance, ambient, data.volumeHint, data.mediumExtinction);
+  data.radiance = segment.radiance;
+  data.transmittance = segment.transmittance;
+}

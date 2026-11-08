@@ -1,0 +1,27 @@
+RTX Remix for Minecraft Community Edition - materials and analytic lighting
+
+Source: https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce
+Revision: 94400621dabc6b315d8e53b701c7be7beffa9303
+Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors
+License: Apache License, Version 2.0 (RTX-Remix-CE-Apache-2.0.txt).
+
+AutoPbr.java adapts the material classification, luminance-derived normals,
+and roughness variation from CE to Minecraft 26.3 and the current atlas owner.
+Authored channels are preserved. Animated sprites are excluded, and normal
+synthesis uses the DirectX convention of the native texture pipeline without
+allocating an intermediate height array. Generation runs only on atlas rebuild.
+
+The LabPBR converter also uses the perceptual roughness encoding documented
+and implemented in CE. Remix itself performs the perceptual-to-linear square.
+The selectable legacy double-squared encoding and CE's wet-surface system
+are not included.
+
+Modified source:
+  src/main/java/com/nvidia/rtxremix/minecraft/texture/AutoPbr.java
+  src/main/java/com/nvidia/rtxremix/minecraft/texture/LabPBRConverter.java
+  src/main/java/com/nvidia/rtxremix/minecraft/light/BlockLightDefaults.java
+
+The lighting rules adapt CE's exposed-face area lights, lantern emitters,
+end-rod geometry, and torch-relative power calibration. Minecraft 26.3 state
+families, glow berries, and waterlogged sea pickles are integrated with the
+current Sodium capture and render-thread light lifecycle.

@@ -318,11 +318,15 @@ their own.
 
 ## Sky And Weather
 
-The sun and moon are drawn from the pack's own
-`textures/environment/sun.png` and `moon_phases.png`, placed on the procedural
-sky as emissive quads at a radiance of 8.0 and 0.2 respectively
-(`SkyRenderer`). A repainted disc changes the shape and colour of what you see
-in the sky; those two constants set how bright it is.
+The sun uses Minecraft 26.3's `minecraft:textures/environment/celestial/sun.png`.
+The moon uses `rtx-remix-renderer:textures/environment/moon_rgbh.png`, a 2048 by
+1024 lunar map supplied through Caustica-Horizon from NASA's CGI Moon Kit.
+RGB stores lunar color and alpha stores elevation, not transparency. The
+Vulkan dome compositor applies spherical projection, phase lighting and relief
+before atmospheric and cloud attenuation. Sun and moon surface radiance use
+8.0 and 0.2 respectively. Analytic distant lights provide their illumination.
+Moon Size changes the visible surface independently of Moon Intensity and
+Moon Phase Contrast.
 
 `textures/environment/clouds.png` drives the classic cloud shape when
 Cloud Style is Classic. `textures/environment/rain.png` is used by the
@@ -356,5 +360,5 @@ weather renderer.
 | You want to | Read |
 |---|---|
 | Understand every control in the settings screen | [Settings](SETTINGS.md) |
-| Give your own map its own lighting | [Gameplay-driven profiles](../packaging/rtx-remix/mods/minecraft-logic/README.md) |
+| Give your own map its own lighting | [Gameplay-driven profiles](../rtx-remix-minecraft/packaging/rtx-remix/mods/minecraft-logic/README.md) |
 | Look up a command or a key | [In-Game Guide](IN_GAME_GUIDE.md) |

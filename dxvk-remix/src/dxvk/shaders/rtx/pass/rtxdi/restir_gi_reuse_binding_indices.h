@@ -1,0 +1,56 @@
+/*
+* Copyright (c) 2022-2025, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/common_binding_indices.h"
+
+// Inputs
+
+#define RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT  32
+#define RESTIR_GI_REUSE_BINDING_PERCEPTUAL_ROUGHNESS_INPUT  33
+#define RESTIR_GI_REUSE_BINDING_HIT_DISTANCE_INPUT          34
+#define RESTIR_GI_REUSE_BINDING_ALBEDO_INPUT                35
+#define RESTIR_GI_REUSE_BINDING_BASE_REFLECTIVITY_INPUT     36
+#define RESTIR_GI_REUSE_BINDING_WORLD_POSITION_INPUT        37
+#define RESTIR_GI_REUSE_BINDING_VIEW_DIRECTION_INPUT        38
+#define RESTIR_GI_REUSE_BINDING_CONE_RADIUS_INPUT           39
+#define RESTIR_GI_REUSE_BINDING_MVEC_INPUT                  41
+#define RESTIR_GI_REUSE_BINDING_RADIANCE_INPUT              42
+#define RESTIR_GI_REUSE_BINDING_HIT_GEOMETRY_INPUT          43
+#define RESTIR_GI_REUSE_BINDING_POSITION_ERROR_INPUT        44
+#define RESTIR_GI_REUSE_BINDING_SHARED_FLAGS_INPUT          45
+#define RESTIR_GI_REUSE_BINDING_PREV_WORLD_POSITION_INPUT   46
+#define RESTIR_GI_REUSE_BINDING_SHARED_SURFACE_INDEX_INPUT  47
+#define RESTIR_GI_REUSE_BINDING_SUBSURFACE_DATA_INPUT       48
+#define RESTIR_GI_REUSE_BINDING_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT 49
+#define RESTIR_GI_REUSE_BINDING_GRADIENTS_INPUT             50
+
+// Inputs / Outputs
+
+#define RESTIR_GI_REUSE_BINDING_LAST_GBUFFER_INPUT_OUTPUT   68
+#define RESTIR_GI_REUSE_BINDING_RESERVOIR_INPUT_OUTPUT      69
+
+#define RESTIR_GI_REUSE_MIN_BINDING                           RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT
+
+#if RESTIR_GI_REUSE_MIN_BINDING <= COMMON_MAX_BINDING
+#error "Increase the base index of ReSTIR GI bindings to avoid overlap with common bindings!"
+#endif

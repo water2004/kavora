@@ -54,6 +54,10 @@ public final class StructType {
     public static final int HOST_VULKAN_DEVICE_INFO = 42;
     public static final int FRAME_GENERATION_CAPABILITIES_EXT = 43;
     public static final int VULKAN_CLIENT_FRAME_INFO_EXT = 44;
+    public static final int LIGHT_INFO_DOME_TRANSMITTANCE_EXT = 45;
+
+    public static final int LIGHT_INFO_DOME_PROJECTION_EXT = 46;
+    public static final int MESH_INFO_QUADS_EXT = 47;
 
     private StructType() {}
 }

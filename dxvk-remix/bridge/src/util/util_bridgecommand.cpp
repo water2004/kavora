@@ -1,0 +1,485 @@
+/*
+ * Copyright (c) 2022-2023, NVIDIA CORPORATION. All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+#include "util_bridgecommand.h"
+#include "log/log_strings.h"
+
+#include <type_traits>
+
+namespace {
+  // The performance counters only count the device bridge.
+  template<typename BridgeIdT>
+  constexpr bool kIsDeviceBridge = std::is_same_v<BridgeIdT, ::BridgeId::Device>;
+  constexpr DWORD kOverwriteWaitSliceMs = 2;
+
+  // Attributes the wait to the request that was sent last.
+  struct ResponseWaitTimer {
+    int64_t start;
+    ~ResponseWaitTimer() {
+      if (start != 0) {
+        bridge_util::perf::noteResponseWait(bridge_util::perf::now() - start);
+      }
+    }
+  };
+
+  DWORD get_default_timeout() {
+    const auto timeout = GlobalOptions::getCommandTimeout();
+    const auto retries = GlobalOptions::getCommandRetries();
+    const auto default = timeout * retries;
+    // Catch overflow and return infinite in that case
+    return ((timeout != 0) && (default / timeout != retries)) ? INFINITE : default;
+  }
+}
+
+#define DECL_BRIDGE_FUNC(RETURN_T, NAME, ...) \
+  template<typename BridgeId> \
+  RETURN_T Bridge<BridgeId>::NAME(__VA_ARGS__)
+
+DECL_BRIDGE_FUNC(void, init,
+    const std::string baseName,
+    const size_t writerChannelMemSize, const size_t writerChannelCmdQueueSize,
+    const size_t writerChannelDataQueueSize, const size_t readerChannelMemSize,
+    const size_t readerChannelCmdQueueSize, const size_t readerChannelDataQueueSize) {
+  static bool bIsInit = false;
+  if (bIsInit) {
+    Logger::warn("Re-Init'ing Bridge type. May be sign of problem code.");
+    return;
+  }
+  s_pWriterChannel = new WriterChannel(
+    baseName + kWriterChannelName,
+    writerChannelMemSize, writerChannelCmdQueueSize, writerChannelDataQueueSize);
+  s_pReaderChannel = new ReaderChannel(
+    baseName + kReaderChannelName,
+    readerChannelMemSize, readerChannelCmdQueueSize, readerChannelDataQueueSize);
+  if constexpr (kIsDeviceBridge<BridgeId>) {
+    bridge_util::perf::init(GlobalOptions::getPerfLogIntervalFrames());
+  }
+  bIsInit = true;
+}
+
+DECL_BRIDGE_FUNC(void, perfOnFrame) {
+  if constexpr (kIsDeviceBridge<BridgeId>) {
+    bridge_util::perf::onFrame(s_pWriterChannel->commands->fullWaitStats(),
+                               s_pReaderChannel->commands->emptyWaitStats());
+  }
+}
+
+DECL_BRIDGE_FUNC(void, syncDataQueue, size_t expectedMemUsage, bool posResetOnLastIndex) {
+  // Overwrite protection for the data ring. Positions are words produced / consumed since start (skipped tail slots
+  // included, CircularQueue::m_absPos), so a write is safe when it ends no more than one ring behind the reader's
+  // published position; no wrap has to be tracked. The reader publishes after every command (device server, main.cpp)
+  // or consumed response (consumeResponse) and wakes the writer once the required position is reached.
+  const auto& data = *s_pWriterChannel->data;
+  const uint64_t ringWords = data.get_total_size();
+  const uint64_t writeEnd = data.abs_pos_after(expectedMemUsage != 0 ? expectedMemUsage : 1, posResetOnLastIndex);
+  if (writeEnd <= uint64_t(s_pWriterChannel->serverDataPos->load(std::memory_order_acquire)) + ringWords) {
+    return;
+  }
+  // The reader gets no further than the start of the batch in progress, so a batch larger than the ring never fits.
+  const uint64_t batchStart = s_curBatchStartPos >= 0 ? s_curBatchStartAbs : data.get_abs_pos();
+  if (writeEnd - batchStart > ringWords) {
+    Logger::errLogMessageBoxAndExit(std::string(logger_strings::OutOfBufferMemory) + std::string(logger_strings::OutOfBufferMemory1) + logger_strings::bufferNameToOption(s_pWriterChannel->data->getName()));
+  }
+  const int64_t required = int64_t(writeEnd - ringWords);
+  s_pWriterChannel->clientDataExpectedPos->store(required, std::memory_order_seq_cst);
+  Logger::warn(format_string("Data Queue overwrite condition triggered: the write ends at word %llu, the reader is at word %lld of a %llu word ring. Waiting for the reader to reach word %lld...",
+                             (unsigned long long) writeEnd, (long long) s_pWriterChannel->serverDataPos->load(std::memory_order_seq_cst),
+                             (unsigned long long) ringWords, (long long) required));
+  // The reader releases the semaphore when it gets there. The slices cover a reader that got there before it saw the
+  // position (it looks after a command only) and a release that happened before this wait started.
+  const DWORD timeoutMS = GlobalOptions::getCommandTimeout();
+  const ULONGLONG budgetMS = timeoutMS != 0 ? ULONGLONG(timeoutMS) * (GlobalOptions::getCommandRetries() + 1) : 0;
+  const ULONGLONG start = GetTickCount64();
+  while (gbBridgeRunning && s_pWriterChannel->serverDataPos->load(std::memory_order_seq_cst) < required) {
+    s_pWriterChannel->dataSemaphore->wait(kOverwriteWaitSliceMs);
+    if (budgetMS != 0 && GetTickCount64() - start >= budgetMS) {
+      Logger::err("Max retries reached waiting on the server to process enough data to prevent a overwrite!");
+      break;
+    }
+  }
+  s_pWriterChannel->clientDataExpectedPos->store(-1, std::memory_order_seq_cst);
+  Logger::info("DataQueue overwrite condition resolved");
+}
+
+DECL_BRIDGE_FUNC(Header, consumeResponse) {
+  // Publish before exposing the next header so its reader cannot advance our cursor first.
+  publishReadPos();
+  return pop_front();
+}
+
+DECL_BRIDGE_FUNC(Header, pop_front) {
+  ZoneScoped;
+  Result result;
+  // No retries, but wait the same amount of time
+  const auto response = getReaderChannel().commands->pull(result, get_default_timeout());
+  if (RESULT_FAILURE(result)) {
+    // For now just log when things go wrong, but could use some robustness improvements
+    Logger::err("CommandQueue get_response: Failed to retrieve the command response!");
+  }
+  return response;
+}
+
+DECL_BRIDGE_FUNC(bridge_util::Result, ensureQueueEmpty) {
+  if (getReaderChannel().commands->isEmpty()) {
+    return bridge_util::Result::Success;
+  }
+
+  const uint32_t maxAttempts = GlobalOptions::getCommandRetries();
+  uint32_t attemptNum = 0;
+  do {
+    Result result;
+    getReaderChannel().commands->peek(result, 1);
+
+    if (result != Result::Timeout) {
+      // Give the server some time to process the commands
+      Sleep(8);
+    } else {
+      // Timeout from peek() means the queue is empty
+      return bridge_util::Result::Success;
+    }
+  } while (attemptNum++ <= maxAttempts && gbBridgeRunning);
+
+  return bridge_util::Result::Timeout;
+}
+
+DECL_BRIDGE_FUNC(bridge_util::Result, waitForCommand, const Commands::D3D9Command& command,
+                                                      DWORD overrideTimeoutMS,
+                                                      std::atomic<bool>* const pbEarlyOutSignal, bool verifyUID, UID uidToVerify) {
+  ZoneScoped;
+#ifdef REMIX_BRIDGE_CLIENT
+  const bool timeResponseWait = kIsDeviceBridge<BridgeId> && command == Commands::Bridge_Response && bridge_util::perf::enabled();
+#else
+  const bool timeResponseWait = false;
+#endif
+  const ResponseWaitTimer responseWaitTimer { timeResponseWait ? bridge_util::perf::now() : 0 };
+  DWORD peekTimeoutMS = overrideTimeoutMS > 0 ? overrideTimeoutMS : GlobalOptions::getCommandTimeout();
+  uint32_t maxAttempts = GlobalOptions::getCommandRetries();
+#ifdef ENABLE_WAIT_FOR_COMMAND_TRACE
+  if (command != Commands::Any) {
+    Logger::trace(format_string("Waiting for command %s for %d ms up to %d times...", Commands::toString(command).c_str(), peekTimeoutMS, maxAttempts));
+  }
+#endif
+#if defined(_DEBUG) || defined(DEBUGOPT)
+  if (GlobalOptions::getLogAllCommands()) {
+    Logger::info("waitForCommand Command:" + toString(command) + (verifyUID ? " UID: " + std::to_string(uidToVerify) : ""));
+  }
+#endif
+  bool infiniteRetries = false;
+  bool bEarlyOut = false;
+  uint32_t attemptNum = 0;
+  do {
+    Result result;
+    Header header = getReaderChannel().commands->peek(result, peekTimeoutMS, pbEarlyOutSignal);
+
+    switch (result) {
+
+    case Result::Success:
+    {
+      bool uidVerified = true;
+      if (verifyUID) {
+        if (header.pHandle != uidToVerify) {
+          uidVerified = false;
+        }
+      }
+      if ((command == Commands::Bridge_Any) || (header.command == command) && uidVerified) {
+#ifdef ENABLE_WAIT_FOR_COMMAND_TRACE
+        if (command != Commands::Bridge_Any) {
+          Logger::trace(format_string("...success, command %s received!", Commands::toString(command).c_str()));
+        }
+#endif
+        return Result::Success;
+      } else {
+#if defined(_DEBUG) || defined(DEBUGOPT)
+        if (GlobalOptions::getLogAllCommands()) {
+          Logger::info(format_string("Different instance of a command detected: %s with UID: %s , Expected: %s with UID: %s. ", Commands::toString(header.command).c_str(), std::to_string(header.pHandle).c_str(),
+                                     Commands::toString(command).c_str(), std::to_string(uidToVerify).c_str()));
+        }
+#endif
+        // If we see the incorrect command, we want to give the other side of
+        // the bridge ample time to make an attempt to process it first
+        Sleep(peekTimeoutMS);
+      }
+      break;
+    }
+
+    case Result::Timeout:
+    {
+      if (GlobalOptions::getInfiniteRetries()) {
+        // Infinite retries requested, the application might be alt-tabbed and sleeping, and so we need to wait too.
+
+        // Set timeout for consecutive peeks to 1ms to relieve spin-waits.
+        peekTimeoutMS = 1;
+        // Decrease the attempt counter so it won't overrun maxAttempts in case it did not capture infinite retries.
+        if (attemptNum > 0) {
+          --attemptNum;
+        }
+        // Set the flag so that the consecutive peek 1ms-timeout would not generate a failure in case if
+        // infinite retries are revoked in the process.
+        infiniteRetries = true;
+
+        // Sleep for default OS period
+        Sleep(1);
+      } else if (infiniteRetries) {
+        // A timeout in infinite retries loop but infinite retries have been revoked (app restored from alt-tab).
+
+        // Restore peek timeout interval and continue.
+        peekTimeoutMS = overrideTimeoutMS > 0 ? overrideTimeoutMS : GlobalOptions::getCommandTimeout();
+        // Drop the flag - we're in the normal loop now.
+        infiniteRetries = false;
+      }
+      Logger::trace(format_string("Peek timeout while waiting for command: %s.", Commands::toString(command).c_str()));
+      break;
+    }
+
+    case Result::Failure:
+    {
+      Logger::trace(format_string("Peek failed while waiting for command: %s.", Commands::toString(command).c_str()));
+      return Result::Failure;
+    }
+
+    }
+    if (pbEarlyOutSignal) {
+      bEarlyOut = pbEarlyOutSignal->load();
+    }
+  } while (!bEarlyOut &&
+            attemptNum++ <= maxAttempts &&
+            gbBridgeRunning);
+  return Result::Timeout;
+}
+
+// A wrap skips the tail of the queue, so the result can be slightly too high.
+#define DATA_WORDS_SINCE(startPos) \
+  ([&]() { \
+    const size_t endPos_ = s_pWriterChannel->data->get_pos(); \
+    const size_t startPos_ = (size_t) (startPos); \
+    return (uint32_t) (endPos_ >= startPos_ ? endPos_ - startPos_ \
+                                            : endPos_ + s_pWriterChannel->data->get_total_size() - startPos_); \
+  }())
+
+DECL_BRIDGE_FUNC(void, pushHeaderLocked, Commands::D3D9Command command, Commands::Flags flags, uint32_t handle) {
+  uint32_t numRetries = 0;
+  Result result;
+  // We check if the bridge is enabled for each loop iteration in case it
+  // was disabled externally by the server process exit callback.
+  do {
+    result = s_pWriterChannel->commands->push({ command, flags, (uint32_t) s_pWriterChannel->data->get_pos(), handle });
+#if defined(_DEBUG) || defined(DEBUGOPT)
+    if (GlobalOptions::getLogAllCommands()) {
+      Logger::info("Pushed: " + toString(command));
+    }
+#endif
+  } while (
+        RESULT_FAILURE(result)
+    && numRetries++ < GlobalOptions::getCommandRetries()
+    && gbBridgeRunning
+#ifdef REMIX_BRIDGE_CLIENT
+    && BridgeState::getServerState_NoLock() == BridgeState::ProcessState::Running
+#endif
+  );
+#ifdef REMIX_BRIDGE_CLIENT
+  if (BridgeState::getServerState_NoLock() >= BridgeState::ProcessState::DoneProcessing) {
+    Logger::warn(format_string("The command %s will not be sent; Server is in the process of or has already shut down. Turning bridge off.", Commands::toString(command).c_str()));
+    gbBridgeRunning = false;
+  } else
+#endif
+    if (RESULT_FAILURE(result) && gbBridgeRunning) {
+      Logger::err(format_string("The command %s could not be successfully sent, turning bridge off and falling back to client rendering!", Commands::toString(command).c_str()));
+      gbBridgeRunning = false;
+    } else if (RESULT_SUCCESS(result) && numRetries > 1) {
+      std::string commandStr = Commands::toString(command);
+      Logger::debug(format_string("The command %s took %d retries (%d ms)!", commandStr.c_str(), numRetries, numRetries * GlobalOptions::getCommandTimeout()));
+    }
+}
+
+DECL_BRIDGE_FUNC(void, openStatePacketLocked, uint32_t handle) {
+  s_pWriterChannel->data->begin_batch();
+  s_curBatchStartPos = (int32_t) s_pWriterChannel->data->get_pos();
+  s_curBatchStartAbs = s_pWriterChannel->data->get_abs_pos();
+  s_packetOpen = true;
+  s_packetHandle = handle;
+  s_packetRecords = 0;
+  s_packetPerfStart = bridge_util::perf::enabled() ? bridge_util::perf::now() : 0;
+  s_cmdCounter++;
+  syncDataQueue(1, false);
+  const auto result = s_pWriterChannel->data->push((UINT) s_cmdUID);
+  if (RESULT_FAILURE(result)) {
+    Logger::err("DataQueue send_data: Failed to send data!");
+  }
+}
+
+DECL_BRIDGE_FUNC(void, closeStatePacketLocked) {
+  if (!s_packetOpen) {
+    return;
+  }
+  s_packetOpen = false;
+  if (gbBridgeRunning) {
+    const uint32_t perfDataWords = (s_packetPerfStart != 0) ? DATA_WORDS_SINCE(s_curBatchStartPos) : 0;
+    s_pWriterChannel->data->end_batch();
+    s_curBatchStartPos = -1;
+    pushHeaderLocked(Commands::Bridge_StatePacket, 0, s_packetHandle);
+    if (s_packetPerfStart != 0) {
+      bridge_util::perf::noteSent((uint16_t) Commands::Bridge_StatePacket);
+      bridge_util::perf::noteCommand((uint16_t) Commands::Bridge_StatePacket, perfDataWords,
+                                     bridge_util::perf::now() - s_packetPerfStart);
+    }
+  } else {
+    s_pWriterChannel->data->end_batch();
+    s_curBatchStartPos = -1;
+  }
+  ++s_cmdUID;
+}
+
+#define DECL_COMMAND_FUNC(RETURN_T, NAME, ...) \
+  template<typename BridgeId> \
+  RETURN_T Bridge<BridgeId>::Command::NAME(__VA_ARGS__)
+
+DECL_COMMAND_FUNC(,Command,const Commands::D3D9Command command,
+                           uintptr_t pHandle,
+                           const Commands::Flags commandFlags)
+  : m_command(command)
+  , m_handle((uint32_t) (size_t) pHandle)
+  , m_commandFlags(commandFlags) {
+  // If the assert or exception gets triggered it means that there is more than one Command
+  // instance in a function or command block with overlapping object lifecycles. Only one instance
+  // can be alive at a time to ensure data integrity on the command and data buffers. To resolve
+  // this issue I recommend enclosing the Command object in its own scope block, and make
+  // sure there is no command nesting happening either.
+
+#if defined(_DEBUG) || defined(DEBUGOPT)
+  if (GlobalOptions::getLogAllCommands()) {
+#ifdef REMIX_BRIDGE_CLIENT
+    Logger::info("Requesting: " +toString(command) + " UID: " + std::to_string(s_cmdUID));
+#else
+    Logger::info("Responding: " + toString(command) + " UID: " + std::to_string(pHandle));
+#endif
+  }
+#endif
+
+#ifdef REMIX_BRIDGE_CLIENT
+  s_pWriterChannel->m_mutex.lock();
+  // Every state setter recorded so far reaches the server before this command.
+  closeStatePacketLocked();
+#endif
+
+  assert(!s_pWriterChannel->pbCmdInProgress->load());
+  if (s_pWriterChannel->pbCmdInProgress->load()) {
+    Logger::errLogMessageBoxAndExit(logger_strings::MultipleActiveCommands);
+  }
+  // Only start a data batch if the bridge is actually enabled, otherwise this becomes a no-op
+  if (gbBridgeRunning) {
+    s_pWriterChannel->data->begin_batch();
+  }
+  s_pWriterChannel->pbCmdInProgress->store(true);
+  s_curBatchStartPos = (int32_t) s_pWriterChannel->data->get_pos();
+  s_curBatchStartAbs = s_pWriterChannel->data->get_abs_pos();
+  s_cmdCounter++;
+#ifdef REMIX_BRIDGE_CLIENT
+  if constexpr (kIsDeviceBridge<BridgeId>) {
+    if (bridge_util::perf::enabled()) {
+      m_perfStart = bridge_util::perf::now();
+    }
+  }
+#endif
+  if (gbBridgeRunning) {
+    // Send command id as part of data queue for everycommand from client to server
+#ifdef REMIX_BRIDGE_CLIENT
+      syncDataQueue(1, false);
+      const auto result = s_pWriterChannel->data->push((UINT)s_cmdUID);
+#if defined(_DEBUG) || defined(DEBUGOPT)
+      if (GlobalOptions::getLogAllCommands()) {
+        Logger::info("Pushed UID: " + std::to_string(s_cmdUID));
+      }
+#endif
+      if (RESULT_FAILURE(result)) {
+        // For now just log when things go wrong, but could use some robustness improvements
+        Logger::err("DataQueue send_data: Failed to send data!");
+      }
+#endif
+  }
+}
+
+DECL_COMMAND_FUNC(,~Command) {
+  // Only actually send the command if the bridge is enabled, otherwise this becomes a no-op
+  if (gbBridgeRunning) {
+    const uint32_t perfDataWords = (m_perfStart != 0) ? DATA_WORDS_SINCE(s_curBatchStartPos) : 0;
+    s_pWriterChannel->data->end_batch();
+    s_curBatchStartPos = -1;
+    pushHeaderLocked(m_command, m_commandFlags, m_handle);
+    if (m_perfStart != 0) {
+      bridge_util::perf::noteSent((uint16_t) m_command);
+      bridge_util::perf::noteCommand((uint16_t) m_command, perfDataWords, bridge_util::perf::now() - m_perfStart);
+    }
+  }
+  s_pWriterChannel->pbCmdInProgress->store(false);
+#ifdef REMIX_BRIDGE_CLIENT
+  ++s_cmdUID;
+  s_pWriterChannel->m_mutex.unlock();
+#endif
+}
+
+#define DECL_STATE_MESSAGE_FUNC(RETURN_T, NAME, ...) \
+  template<typename BridgeId> \
+  RETURN_T Bridge<BridgeId>::StateMessage::NAME(__VA_ARGS__)
+
+DECL_STATE_MESSAGE_FUNC(,StateMessage,const Commands::D3D9Command command, uintptr_t pHandle)
+  : m_command(command) {
+#ifdef REMIX_BRIDGE_CLIENT
+  assert(Commands::IsBatchableState(command));
+  const uint32_t handle = (uint32_t) (size_t) pHandle;
+  s_pWriterChannel->m_mutex.lock();
+  if (!gbBridgeRunning) {
+    return;
+  }
+  if (s_packetOpen &&
+      (s_packetHandle != handle || s_packetRecords >= kMaxPacketRecords ||
+       DATA_WORDS_SINCE(s_curBatchStartPos) >= kMaxPacketWords)) {
+    closeStatePacketLocked();
+  }
+  if (!s_packetOpen) {
+    openStatePacketLocked(handle);
+  }
+  syncDataQueue(1, false);
+  const auto result = s_pWriterChannel->data->push((uint32_t) command);
+  if (RESULT_FAILURE(result)) {
+    Logger::err("DataQueue send_data: Failed to send data!");
+  }
+#else
+  assert(false && "StateMessage is client-only");
+#endif
+}
+
+DECL_STATE_MESSAGE_FUNC(,~StateMessage) {
+#ifdef REMIX_BRIDGE_CLIENT
+  if (s_packetOpen) {
+    ++s_packetRecords;
+    if (bridge_util::perf::enabled()) {
+      bridge_util::perf::noteRecord((uint16_t) m_command);
+    }
+    if (!s_stateBatching) {
+      closeStatePacketLocked();
+    }
+  }
+  s_pWriterChannel->m_mutex.unlock();
+#endif
+}
+
+template class Bridge<BridgeId::Module>;
+template class Bridge<BridgeId::Device>;

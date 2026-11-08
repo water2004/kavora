@@ -18,7 +18,7 @@ public class TextureFromMemoryInfo {
     public int purpose;
     /** Zero generates mips; positive values supply packed authored mip levels in pixelData. */
     public int mipLevels;
-    /** Drops the native CPU copy after upload. Texture patches are rejected when true. */
+    /** Rejects texture patches when true. Native uploads retain no persistent CPU pixel copy. */
     public boolean immutable;
 
     public TextureFromMemoryInfo() {}

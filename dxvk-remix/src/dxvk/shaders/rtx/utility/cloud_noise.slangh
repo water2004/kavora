@@ -1,0 +1,100 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
+
+static const uint kCloudNoiseSeed = 0x5c1ec10du;
+
+uint cloudNoiseHash(uint3 cell, uint seed)
+{
+  uint h = seed ^ cell.x * 0x27d4eb2du;
+  h = ((h << 13) | (h >> 19)) * 0x165667b1u;
+  h ^= cell.y * 0x1b873593u;
+  h = ((h << 15) | (h >> 17)) * 0x85ebca6bu;
+  h ^= cell.z * 0xc2b2ae35u;
+  h ^= h >> 16;
+  h *= 0x7feb352du;
+  h ^= h >> 15;
+  h *= 0x846ca68bu;
+  return h ^ (h >> 16);
+}
+
+float cloudNoiseUnit(uint hash)
+{
+  return float(hash >> 8) * (1.0f / 16777216.0f);
+}
+
+uint3 cloudNoiseWrap(int3 cell, uint period)
+{
+  const int p = int(period);
+  return uint3((cell % p + p) % p);
+}
+
+float cloudNoiseGradient(uint hash, float3 delta)
+{
+  switch (hash & 15u)
+  {
+    case 0: case 12: return delta.x + delta.y;
+    case 1: case 13: return -delta.x + delta.y;
+    case 2: return delta.x - delta.y;
+    case 3: return -delta.x - delta.y;
+    case 4: return delta.x + delta.z;
+    case 5: return -delta.x + delta.z;
+    case 6: return delta.x - delta.z;
+    case 7: return -delta.x - delta.z;
+    case 8: return delta.y + delta.z;
+    case 9: case 14: return -delta.y + delta.z;
+    case 10: return delta.y - delta.z;
+    default: return -delta.y - delta.z;
+  }
+}
+
+float cloudPerlin(float3 position, uint period, uint seed)
+{
+  const int3 cell = int3(floor(position));
+  const float3 f = frac(position);
+  const float3 blend = f * f * f * (f * (f * 6.0f - 15.0f) + 10.0f);
+  float result = 0;
+  [unroll]
+  for (uint corner = 0; corner < 8; corner++)
+  {
+    const uint3 offset = uint3(corner & 1u, (corner >> 1) & 1u, (corner >> 2) & 1u);
+    const uint hash = cloudNoiseHash(cloudNoiseWrap(cell + int3(offset), period), seed);
+    const float3 weight = lerp(1.0f - blend, blend, float3(offset));
+    result += cloudNoiseGradient(hash, f - float3(offset)) * weight.x * weight.y * weight.z;
+  }
+  return result;
+}
+
+float cloudWorley(float3 uv, uint cells, uint seed, bool flat)
+{
+  const float3 position = float3(uv.xy, flat ? 0.0f : uv.z) * float(cells);
+  const int3 cell = int3(floor(position));
+  float best = 4;
+  const int zRange = flat ? 0 : 1;
+  for (int z = -zRange; z <= zRange; z++)
+  {
+    for (int y = -1; y <= 1; y++)
+    {
+      for (int x = -1; x <= 1; x++)
+      {
+        const int3 neighbor = cell + int3(x, y, z);
+        const uint hash = cloudNoiseHash(cloudNoiseWrap(neighbor, cells), seed);
+        const float3 feature = float3(neighbor) + float3(cloudNoiseUnit(hash),
+          cloudNoiseUnit(cloudNoiseHash(uint3(hash, 1, 0), seed)),
+          flat ? 0.0f : cloudNoiseUnit(cloudNoiseHash(uint3(hash, 2, 0), seed)));
+        const float3 delta = feature - position;
+        best = min(best, dot(delta, delta));
+      }
+    }
+  }
+  return 1.0f - saturate(sqrt(best));
+}
+
+float cloudWorleyFbm(float3 uv, uint cells, uint seed)
+{
+  return 0.625f * cloudWorley(uv, cells, seed, false)
+    + 0.25f * cloudWorley(uv, cells * 2, seed + 1, false)
+    + 0.125f * cloudWorley(uv, cells * 4, seed + 2, false);
+}

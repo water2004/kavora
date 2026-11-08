@@ -1,193 +1,88 @@
 # RTX Remix for Minecraft
 
-This branch ports the Fabric renderer to Minecraft Java Edition 26.3, using
-Vulkan exclusively for the game renderer and Remix interoperation.
-It uses Java 25 and the source-built RTX Remix runtime from
-`water2004/dxvk-remix`, with its custom 1.5.0 C API.
+为 Minecraft 26.3 Fabric 提供基于 NVIDIA RTX Remix 的光线追踪渲染。
 
-**Integration is still pending.** Compilation and unit tests do not establish
-that a playable client, presentation, or every captured scene works.
-Build from source and verify the matching runtime before treating an artifact
-as a release. Upstream Minecraft 1.21.1 installers, JARs, and published 0.x
-Remix SDK packages are incompatible with this branch.
+本项目由 NVIDIA 的 Minecraft 集成移植而来，使用 Vulkan 和 Java 25 FFM。游戏与运行时共用一个 Vulkan 设备，地形由 Sodium 捕获，近景、远景、实体和粒子进入同一套光追场景。
 
-## What To Expect
+这是社区维护的移植项目，与 NVIDIA、Mojang 和 Microsoft 没有隶属关系。不是官方 Minecraft 产品。
 
-The upstream mod was built as a technology showcase and tuned against one showcase
-world, built for this project by [BlockWorks](https://www.blockworks.uk/) (see
-[Showcase World And Art Pack](#showcase-world-and-art-pack)), and the places
-that world visits received the most testing. The upstream project has
-[known issues](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft/issues),
-and there are certainly bugs yet to be discovered.
+## 功能
 
-Three areas have had less attention than the rest:
+- 光追光照、反射和透射，支持 LabPBR 资源包。
+- 体积云、雾和散射；主世界昼夜天空，以及独立的末地天空。
+- NRC、SHaRC 等间接光照模式；DLSS 超分、DLAA 和受设备支持的帧生成。
+- Iris 风格的视觉设置界面。画质档位是可编辑的参数预设，DLSS 和性能设置独立。
+- 可选的 **Remix Horizons** 远景附加包，记录已见过的地形，并在同一光追管线中显示。
 
-- **Other mods.** It has had limited testing alongside other mods, and a
-  renderer that takes over the scene the way this one does is likely to
-  conflict with anything that changes rendering or the chunk pipeline.
-- **A full playthrough.** Blocks, mobs, dimensions, and situations the showcase
-  never reaches have had less care, and some will look wrong or run slowly.
-- **The 26.3 port.** The rendering and native interfaces changed substantially.
-  The feature descriptions below describe the behavior being preserved;
-  validate it on this branch before relying on it.
+## 安装
 
-Sodium 0.9.2 is required for terrain rendering and the shared video settings UI.
-Sodium and Fabric API remain separate JARs. Voxy is unsupported. Far-terrain
-rendering is an optional [Remix Horizons extension](docs/FAR_TERRAIN.md), built
-separately from this renderer.
-Other mod versions and combinations need their own integration tests.
+目前面向 **Windows x64、Minecraft 26.3、Java 25**。需要支持 Vulkan 光追的 NVIDIA RTX 显卡及相应驱动；帧生成的可用倍率由设备和运行时检测决定。
 
-We hope the community helps fill it out. If something breaks,
-[report it](docs/PLAYING.md#reporting-a-bug); if you can fix it, see
-[Contributing](#contributing).
+在 Fabric 实例的 `mods` 目录放入：
 
-## Download
+| 文件 | 说明 |
+| --- | --- |
+| `RTX-Remix.jar` | 主模组，发布版包含匹配的原生运行时 |
+| Sodium 0.9.2 | 必需，独立安装 |
+| Fabric API 0.165.0+26.3 | 必需，独立安装 |
+| `Remix-Horizons.jar` | 可选，远景附加包 |
 
-Build the Windows x64 mod JAR with `gradlew.bat package -Parch=win64`,
-after staging the source runtime. The JAR in `build/distributions/` includes
-the matching native runtime. Install Sodium 0.9.2 and Fabric API separately.
-See [Getting Started](docs/GETTING_STARTED.md) to build from source.
-The upstream releases target a different Minecraft version and native API.
+Fabric Loader 需要 0.20.1 或更新版本。启动参数加入 `--enable-native-access=ALL-UNNAMED`。使用 Vulkan 后端；本项目不提供 OpenGL 回退。
 
-## Source installation
+直接安装 JAR 即可，不需要安装器，也不需要另装上游 Remix SDK。请勿混装旧版主模组或其他版本的 Remix DLL。Iris 光影包不由本项目加载；Voxy 不受支持，Remix Horizons 也不能与 Distant Horizons 同装。
 
-1. Build and stage the matching Vulkan runtime from source.
-2. Build the mod and its separate Windows crash-support library with Java 25.
-3. Validate a development client using Gradle `runClient` or the Prism workflow.
+首次启动会解压运行时。进世界时还需要编译管线、上传材质和构建场景，复杂资源包及远景会增加内存和显存需求。
 
-See [Getting Started](docs/GETTING_STARTED.md). The existing player and installer
-guides describe upstream behavior and are not evidence of port release readiness.
+## 设置与资源包
 
-## Requirements
+视频设置由 Sodium 提供。视觉效果入口中可以调整光照、天空、云、雾、水和材质；DLSS、帧生成与性能选项留在 Sodium 页面。默认间接光照为 NRC，也可以单独选择 SHaRC。
 
-- Windows 10 or 11, x64. ARM64 is outside the current integration work.
-- Minecraft Java Edition 26.3, with Java 25 and matching Fabric dependencies.
-- An RTX-capable NVIDIA GPU and a driver supporting the selected 26.3 renderer
-  and the exact runtime build being tested.
-- Visual Studio C++ tools and the matching runtime fork's build dependencies.
-- A source-built runtime and validated provenance for each selected architecture.
-- Network access for development dependencies and runtime textures.
-- 16 GB of system memory is recommended.
+主模组自带基础材质补充。额外的 LabPBR 资源包按普通资源包安装，优先级高于内置材质。详见[设置说明](docs/SETTINGS.md)和[资源包说明](docs/RESOURCE_PACKS.md)。
 
-Java calls the Remix C API through the Foreign Function and Memory API.
-`rtxremix-support.dll` provides Windows crash and process support separately.
-The JVM needs `--enable-native-access=ALL-UNNAMED`.
+Remix Horizons 只记录客户端实际收到的区块，不生成未探索地形。远景距离和细节在其 Sodium 设置页调整。详见[远景说明](docs/FAR_TERRAIN.md)。
 
-Building and running from source has its own
-[prerequisites](docs/GETTING_STARTED.md#prerequisites), including Prism
-Launcher, signed in to a Microsoft account that owns Minecraft: Java Edition.
+## 源码结构
 
-## Crash Reports And Privacy
+```text
+rtx-remix-minecraft/   Fabric 主模组、Sodium 集成、设置界面与资源
+dxvk-remix/           修改后的原生运行时、Vulkan 渲染与 Slang 着色器
+rtxremix-java/        独立 Java 25 FFM SDK、C API 头文件与进程支持库
+remix-horizons/       可选远景附加包、体素缓存与网格调度
+docs/                安装、开发与诊断文档
+LICENSES/            许可范围说明和通用许可证全文
+```
 
-The mod collects no data of its own. The RTX Remix runtime it carries can send
-basic session information and crash reports to NVIDIA. Its First Use Guide asks
-about both, with both on by default, and the Permissions tab of the RTX Remix
-Graphics Settings menu changes them at any time.
-[Crash Reports And Privacy](docs/PLAYING.md#crash-reports-and-privacy) lists
-what is sent.
+Java 工程使用根目录的 Gradle Wrapper 统一构建。原生运行时使用 Meson，第三方源码依赖由 Git 子模块固定版本。克隆时请使用 `git clone --recurse-submodules`；已有克隆运行 `git submodule update --init --recursive`。
 
-## What it does
+## 从源码构建
 
-These are the upstream feature goals being preserved by the port. They still
-require visual and native integration checks on Minecraft 26.3.
+准备 Java 25、Visual Studio C++ 工具链、Meson、Ninja 和 Slang 2026.20。原生构建还需要 Windows/Vulkan SDK，首次构建会下载固定版本的运行时依赖。
 
-**Every block, mob, and item is lit by a path tracer.** Light bounces off walls,
-through glass, and out of torches the way it does in a film renderer, so shadows,
-reflections, and the colour a nearby block casts on its neighbours are all
-computed rather than painted in.
+在仓库根目录运行：
 
-**The look follows the game.** Time of day, weather, and being underwater each
-bring their own lighting, and a map author can attach a look to a place in the
-world. Nothing needs switching on.
+```powershell
+# 构建运行时并生成 API / DLL 来源记录
+.\build-runtime.ps1 -SlangCompiler '你的 Slang 目录\bin\slangc.exe'
 
-**A new block.** The Copper Beacon is a directional lamp you can place or
-carry, and its beam is a real light that picks out walls, rain, and anything
-standing in it.
+# 将完成的运行时暂存给主模组
+.\stage-runtime.ps1
 
-**Camera flythroughs.** Record a path by walking it, then replay it, for a video
-or for an exact before-and-after comparison.
+# 构建并收集两个可安装的 JAR
+.\gradlew.bat release
+```
 
-**A settings screen in the game.** Distances, framerate, sky, lighting,
-exposure, materials, DLSS, and advanced runtime controls in Sodium's RTX Remix
-pages, with Apply and Undo and no config files to edit.
+输出为 `dist/RTX-Remix.jar` 和 `dist/Remix-Horizons.jar`。Sodium 和 Fabric API 不会嵌入它们。主模组的普通 `build` 输出是供开发使用的轻量 JAR，发布请使用 `release`。
 
-## Showcase World And Art Pack
+编译、测试和启动的单独命令，以及原生依赖和来源校验，见[开发指南](docs/GETTING_STARTED.md)。构建不自动启动游戏。请先关闭从本仓库启动的客户端，再重新暂存 DLL 或运行时配置。
 
-Two optional extras go with the mod. The developer launcher in
-[`tools/`](tools/README.md) downloads both the first time it runs and launches
-into the world with the pack on.
+## 许可与致谢
 
-- **The showcase world**, the map the renderer was tuned against, was built for
-  this project by BlockWorks: [website](https://www.blockworks.uk/),
-  [YouTube](https://www.youtube.com/@BlockWorksYT),
-  [X](https://x.com/BlockWorksYT), and
-  [Instagram](https://www.instagram.com/blockworks/).
-- **The RTX art pack**, a texture resource pack, was created by an art team at
-  NVIDIA. Its normal and specular maps follow the
-  [LabPBR standard](https://shaderlabs.org/wiki/LabPBR_Material_Standard), so
-  other renderers and shader packs that read LabPBR may be able to use it too,
-  but it has only been tested with this mod. Its `_sss` subsurface maps are
-  this mod's own addition, described in
-  [Resource Packs](docs/RESOURCE_PACKS.md).
+本仓库包含适用不同许可证的组件，**不能将整个仓库及附带 SDK 二进制统一视为 Apache 或 MIT 项目**。各文件原有的版权和许可证声明均保留。
 
-## Start Here
+- Minecraft 集成和 Java FFM SDK 的主体为 Apache-2.0。
+- DXVK 为 zlib/libpng，Remix 原生主体为 MIT；其中的第三方适配保留原许可。
+- Iris 界面适配为 LGPL-3.0-only，Caustica-Horizon 着色器适配为 LGPL-3.0-or-later。
+- Remix Horizons 为 LGPL-3.0-only；其中独立材质描述代码保留 Apache-2.0。
+- NVIDIA SDK 二进制、NASA 数据及其他依赖分别适用它们的条款。
 
-| You want to | Read |
-|---|---|
-| Play with path tracing | [Playing](docs/PLAYING.md) |
-| Check the known issues | [Issue tracker](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft/issues) |
-| Play on a server | [Multiplayer](docs/PLAYING.md#multiplayer) |
-| Configure the renderer | [Settings](docs/SETTINGS.md) |
-| Look up a command, a key, or a mod-added block | [In-Game Guide](docs/IN_GAME_GUIDE.md) |
-| Give your own map its own lighting | [Gameplay-driven profiles](packaging/rtx-remix/mods/minecraft-logic/README.md) |
-| Make a texture pack this renderer understands | [Resource Packs](docs/RESOURCE_PACKS.md) |
-| Record a camera flythrough | [Camera Paths](docs/CAMERA_PATHS.md) |
-| Install, repair, or uninstall in detail | [packaging/INSTALL.md](packaging/INSTALL.md) |
-| Build and run from source | [Getting Started](docs/GETTING_STARTED.md) |
-| Tune the developer knobs behind the renderer | [Tuning](docs/TUNING.md) |
-| Diagnose a rendering or native integration problem | [Rendering Diagnostics](docs/RENDERING_DIAGNOSTICS.md) |
-| Contribute a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
-| Report a bug | [Reporting a Bug](docs/PLAYING.md#reporting-a-bug) |
-| Report a security vulnerability | [SECURITY.md](SECURITY.md) |
-| See what changed | [CHANGELOG.md](CHANGELOG.md) |
-
-## Source And Tooling Layout
-
-| Path | Purpose |
-|---|---|
-| `src/` | Mod implementation and JVM tests |
-| `rtxremix-java/` | Minecraft-agnostic Java facade, Java 25 FFM bindings, and Windows crash-support source |
-| `tools/` | Developer launcher, benchmarks, profiling, SDK staging, and development installation |
-| `packman/` | Runtime-texture fetching and historical SDK manifests; the Vulkan runtime requires source staging |
-| `packaging/` | Public installer, runtime defaults, and distribution payload |
-| `docs/` | Player, authoring, and source-build guides |
-
-NVIDIA maintains some release and CI tooling outside this repository. It is
-not required by the public Gradle build, the developer tools, or the installed
-mod.
-
-## Contributing
-
-External contributions are welcome, and the gaps above are where help matters
-most: compatibility with other mods, coverage of the blocks, mobs, and places a
-real playthrough reaches, and performance on hardware we do not have. Fork this
-repository, create a development branch, and submit a pull request. Sign off
-each commit with `git commit -s` to certify it under the
-[Developer Certificate of Origin](https://developercertificate.org/); there is
-no Contributor License Agreement to sign. See [CONTRIBUTING.md](CONTRIBUTING.md)
-for the full guidelines.
-
-## License
-
-This project is licensed under the Apache License, Version 2.0 (`Apache-2.0`).
-See the [LICENSE](LICENSE) file. Attribution notices are in [NOTICE](NOTICE),
-and third-party software distributed with this project is documented in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Release archives also carry
-the RTX Remix runtime, whose NVIDIA components are covered by their own license
-terms; THIRD_PARTY_NOTICES.md lists them.
-
-NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR
-MICROSOFT. Minecraft is a trademark of Mojang Synergies AB.
-
-NVIDIA, GeForce, and RTX are trademarks and/or registered trademarks of NVIDIA
-Corporation in the U.S. and other countries.
+完整范围见[许可说明](LICENSES/README.md)及[第三方清单](THIRD_PARTY_NOTICES.md)。感谢 NVIDIA RTX Remix、DXVK、Sodium、Iris、RTX Remix Minecraft Community Edition、Caustica-Horizon 和这些项目的贡献者。Voxy 仅作为远景架构研究的参考，其代码和资源未包含在本项目中。

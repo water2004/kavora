@@ -1,0 +1,27 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
+
+layout(binding = GBUFFER_BINDING_PATH_STORAGE) RWStructuredBuffer<uint> PathStorage;
+
+// Primary uses disjoint per-pixel records in three slabs. Each pixel can replace
+// its consumed intersection and atmosphere without touching another pixel.
+// PSR reuses the whole buffer after Primary completes.
+uint primaryIntersectionBase(uint pixel)
+{
+  return pixel * GBUFFER_PRIMARY_INTERSECTION_WORDS;
+}
+
+uint primaryAtmosphereBase(uint pixel)
+{
+  const uint pixels = cb.camera.resolution.x * cb.camera.resolution.y;
+  return pixels * GBUFFER_PRIMARY_INTERSECTION_WORDS + pixel * GBUFFER_PRIMARY_ATMOSPHERE_WORDS;
+}
+
+uint primaryTailBase(uint pixel)
+{
+  const uint pixels = cb.camera.resolution.x * cb.camera.resolution.y;
+  return pixels * (GBUFFER_PRIMARY_INTERSECTION_WORDS + GBUFFER_PRIMARY_ATMOSPHERE_WORDS)
+    + pixel * GBUFFER_PRIMARY_TAIL_WORDS;
+}

@@ -48,17 +48,16 @@ Tracy teardown can otherwise terminate the JVM during a later reinitialization.
 
 ## Building and staging
 
-Use Java 25, Windows and the Visual Studio C++ toolchain. The root Gradle build
-compiles the Java sources directly and builds the support library in
-`build/native/{win64|arm64}/`; there is no separate Java wrapper build.
-Running requires `--enable-native-access=ALL-UNNAMED`, included in both Gradle
-and installer defaults.
+Use Java 25, Windows and the Visual Studio C++ toolchain. The `:rtxremix-java` Gradle project builds the independent Java library and
+source JAR. It builds the support library in
+`rtxremix-java/build/native/{win64|arm64}/`. The mod depends on this project.
+Running requires `--enable-native-access=ALL-UNNAMED`, included in Gradle and the development launcher defaults.
 
 First build the matching runtime from source, generate provenance from its
 completed output, and stage that output:
 
 ```powershell
-.\tools\rtx.bat sdk local --arch win64 --path <runtime-output>
+.\stage-runtime.ps1 -Source <runtime-output>
 .\gradlew.bat build test
 ```
 
@@ -66,11 +65,11 @@ Staging validates custom API 1.5.0, PE architecture, source revision and DLL
 SHA-256. Published 0.x packages and upstream 1.21.1 installers are incompatible;
 `sdk packman` cannot supply a fallback. `sdk restage` refreshes the recorded
 source snapshot. Runtime outputs remain ignored under
-`remix-runtime/{win64|arm64}/`. Never write support-library outputs into the
+`rtx-remix-minecraft/remix-runtime/{win64|arm64}/`. Never write support-library outputs into the
 read-only Packman texture junction.
 
-To build only the support library, use `gradlew.bat compileNativeWin64`
-(`compileNativeArm64` for ARM64), or
+To build only the support library, use `gradlew.bat :rtxremix-java:compileNativeWin64`
+(`:rtxremix-java:compileNativeArm64` for ARM64), or
 `rtxremix-java\native\build_native.bat x64` (`arm64` for cross-compilation).
 See [Getting Started](../docs/GETTING_STARTED.md) for the complete staging and
 packaging inventory. Stop clients from this checkout before Gradle stages files.
@@ -96,24 +95,23 @@ With `JAVA_HOME` pointing at Java 25, run from the repository root:
 ```powershell
 .\rtxremix-java\ffm-test\test-layouts.bat
 .\rtxremix-java\ffm-test\test-bridge.bat
-.\gradlew.bat build test compileGametestJava
+.\gradlew.bat build test :rtx-remix-minecraft:compileGametestJava
 ```
 
 The C layout probe checks Java sizes, alignments and field offsets. The mock
 runtime exercises every foreign entry point, extension marshalling and repeated
 shutdown/reinitialization. These tests do not establish native initialization,
 shared-device presentation, image correctness or performance. Validate the exact
-source-built runtime with Gradle `runClient`/`runClientGameTest` on both selected
-Minecraft graphics backends, or the signed-in Prism workflow.
+source-built runtime with Gradle `runClient`/`runClientGameTest` on the Vulkan backend, or the signed-in Prism workflow.
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) and the root
-[FFM binding rules](../AGENTS.md#integrated-ffm-binding) apply to changes here.
+[FFM binding rules](AGENTS.md) apply to changes here.
 
 ## License
 
 Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 The binding is covered by the repository's Apache License, Version 2.0.
-See [LICENSE](../LICENSE), [NOTICE](../NOTICE) and
+See [LICENSE](LICENSE), [NOTICE](../NOTICE) and
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for applicable terms and
 attributions.

@@ -34,7 +34,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set "OUT_DIR=%~dp0..\..\build\native\%OUT_ARCH%"
+set "OUT_DIR=%~dp0..\build\native\%OUT_ARCH%"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 echo Compiling rtxremix-support.dll for %OUT_ARCH% ...
 cl /nologo /O2 /Zi /LD /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS ^

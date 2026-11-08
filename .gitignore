@@ -1,70 +1,49 @@
-# Build outputs
+# Generated outputs and local toolchains
 build/
-bin/
 .gradle/
+**/build/
+**/.gradle/
+.local/
+.codex/
+.claude/
+.worktrees/
+bin/
 out/
+dist/
+*.zip
+*.dxvk-cache
+*.log
+hs_err_pid*
+metrics.txt
+nrc_session_log.txt
 
-# IDE
-.idea/
-*.iml
-.vscode/
-*.code-workspace
-
-# Minecraft run directories
+# Minecraft instances, profiling and downloaded assets
 run/
 runs/
-/run-prism/
+run-prism/
 logs/
-
-# Fabric
-.fabric/
 remappedSrc/
+.fabric/
+.loom/
+rtx-remix-minecraft/remix-runtime/
+rtx-remix-minecraft/packaging/textures/
+rtx-remix-minecraft/tools/results/
+rtx-remix-minecraft/tools/tracy-tools/
 
-# OS
+# Editors and OS
+.idea/
+.vscode/
+.cursor/
+*.iml
+*.code-workspace
 .DS_Store
 Thumbs.db
 
-# Python
+# Python and local developer configuration
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
 .venv/
-
-# Loom
-.loom/
-
-# Distribution packaging
-dist/
-*.zip
-
-# Builds before the runtime textures' junction moved under remix-runtime/
-# linked it here; the build removes a leftover one. Keep the path ignored.
-packaging/textures/
-
-ignore/
-
-# Benchmark output (per-run, not tracked)
-metrics.txt
-sample-report/
-
-# Agent scratch directories
-.claude/
-.codex
-.worktrees/
-
-# Per-developer editor config
-.cursor/mcp.json
-
-# Staged runtime junctions or local copies, outside build/ so clean is safe
-/remix-runtime/
-
-# Runtime-generated files
-*.dxvk-cache
-nrc_session_log.txt
-/rtxremix-java/rtx-remix/
-
-# Loose wrapper compilation outputs and logs
-/rtxremix-java/**/*.class
-/rtxremix-java/**/*.jar
-/rtxremix-java/**/*.log
+rtx-remix-minecraft/tools/config.local.json
+rtx-remix-minecraft/tools/.env
