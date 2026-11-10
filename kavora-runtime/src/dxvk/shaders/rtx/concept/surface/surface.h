@@ -587,6 +587,10 @@ struct SurfaceInteraction : MinimalSurfaceInteraction
   vec2 textureGradientY = 0..xx;
   vec3 rawTangent = 0.f;
   vec3 rawBitangent = 0.f;
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+  float rawTangentScale = 0.0f;
+  float pomRayDistance = 0.0f;
+#endif
   vec4 vertexColor = 0.0f;
   float triangleArea = 0.f;
 };

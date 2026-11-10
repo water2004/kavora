@@ -2879,6 +2879,14 @@ void geometryPSRResolverVertex(
   bool isStochasticAlphaBlend = false; // note, not actually used here
   uint8_t firstRayPortal = invalidRayPortalIndex;
   
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+  const bool evaluatePomSilhouette = cb.pomSilhouettesBehindTranslucency &&
+    geometryPSRResolverState.continueResolving && geometryPSRResolverState.isTransmissionPSR &&
+    geometryPSRResolverState.insideMedium && !geometryPSRResolverState.pomSilhouetteTested;
+#else
+  const bool evaluatePomSilhouette = false;
+#endif
+
   VertexMaterialContext materialContext;
   resolveVertex<GeometryPSRResolverState, VertexMaterialContext>(
     resolveMode,
@@ -2892,7 +2900,47 @@ void geometryPSRResolverVertex(
     cb.screenSpacePixelSpreadHalfAngle,
     isStochasticAlphaBlend, firstRayPortal,
     geometryPSRResolverState.pomOpaqueSurfaceEncountered,
-    isRaytracedRenderTarget, geometryPSRResolverState.mediumMaterialIndex);
+    isRaytracedRenderTarget, geometryPSRResolverState.mediumMaterialIndex,
+    false, false, false, false, evaluatePomSilhouette);
+
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+  // Probe only within the relief interval and only once per transmission path.
+  if (evaluatePomSilhouette && !geometryPSRResolverState.continueResolving &&
+      geometryPSRResolverState.pomOpaqueSurfaceEncountered && rayInteractionHasHit(rayInteraction) &&
+      surfaceInteraction.pomRayDistance > rayInteraction.coneRadius)
+  {
+    geometryPSRResolverState.pomSilhouetteTested = true;
+    RayDesc silhouetteRay;
+    silhouetteRay.Origin = surfaceInteraction.position +
+      calculateRayOffset(surfaceInteraction.positionError, -surfaceInteraction.triangleNormal);
+    silhouetteRay.Direction = ray.direction;
+    silhouetteRay.TMin = 0.0f;
+    silhouetteRay.TMax = surfaceInteraction.pomRayDistance;
+
+    RayQuery<RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(topLevelAS, 0,
+      geometryPSRResolverState.rayMask & (OBJECT_MASK_OPAQUE | OBJECT_MASK_ALL_DYNAMIC), silhouetteRay);
+    while (query.Proceed()) {}
+
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+      geometryPSRResolverState.origin = silhouetteRay.Origin;
+      geometryPSRResolverState.continueResolving = true;
+      if (!query.CommittedTriangleFrontFace()) {
+        const float distance = query.CommittedRayT();
+        const vec3 exitPosition = silhouetteRay.Origin + ray.direction * distance;
+        geometryPSRResolverState.origin = exitPosition +
+          calculateRayOffset(calculatePositionError(exitPosition), ray.direction);
+        geometryPSRResolverState.segmentHitDistance += distance;
+        geometryPSRResolverState.coneRadius += ray.spreadAngle * distance;
+
+        // Resolve already integrated the segment up to the original triangle.
+        resolveAtmosphere(silhouetteRay.Origin, ray.direction, distance,
+          portalSpaceToVolumeHint(geometryPSRResolverState.portalSpace),
+          radianceAttenuation, emissiveRadiance, geometryPSRResolverState.mediumMaterialIndex);
+      }
+    }
+  }
+#endif
 
 
   if (rayInteractionHasHit(rayInteraction) && !geometryPSRResolverState.continueResolving)
@@ -4155,6 +4203,7 @@ GeometryPSRResolverState geometryPSRResolverBegin(ivec2 pixelCoordinate, bool is
   geometryPSRResolverState.decalEncountered = false;
   geometryPSRResolverState.isTransmissionPSR = isTransmissionPSR;
   geometryPSRResolverState.pomOpaqueSurfaceEncountered = false;
+  geometryPSRResolverState.pomSilhouetteTested = false;
 
   geometryPSRResolverState.accumulatedHitDistance = geometryResolverLoadPSRHitDistance(
     uvec2(pixelCoordinate), !geometryPSRResolverState.primarySurface);

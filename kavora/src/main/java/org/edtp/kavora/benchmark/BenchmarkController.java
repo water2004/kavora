@@ -1674,6 +1674,7 @@ public class BenchmarkController {
                     "rtx.resolveTransparencyThreshold", "rtx.resolveOpaquenessThreshold",
                     "rtx.enableSeparateUnorderedApproximations", "rtx.enableDecalMaterialBlending",
                     "rtx.enableStochasticAlphaBlend", "rtx.enablePSRR", "rtx.enablePSTR", "rtx.displacement.enablePSR",
+                    "rtx.displacement.silhouettesBehindTranslucency",
                     "rtx.debugView.debugViewIdx", "rtx.debugView.showFirstGBufferHit",
                     "rtx.raytraceModePreset", "rtx.renderPassGBufferRaytraceMode",
                     "rtx.renderPassIntegrateDirectRaytraceMode", "rtx.renderPassIntegrateIndirectRaytraceMode",

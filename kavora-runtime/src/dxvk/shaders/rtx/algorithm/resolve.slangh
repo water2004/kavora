@@ -262,7 +262,8 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   const bool forceEnableResolveRayPortal = false,
   const bool useStochasticAlphaBlend = false,
   const bool forceFirstHit = false,
-  const bool firstPrimarySegment = false)
+  const bool firstPrimarySegment = false,
+  const bool evaluatePomSilhouette = false)
 {
   const Camera camera = cb.camera;
   bool teleport = false;
@@ -359,7 +360,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
     const OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
 
     materialSample = opaqueSurfaceMaterialPrepare<true>(
-      opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction);
+      opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction, evaluatePomSilhouette);
     opacity = opaqueSurfaceMaterialResolvedOpacity(opaqueSurfaceMaterial, surface, materialSample);
     if (decalMaterialBlending && resolveVertexState.decalEncountered)
     {

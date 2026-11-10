@@ -78,6 +78,9 @@ restoration, transforms, hiding, replacement and removal. It compares captured
 pixels and excludes the HUD from the fixture. The pixel probe keeps one camera
 jitter phase for its comparisons and restores the original sequence afterward.
 It waits for the terrain-download screen to close before reading the world.
+`-Dkavora.gametest.pomSilhouetteFixture=true` with `retainedOnly` isolates a
+displaced edge behind thick translucency. It checks that enabling the silhouette
+option reveals the background through both Raymarch and Quadtree POM.
 `-Dkavora.gametest.nativeOverlay=true` additionally checks a native menu in the
 frame-generation fixture. Its screenshot is read after native-menu composition,
 which occurs later than the ordinary world captures.

@@ -399,6 +399,8 @@
   "kavora.effect.materials.pomIndirectHit.tip": "Evaluate relief at indirect ray hits, in addition to the camera surface.",
   "kavora.effect.materials.pomPsr": "Relief reflected hits",
   "kavora.effect.materials.pomPsr.tip": "Evaluate relief along reflection and refraction continuation paths.",
+  "kavora.effect.materials.pomTransmissionSilhouettes": "Relief silhouettes through water",
+  "kavora.effect.materials.pomTransmissionSilhouettes.tip": "Correct deep relief edges seen through water and thick glass. Applies to Raymarch and Quadtree POM. Can cost GPU time in scenes with refracted relief.",
   "kavora.quality.title": "Quality profiles",
   "kavora.quality.selected": "Quality: %s",
   "kavora.quality.custom": "Custom · %s",

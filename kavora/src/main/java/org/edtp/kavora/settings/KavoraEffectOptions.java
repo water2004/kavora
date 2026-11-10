@@ -114,6 +114,7 @@ final class KavoraEffectOptions {
         new Control("materials.pomRestir", SettingGroup.PARALLAX, "rtx.displacement.enableReSTIRGI", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("materials.pomIndirectHit", SettingGroup.PARALLAX, "rtx.displacement.enableIndirectHit", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("materials.pomPsr", SettingGroup.PARALLAX, "rtx.displacement.enablePSR", KavoraSetting.Kind.BOOL, 0, 1),
+        new Control("materials.pomTransmissionSilhouettes", SettingGroup.PARALLAX, "rtx.displacement.silhouettesBehindTranslucency", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("water.normalStrength", SettingGroup.WATER, "rtx.translucentMaterial.normalIntensity", KavoraSetting.Kind.FLOAT, 0, 3),
         new Control("sss.inRefraction", SettingGroup.SUBSURFACE, "rtx.subsurface.enableThinOpaqueInRefractions", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("sss.transmission", SettingGroup.SUBSURFACE, "rtx.subsurface.enableTransmission", KavoraSetting.Kind.BOOL, 0, 1),

@@ -392,6 +392,12 @@ struct GeometryPSRResolverState : IBasePayloadState
     set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 10, newValue); }
   }
 
+  property bool pomSilhouetteTested
+  {
+    get { return packedFlagGet(_encodedFlags, 1 << 11); }
+    set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 11, newValue); }
+  }
+
   property bool directionAltered
   {
       get { return false; }

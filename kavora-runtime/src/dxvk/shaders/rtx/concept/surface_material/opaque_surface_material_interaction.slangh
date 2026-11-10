@@ -274,6 +274,7 @@ float pomGetNumSamples(float3 direction)
   return lerp(maxSamples, minSamples, abs(direction.z));
 }
 
+// Returns UV and normalized height, with 1 at the top of the relief.
 float3 pomCalculateTexcoord(
   OpaqueSurfaceMaterial opaqueSurfaceMaterial,
   SurfaceInteraction surfaceInteraction,
@@ -297,7 +298,7 @@ float3 pomCalculateTexcoord(
       opaqueSurfaceMaterial.reliefSamplerIndex, uv + offset * (baseDepth - firstDepth), bounds);
     const float depth = 0.5f * (firstDepth + secondDepth);
     iterations = 2;
-    return float3(uv + offset * (baseDepth - depth), depth);
+    return float3(uv + offset * (baseDepth - depth), 1.0f - depth);
   } else if (cb.pomMode == DisplacementMode::RaymarchPOM) {
     float numLayers = pomGetNumSamples(viewDir);
     float layerSize = rcp(numLayers);
@@ -324,7 +325,7 @@ float3 pomCalculateTexcoord(
     float depthNminus1 = prevHeight - currDepth + layerSize;
     float depthN  = currHeight - currDepth;
     float weight = saturate(depthN / (depthN - depthNminus1));
-    return float3(currTexcoord + lerp(0..xx, step, weight), currHeight);
+    return float3(currTexcoord + lerp(0..xx, step, weight), 1.0f - (currDepth - weight * layerSize));
   } else if (cb.pomMode == DisplacementMode::QuadtreePOM) {
 
     return pomTraceRay(
@@ -602,7 +603,8 @@ OpaqueMaterialSample opaqueSurfaceMaterialPrepare<let EnablePom : bool>(
   OpaqueSurfaceMaterial opaqueSurfaceMaterial,
   Surface surface,
   inout SurfaceInteraction surfaceInteraction,
-  MinimalRayInteraction minimalRayInteraction)
+  MinimalRayInteraction minimalRayInteraction,
+  bool evaluatePomSilhouette = false)
 {
   OpaqueMaterialSample sample;
   // Note: need initialize the flags explicitely to get rid of garbage data.
@@ -635,14 +637,28 @@ OpaqueMaterialSample opaqueSurfaceMaterialPrepare<let EnablePom : bool>(
     // Could potentially remove the need for the world to texture space transform if a faster way to calculate that z value is found.
     
     uint iterations = 0; // unused
-    const vec2 pomTextureCoordinates = pomCalculateTexcoord(
+    const vec3 pomHit = pomCalculateTexcoord(
         opaqueSurfaceMaterial,
         surfaceInteraction,
         viewDirTextureSpace,
-        iterations).xy;
+        iterations);
 
     // WAR for REMIX-3709 - POM sometimes produces NaNs.
-    surfaceInteraction.textureCoordinates = sanitize(pomTextureCoordinates, surfaceInteraction.textureCoordinates);
+    surfaceInteraction.textureCoordinates = sanitize(pomHit.xy, surfaceInteraction.textureCoordinates);
+
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+    if (evaluatePomSilhouette && pomHit.z >= 0.0f && pomHit.z <= 1.0f) {
+      const float cosView = dot(surfaceInteraction.triangleNormal, viewDirection);
+      if (cosView > 0.01f && surfaceInteraction.rawTangentScale > 0.0f) {
+        const float4 bounds = surfaceInteraction.textureCoordinateBounds;
+        const float worldScale = surfaceInteraction.rawTangentScale *
+          AtlasSampling::displacementScale(bounds.x, bounds.y, bounds.z, bounds.w);
+        const float depth = opaqueSurfaceMaterial.displaceIn -
+          pomHit.z * (opaqueSurfaceMaterial.displaceIn + opaqueSurfaceMaterial.displaceOut);
+        surfaceInteraction.pomRayDistance = sanitize(depth * worldScale / cosView, 0.0f);
+      }
+    }
+#endif
 
     sample.flags |= OPAQUE_SURFACE_MATERIAL_INTERACTION_FLAG_HAS_HEIGHT_TEXTURE;
   }

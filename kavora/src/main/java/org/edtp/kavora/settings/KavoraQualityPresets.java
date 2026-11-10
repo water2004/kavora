@@ -68,6 +68,7 @@ public final class KavoraQualityPresets {
         values.put("materials.pomRestir", true);
         values.put("materials.pomIndirectHit", false);
         values.put("materials.pomPsr", false);
+        values.put("materials.pomTransmissionSilhouettes", preset == QualityPreset.ULTRA);
         return Map.copyOf(values);
     }
 

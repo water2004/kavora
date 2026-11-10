@@ -8,11 +8,14 @@ import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.MaterialInfo;
 import org.edtp.kavora.sdk.MaterialInfoOpaqueEXT;
+import org.edtp.kavora.sdk.MaterialInfoTranslucentEXT;
 import org.edtp.kavora.sdk.MeshInfo;
 import org.edtp.kavora.sdk.MeshInfoSurfaceTriangles;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.TextureBatchEntry;
 import org.edtp.kavora.sdk.TextureFromMemoryInfo;
+import org.edtp.kavora.sdk.TextureFormat;
+import org.edtp.kavora.sdk.TexturePurpose;
 import org.edtp.kavora.sdk.TexturePatch;
 import org.edtp.kavora.sdk.TexturePatchInfo;
 import org.edtp.kavora.sdk.Transform;
@@ -23,6 +26,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.util.BitSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -45,6 +51,10 @@ final class KavoraRetainedSceneChecks {
                     "Retained scene camera teleport failed");
         });
         context.waitFor(client -> Math.abs(client.player.getY() - 120.38) < 0.01, 200);
+        if (Boolean.getBoolean("kavora.gametest.pomSilhouetteFixture")) {
+            checkPomTransmissionSilhouette(context);
+            return;
+        }
         String[] previous = context.computeOnClient(client -> {
             var result = new String[OPTIONS.length];
             for (int i = 0; i < result.length; i++) result[i] = api().getConfigVariableResolved(OPTIONS[i]);
@@ -146,6 +156,78 @@ final class KavoraRetainedSceneChecks {
                 }
                 return true;
             }, 100);
+        }
+    }
+
+    private static void checkPomTransmissionSilhouette(ClientGameTestContext context) {
+        String toggle = "rtx.displacement.silhouettesBehindTranslucency";
+        String modeKey = "rtx.displacement.mode";
+        Map<String, String> options = Map.of(
+                "rtx.debugView.debugViewIdx", "32",
+                "rtx.debugView.showFirstGBufferHit", "False",
+                "rtx.debugView.replaceCompositeOutput", "False",
+                "rtx.cameraJitterSequenceLength", "1",
+                modeKey, "1",
+                toggle, "False");
+        var previous = new HashMap<String, String>();
+        long[] materials = new long[3], meshes = new long[4], instances = new long[4], height = new long[1];
+        try {
+            context.runOnClient(client -> {
+                options.forEach((key, value) -> {
+                    previous.put(key, api().getConfigVariableResolved(key));
+                    api().setConfigVariable(key, value);
+                });
+                var pixels = ByteBuffer.allocateDirect(16);
+                for (int i = 0; i < 16; i++) pixels.put((byte) 16);
+                pixels.flip();
+                height[0] = api().createTextureFromMemory(TextureFromMemoryInfo.builder().hash(0x7f090)
+                        .size(4, 4).format(TextureFormat.R8_UNORM).purpose(TexturePurpose.HEIGHTMAP)
+                        .pixelData(pixels).build());
+                materials[0] = api().createMaterial(MaterialInfo.builder().hash(0x7f091)
+                        .translucentExt(MaterialInfoTranslucentEXT.builder().transmittanceColor(1, 1, 1).build()).build());
+                materials[1] = api().createMaterial(MaterialInfo.builder().hash(0x7f092)
+                        .opaqueExt(MaterialInfoOpaqueEXT.builder().albedoConstant(1, 0, 0).roughnessConstant(1)
+                                .heightTexture(height[0]).displaceIn(0.5f).build()).build());
+                materials[2] = api().createMaterial(material(0x7f093, 0, 1, 0));
+                float[] z = {-2f, 0f, 0.2f, 1f};
+                for (int i = 0; i < z.length; i++) {
+                    var surface = quad(materials[i == 0 ? 0 : i == 3 ? 2 : 1], -1.2f, 1.2f, false);
+                    if (i == 2) {
+                        surface.indexBuffer.putInt(Integer.BYTES, 2).putInt(2 * Integer.BYTES, 1)
+                                .putInt(4 * Integer.BYTES, 3).putInt(5 * Integer.BYTES, 2);
+                    }
+                    meshes[i] = api().createMesh(MeshInfo.builder().hash(0x7f094 + i)
+                            .surfaces(new MeshInfoSurfaceTriangles[]{surface}).build());
+                    var pose = Transform.identity();
+                    pose.setTranslation(0, 122, z[i]);
+                    instances[i] = api().sceneInstanceAdd(meshes[i], pose.matrix, 0, 1, 0);
+                }
+            });
+            context.waitFor(client -> options.entrySet().stream()
+                    .allMatch(entry -> entry.getValue().equalsIgnoreCase(api().getConfigVariableResolved(entry.getKey()))), 100);
+            for (String mode : List.of("1", "2")) {
+                context.runOnClient(client -> {
+                    api().setConfigVariable(modeKey, mode);
+                    api().setConfigVariable(toggle, "False");
+                });
+                context.waitFor(client -> mode.equals(api().getConfigVariableResolved(modeKey))
+                        && !Boolean.parseBoolean(api().getConfigVariableResolved(toggle)), 100);
+                Pixels disabled = capture(context, "pom-" + mode + "-transmission-disabled");
+                context.runOnClient(client -> api().setConfigVariable(toggle, "True"));
+                context.waitFor(client -> Boolean.parseBoolean(api().getConfigVariableResolved(toggle)), 100);
+                Pixels enabled = capture(context, "pom-" + mode + "-transmission-enabled");
+                require(disabled.red() > 100 && enabled.green() > 100 && enabled.red() < disabled.red() / 2,
+                        "POM mode " + mode + " did not reveal the surface behind the displaced edge: "
+                                + disabled + " -> " + enabled);
+            }
+        } finally {
+            context.runOnClient(client -> {
+                for (long handle : instances) if (handle != 0) api().sceneInstanceRemove(handle);
+                for (long handle : meshes) if (handle != 0) api().destroyMesh(handle);
+                for (long handle : materials) if (handle != 0) api().destroyMaterial(handle);
+                if (height[0] != 0) api().destroyTexture(height[0]);
+                previous.forEach(api()::setConfigVariable);
+            });
         }
     }
 

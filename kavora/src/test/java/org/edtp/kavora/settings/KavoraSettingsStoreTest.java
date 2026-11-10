@@ -129,6 +129,27 @@ class KavoraSettingsStoreTest {
     }
 
     @Test
+    void loadUsesTheSavedPresetForNewOptionsAndPreservesExplicitOverrides(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("kavora.json");
+        Files.writeString(file, """
+                {"version":3,"quality":{"base":"high","custom":true},"settings":{"clouds.samples":96}}
+                """);
+        boolean[] silhouettes = {true};
+        int[] samples = {160};
+        var settings = new KavoraSettings(List.of(
+                KavoraSetting.ofBool("materials.pomTransmissionSilhouettes", SettingGroup.PARALLAX, "l", "t", true,
+                        () -> silhouettes[0], value -> silhouettes[0] = value),
+                KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "l", "t", 8, 256, 160,
+                        () -> samples[0], value -> samples[0] = value)));
+
+        new KavoraSettingsStore(file).load(settings);
+
+        assertFalse(silhouettes[0]);
+        assertEquals(96, samples[0]);
+        assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, true), settings.quality());
+    }
+
+    @Test
     void loadSkipsUnknownIdsAndOutOfRange(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("kavora.json");
         Files.writeString(file,

@@ -345,6 +345,8 @@
   "kavora.effect.materials.pomIndirectHit.tip": "除相机表面之外，还在间接射线命中点计算浮雕。",
   "kavora.effect.materials.pomPsr": "反射命中浮雕",
   "kavora.effect.materials.pomPsr.tip": "在反射和折射延续路径中计算浮雕。",
+  "kavora.effect.materials.pomTransmissionSilhouettes": "透射浮雕轮廓",
+  "kavora.effect.materials.pomTransmissionSilhouettes.tip": "修正透过水或厚玻璃看到的深浮雕边缘。适用于步进和四叉树视差，在折射浮雕较多的场景会增加 GPU 开销。",
   "kavora.quality.title": "画质预设",
   "kavora.quality.selected": "画质：%s",
   "kavora.quality.custom": "自定义 · %s",

@@ -104,6 +104,12 @@ public final class KavoraSettingsStore {
             return;
         }
         Map<KavoraSetting<?>, Object> loaded = new LinkedHashMap<>();
+        if (quality != null) {
+            KavoraQualityPresets.values(quality.base()).forEach((id, value) -> {
+                KavoraSetting<?> setting = settings.byId(id);
+                if (setting != null) loaded.put(setting, value);
+            });
+        }
         for (Map.Entry<String, JsonElement> entry : values.entrySet()) {
             KavoraSetting<?> setting = settings.byId(entry.getKey());
             if (setting == null) {

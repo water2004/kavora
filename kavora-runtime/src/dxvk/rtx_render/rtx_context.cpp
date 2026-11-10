@@ -1434,6 +1434,9 @@ namespace dxvk {
       constants.pomEnablePSR = RtxOptions::Displacement::enablePSR();
     }
     constants.pomMaxIterations = RtxOptions::Displacement::maxIterations();
+    constants.pomSilhouettesBehindTranslucency =
+      (constants.pomMode == DisplacementMode::QuadtreePOM || constants.pomMode == DisplacementMode::RaymarchPOM) &&
+      RtxOptions::Displacement::silhouettesBehindTranslucency();
 
     constants.totalMipBias = getSceneManager().getTotalMipBias(); 
     constants.hairCardMipBias = RtxOptions::hairCardMipBias();

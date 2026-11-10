@@ -463,7 +463,8 @@ struct RaytraceArgs {
   uint enableRtxdiBestLightJitter;
 
   uint ignoreSkyIfCameraInMedium;
-  uint3 environmentPadding;
+  uint pomSilhouettesBehindTranslucency;
+  uint2 environmentPadding;
 
   // NOTE: Add structs to the top section of RaytraceArgs, not the bottom.
   // NOTE: bool does not work in debug builds, use uint instead.
