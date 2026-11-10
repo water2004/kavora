@@ -121,6 +121,11 @@ struct Surface
     set { data2.w = newValue ? packedFlagSet(data2.w,1 << 24) : packedFlagUnset(data2.w, 1 << 24); }
   }
 
+  property bool isFloatingSludge
+  {
+    get { return packedFlagGet(data2.w, 1u << 31); }
+  }
+
   property bool isClipPlaneEnabled
   {
     get { return packedFlagGet(data2.w, 1 << 25); }

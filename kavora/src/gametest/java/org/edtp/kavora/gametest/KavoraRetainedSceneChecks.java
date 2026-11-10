@@ -313,11 +313,14 @@ final class KavoraRetainedSceneChecks {
 
     private static void checkWaterSimulation(ClientGameTestContext context, TestSingleplayerContext world) {
         String toggle = "rtx.waterSim.enable";
+        String wind = "rtx.waterSim.windEnabled", rings = "rtx.waterSim.ringsEnabled", sludge = "rtx.waterSim.sludgeEnabled";
         Map<String, String> options = Map.of(toggle, "True", OPTIONS[1], "16", OPTIONS[2], "True",
                 OPTIONS[3], "False", OPTIONS[4], "1", "rtx.integrateIndirectMode", "0",
-                "rtx.sparseRendering.enableSparseRendering", "False", "rtx.gbuffer.logDispatch", "True");
+                "rtx.sparseRendering.enableSparseRendering", "False", wind, "False", rings, "False", sludge, "False");
         var previous = new HashMap<String, String>();
-        long[] handles = new long[3];
+        long[] handles = new long[5];
+        Transform waterPlane = Transform.fromTRS(0, 121.1f, -1,
+                new Quaternionf().rotateX((float) (Math.PI / 2)), 4);
         world.getServer().runOnServer(server -> {
             var player = server.getPlayerList().getPlayers().getFirst();
             require(player.teleportTo(server.overworld(), 0, 120.38, -7, Set.of(), 0, 8, true),
@@ -335,23 +338,52 @@ final class KavoraRetainedSceneChecks {
                                 .simulatedWater(true).transmittanceColor(1, 1, 1).build()).build());
                 handles[1] = api().createMesh(MeshInfo.builder().hash(0x7f0c1)
                         .surfaces(new MeshInfoSurfaceTriangles[]{quad(handles[0], -1.2f, 1.2f, false)}).build());
-                Transform transform = Transform.fromTRS(0, 121.1f, -1,
-                        new Quaternionf().rotateX((float) (Math.PI / 2)), 4);
-                handles[2] = api().sceneInstanceAdd(handles[1], transform.matrix, 0, 1, 0);
+                handles[2] = api().sceneInstanceAdd(handles[1], waterPlane.matrix, 0, 1, 0);
                 KavoraWaterRipples.reset();
             });
             BufferedImage flat = frame(context, "water-flat");
             context.runOnClient(client -> KavoraFrameProbe.frameAction = frame -> KavoraWaterRipples.splash(0, 121.1f, -1));
             BufferedImage disturbed = frame(context, "water-disturbed");
-            int changed = 0;
-            int width = flat.getWidth(), height = flat.getHeight();
-            for (int y = height / 3; y < 2 * height / 3; y++) {
-                for (int x = width / 3; x < 2 * width / 3; x++) {
-                    int a = flat.getRGB(x, y), b = disturbed.getRGB(x, y);
-                    if (Math.abs((a >>> 16 & 255) - (b >>> 16 & 255)) + Math.abs((a & 255) - (b & 255)) > 12) changed++;
-                }
-            }
-            require(changed > 100, "Water disturbances did not change the water normals: " + changed);
+            require(changedWaterNormals(flat, disturbed, 12) > 100, "Water disturbances did not change the water normals");
+            if (!Boolean.getBoolean("kavora.gametest.waterDetailFixture")) return;
+
+            context.runOnClient(client -> {
+                KavoraFrameProbe.frameAction = null;
+                KavoraWaterRipples.reset();
+                api().setConfigVariable(toggle, "False");
+                api().setConfigVariable(wind, "True");
+            });
+            BufferedImage windFrame = frame(context, "water-wind");
+            require(changedWaterNormals(flat, windFrame, 12) > 100, "FFT wind did not reach the water normals");
+            context.runOnClient(client -> {
+                api().setConfigVariable(wind, "False");
+                api().setConfigVariable(rings, "True");
+                KavoraWaterRipples.rain(1.0f);
+            });
+            BufferedImage rainFrame = frame(context, "water-rain");
+            context.runOnClient(client -> KavoraWaterRipples.rain(0.0f));
+            BufferedImage dryFrame = frame(context, "water-rain-stopped");
+            int wetPixels = changedWaterNormals(dryFrame, rainFrame, 4);
+            int dryPixels = changedWaterNormals(flat, dryFrame, 4);
+            require(wetPixels > 200 && wetPixels > dryPixels * 3,
+                    "Rain rings did not track the submitted weather: wet=" + wetPixels + ", dry=" + dryPixels);
+
+            context.runOnClient(client -> {
+                api().setConfigVariable(rings, "False");
+                api().setConfigVariable(sludge, "True");
+                api().setConfigVariable(OPTIONS[1], "32");
+                api().setConfigVariable(OPTIONS[2], "False");
+                KavoraWaterRipples.reset();
+                handles[3] = api().createMaterial(material(0x7f0c2, 0, 1, 0));
+                handles[4] = api().createMesh(MeshInfo.builder().hash(0x7f0c3)
+                        .surfaces(new MeshInfoSurfaceTriangles[]{quad(handles[3], -1.2f, 1.2f, false)}).build());
+                api().sceneInstanceUpdate(handles[2], handles[4], waterPlane.matrix, InstanceCategoryBit.FLOATING_SLUDGE, 1, 0);
+            });
+            Pixels closed = capture(context, "water-sludge-closed");
+            context.runOnClient(client -> KavoraFrameProbe.frameAction = frame -> KavoraWaterRipples.splash(0, 121.1f, -1));
+            Pixels open = capture(context, "water-sludge-open");
+            require(closed.green() > 1000 && open.green() < closed.green() * 0.95 && open.green() > closed.green() * 0.25,
+                    "Splash did not open a local hole in sludge: " + closed + " -> " + open);
         } finally {
             context.runOnClient(client -> {
                 KavoraFrameProbe.frameAction = null;
@@ -359,9 +391,23 @@ final class KavoraRetainedSceneChecks {
                 if (handles[2] != 0) api().sceneInstanceRemove(handles[2]);
                 if (handles[1] != 0) api().destroyMesh(handles[1]);
                 if (handles[0] != 0) api().destroyMaterial(handles[0]);
+                if (handles[4] != 0) api().destroyMesh(handles[4]);
+                if (handles[3] != 0) api().destroyMaterial(handles[3]);
                 previous.forEach(api()::setConfigVariable);
             });
         }
+    }
+
+    private static int changedWaterNormals(BufferedImage flat, BufferedImage disturbed, int minimumDelta) {
+        int changed = 0;
+        int width = flat.getWidth(), height = flat.getHeight();
+        for (int y = height / 3; y < 2 * height / 3; y++) {
+            for (int x = width / 3; x < 2 * width / 3; x++) {
+                int a = flat.getRGB(x, y), b = disturbed.getRGB(x, y);
+                if (Math.abs((a >>> 16 & 255) - (b >>> 16 & 255)) + Math.abs((a & 255) - (b & 255)) > minimumDelta) changed++;
+            }
+        }
+        return changed;
     }
 
     private static void checkPomTransmissionSilhouette(ClientGameTestContext context) {

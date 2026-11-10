@@ -92,6 +92,10 @@ namespace dxvk {
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_OUTPUT)
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
         TEXTURE2D(GBUFFER_BINDING_WATER_SIMULATION)
+        TEXTURE2DARRAY(GBUFFER_BINDING_WATER_WIND)
+        TEXTURE2D(GBUFFER_BINDING_WATER_RINGS)
+        TEXTURE2D(GBUFFER_BINDING_WATER_IMPACTS)
+        SAMPLER(GBUFFER_BINDING_WATER_TILE_SAMPLER)
 
         SAMPLER3D(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
         SAMPLER3D(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT)
@@ -818,7 +822,15 @@ namespace dxvk {
       VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
     ctx->bindResourceSampler(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER, linearWrapSampler);
-    ctx->bindResourceView(GBUFFER_BINDING_WATER_SIMULATION, ctx->getCommonObjects()->waterSimulation().view(), nullptr);
+    const auto& water = ctx->getCommonObjects()->waterSimulation();
+    ctx->bindResourceView(GBUFFER_BINDING_WATER_SIMULATION, water.view(), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_WATER_WIND, water.windView(), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_WATER_RINGS, water.ringView(), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_WATER_IMPACTS, water.impactView(), nullptr);
+    if (water.effects() & (WATER_EFFECT_WIND | WATER_EFFECT_RINGS)) {
+      ctx->bindResourceSampler(GBUFFER_BINDING_WATER_TILE_SAMPLER, ctx->getResourceManager().getSampler(
+        VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT));
+    }
 
     // These resources give each pixel's slot in the compacted GBuffer. They are null when sparse rendering is inactive,
     // in which case DXVK substitutes a null descriptor.

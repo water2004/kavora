@@ -9,6 +9,7 @@ public final class WaterSimulationFrame {
     private final float[] impulses = new float[MAX_IMPULSES * COMPONENTS];
     private int count;
     private boolean reset;
+    private float rain = Float.NaN;
 
     public boolean add(float x, float y, float z, float radius, float strength) {
         if (!Float.isFinite(x) || !Float.isFinite(y) || !Float.isFinite(z)
@@ -28,16 +29,25 @@ public final class WaterSimulationFrame {
     public void resetWaves() {
         count = 0;
         reset = true;
+        rain = Float.NaN;
     }
 
-    public boolean isEmpty() { return count == 0 && !reset; }
+    /** Updates the runtime's rain intensity until the next update or world reset. */
+    public void setRain(float intensity) {
+        if (!(intensity >= 0 && intensity <= 1)) throw new IllegalArgumentException("Invalid water rain intensity");
+        rain = intensity;
+    }
+
+    public boolean isEmpty() { return count == 0 && !reset && Float.isNaN(rain); }
 
     public void clear() {
         count = 0;
         reset = false;
+        rain = Float.NaN;
     }
 
     int count() { return count; }
     boolean resetsWaves() { return reset; }
+    float rain() { return rain; }
     float value(int impulse, int component) { return impulses[impulse * COMPONENTS + component]; }
 }

@@ -1,0 +1,52 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/pass/particles/particle_spawn_distribution.h"
+
+groupshared float areaPrefix[kParticleAreaBlockSize];
+groupshared float prefixMax[kParticleAreaBlockSize];
+
+float inclusiveAreaPrefix(float area, uint lane) {
+  const bool positiveWeight = area > 0.0f;
+  areaPrefix[lane] = area;
+  GroupMemoryBarrierWithGroupSync();
+  for (uint step = 1; step < kParticleAreaBlockSize; step *= 2) {
+    const float previous = lane >= step ? areaPrefix[lane - step] : 0.0f;
+    GroupMemoryBarrierWithGroupSync();
+    area += previous;
+    areaPrefix[lane] = area;
+    GroupMemoryBarrierWithGroupSync();
+  }
+
+  // Only positive weights may advance the CDF, even if a zero lane rounded up.
+  float repaired = positiveWeight ? area : 0.0f;
+  prefixMax[lane] = repaired;
+  GroupMemoryBarrierWithGroupSync();
+  for (uint step = 1; step < kParticleAreaBlockSize; step *= 2) {
+    const float previous = lane >= step ? prefixMax[lane - step] : 0.0f;
+    GroupMemoryBarrierWithGroupSync();
+    repaired = max(repaired, previous);
+    prefixMax[lane] = repaired;
+    GroupMemoryBarrierWithGroupSync();
+  }
+  return repaired;
+}
+
+float particleAreaGroupTotal() {
+  return prefixMax[kParticleAreaBlockSize - 1];
+}
+
+void finishParticleAreaBlocks(RWStructuredBuffer<float> areas, uint start, uint blocks, uint lane) {
+  float previous = 0.0f;
+  for (uint base = 0; base < blocks; base += kParticleAreaBlockSize) {
+    const uint block = base + lane;
+    const float area = block < blocks ? areas[start + block] : 0.0f;
+    const float prefix = inclusiveAreaPrefix(area, lane);
+    if (block < blocks) {
+      areas[start + block] = previous + prefix;
+    }
+    previous += particleAreaGroupTotal();
+    GroupMemoryBarrierWithGroupSync();
+  }
+}

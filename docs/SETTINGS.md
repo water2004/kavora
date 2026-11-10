@@ -234,6 +234,13 @@ recapturing terrain. Transparent normal strength also affects other transparent
 materials. Subsurface controls cover transmission, single scattering,
 refraction visibility, and diffusion profile scale.
 
+**FFT Wind Waves**, **Droplet Rings**, and **Floating Sludge** are independent
+switches in the Water settings. Wind adds two wave scales to horizontal water.
+Rings use the rain strength of the camera's biome and appear around strong
+splashes even in clear weather. Floating Sludge applies to authored opaque
+surfaces tagged `remix_category:sludge` in USD or `FLOATING_SLUDGE` in the SDK.
+Disturbances open temporary patches of water in those surfaces.
+
 ## Resetting
 
 Sodium's reset controls stage defaults; **Apply** commits them. Shader settings

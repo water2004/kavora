@@ -102,6 +102,13 @@ exe = executable('test_particle_drag', files('test_particle_drag.cpp'), include_
 test('test_particle_drag', exe, env: test_env)
 tests += exe
 
+foreach test_name : ['test_particle_screen_size', 'test_water_particle_contracts']
+  exe = executable(test_name, files(test_name + '.cpp'), include_directories : test_include_path,
+    win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
+  test(test_name, exe, env: test_env)
+  tests += exe
+endforeach
+
 exe = executable('test_graph_usd_parser',  files('graph/test_component.h', 'graph/test_flexible_component.h', 'graph/test_flexible_component.cpp', 'test_graph_usd_parser.cpp'),
   include_directories : test_include_path, dependencies : [ test_unit_deps, d3d9_dep ], link_with: [ dxvk_lib ] , win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
 test('test_graph_usd_parser', exe, env: test_env)

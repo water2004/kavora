@@ -70,6 +70,12 @@ public final class RemixBridgeContractTest {
         check(waves.add(1, 2, 3, 0.5f, 1), "First water disturbance was dropped");
         check(waves.add(4, 5, 6, 1.5f, -0.5f), "Second water disturbance was dropped");
         equal(0, RemixBridge.submit(5, waves));
+        waves.setRain(0.75f);
+        equal(0, RemixBridge.submit(5, waves));
+        waves.clear();
+        waves.setRain(0.0f);
+        check(!waves.isEmpty(), "Stopping rain must be submitted without any impulses");
+        equal(0, RemixBridge.submit(5, waves));
         SharedBufferInfo shared = new SharedBufferInfo();
         equal(0, RemixBridge.createSharedBuffer(4096, shared));
         equal(0x7777, shared.buffer); equal(0x8888, shared.memoryHandle);

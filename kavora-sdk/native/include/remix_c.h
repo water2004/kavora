@@ -166,6 +166,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_MESH_INFO_QUADS_EXT                   = 47,
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT       = 48,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT             = 49,
+    REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT            = 50,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -742,6 +743,7 @@ extern "C" {
     REMIXAPI_INSTANCE_CATEGORY_BIT_HAIR_CARDS                = 1 << 25,
     REMIXAPI_INSTANCE_CATEGORY_BIT_VIEW_MODEL                = 1 << 26,
     REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA               = 1 << 27,
+    REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE           = 1 << 28,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;
@@ -1143,6 +1145,13 @@ extern "C" {
     uint32_t impulseCount;
     remixapi_Bool reset;
   } remixapi_SubmitInfoWaterSimEXT;
+
+  /** Optional child of SubmitInfoWaterSimEXT. Sets rain intensity in [0, 1] until changed or reset. */
+  typedef struct remixapi_SubmitInfoWaterRainEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    float rain;
+  } remixapi_SubmitInfoWaterRainEXT;
   REMIXAPI_HELPER remixapi_SubmitInfo remixapi_SubmitInfo_init() {
     remixapi_SubmitInfo info = { (remixapi_StructType)0 };
     info.sType = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO;

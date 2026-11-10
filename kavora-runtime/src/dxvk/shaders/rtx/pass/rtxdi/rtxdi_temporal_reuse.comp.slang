@@ -49,6 +49,7 @@
 #include "rtx/concept/light/light.slangh"
 #include "rtx/algorithm/resolve.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
+#include "rtx/algorithm/rtxdi/rtxdi_temporal_history.slangh"
 #include "rtx/pass/rtxdi/rtxdi_best_light.slangh"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
 
@@ -91,7 +92,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
 
   const float4 motion = PrimaryVirtualMotionVector[compactedCoordinate];
   const float3 virtualMotionVector = motion.xyz;
-  const bool historyValid = !cb.enableRaytracedRenderTarget || motion.w >= 0.0f;
+  const bool historyValid = temporalHistoryUsable(cb.enableRaytracedRenderTarget, motion.w);
   const float3 prevVirtualWorldPosition = surface.virtualWorldPosition + virtualMotionVector;
 
   float viewDirectionDotGeometryNormal = abs(dot(surface.minimalRayInteraction.viewDirection, surface.minimalSurfaceInteraction.geometryNormal));
@@ -99,7 +100,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
   RTXDI_TemporalResamplingParameters tparams;
   tparams.prevPixelCenter = prevPixelCenter;
   tparams.expectedPrevHitDistance = calculateExpectedPreviousHitDistance(cb.camera, prevVirtualWorldPosition);
-  tparams.virtualMotionVector = cb.enableRaytracedRenderTarget && motion.w == 1.0f ? float3(0.0f) : virtualMotionVector;
+  tparams.virtualMotionVector = temporalHistoryHasStaticCamera(cb.enableRaytracedRenderTarget, motion.w) ? float3(0.0f) : virtualMotionVector;
   tparams.sourceBufferIndex = RTXDI_GetTemporalInputPage();
   tparams.maxHistoryLength = cb.enableRtxdiTemporalReuse ? cb.rtxdiMaxHistoryLength : 0;
   tparams.biasCorrectionMode = cb.enableRtxdiTemporalBiasCorrection ? 
@@ -109,7 +110,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
     : RTXDI_BIAS_CORRECTION_OFF;
   tparams.depthThreshold = 0.01 / max(viewDirectionDotGeometryNormal, 0.01);
   tparams.normalThreshold = 0.8;
-  tparams.discardEnlargedPixels = cb.enableRtxdiDiscardEnlargedPixels && (!cb.enableRaytracedRenderTarget || motion.w == 0.0f);
+  tparams.discardEnlargedPixels = cb.enableRtxdiDiscardEnlargedPixels && temporalHistoryCanDiscardEnlarged(cb.enableRaytracedRenderTarget, motion.w);
   tparams.discardInvisibleSamples = cb.enableRtxdiDiscardInvisibleSamples;
   tparams.enablePermutationSampling = cb.enableRtxdiPermutationSampling;
 #if RTXDI_NO_PORTALS
@@ -119,34 +120,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
 #endif
   tparams.uniformRandomNumber = cb.uniformRandomNumber;
 
-  int2 temporalSamplePixelPos = -1;
-  bool isGBufferSimilar = false;
-  if (historyValid) {
-    RTXDI_TemporalResampling(state, pixelCoordinate, surface, rng, tparams, temporalSamplePixelPos, isGBufferSimilar);
-  }
-
-  float currentReprojectionConfidence = 0;
-  if (isGBufferSimilar)
-  {
-    currentReprojectionConfidence = ReprojectionConfidence[temporalSamplePixelPos];
-  }
-
-  if (historyValid) {
-    currentReprojectionConfidence = min(currentReprojectionConfidence + 1.f / kReprojectionConfidenceHistoryLength, 1.f);
-  }
-  ReprojectionConfidence[pixelCoordinate] = currentReprojectionConfidence;
-
-  // Remember which pixel the temporal reservoir belongs to, if it comes from a valid reprojection.
-  // Needed for the gradients pass.
-  if (cb.rtxdiGradientResourcesAllocated)
-  {
-    if (!isGBufferSimilar)
-    {
-      temporalSamplePixelPos = -1;
-    }
-
-    TemporalPosition[pixelCoordinate] = pack32(u16vec2(temporalSamplePixelPos));
-  }
+  resampleTemporalHistory(historyValid, state, pixelCoordinate, surface, rng, tparams);
 
   RAB_StoreReservoir(state, pixelCoordinate, RTXDI_GetTemporalOutputPage());
 }

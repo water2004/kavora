@@ -134,4 +134,9 @@ class "RemixInstanceCategoryAPI" (
         displayGroup = "Remix Categories"
         displayName = "Hair Cards"
     )
+    bool remix_category:sludge = 0 (
+        doc = "Opaque floating film on water. Water disturbances open temporary holes in horizontal parts of the surface."
+        displayGroup = "Remix Categories"
+        displayName = "Floating Sludge"
+    )
 }

@@ -117,6 +117,9 @@ final class KavoraEffectOptions {
         new Control("materials.pomTransmissionSilhouettes", SettingGroup.PARALLAX, "rtx.displacement.silhouettesBehindTranslucency", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("water.normalStrength", SettingGroup.WATER, "rtx.translucentMaterial.normalIntensity", KavoraSetting.Kind.FLOAT, 0, 3),
         new Control("water.simulation", SettingGroup.WATER, "rtx.waterSim.enable", KavoraSetting.Kind.BOOL, 0, 1),
+        new Control("water.windWaves", SettingGroup.WATER, "rtx.waterSim.windEnabled", KavoraSetting.Kind.BOOL, 0, 1),
+        new Control("water.dropletRings", SettingGroup.WATER, "rtx.waterSim.ringsEnabled", KavoraSetting.Kind.BOOL, 0, 1),
+        new Control("water.floatingSludge", SettingGroup.WATER, "rtx.waterSim.sludgeEnabled", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("sss.inRefraction", SettingGroup.SUBSURFACE, "rtx.subsurface.enableThinOpaqueInRefractions", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("sss.transmission", SettingGroup.SUBSURFACE, "rtx.subsurface.enableTransmission", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("sss.singleScattering", SettingGroup.SUBSURFACE, "rtx.subsurface.enableTransmissionSingleScattering", KavoraSetting.Kind.BOOL, 0, 1),
@@ -148,12 +151,11 @@ final class KavoraEffectOptions {
             switch (control.kind()) {
                 case BOOL -> {
                     boolean[] value = {Boolean.parseBoolean(initial)};
-                    boolean waterSimulation = control.id().equals("water.simulation");
-                    if (waterSimulation) org.edtp.kavora.render.KavoraWaterRipples.setEnabled(value[0]);
+                    org.edtp.kavora.render.KavoraWaterRipples.updateOption(control.id(), value[0]);
                     settings.add(KavoraSetting.ofBool(control.id(), control.group(), label, label + ".tip",
                             authored == null ? value[0] : (Boolean) authored, () -> value[0], next -> {
                                 api.setConfigVariable(control.key(), Boolean.toString(next));
-                                if (waterSimulation) org.edtp.kavora.render.KavoraWaterRipples.setEnabled(next);
+                                org.edtp.kavora.render.KavoraWaterRipples.updateOption(control.id(), next);
                                 value[0] = next;
                             }));
                 }

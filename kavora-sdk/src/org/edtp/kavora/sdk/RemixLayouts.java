@@ -467,6 +467,10 @@ final class RemixLayouts {
                 ADDRESS.withName("impulses"),
                 JAVA_INT.withName("impulseCount"),
                 JAVA_INT.withName("reset"));
+        define("SubmitInfoWaterRainEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_FLOAT.withName("rain"));
         define("PresentInfo",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

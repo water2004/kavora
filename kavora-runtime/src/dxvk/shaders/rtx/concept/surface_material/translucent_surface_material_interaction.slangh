@@ -110,12 +110,11 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
 
   bool simulatedWater = false;
 #ifdef WATER_SIM_SAMPLE
-  if (cb.waterSimulation.w && (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)) {
+  if (cb.waterEffects && (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)) {
     const float normalUp = cb.isZUp ? surfaceInteraction.triangleNormal.z : surfaceInteraction.triangleNormal.y;
     if (abs(normalUp) > 0.55f) {
-      const float3 wave = sampleWaterSimulation(surfaceInteraction.position);
-      const float3 gradient = cb.isZUp ? float3(wave.yz, 0.0f) : float3(wave.y, 0.0f, wave.z);
-      normal = normalize(normal - gradient * normalUp);
+      const float3 wave = sampleWaterSimulation(surfaceInteraction.position, minimalRayInteraction.coneRadius, true);
+      normal = applyWaterSlope(normal, wave.yz, normalUp);
       simulatedWater = any(abs(wave) > 1e-4f);
     }
   }

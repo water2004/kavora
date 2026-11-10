@@ -2,21 +2,59 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-// Horizontal slope is stored in world axes, independent of the water atlas and mesh UVs.
-float3 sampleWaterSimulation(float3 position) {
-  const float2 planar = cb.isZUp ? position.xy : position.xz;
-  const float2 uv = (planar - cb.waterSimulation.xy) * cb.waterSimulation.z;
+#include "rtx/pass/water_sim/water_sim_args.h"
+
+float2 waterPlanarPosition(float3 position) {
+  return cb.isZUp ? position.xy : position.xz;
+}
+
+float waterClipFade(float2 uv) {
   const float2 edge = min(uv, 1.0f - uv);
-  const float fade = smoothstep(0.025f, 0.12f, min(edge.x, edge.y));
-  if (fade <= 0.0f) {
-    return float3(0.0f);
+  return smoothstep(0.025f, 0.12f, min(edge.x, edge.y));
+}
+
+float2 sampleWaterImpacts(float2 planar) {
+  const float2 uv = (planar - cb.waterImpactClip.xy) * cb.waterImpactClip.z;
+  const float fade = waterClipFade(uv);
+  return fade > 0.0f ? WaterImpacts.SampleLevel(LinearWrapSampler, uv, 0.0f) * fade : float2(0.0f);
+}
+
+// The long cascade moves the refraction origin. Fine wind and rings only affect shading.
+float3 sampleWaterSimulation(float3 position, float footprint, bool detail) {
+  const float2 planar = waterPlanarPosition(position);
+  float3 wave = 0.0f;
+  if (cb.waterEffects & WATER_EFFECT_RIPPLES) {
+    const float2 uv = (planar - cb.waterSimulation.xy) * cb.waterSimulation.z;
+    const float fade = waterClipFade(uv);
+    if (fade > 0.0f) {
+      wave = WaterSimulation.SampleLevel(LinearWrapSampler, uv, 0.0f).xzw * fade;
+    }
   }
-  const float4 state = WaterSimulation.SampleLevel(LinearWrapSampler, uv, 0.0f);
-  return state.xzw * fade;
+  if (cb.waterEffects & WATER_EFFECT_WIND) {
+    const float gust = 0.75f + 0.25f * sin(dot(planar, float2(0.058f, 0.041f)) + cb.timeSinceStartSeconds * 0.17f);
+    wave += WaterWind.SampleLevel(WaterTileSampler, float3(planar / kWaterWindTileLong, 0.0f), 0.0f).xyz * gust;
+    if (detail && footprint < 0.75f) {
+      const float fineFade = 1.0f - smoothstep(0.12f, 0.75f, footprint);
+      wave.yz += WaterWind.SampleLevel(WaterTileSampler, float3(planar / kWaterWindTileShort, 1.0f), 0.0f).yz * (gust * fineFade);
+    }
+  }
+  if (detail && (cb.waterEffects & WATER_EFFECT_RINGS) && footprint < 0.24f) {
+    const float spray = (cb.waterEffects & WATER_EFFECT_IMPACTS) ? sampleWaterImpacts(planar).y : 0.0f;
+    const float intensity = max(cb.waterRain, spray) * (1.0f - smoothstep(0.055f, 0.24f, footprint));
+    if (intensity > 0.0f) {
+      wave.yz += WaterRings.SampleLevel(WaterTileSampler, planar / kWaterRingTile, 0.0f) * intensity;
+    }
+  }
+  return wave;
+}
+
+float3 applyWaterSlope(float3 normal, float2 slope, float normalUp) {
+  const float3 gradient = cb.isZUp ? float3(slope, 0.0f) : float3(slope.x, 0.0f, slope.y);
+  return normalize(normal - gradient * normalUp);
 }
 
 bool hasWaterTransmissionOffset(PolymorphicSurfaceMaterialInteraction material) {
-  return cb.waterSimulation.w && material.type == surfaceMaterialTypeTranslucent &&
+  return (cb.waterEffects & (WATER_EFFECT_RIPPLES | WATER_EFFECT_WIND)) && material.type == surfaceMaterialTypeTranslucent &&
     (material.bdata0 & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER);
 }
 
@@ -30,7 +68,7 @@ void offsetWaterTransmissionRay(inout Ray refractedRay, Ray incidentRay,
     return;
   }
 
-  const float3 wave = sampleWaterSimulation(position);
+  const float3 wave = sampleWaterSimulation(position, 0.0f, false);
   const float2 planarDirection = cb.isZUp ? incidentRay.direction.xy : incidentRay.direction.xz;
   const float relativeDirection = directionUp - dot(wave.yz, planarDirection);
   if (wave.x >= -0.008f || relativeDirection > -0.12f) {

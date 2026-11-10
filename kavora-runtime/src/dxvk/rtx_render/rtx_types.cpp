@@ -421,6 +421,7 @@ namespace dxvk {
 
     setCategory(InstanceCategories::ParticleEmitter, lookupHash(RtxOptions::particleEmitterTextures(), textureHash));
     setCategory(InstanceCategories::HairCards, lookupHash(RtxOptions::hairCardTextures(), textureHash));
+    setCategory(InstanceCategories::FloatingSludge, lookupHash(RtxOptions::sludgeTextures(), textureHash));
   }
 
   void DrawCallState::setupCategoriesForGeometry() {

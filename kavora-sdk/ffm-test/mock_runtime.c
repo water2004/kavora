@@ -179,7 +179,16 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_Submit(const remixapi_SubmitInfo* i
     CHECK(info && info->sType == 30 && info->interopFlags == 5);
     if (info->pNext) {
         const remixapi_SubmitInfoWaterSimEXT* water = info->pNext;
-        CHECK(water->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT && !water->pNext);
+        CHECK(water->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT);
+        if (water->pNext) {
+            const remixapi_SubmitInfoWaterRainEXT* rain = water->pNext;
+            CHECK(rain->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT && !rain->pNext);
+            if (water->impulseCount == 0) {
+                CHECK(!water->reset && !water->impulses && rain->rain == 0.0f);
+                return REMIXAPI_ERROR_CODE_SUCCESS;
+            }
+            CHECK(rain->rain == 0.75f);
+        }
         CHECK(water->reset == 1 && water->impulseCount == 2 && water->impulses);
         CHECK(water->impulses[0].position.x == 1 && water->impulses[0].position.y == 2 && water->impulses[0].position.z == 3);
         CHECK(water->impulses[1].position.x == 4 && water->impulses[1].radius == 1.5f && water->impulses[1].strength == -0.5f);

@@ -124,6 +124,13 @@ quality settings explicit. Use Nsight for GPU execution evidence; an isolated
 shader statistic or a noisy FPS sample cannot establish a whole-frame gain.
 Report actual checks and any missing hardware validation.
 
+Native test builds register `test_particle_drag`, `test_particle_screen_size`,
+and `test_water_particle_contracts` with Meson. The optional Vulkan numerical
+test runs with `python kavora-runtime/tests/rtx/unit/test_water_particle_gpu.py`
+in an environment with NumPy and SlangPy. It reads back the water compute
+passes and the shared particle and temporal-history routines independently of
+Minecraft. Use the retained water GameTest to check material and PSR integration.
+
 ## Pull requests
 
 Describe the concrete problem and resulting behavior. Explain changed data

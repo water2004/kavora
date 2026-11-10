@@ -20,6 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/particles/particle_system_bindings.slangh"
+#include "rtx/pass/particles/particle_screen_size.h"
 
 #include "rtx/utility/common.slangh"
 #include "rtx/utility/noise.slangh"
@@ -140,9 +141,9 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
   // precache some values
   float2 size = particle.size(particleSystem, animationDataTex) * particleCb.sceneScale;
   float4 color = particle.color(particleSystem, animationDataTex);
-  const float minScreenSize = sanitize(max(0.0f, particleSystem.desc.minScreenSize), 0.0f);
-  const float maxScreenSize = sanitize(max(0.0f, particleSystem.desc.maxScreenSize), 0.0f);
-  const bool hasScreenSizeBounds = minScreenSize > 0.0f || maxScreenSize > 0.0f;
+  const float minScreenSize = particleSystem.desc.minScreenSize;
+  const float maxScreenSize = particleSystem.desc.maxScreenSize;
+  const bool hasScreenSizeBounds = particleScreenSizeEnabled(minScreenSize, maxScreenSize);
   
   if (particle.isDead() || particle.isSleeping() || particle.isRejectedSpawn() ||
       color.w < particleCb.resolveTransparencyThreshold ||
@@ -257,28 +258,20 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
       const float2 up = particleSystem.desc.enableMotionTrail ? trailDirection : mul(rot2D, float2(0.0f, 1.0f));
       const float4 rightClip = mul(particleCb.worldToProjection, float4((basisRight * right.x + basisUp * right.y) * size.x, 0.0f));
       const float4 upClip = mul(particleCb.worldToProjection, float4((basisRight * up.x + basisUp * up.y) * size.y, 0.0f));
-      const float2 centerNdc = center.xy / center.w;
-      const float2 pixelScale = 0.5f * float2(particleCb.renderingWidth, particleCb.renderingHeight) / center.w;
-      const float2 projectedRight = (rightClip.xy - centerNdc * rightClip.w) * pixelScale;
-      const float2 projectedUp = (upClip.xy - centerNdc * upClip.w) * pixelScale;
-      const float longestEdge = sqrt(max(dot(projectedRight, projectedRight), dot(projectedUp, projectedUp)));
-      if (!isfinite(longestEdge) || longestEdge <= 0.0f) {
+      const ParticleScreenSizeMeasurement measurement = measureParticleScreenSize(center, rightClip, upClip,
+        float2(particleCb.renderingWidth, particleCb.renderingHeight));
+      if (measurement.action == ParticleScreenSizeAction::Clear) {
         clearParticleVertices(threadIdx.x, particleSystem);
         return;
       }
 
-      const float target = maxScreenSize > 0.0f
-        ? clamp(longestEdge, minScreenSize, max(minScreenSize, maxScreenSize))
-        : max(longestEdge, minScreenSize);
-      const float scale = target / longestEdge;
-      if (!isfinite(scale) || !all(isfinite(size * scale))) {
+      const float scale = adjustParticleScreenSize(measurement.projectedSize, minScreenSize, maxScreenSize, 0.0f).scale;
+      if (!all(isfinite(size * scale))) {
         clearParticleVertices(threadIdx.x, particleSystem);
         return;
       }
       if (scale > 1.0f) {
-        const float areaRatio = (size.y + trailLength) / ((size.y * scale + trailLength) * scale);
-        const float coverage = saturate(sanitize(particleSystem.desc.screenSizeCoverage, 1.0f));
-        color.w *= pow(areaRatio, coverage);
+        color.w *= particleScreenSizeOpacity(scale, particleSystem.desc.screenSizeCoverage, size.y, trailLength);
       }
       size *= scale;
     }

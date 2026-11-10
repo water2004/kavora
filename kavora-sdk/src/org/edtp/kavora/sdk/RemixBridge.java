@@ -339,8 +339,15 @@ public final class RemixBridge {
         try (Scratch arena = scratch()) {
             long chain = 0;
             if (water != null && !water.isEmpty()) {
+                long weather = 0;
+                if (!Float.isNaN(water.rain())) {
+                    String rainType = "SubmitInfoWaterRainEXT";
+                    MemorySegment rain = info(arena, rainType, StructType.SUBMIT_INFO_WATER_RAIN_EXT, 0);
+                    put(rain, rainType, "rain", water.rain());
+                    weather = rain.address();
+                }
                 String type = "SubmitInfoWaterSimEXT";
-                MemorySegment extension = info(arena, type, StructType.SUBMIT_INFO_WATER_SIM_EXT, 0);
+                MemorySegment extension = info(arena, type, StructType.SUBMIT_INFO_WATER_SIM_EXT, weather);
                 int count = water.count();
                 if (count != 0) {
                     var layout = RemixLayouts.layout("WaterImpulse");

@@ -49,47 +49,6 @@ RWStructuredBuffer<GpuParticle> Particles;
 [[vk::binding(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_INPUT)]]
 StructuredBuffer<float> SpawnAreas;
 
-uint findParticleArea(uint start, uint count, float target) {
-  uint end = start + count;
-  while (start < end) {
-    const uint middle = start + (end - start) / 2;
-    if (SpawnAreas[middle] <= target) {
-      start = middle + 1;
-    } else {
-      end = middle;
-    }
-  }
-  return start;
-}
-
-uint sampleParticleArea(GpuSpawnContext context, float randomValue) {
-  const uint start = context.areaDistributionOffset;
-  if (start == kInvalidParticleAreaOffset) {
-    return kInvalidParticleAreaOffset;
-  }
-  const uint blockTotals = start + context.numTriangles;
-  const uint blocks = particleAreaBlockCount(context.numTriangles);
-  const float total = SpawnAreas[blockTotals + blocks - 1];
-  if (!(total > 0.0f)) {
-    return kInvalidParticleAreaOffset;
-  }
-
-  const float target = min(randomValue * total, asfloat(asuint(total) - 1u));
-  const uint block = findParticleArea(blockTotals, blocks, target) - blockTotals;
-  if (block >= blocks) {
-    return kInvalidParticleAreaOffset;
-  }
-  const uint first = block * kParticleAreaBlockSize;
-  const uint count = min(kParticleAreaBlockSize, context.numTriangles - first);
-  const float prior = block == 0 ? 0.0f : SpawnAreas[blockTotals + block - 1];
-  const float localTotal = SpawnAreas[start + first + count - 1];
-  if (!(localTotal > 0.0f)) {
-    return kInvalidParticleAreaOffset;
-  }
-  const float localTarget = min(max(target - prior, 0.0f), asfloat(asuint(localTotal) - 1u));
-  const uint triangle = findParticleArea(start + first, count, localTarget) - start;
-  return triangle < first + count ? triangle : kInvalidParticleAreaOffset;
-}
 #endif
 
 GpuParticle rejectedSpawn(const GpuParticleSystem particleSystem, float seed) {
@@ -136,7 +95,7 @@ GpuParticle respawn(uint particleIdx, uint spawnCtxIdx, const GpuParticleSystem 
 
 #ifdef PARTICLE_AREA_SPAWN
   const float areaSample = randomFloat(uint2(randomSeed++, particleCb.frameIdx));
-  const uint triIdx = sampleParticleArea(spawnCtx, areaSample);
+  const uint triIdx = sampleParticleArea(SpawnAreas, spawnCtx.areaDistributionOffset, spawnCtx.numTriangles, areaSample);
   if (triIdx == kInvalidParticleAreaOffset) {
     return rejectedSpawn(particleSystem, areaSample);
   }

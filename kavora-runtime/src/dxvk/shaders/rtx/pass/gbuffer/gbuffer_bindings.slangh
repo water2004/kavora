@@ -35,6 +35,10 @@ SamplerState LinearWrapSampler;
 #ifdef WATER_SIM_SAMPLE
 [[vk::binding(GBUFFER_BINDING_WATER_SIMULATION)]]
 Texture2D<float4> WaterSimulation;
+[[vk::binding(GBUFFER_BINDING_WATER_WIND)]] Texture2DArray<float4> WaterWind;
+[[vk::binding(GBUFFER_BINDING_WATER_RINGS)]] Texture2D<float2> WaterRings;
+[[vk::binding(GBUFFER_BINDING_WATER_IMPACTS)]] Texture2D<float2> WaterImpacts;
+[[vk::binding(GBUFFER_BINDING_WATER_TILE_SAMPLER)]] SamplerState WaterTileSampler;
 #endif
 
 layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)

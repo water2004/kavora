@@ -23,6 +23,7 @@
 
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 #include "rtx/algorithm/render_target_motion.slangh"
+#include "rtx/algorithm/rtxdi/rtxdi_temporal_history.h"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
 #include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
 #include "rtx/utility/noise.slangh"
@@ -158,7 +159,7 @@ VirtualHitProjection projectVirtualHit(uvec2 pixelCoordinate, float virtualHitDi
   const vec2 ndc = cameraPixelCoordinateToNDC(cb.camera, pixelCoordinate);
 
   VirtualHitProjection projection;
-  projection.cameraHistory = 0;
+  projection.cameraHistory = kTemporalHistoryOrdinary;
   projection.depth = projectionSpacePosition.z / projectionSpacePosition.w;
   projection.linearViewZ = cameraWorldPosToLinearViewZ(cb.camera, virtualHitPosition);
 
@@ -748,7 +749,9 @@ void geometryResolverOutputSurfaceDynamic(
   }
   VirtualHitProjection projection = projectVirtualHit(pixelCoordinate, virtualHitDistance, virtualMotion);
   if (renderTargetPath) {
-    projection.cameraHistory = cameraHistoryValid ? (surface.isStatic ? 1 : 2) : -1;
+    projection.cameraHistory = cameraHistoryValid
+      ? (surface.isStatic ? kTemporalHistoryStaticCamera : kTemporalHistoryMovingCamera)
+      : kTemporalHistoryRejected;
     if (!cameraHistoryValid) {
       projection.screenSpaceMotion = vec2(-2.0f * float(cb.camera.resolution.x), 0.0f);
     }

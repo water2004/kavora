@@ -31,6 +31,9 @@
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/concept/surface/surface.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
+#ifdef WATER_SIM_SAMPLE
+#include "rtx/concept/surface_material/water_sludge.slangh"
+#endif
 #include "rtx/concept/volume/volume.slangh"
 #include "rtx/concept/volume_material/volume_material.slangh"
 #include "rtx/concept/ray_portal/ray_portal.slangh"
@@ -339,6 +342,15 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
 
   // Create a Surface Material and Surface Material Interaction from the Surface
 
+#ifdef WATER_SIM_SAMPLE
+  const bool floatingSludge = rayInteraction.materialType == surfaceMaterialTypeOpaque && waterSludgeApplies(surface, surfaceInteraction);
+  if (floatingSludge && waterSludgeIsOpen(surfaceInteraction.position)) {
+    rayInteraction.materialType = surfaceMaterialTypeTranslucent;
+    surface.surfaceMaterialIndex = cb.sludgeWaterMaterialIndex;
+    surface.isFullyOpaque = false;
+    surface.isAnimatedWater = true;
+  }
+#endif
   const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
   
   const uint8_t polymorphicType = rayInteraction.materialType;
@@ -422,6 +434,13 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
 
     OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
       opaqueSurfaceMaterialInteractionCreatePrepared(opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction, materialSample);
+
+#ifdef WATER_SIM_SAMPLE
+    if (floatingSludge && (cb.waterEffects & (WATER_EFFECT_RIPPLES | WATER_EFFECT_WIND))) {
+      const float2 slope = sampleWaterSimulation(surfaceInteraction.position, 0.0f, false).yz;
+      opaqueSurfaceMaterialInteraction.shadingNormal = applyWaterSlope(opaqueSurfaceMaterialInteraction.shadingNormal, slope, 1.0f);
+    }
+#endif
 
     // Blend any decal(s) that happened before this interaction
     if (decalMaterialBlending && resolveVertexState.decalEncountered)

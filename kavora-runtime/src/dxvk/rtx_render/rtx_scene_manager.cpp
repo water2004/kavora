@@ -310,6 +310,8 @@ namespace dxvk {
     m_instanceManager.clear();
     assert(m_simulatedWaterCount == 0);
     m_simulatedWaterCount = 0;
+    m_sludgeWaterMaterialIndex = SURFACE_INDEX_INVALID;
+    m_checkedSludgeScene = false;
     m_device->getCommon()->waterSimulation().addImpulses(nullptr, 0, true);
     m_cameraManager.invalidateRenderTargetHistory();
 
@@ -2452,11 +2454,20 @@ namespace dxvk {
     // Baked terrain materials are updated independently of acceleration-structure
     // scene generation, so keep their surface-material upload live.
     const bool startInMediumStateChanged = m_startInMediumMaterialIndex_inCache != m_lastUploadedStartInMediumMaterialIndexInCache;
+    const bool sceneUnchanged = m_accelManager.wasSceneUnchangedThisFrame();
+    const bool hadSludge = m_sludgeWaterMaterialIndex != SURFACE_INDEX_INVALID;
+    const auto& instances = m_accelManager.getOrderedInstances();
+    const bool sludgeEnabled = RtxWaterSimulation::sludgeEnabled();
+    const bool hasSludge = sludgeEnabled &&
+      (sceneUnchanged && m_checkedSludgeScene ? hadSludge : std::any_of(instances.begin(), instances.end(),
+        [](const RtInstance* instance) { return instance->surface.isFloatingSludge; }));
+    m_checkedSludgeScene = sludgeEnabled;
     const bool updateSurfaceMaterials =
-      !m_accelManager.wasSceneUnchangedThisFrame() ||
+      !sceneUnchanged ||
       TerrainBaker::needsTerrainBaking() ||
-      startInMediumStateChanged;
+      startInMediumStateChanged || hasSludge != hadSludge;
     if (updateSurfaceMaterials) {
+      m_sludgeWaterMaterialIndex = SURFACE_INDEX_INVALID;
       DxvkBufferCreateInfo matInfo;
       matInfo.usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
         | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
@@ -2468,12 +2479,9 @@ namespace dxvk {
       if (m_surfaceMaterialCache.getTotalCount() > 0) {
         ScopedGpuProfileZone(ctx, "updateSurfaceMaterials");
         // Note: We duplicate the materials in the buffer so we don't have to do pointer chasing on the GPU
-        size_t surfaceMaterialsGPUSize = m_accelManager.getSurfaceCount() * kSurfaceMaterialGPUSize;
         const uint32_t expectedSurfaceMaterialEntries = m_accelManager.getSurfaceCount()
-          + (m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex ? 1u : 0u);
-        if (m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex) {
-          surfaceMaterialsGPUSize += kSurfaceMaterialGPUSize;
-        }
+          + (m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex ? 1u : 0u) + uint32_t(hasSludge);
+        const size_t surfaceMaterialsGPUSize = expectedSurfaceMaterialEntries * kSurfaceMaterialGPUSize;
 
         matInfo.size = align(surfaceMaterialsGPUSize, kBufferAlignment);
         if (m_surfaceMaterialBuffer == nullptr || matInfo.size > m_surfaceMaterialBuffer->info().size) {
@@ -2508,6 +2516,15 @@ namespace dxvk {
           surfaceIndex++;
         } else {
           m_startInMediumMaterialIndex = SURFACE_INDEX_INVALID;
+        }
+
+        if (hasSludge) {
+          constexpr uint32_t invalid = kSurfaceMaterialInvalidTextureIndex;
+          const RtTranslucentSurfaceMaterial water(invalid, invalid, invalid, 1.333f, 1.8f,
+            Vector3(0.68f, 0.84f, 0.73f), false, 0.0f, Vector3(0.0f), false, 0.0f, false,
+            BINDING_INDEX_INVALID, SAMPLER_FEEDBACK_INVALID, BINDING_INDEX_INVALID, true);
+          water.writeGPUData(surfaceMaterialsGPUData.data(), dataOffset, surfaceIndex);
+          m_sludgeWaterMaterialIndex = surfaceIndex++;
         }
 
         assert(surfaceIndex == expectedSurfaceMaterialEntries);

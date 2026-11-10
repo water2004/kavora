@@ -536,7 +536,8 @@ namespace dxvk {
 
     getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
 
-    m_common->waterSimulation().prepare(this, getSceneManager().hasSimulatedWater());
+    m_common->waterSimulation().prepare(this, getSceneManager().hasSimulatedWater(),
+      getSceneManager().getSludgeWaterMaterialIndex() != SURFACE_INDEX_INVALID);
 
     // Generate ray tracing constant buffer
     updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
@@ -1643,6 +1644,10 @@ namespace dxvk {
     constants.setLogValueForDisocclusionMaskForDLSSRR = DxvkRayReconstruction::enableDisocclusionMaskBlur();
     constants.invalidateHistoryForAnimatedWater = DxvkRayReconstruction::invalidateHistoryForAnimatedWater();
     constants.waterSimulation = m_common->waterSimulation().shaderArgs();
+    constants.waterImpactClip = m_common->waterSimulation().impactArgs();
+    constants.waterEffects = m_common->waterSimulation().effects();
+    constants.waterRain = m_common->waterSimulation().rain();
+    constants.sludgeWaterMaterialIndex = getSceneManager().getSludgeWaterMaterialIndex();
 
     // The denoising normals are consumed only by NRD. dispatchDenoise reads these back rather than
     // recomputing the condition, so the GBuffer never writes a guide nothing will read.

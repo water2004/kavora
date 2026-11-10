@@ -212,6 +212,7 @@ namespace dxvk {
                   "Textures on draw calls that should be treated as particles.\n"
                   "When objects are marked as particles more approximate rendering methods are leveraged allowing for more effecient and typically better looking particle rendering.\n"
                   "Generally any billboard-like blended particle objects in the original application should be classified this way.");
+    RTX_OPTION("rtx", fast_unordered_set, sludgeTextures, {}, "Texture hashes for floating sludge surfaces.");
     RTX_OPTION("rtx", fast_unordered_set, hairCardTextures, {},
                   "Textures on draw calls that should be treated as alpha-tested hair cards.\n"
                   "Tagged materials preserve fine texture detail, render as cutouts instead of alpha blends, and disable backface culling.");

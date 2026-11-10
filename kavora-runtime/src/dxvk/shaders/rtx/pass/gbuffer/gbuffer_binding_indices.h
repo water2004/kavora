@@ -34,6 +34,10 @@
 #define GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT                        40
 #define GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT                    41
 #define GBUFFER_BINDING_WATER_SIMULATION                                       42
+#define GBUFFER_BINDING_WATER_WIND                                             43
+#define GBUFFER_BINDING_WATER_RINGS                                            44
+#define GBUFFER_BINDING_WATER_IMPACTS                                          45
+#define GBUFFER_BINDING_WATER_TILE_SAMPLER                                     46
 // Maps a pixel to its slot in the compacted GBuffer, if the pixel has one.
 #define GBUFFER_BINDING_COMPACTED_PIXEL_INDICES_INPUT                           51
 // The GBuffer seeds radiance cache update paths from this resolved query-pixel map.

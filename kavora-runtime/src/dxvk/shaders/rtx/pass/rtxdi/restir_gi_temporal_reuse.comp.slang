@@ -38,6 +38,7 @@
 #include "rtx/concept/light/light.slangh"
 #include "rtx/algorithm/resolve.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
+#include "rtx/algorithm/rtxdi/rtxdi_temporal_history.h"
 
 float getTemporalSearchRadius(RAB_Surface surface, float3 virtualMotionVector, float reprojectionDistance)
 {
@@ -195,7 +196,7 @@ void main(int2 thread_id : SV_DispatchThreadID)
   // Note: Camera jittering not used for RTXDI. Also not using Ray and rayEvaluate here due to Ray using 16 bit
   // directions currently until we have a way to differentiate that on a per-instance basis (via generics).
   const float4 motion = PrimaryVirtualMotionVector[thread_id];
-  if (cb.enableRaytracedRenderTarget && motion.w < 0.0f) {
+  if (!temporalHistoryUsable(cb.enableRaytracedRenderTarget, motion.w)) {
     RAB_StoreGIReservoir(inputReservoir, thread_id, ReSTIRGI_GetTemporalOutputPage());
     return;
   }

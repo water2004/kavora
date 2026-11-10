@@ -1,0 +1,9 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#define WATER_SIM_BINDING_PREVIOUS 0
+#define WATER_SIM_BINDING_CURRENT 1
+#define WATER_SIM_BINDING_IMPULSES 2
+#define WATER_DETAIL_BINDING_INPUT 0
+#define WATER_DETAIL_BINDING_OUTPUT 1

@@ -63,6 +63,7 @@ import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.material.FogType;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
@@ -662,6 +663,16 @@ public class KavoraRenderer {
 
             perfTimer.begin(perfTimer.perfSubmit);
             try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
+                if (org.edtp.kavora.render.KavoraWaterRipples.wantsRain()) {
+                    float rain = world.getRainLevel(tickDelta);
+                    if (rain > 0) {
+                        BlockPos position = BlockPos.containing(cameraPos);
+                        if (world.getBiome(position).value().getPrecipitationAt(position, world.getSeaLevel()) != Biome.Precipitation.RAIN) {
+                            rain = 0;
+                        }
+                    }
+                    org.edtp.kavora.render.KavoraWaterRipples.rain(rain);
+                }
                 presentation.submitScene();
             } finally {
                 perfTimer.end(perfTimer.perfSubmit);

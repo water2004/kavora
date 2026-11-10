@@ -1,0 +1,21 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/algorithm/rtxdi/rtxdi_temporal_history.h"
+
+void resampleTemporalHistory(bool usable, inout RTXDI_Reservoir reservoir, uint2 pixel, RAB_Surface surface,
+  inout RAB_RandomSamplerState rng, RTXDI_TemporalResamplingParameters parameters) {
+  int2 previousPixel = -1;
+  bool similar = false;
+  if (usable) {
+    RTXDI_TemporalResampling(reservoir, pixel, surface, rng, parameters, previousPixel, similar);
+  }
+
+  const float previous = similar ? ReprojectionConfidence[previousPixel] : 0.0f;
+  ReprojectionConfidence[pixel] = temporalHistoryConfidence(usable, previous, 1.0f / kReprojectionConfidenceHistoryLength);
+  if (cb.rtxdiGradientResourcesAllocated) {
+    const int2 position = similar ? previousPixel : int2(-1);
+    TemporalPosition[pixel] = pack32(u16vec2(position));
+  }
+}

@@ -209,6 +209,7 @@ public:
   
   uint32_t getActivePOMCount() {return m_activePOMCount;}
   bool hasSimulatedWater() const { return m_simulatedWaterCount != 0; }
+  uint32_t getSludgeWaterMaterialIndex() const { return m_sludgeWaterMaterialIndex; }
 
   float getTotalMipBias();
   float getCalculatedUpscalingMipBias();
@@ -406,6 +407,8 @@ private:
   bool m_pendingClearStartInMediumMaterial = false;
   std::optional<MaterialData> m_persistentStartInMediumMaterial;
   uint32_t m_startInMediumMaterialIndex = SURFACE_INDEX_INVALID;
+  uint32_t m_sludgeWaterMaterialIndex = SURFACE_INDEX_INVALID;
+  bool m_checkedSludgeScene = false;
   uint32_t m_fogStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
   uint32_t m_externalStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
   uint32_t m_startInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;

@@ -729,8 +729,9 @@ namespace {
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_PARTICLE_EMITTER)         { result.set(InstanceCategories::ParticleEmitter); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_SMOOTH_NORMALS)            { result.set(InstanceCategories::SmoothNormals); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_HAIR_CARDS)                { result.set(InstanceCategories::HairCards); }
+      if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE)           { result.set(InstanceCategories::FloatingSludge); }
       
-      static_assert((int)InstanceCategories::Count == 25, "Instance categories changed, please update Remix SDK");
+      static_assert((int)InstanceCategories::Count == 26, "Instance categories changed, please update Remix SDK");
       return result;
     }
 
@@ -2073,9 +2074,13 @@ namespace {
     const uint32_t flags = info ? info->interopFlags : 0;
     const auto* water = info && info->pNext
       ? static_cast<const remixapi_SubmitInfoWaterSimEXT*>(info->pNext) : nullptr;
+    const auto* weather = water && water->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT
+      ? static_cast<const remixapi_SubmitInfoWaterRainEXT*>(water->pNext) : nullptr;
     if ((info && info->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO) ||
-        (water && (water->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT || water->pNext ||
+        (water && (water->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT ||
           water->impulseCount > kWaterSimMaxImpulses || (water->impulseCount && !water->impulses) || water->reset > 1)) ||
+        (weather && (weather->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT || weather->pNext ||
+          !(weather->rain >= 0.0f && weather->rain <= 1.0f))) ||
         (flags & ~uint32_t(REMIXAPI_SUBMIT_INTEROP_BIT_FORCE_WAIT_DEVICE_IDLE |
           REMIXAPI_SUBMIT_INTEROP_BIT_DISABLE_CPU_WAIT_FOR_VK_SUBMIT))) {
       return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
@@ -2107,8 +2112,13 @@ namespace {
         impulses[i] = { vec2(impulse.position.x, zUp ? impulse.position.y : impulse.position.z),
           impulse.radius, impulse.strength };
       }
-      device->EmitCs([impulses, count = water->impulseCount, reset = water->reset != 0](dxvk::DxvkContext* ctx) {
-        ctx->getCommonObjects()->waterSimulation().addImpulses(impulses.data(), count, reset);
+      device->EmitCs([impulses, count = water->impulseCount, reset = water->reset != 0,
+          rain = weather ? weather->rain : -1.0f](dxvk::DxvkContext* ctx) {
+        auto& simulation = ctx->getCommonObjects()->waterSimulation();
+        simulation.addImpulses(impulses.data(), count, reset);
+        if (rain >= 0.0f) {
+          simulation.setRain(rain);
+        }
       });
     }
     device->EmitCs([](dxvk::DxvkContext* ctx) { replayRetainedSceneInstances(ctx); });

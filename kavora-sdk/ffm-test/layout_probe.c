@@ -513,6 +513,11 @@ printf("SubmitInfoWaterSimEXT pNext %zu\n", offsetof(remixapi_SubmitInfoWaterSim
 printf("SubmitInfoWaterSimEXT impulses %zu\n", offsetof(remixapi_SubmitInfoWaterSimEXT, impulses));
 printf("SubmitInfoWaterSimEXT impulseCount %zu\n", offsetof(remixapi_SubmitInfoWaterSimEXT, impulseCount));
 printf("SubmitInfoWaterSimEXT reset %zu\n", offsetof(remixapi_SubmitInfoWaterSimEXT, reset));
+printf("SubmitInfoWaterRainEXT sizeof %zu\n", sizeof(remixapi_SubmitInfoWaterRainEXT));
+printf("SubmitInfoWaterRainEXT alignof %zu\n", __alignof(remixapi_SubmitInfoWaterRainEXT));
+printf("SubmitInfoWaterRainEXT sType %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, sType));
+printf("SubmitInfoWaterRainEXT pNext %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, pNext));
+printf("SubmitInfoWaterRainEXT rain %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, rain));
 printf("PresentInfo sizeof %zu\n", sizeof(remixapi_PresentInfo));
 printf("PresentInfo alignof %zu\n", __alignof(remixapi_PresentInfo));
 printf("PresentInfo sType %zu\n", offsetof(remixapi_PresentInfo, sType));

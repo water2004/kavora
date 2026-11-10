@@ -5,7 +5,7 @@
 //!end-variants
 
 #include "rtx/pass/particles/particle_system_bindings.slangh"
-#include "rtx/pass/particles/particle_spawn_distribution.h"
+#include "rtx/pass/particles/particle_spawn_distribution_build.slangh"
 
 [[vk::binding(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXTS_INPUT)]]
 StructuredBuffer<GpuSpawnContext> SpawnContexts;
@@ -15,35 +15,6 @@ StructuredBuffer<uint2> AreaJobs;
 RWStructuredBuffer<float> Areas;
 [[vk::push_constant]]
 ConstantBuffer<uint4> Jobs;
-
-groupshared float areaPrefix[kParticleAreaBlockSize];
-groupshared float prefixMax[kParticleAreaBlockSize];
-
-float inclusiveAreaPrefix(float area, uint lane) {
-  const bool positiveWeight = area > 0.0f;
-  areaPrefix[lane] = area;
-  GroupMemoryBarrierWithGroupSync();
-  for (uint step = 1; step < kParticleAreaBlockSize; step *= 2) {
-    const float previous = lane >= step ? areaPrefix[lane - step] : 0.0f;
-    GroupMemoryBarrierWithGroupSync();
-    area += previous;
-    areaPrefix[lane] = area;
-    GroupMemoryBarrierWithGroupSync();
-  }
-
-  // Only positive weights may advance the CDF, even if a zero lane rounded up.
-  float repaired = positiveWeight ? area : 0.0f;
-  prefixMax[lane] = repaired;
-  GroupMemoryBarrierWithGroupSync();
-  for (uint step = 1; step < kParticleAreaBlockSize; step *= 2) {
-    const float previous = lane >= step ? prefixMax[lane - step] : 0.0f;
-    GroupMemoryBarrierWithGroupSync();
-    repaired = max(repaired, previous);
-    prefixMax[lane] = repaired;
-    GroupMemoryBarrierWithGroupSync();
-  }
-  return repaired;
-}
 
 #ifndef PARTICLE_AREA_FINISH
 float3 loadEmitterPosition(GpuSpawnContext context, uint index) {
@@ -81,18 +52,7 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
   const GpuSpawnContext context = SpawnContexts[job.x];
   const uint blockTotals = context.areaDistributionOffset + context.numTriangles;
 #ifdef PARTICLE_AREA_FINISH
-  const uint blocks = particleAreaBlockCount(context.numTriangles);
-  float previous = 0.0f;
-  for (uint base = 0; base < blocks; base += kParticleAreaBlockSize) {
-    const uint block = base + lane;
-    const float area = block < blocks ? Areas[blockTotals + block] : 0.0f;
-    const float prefix = inclusiveAreaPrefix(area, lane);
-    if (block < blocks) {
-      Areas[blockTotals + block] = previous + prefix;
-    }
-    previous += prefixMax[kParticleAreaBlockSize - 1];
-    GroupMemoryBarrierWithGroupSync();
-  }
+  finishParticleAreaBlocks(Areas, blockTotals, particleAreaBlockCount(context.numTriangles), lane);
 #else
   const uint triangle = job.y * kParticleAreaBlockSize + lane;
   const float area = triangle < context.numTriangles ? worldTriangleArea(context, triangle) : 0.0f;
