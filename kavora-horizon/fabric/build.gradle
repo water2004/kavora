@@ -48,7 +48,7 @@ sourcesJar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 jar {
-    archiveFileName.set('Kavora-horizon.jar')
+    archiveBaseName.set('Kavora-horizon')
     manifest.attributes('Implementation-Title': 'Kavora Horizon',
             'Implementation-Version': project.version,
             'Automatic-Module-Name': 'org.edtp.kavora.horizon')

@@ -453,7 +453,7 @@ tasks.register('compileNativeWin64') { dependsOn ':kavora-sdk:compileNativeWin64
 tasks.register('compileNativeArm64') { dependsOn ':kavora-sdk:compileNativeArm64' }
 
 jar {
-    archiveFileName.set('Kavora.jar')
+    archiveBaseName.set('Kavora')
     manifest.attributes('Implementation-Title': 'Kavora',
             'Implementation-Version': project.version,
             'Automatic-Module-Name': 'org.edtp.kavora')
@@ -485,10 +485,9 @@ def packageJarTask = tasks.register('packageJar', Zip) {
     if (buildArches.contains('win64')) dependsOn 'compileNativeWin64'
     if (buildArches.contains('arm64')) dependsOn 'compileNativeArm64'
 
-    archiveBaseName.set(projectArchiveName)
+    archiveBaseName.set('Kavora')
     archiveVersion.set(resolvedBuildVersion)
     archiveExtension.set('jar')
-    archiveFileName.set('Kavora.jar')
     destinationDirectory.set(layout.buildDirectory.dir('distributions'))
     duplicatesStrategy = DuplicatesStrategy.FAIL
     preserveFileTimestamps = false

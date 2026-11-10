@@ -25,12 +25,13 @@ tasks.register('release', Sync) {
     description = 'Copies the verified installable JARs to dist/.'
     dependsOn 'package', ':kavora:sourcesJar', ':kavora-sdk:sourcesJar',
             ':kavora-sdk:jar', ':kavora-horizon:fabric:sourcesJar'
-    from project(':kavora').layout.buildDirectory.file('distributions/Kavora.jar')
-    from project(':kavora-horizon:fabric').layout.buildDirectory.file('libs/Kavora-horizon.jar')
-    from({ project(':kavora').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-sources.jar' } }
-    from({ project(':kavora-sdk').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-sdk-sources.jar' } }
-    from({ project(':kavora-sdk').tasks.named('jar').get().archiveFile.get().asFile }) { rename { 'Kavora-sdk.jar' } }
-    from({ project(':kavora-horizon:fabric').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { 'Kavora-horizon-sources.jar' } }
+    def versionSuffix = "-${project.version}"
+    from({ project(':kavora').tasks.named('packageJar').get().archiveFile.get().asFile }) { rename { "Kavora${versionSuffix}.jar" } }
+    from({ project(':kavora-horizon:fabric').tasks.named('jar').get().archiveFile.get().asFile }) { rename { "Kavora-horizon${versionSuffix}.jar" } }
+    from({ project(':kavora').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { "Kavora-sources${versionSuffix}.jar" } }
+    from({ project(':kavora-sdk').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { "Kavora-sdk-sources${versionSuffix}.jar" } }
+    from({ project(':kavora-sdk').tasks.named('jar').get().archiveFile.get().asFile }) { rename { "Kavora-sdk${versionSuffix}.jar" } }
+    from({ project(':kavora-horizon:fabric').tasks.named('sourcesJar').get().archiveFile.get().asFile }) { rename { "Kavora-horizon-sources${versionSuffix}.jar" } }
     into layout.projectDirectory.dir('dist')
     doLast {
         def digests = fileTree('dist').matching { include '*.jar' }.files.sort { it.name }.collect { archive ->
