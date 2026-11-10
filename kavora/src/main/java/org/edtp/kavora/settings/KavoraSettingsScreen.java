@@ -34,7 +34,7 @@ public final class KavoraSettingsScreen extends Screen {
     private final Runnable saveSettings;
     private final ArrayDeque<Page> history = new ArrayDeque<>();
     private final List<AbstractWidget> content = new ArrayList<>();
-    private Page page = new Page(null, null);
+    private Page page;
     private ShaderMenuButton applyButton;
     private ShaderMenuButton qualityButton;
     private boolean choosingQuality;
@@ -43,11 +43,17 @@ public final class KavoraSettingsScreen extends Screen {
     private boolean scrolling;
 
     public KavoraSettingsScreen(Screen parent, KavoraSettings settings, Runnable saveSettings) {
-        super(Component.translatable("kavora.settings.title"));
+        this(parent, settings, saveSettings, null, Component.translatable("kavora.settings.title"));
+    }
+
+    KavoraSettingsScreen(Screen parent, KavoraSettings settings, Runnable saveSettings, SettingGroup initialGroup,
+                         Component title) {
+        super(title);
         this.parent = parent;
         this.settings = settings;
         this.session = new KavoraSettingsSession(settings);
         this.saveSettings = saveSettings;
+        this.page = new Page(initialGroup == null ? null : initialGroup.category(), initialGroup);
     }
 
     @Override

@@ -25,8 +25,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import net.caffeinemc.mods.sodium.client.config.ConfigManager;
+import net.caffeinemc.mods.sodium.client.config.structure.BooleanOption;
 import net.caffeinemc.mods.sodium.client.config.structure.EnumOption;
+import net.caffeinemc.mods.sodium.client.config.structure.ExternalButtonOption;
 import net.caffeinemc.mods.sodium.client.config.structure.ExternalPage;
+import net.caffeinemc.mods.sodium.client.config.structure.OptionPage;
 import net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.loader.api.FabricLoader;
@@ -127,7 +130,8 @@ final class KavoraSettingsChecks {
         context.runOnClient(client -> {
             var mod = ConfigManager.CONFIG.getModOptions().stream()
                     .filter(value -> value.configId().equals("kavora")).findFirst().orElseThrow();
-            require(mod.pages().size() == 3, "Expected Sodium rendering, performance and visual-settings pages");
+            require(mod.pages().size() == 4 && mod.pages().contains(neuralRenderingPage()),
+                    "Expected rendering, performance, DLSS 5 and visual-settings pages inside Kavora");
             require(mod.pages().getLast() instanceof ExternalPage,
                     "Visual settings were embedded into the Sodium performance pages");
             require(ConfigManager.CONFIG.getOption(id("video.preset")) == null
@@ -138,6 +142,10 @@ final class KavoraSettingsChecks {
             require(dlss().isEnabled() && reconstruction().isEnabled(), "Display reconstruction controls are unavailable");
         });
         var sodiumScreen = context.computeOnClient(client -> client.gui.screen());
+        if (Boolean.getBoolean("kavora.gametest.neuralRenderingOnly")) {
+            checkNeuralRendering(context, (VideoSettingsScreen) sodiumScreen);
+            return;
+        }
         context.waitTicks(10);
         KavoraWorldGameTest.captureCompletedFrame(context, "settings");
         context.runOnClient(client -> {
@@ -218,6 +226,101 @@ final class KavoraSettingsChecks {
             });
             context.waitTicks(5);
         }
+    }
+
+    private static OptionPage neuralRenderingPage() {
+        String label = Component.translatable("kavora.video.neuralRendering.title").getString();
+        return ConfigManager.CONFIG.getModOptions().stream().filter(mod -> mod.configId().equals("kavora"))
+                .flatMap(mod -> mod.pages().stream()).filter(OptionPage.class::isInstance).map(OptionPage.class::cast)
+                .filter(page -> page.name().getString().equals(label)).findFirst().orElseThrow();
+    }
+
+    private static void checkNeuralRendering(ClientGameTestContext context, VideoSettingsScreen sodium) {
+        String enableKey = "rtx.dlssNeuralRendering.enable";
+        String modelKey = "rtx.dlssNeuralRendering.model";
+        String intensityKey = "rtx.dlssNeuralRendering.intensity";
+        Path file = FabricLoader.getInstance().getConfigDir().resolve("kavora-video.json");
+        byte[] originalFile = readSettingsFile(file);
+        var toggle = (BooleanOption) ConfigManager.CONFIG.getOption(id("video.neural_rendering"));
+        var details = (ExternalButtonOption) ConfigManager.CONFIG.getOption(id("video.neural_rendering_settings"));
+        var page = neuralRenderingPage();
+        require(page.groups().stream().flatMap(group -> group.options().stream()).toList().equals(List.of(toggle, details)),
+                "DLSS 5 page must contain just the toggle and the settings entry");
+        context.waitFor(client -> KavoraMod.renderer.getRemixApi().getDlssNeuralRenderingStatus() >= 0, 200);
+        int support = context.computeOnClient(client -> {
+            sodium.jumpToPage(page);
+            return KavoraMod.renderer.getRemixApi().getDlssNeuralRenderingStatus();
+        });
+        context.waitTicks(10);
+        KavoraWorldGameTest.captureCompletedFrame(context, "settings-dlss5-tab");
+        context.runOnClient(client -> require(toggle.isEnabled() == (support == 1) && details.isEnabled() == (support == 1),
+                "DLSS 5 controls did not match NGX availability: " + support));
+        if (support != 1) {
+            context.runOnClient(client -> {
+                details.getCurrentScreenConsumer().accept(sodium);
+                require(client.gui.screen() == sodium, "Unavailable DLSS 5 settings opened");
+                org.slf4j.LoggerFactory.getLogger(KavoraSettingsChecks.class).info("DLSS 5 unavailable on this test device");
+            });
+            return;
+        }
+        String originalEnable = context.computeOnClient(client -> read(enableKey));
+        int originalModel = context.computeOnClient(client -> Integer.parseInt(read(modelKey)));
+        String originalIntensity = context.computeOnClient(client -> read(intensityKey));
+        String expectedIntensity = Float.parseFloat(originalIntensity) > 0.5f ? "0.35" : "0.85";
+        var originalQuality = context.computeOnClient(client -> KavoraMod.getRtxSettings().quality());
+        String expectedModel = Integer.toString((originalModel + 1) % 3);
+        try {
+            context.runOnClient(client -> {
+                details.getCurrentScreenConsumer().accept(sodium);
+                require(client.gui.screen() instanceof KavoraSettingsScreen, "DLSS 5 did not open the Iris-style settings");
+                require(findWidget(client.gui.screen(), Component.translatable("kavora.settings.effects").getString()) == null,
+                        "DLSS 5 opened the general visual settings");
+                press(client.gui.screen(), "kavora.video.neuralRendering.model");
+                press(client.gui.screen(), "gui.cancel");
+                require(client.gui.screen() == sodium && read(modelKey).equals(Integer.toString(originalModel)),
+                        "Cancel committed the DLSS 5 model or lost the parent tab");
+                details.getCurrentScreenConsumer().accept(sodium);
+                press(client.gui.screen(), "kavora.video.neuralRendering.model");
+                var intensity = findWidget(client.gui.screen(),
+                        Component.translatable("kavora.video.neuralRendering.intensity").getString());
+                require(intensity != null && intensity.visible, "Missing DLSS 5 strength slider");
+                editNumber(intensity, "neuralRendering.intensity", expectedIntensity);
+                press(client.gui.screen(), "kavora.settings.apply");
+            });
+            context.waitFor(client -> read(modelKey).equals(expectedModel)
+                    && Float.parseFloat(read(intensityKey)) == Float.parseFloat(expectedIntensity), 200);
+            KavoraWorldGameTest.captureCompletedFrame(context, "settings-dlss5-controls");
+            context.runOnClient(client -> {
+                require(KavoraMod.getRtxSettings().quality().equals(originalQuality), "DLSS 5 changed the quality preset");
+                press(client.gui.screen(), "gui.done");
+                toggle.modifyValue(true);
+                ConfigManager.CONFIG.applyAllOptions();
+                client.gui.setScreen(null);
+            });
+            context.waitFor(client -> Boolean.parseBoolean(read(enableKey)), 200);
+            long presented = context.computeOnClient(client -> KavoraFrameProbe.presents);
+            context.waitFor(client -> KavoraFrameProbe.presents >= presented + 16, 400);
+            context.runOnClient(client -> {
+                require(Boolean.parseBoolean(read(enableKey)), "DLSS 5 disabled itself after activation");
+                JsonObject saved = JsonParser.parseString(new String(readSettingsFile(file), java.nio.charset.StandardCharsets.UTF_8))
+                        .getAsJsonObject();
+                require(saved.get(enableKey).getAsBoolean() && saved.get(modelKey).getAsString().equals(expectedModel)
+                                && saved.get(intensityKey).getAsString().equals(expectedIntensity),
+                        "DLSS 5 preferences were not persisted");
+            });
+            KavoraWorldGameTest.captureCompletedFrame(context, "dlss5-enabled");
+        } finally {
+            context.runOnClient(client -> {
+                restoreSettingsFile(file, originalFile);
+                KavoraVideoSettings.load();
+                var api = KavoraMod.renderer.getRemixApi();
+                api.setConfigVariable(enableKey, originalEnable);
+                api.setConfigVariable(modelKey, Integer.toString(originalModel));
+                api.setConfigVariable(intensityKey, originalIntensity);
+                client.gui.setScreen(null);
+            });
+        }
+        context.waitFor(client -> read(enableKey).equalsIgnoreCase(originalEnable), 200);
     }
 
     private static void writeQualitySnapshot(ClientGameTestContext context) {
@@ -327,8 +430,12 @@ final class KavoraSettingsChecks {
     }
 
     private static void editNumber(String id, String value) {
+        var screen = net.minecraft.client.Minecraft.getInstance().gui.screen();
+        editNumber(revealOption(screen, id), id, value);
+    }
+
+    private static void editNumber(AbstractWidget widget, String id, String value) {
         var client = net.minecraft.client.Minecraft.getInstance();
-        var widget = revealOption(client.gui.screen(), id);
         widget.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_RETURN, 0, 0));
         var input = client.gui.screen().children().stream().filter(child -> child instanceof net.minecraft.client.gui.components.EditBox)
                 .map(child -> (net.minecraft.client.gui.components.EditBox) child).findFirst()

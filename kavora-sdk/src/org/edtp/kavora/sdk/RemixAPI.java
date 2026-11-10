@@ -1033,6 +1033,12 @@ public class RemixAPI {
         return RemixBridge.getNeuralRadianceCacheTrainingRecords();
     }
 
+    /** Returns -1 while NGX initializes, 0 if unavailable, or 1 if supported. */
+    public int getDlssNeuralRenderingStatus() {
+        checkInitialized();
+        return RemixBridge.getDlssNeuralRenderingStatus();
+    }
+
     /** Queries NGX after Vulkan interop initialization; does not enable or allocate frame generation. */
     public void getFrameGenerationCapabilities(FrameGenerationCapabilities output) {
         checkInitialized();

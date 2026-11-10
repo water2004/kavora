@@ -12,7 +12,8 @@ enum SettingCategory {
     MATERIALS("kavora.settings.category.materials"),
     SKY("kavora.settings.category.sky"),
     WEATHER("kavora.settings.category.weather"),
-    IMAGE("kavora.settings.category.image");
+    IMAGE("kavora.settings.category.image"),
+    NEURAL_RENDERING("kavora.video.neuralRendering.title");
 
     private final String labelKey;
 

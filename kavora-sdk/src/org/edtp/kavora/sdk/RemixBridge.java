@@ -205,6 +205,8 @@ public final class RemixBridge {
             if (result != ErrorCode.SUCCESS) { arena.close(); runtime = null; return result; }
             bindTable(table);
             functions.put("GetNrcStatus", bind(runtime, "remixinternal_GetNrcStatus", descriptor(ADDRESS)));
+            runtime.find("remixinternal_GetDlssNeuralRenderingStatus").ifPresent(address ->
+                    functions.put("GetDlssNeuralRenderingStatus", LINKER.downcallHandle(address, descriptor())));
             sessionArena = arena;
             return ErrorCode.SUCCESS;
         } catch (Throwable e) {
@@ -574,6 +576,13 @@ public final class RemixBridge {
             if (status < 0) throw new IllegalStateException("No Remix device registered");
             return status == 0 ? -1 : Integer.toUnsignedLong(records.get(JAVA_INT, 0));
         }
+    }
+
+    public static int getDlssNeuralRenderingStatus() {
+        MethodHandle query = functions.get("GetDlssNeuralRenderingStatus");
+        if (query == null) return 0;
+        try { return (int) query.invokeExact(); }
+        catch (Throwable e) { throw failure(e); }
     }
 
     public static int getConfigVariableResolved(String key, byte[] outValue) {

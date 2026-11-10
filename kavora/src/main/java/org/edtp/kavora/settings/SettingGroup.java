@@ -32,7 +32,8 @@ public enum SettingGroup {
     TONEMAPPING(SettingCategory.IMAGE, "kavora.settings.group.tonemapping"),
     BLOOM(SettingCategory.IMAGE, "kavora.settings.group.bloom"),
     COLOR_GRADING(SettingCategory.IMAGE, "kavora.settings.group.colorGrading"),
-    EYE_ADAPTATION(SettingCategory.IMAGE, "kavora.settings.group.eyeAdaptation");
+    EYE_ADAPTATION(SettingCategory.IMAGE, "kavora.settings.group.eyeAdaptation"),
+    NEURAL_RENDERING(SettingCategory.NEURAL_RENDERING, "kavora.video.neuralRendering.settings");
 
     private final SettingCategory category;
     private final String labelKey;

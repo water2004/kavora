@@ -93,6 +93,19 @@ public final class KavoraSodiumConfig implements ConfigEntryPoint {
             }
             mod.addPage(page);
         }
+        mod.addPage(builder.createOptionPage().setName(text("neuralRendering.title"))
+                .addOption(builder.createBooleanOption(id("video.neural_rendering"))
+                        .setName(text("neuralRendering.enabled"))
+                        .setTooltip(value -> KavoraNeuralRenderingSettings.tooltip())
+                        .setDefaultValue(false)
+                        .setBinding(value -> KavoraVideoSettings.stage(KavoraNeuralRenderingSettings.ENABLED, value.toString()),
+                                KavoraNeuralRenderingSettings::enabled)
+                        .setStorageHandler(VIDEO_STORAGE)
+                        .setEnabledProvider(state -> KavoraNeuralRenderingSettings.supported(), ConfigState.UPDATE_ON_REBUILD))
+                .addOption(builder.createExternalButtonOption(id("video.neural_rendering_settings"))
+                        .setName(text("neuralRendering.settings")).setTooltip(text("neuralRendering.settings.tip"))
+                        .setScreenConsumer(KavoraNeuralRenderingSettings::open)
+                        .setEnabledProvider(state -> KavoraNeuralRenderingSettings.supported(), ConfigState.UPDATE_ON_REBUILD)));
         mod.addPage(builder.createExternalPage().setName(text("details"))
                 .setScreenConsumer(KavoraSodiumConfig::openEffects));
     }

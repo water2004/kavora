@@ -134,7 +134,8 @@ final class KavoraOptionFactory {
 
     static Component intValueText(String settingId, int value) {
         if (settingId.equals("clouds.transport") || settingId.equals("fog.integration") || settingId.equals("materials.pom")
-                || settingId.equals("lighting.indirect") || settingId.equals("cache.filter")) {
+                || settingId.equals("lighting.indirect") || settingId.equals("cache.filter")
+                || settingId.equals(KavoraNeuralRenderingSettings.MODEL)) {
             return Component.translatable("kavora.settings.value." + settingId + "." + value);
         }
         if (settingId.equals("image.tonemapper")) {

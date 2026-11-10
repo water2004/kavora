@@ -14,7 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +28,9 @@ public final class KavoraVideoSettings {
     public static final String RECONSTRUCTION = "rtx.enableRayReconstruction";
     public static final String FRAME_GENERATION = "frameGenerationMultiplier";
     private static final String ENABLED = "enabled";
+    private static final List<String> SAVED_KEYS = Stream.concat(
+            Stream.of(UPSCALER, DLSS, RECONSTRUCTION, FRAME_GENERATION, ENABLED, KavoraNeuralRenderingSettings.ENABLED),
+            KavoraNeuralRenderingSettings.ADVANCED.stream().map(KavoraNeuralRenderingSettings.Control::key)).toList();
     private static final Logger LOGGER = LoggerFactory.getLogger(KavoraVideoSettings.class);
     private static final Map<String, String> saved = new LinkedHashMap<>();
     private static final Map<String, String> pending = new LinkedHashMap<>();
@@ -50,7 +55,7 @@ public final class KavoraVideoSettings {
         if (!Files.isRegularFile(file())) return;
         try (var reader = Files.newBufferedReader(file())) {
             JsonObject values = JsonParser.parseReader(reader).getAsJsonObject();
-            for (String key : new String[] { UPSCALER, DLSS, RECONSTRUCTION, FRAME_GENERATION, ENABLED }) {
+            for (String key : SAVED_KEYS) {
                 if (!values.has(key)) continue;
                 String value = values.get(key).getAsString();
                 if (valid(key, value)) saved.put(key, value);
@@ -68,8 +73,10 @@ public final class KavoraVideoSettings {
                 case UPSCALER -> value.equals("0") || value.equals("1");
                 case DLSS -> Integer.parseInt(value) >= 0 && Integer.parseInt(value) <= 5;
                 case FRAME_GENERATION -> Integer.parseInt(value) >= 1 && Integer.parseInt(value) <= 7;
-                case RECONSTRUCTION, ENABLED -> value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false");
-                default -> false;
+                case RECONSTRUCTION, ENABLED, KavoraNeuralRenderingSettings.ENABLED ->
+                        value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false");
+                default -> KavoraNeuralRenderingSettings.ADVANCED.stream()
+                        .anyMatch(control -> control.key().equals(key) && control.valid(value));
             };
         } catch (NumberFormatException e) {
             return false;
@@ -91,6 +98,18 @@ public final class KavoraVideoSettings {
 
     static boolean reconstruction() {
         return available() && Boolean.parseBoolean(api().getConfigVariableResolved(RECONSTRUCTION));
+    }
+
+    static String neuralOptionValue(KavoraNeuralRenderingSettings.Control control) {
+        String override = saved.get(control.key());
+        if (override != null) return override;
+        String nativeValue = api().getConfigVariableResolved(control.key());
+        try {
+            if (control.valid(nativeValue)) return nativeValue;
+        } catch (NumberFormatException ignored) {
+            LOGGER.warn("Invalid runtime value for {}: {}", control.key(), nativeValue);
+        }
+        return control.defaultValue().toString();
     }
 
     static org.edtp.kavora.sdk.FrameGenerationCapabilities frameGenerationCapabilities() {
@@ -151,6 +170,14 @@ public final class KavoraVideoSettings {
             int multiplier = Integer.parseInt(values.get(FRAME_GENERATION));
             api().setConfigVariable("rtx.dlfg.maxInterpolatedFrames", Integer.toString(Math.max(1, multiplier - 1)));
             api().setConfigVariable("rtx.dlfg.enable", Boolean.toString(multiplier > 1));
+        }
+        if (values.keySet().stream().anyMatch(key -> key.startsWith(KavoraNeuralRenderingSettings.PREFIX))
+                && KavoraNeuralRenderingSettings.status() != 0) {
+            for (var control : KavoraNeuralRenderingSettings.ADVANCED) {
+                if (values.containsKey(control.key())) api().setConfigVariable(control.key(), values.get(control.key()));
+            }
+            String enable = values.get(KavoraNeuralRenderingSettings.ENABLED);
+            if (enable != null) api().setConfigVariable(KavoraNeuralRenderingSettings.ENABLED, enable);
         }
         if (values.containsKey(ENABLED)) KavoraMod.setRtxEnabled(Boolean.parseBoolean(values.get(ENABLED)));
     }
