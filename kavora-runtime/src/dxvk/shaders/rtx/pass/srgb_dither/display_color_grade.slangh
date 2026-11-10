@@ -13,3 +13,15 @@ float3 gradeDisplayColor(float3 color, float3 balance, float contrast, float sat
   color = saturate(contrast * (color - 0.18f) + 0.18f);
   return lerp(calcBt709Luminance(color).xxx, color, saturation);
 }
+
+#ifdef DISPLAY_COLOR_INVERSION
+// The inversion works in display values even when the caller exports a linear image.
+[ForceInline]
+float3 invertDisplayColor(float3 linearColor, float amount, uint mode, float threshold)
+{
+  const float3 display = linearToGamma(saturate(linearColor));
+  const float3 negative = 1.0f - display;
+  const bool showNegative = mode == 0 || dot(display, float3(1.0f / 3.0f)) < threshold;
+  return lerp(display, showNegative ? negative : float3(0.0f), amount);
+}
+#endif

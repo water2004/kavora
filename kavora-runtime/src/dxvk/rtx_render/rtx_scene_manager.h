@@ -376,7 +376,6 @@ private:
   MaterialData determineMaterialData(const MaterialData* overrideMaterialData, const DrawCallState& input);
   
   const uint32_t kInvalidMaterialCacheIndex = UINT32_MAX;
-  uint32_t m_beginUsdExportFrameNum = -1;
   bool m_enqueueDelayedClear = false;
   bool m_previousFrameSceneAvailable = false;
 
@@ -417,6 +416,9 @@ private:
   Rc<DxvkBuffer> m_surfaceMaterialBuffer;
   Rc<DxvkBuffer> m_surfaceMaterialExtensionBuffer;
   Rc<DxvkBuffer> m_volumeMaterialBuffer;
+
+  // Material uploads copy the input into command storage before the scratch range is reused.
+  std::vector<unsigned char> m_materialUploadScratch;
 
   uint32_t m_activePOMCount = 0;
   

@@ -70,6 +70,10 @@ exe = executable('test_pending_slot_queues',  files('test_pending_slot_queues.cp
 test('test_pending_slot_queues', exe, env: test_env)
 tests += exe
 
+exe = executable('test_capture_termination_guard',  files('test_capture_termination_guard.cpp'), include_directories : test_include_path, dependencies : test_unit_deps, win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
+test('test_capture_termination_guard', exe, env: test_env)
+tests += exe
+
 exe = executable('test_bindless_buffer_mirror',  files('test_bindless_buffer_mirror.cpp'), include_directories : test_include_path, dependencies : test_unit_deps, win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
 test('test_bindless_buffer_mirror', exe, env: test_env)
 tests += exe
@@ -92,6 +96,10 @@ tests += exe
 
 exe = executable('test_particle_system_schema', files('test_particle_system_schema.cpp'), dependencies : usd_dep, win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
 test('test_particle_system_schema', exe, env: test_env, args: remix_particle_system_plugin.full_path(), depends: remix_particle_system_plugin)
+tests += exe
+
+exe = executable('test_particle_drag', files('test_particle_drag.cpp'), include_directories : test_include_path, win_subsystem : 'console', override_options: ['cpp_std='+dxvk_cpp_std])
+test('test_particle_drag', exe, env: test_env)
 tests += exe
 
 exe = executable('test_graph_usd_parser',  files('graph/test_component.h', 'graph/test_flexible_component.h', 'graph/test_flexible_component.cpp', 'test_graph_usd_parser.cpp'),

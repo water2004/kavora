@@ -244,5 +244,8 @@ struct ParticleSystemConstants {
   float resolveTransparencyThreshold;
   float minParticleSize;
   float sceneScale;
-  uint pad1;
+  float dragVelocityScale;
+  float dragVelocityIntegral;
+  float dragAccelerationIntegral;
+  uvec2 dragPadding;
 };

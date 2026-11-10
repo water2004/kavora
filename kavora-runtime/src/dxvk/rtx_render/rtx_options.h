@@ -458,6 +458,7 @@ namespace dxvk {
     RTX_OPTION_FLAG("rtx", bool, minimizeBlasMerging, false, RtxOptionFlags::NoSave, "Minimize BLAS merging to the minimum possible, this option tries to give all meshes their own BLAS.  This is generally not desirable forperformance, but can be a useful debugging tool.");
 
     RTX_OPTION_ENV("rtx", bool, enableAlwaysCalculateAABB, false, "RTX_ALWAYS_CALCULATE_AABB", "Calculate an Axis Aligned Bounding Box for every draw call.\n This may improve instance tracking across frames for skinned and vertex shaded calls.");
+    RTX_OPTION("rtx", bool, assumeWorldSpaceSkinnedBones, false, "Treat skinned draw calls as having WORLD-SPACE bone matrices (world placement baked into the bones), as produced by a fixed-function indexed-blend skinning path. When enabled: (1) objectToWorld for skinned draws collapses to identity instead of being reconstructed from the last-set camera, and (2) the draw-call cache pairs same-mesh instances across frames by a representative bone's world position instead of the bind-pose centroid (which is identical for every instance under identity objectToWorld, so the default tiebreaker cannot disambiguate a crowd of same-type meshes). Leave off for games that upload object-space bones.");
 
     // Camera
     struct FreeCam{
@@ -1295,20 +1296,28 @@ namespace dxvk {
                       "Enable shader code for eye drawing (eyeball normals, iris blending).");
       RTX_OPTION("rtx.eye", bool, assumeViewTexgenModeAsEye, true,
                  "Used to detect eyes and its vectors, by assuming that a draw call with D3DTSS_TCI_CAMERASPACEPOSITION and specific texture transform is an eye draw call.");
-      RTX_OPTION("rtx.eye", float, eyeballSphereOffset, 0.18F,
+      RTX_OPTION("rtx.eye", float, eyeballSphereOffset, 0.5F,
                  "Radius of the sphere used to calculate eye normals on the whites, in world units. "
                  "The larger the value, the more pronounced the ambient shadowing is on an eyeball, to better ground the eyes on a face.");
-      RTX_OPTION("rtx.eye", float, corneaSphereOffset, 0.1F,
+      RTX_OPTION("rtx.eye", float, corneaSphereOffset, 0.4F,
                  "Radius of the sphere used to calculate eye normals on the cornea, in world units. "
                  "Larger values make the eye cornea appear more spherical.");
       RTX_OPTION("rtx.eye", float, eyeWhitesAlbedoScale, 0.5F, "Brightness multiplier for the eye whites.");
+      RTX_OPTION_ARGS("rtx.eye", float, roughness, 0.F,
+                      "Perceptual roughness of the eye surface; 0 is a mirror that reflects the scene but not analytic lights.",
+                      args.minValue = 0.F, args.maxValue = 1.F);
       RTX_OPTION("rtx.eye", float, irisRadius, 0.165F,
                  "Size of an iris in the iris texture. "
                  "If the iris texture is sampled outside of this radius, it's assumed that that area is a transition to the eye whites, "
                  "so iris depth gradually goes to 0.");
-      RTX_OPTION("rtx.eye", float, irisDepth, 0.06F,
-                 "How deep should the iris (colored part of an eye) be placed behind the cornea (eye lens). "
-                 "The larger the value the more distortion there is, because of the lens.");
+      RTX_OPTION_ARGS("rtx.eye", float, irisDepthScale, 1.F,
+                      "Scale of the iris' depth under the cornea, relative to a real eye's (3.78 mm under the cornea's apex). "
+                      "Larger values make the iris shift more with the view; 0 puts it at the cornea's apex.",
+                      args.minValue = 0.F);
+      RTX_OPTION_ARGS("rtx.eye", float, limbalRingScale, 1.F,
+                      "Strength of the limbal ring, the darker edge of the iris, which darkens and widens when an eye is seen at an angle. "
+                      "0 disables it.",
+                      args.minValue = 0.F, args.maxValue = 1.F);
     };
 
     // Automation Options

@@ -740,6 +740,11 @@ struct DrawCallState {
     return skinningData;
   }
 
+  // Refreshes cached bone matrices only. Geometry, material and hash fields must stay stable for pairing.
+  SkinningData& getSkinningStateMutable() {
+    return skinningData;
+  }
+
   const FogState& getFogState() const {
     return fogState;
   }
@@ -783,6 +788,9 @@ struct DrawCallState {
   bool zEnable = false;
 
   uint32_t drawCallID = 0;
+
+  // Set for draws submitted through the Remix API rather than by the game.
+  bool isExternalDraw = false;
 
   bool isDrawingToRaytracedRenderTarget = false;
   bool isUsingRaytracedRenderTarget = false;

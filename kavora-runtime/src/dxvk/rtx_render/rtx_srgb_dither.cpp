@@ -19,7 +19,10 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+#include <algorithm>
+
 #include "rtx_srgb_dither.h"
+#include "rtx_postFx.h"
 #include "rtx_tone_mapping.h"
 #include "rtx_context.h"
 #include "dxvk_device.h"
@@ -31,6 +34,7 @@
 #include "rtx_imgui.h"
 
 #include <rtx_shaders/srgb_dither.h>
+#include <rtx_shaders/srgb_dither_inversion.h>
 
 namespace dxvk {
   namespace {
@@ -45,6 +49,17 @@ namespace dxvk {
       END_PARAMETER()
     };
     PREWARM_SHADER_PIPELINE(SRGBDitherShader);
+
+    class SRGBDitherInversionShader : public ManagedShader {
+      SHADER_SOURCE(SRGBDitherInversionShader, VK_SHADER_STAGE_COMPUTE_BIT, srgb_dither_inversion)
+
+      PUSH_CONSTANTS(SRGBDitherArgs)
+
+      BEGIN_PARAMETER()
+        TEXTURE2DARRAY(SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT)
+        RW_TEXTURE2D(SRGB_DITHER_COLOR_INPUT_OUTPUT)
+      END_PARAMETER()
+    };
   }
 
   DxvkSRGBDither::DxvkSRGBDither(DxvkDevice* device)
@@ -83,7 +98,15 @@ namespace dxvk {
     ctx->bindResourceView(SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT, ctx->getResourceManager().getBlueNoiseTexture(ctx), nullptr);
     ctx->bindResourceView(SRGB_DITHER_COLOR_INPUT_OUTPUT, inoutColorBuffer.view, nullptr);
 
-    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, SRGBDitherShader::getShader());
+    const float inversion = DxvkPostFx::inversionAmount();
+    if (inversion > 0.0f) {
+      pushArgs.inversionAmount = std::min(inversion, 1.0f);
+      pushArgs.inversionMode = static_cast<uint32_t>(DxvkPostFx::inversionMode());
+      pushArgs.inversionThreshold = DxvkPostFx::inversionThreshold();
+      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, SRGBDitherInversionShader::getShader());
+    } else {
+      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, SRGBDitherShader::getShader());
+    }
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
     ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
   }

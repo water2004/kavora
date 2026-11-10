@@ -323,9 +323,11 @@ namespace dxvk {
       return m_exporter.get();
     }
 
-    Rc<GameCapturer> capturer() {
+    // NV-DXVK start: The frame context borrows the device-owned capture service.
+    const Rc<GameCapturer>& capturer() const {
       return m_capturer;
     }
+    // NV-DXVK end
 
     RtxDustParticles& metaDustParticles() {
       return m_dustParticles.get(m_device);

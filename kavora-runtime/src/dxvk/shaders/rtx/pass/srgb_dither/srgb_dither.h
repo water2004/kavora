@@ -36,7 +36,7 @@ struct SRGBDitherArgs {
   float contrast;
 
   float saturation;
-  uint pad0;
-  uint pad1;
-  uint pad2;
+  float inversionAmount;
+  uint inversionMode;
+  float inversionThreshold;
 };

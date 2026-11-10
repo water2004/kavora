@@ -606,8 +606,12 @@ namespace dxvk {
 
     if (captureScreenImage && captureDebugImage) {
       takeScreenshot("baseReflectivity", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
-      takeScreenshot("sharedSubsurfaceData", rtOutput.m_sharedSubsurfaceData.image);
-      takeScreenshot("sharedSubsurfaceDiffusionProfileData", rtOutput.m_sharedSubsurfaceDiffusionProfileData.image);
+      if (rtOutput.m_sharedSubsurfaceData.isValid()) {
+        takeScreenshot("sharedSubsurfaceData", rtOutput.m_sharedSubsurfaceData.image);
+      }
+      if (rtOutput.m_sharedSubsurfaceDiffusionProfileData.isValid()) {
+        takeScreenshot("sharedSubsurfaceDiffusionProfileData", rtOutput.m_sharedSubsurfaceDiffusionProfileData.image);
+      }
       takeScreenshot("sharedMaterialData1", rtOutput.m_sharedMaterialData1.image);
       takeScreenshot("sharedFlags", rtOutput.m_sharedFlags.image);
       if (!rtOutput.m_sharedFlagsDense.empty()) {
@@ -811,10 +815,14 @@ namespace dxvk {
 
     m_device->setPresentThrottleDelay(computedPresentThrottleDelay);
 
+    GameCapturer& capturer = *common->capturer();
+    capturer.triggerScheduledCapture(m_device->getCurrentFrameId());
+
     // Early out if ray tracing is not supported or if Remix has already been injected
 
     if (!m_rayTracingSupported) {
       ONCE(Logger::info(str::format("[RTX-Compatibility-Info] Raytracing doesn't appear to be supported on this HW.")));
+      capturer.reportPendingCaptureBlocked("ray tracing is not supported on this hardware");
       return;
     }
 
@@ -894,11 +902,6 @@ namespace dxvk {
       const bool captureScreenImage = captureRequested || s_triggerScreenshot || (captureTestScreenshot && !s_capturePrePresentTestScreenshot);
       const bool captureDebugImage = RtxOptions::captureDebugImage();
       
-      if (s_triggerUsdCapture) {
-        s_triggerUsdCapture = false;
-        m_common->capturer()->triggerNewCapture();
-      }
-
       if (captureTestScreenshot) {
         Logger::info(str::format("RTX: Test screenshot capture triggered"));
         Logger::info(str::format("RTX: Use separate denoiser ", RtxOptions::denoiseDirectAndIndirectLightingSeparately()));
@@ -954,6 +957,14 @@ namespace dxvk {
       // graph state to be reset - which is problematic since Logic graphs often trigger shader fetches.
       // It might be safe to remove this clear entirely - it was added before we had any garbage collection
       // in the scene manager, so it may not be needed anymore.
+      if (!isRaytracingEnabled) {
+        capturer.reportPendingCaptureBlocked("ray tracing is disabled");
+      } else if (!isCameraValid) {
+        capturer.reportPendingCaptureBlocked("no valid camera is detected");
+      } else {
+        capturer.reportPendingCaptureBlocked("shaders are still compiling");
+      }
+
       if (!isRaytracingEnabled || !isCameraValid) {
         m_framesWithoutValidScene++;
         // Some games may have invalid cameras for a brief period during camera cuts, but clearing the scene
@@ -1033,15 +1044,21 @@ namespace dxvk {
     }
     s_triggerScreenshot = false;
 
-    // Some time in the future kill process
-    if (m_triggerDelayedTerminate &&
-        (m_device->getCurrentFrameId() > m_terminateAppFrameNum) &&
-        m_common->capturer()->isIdle()) {
-      Logger::info(str::format("RTX: Terminating application"));
-      Metrics::serialize();
-      getCommonObjects()->metaExporter().waitForAllExportsToComplete();
-
-      env::killProcess();
+    if (m_triggerDelayedTerminate && m_device->getCurrentFrameId() > m_terminateAppFrameNum) {
+      GameCapturer& capturer = *m_common->capturer();
+      const float timeoutSeconds = GameCapturer::pendingRequestTerminateTimeoutSeconds();
+      const auto timeout = std::chrono::duration_cast<CaptureTerminationGuard::Clock::duration>(std::chrono::duration<float>(timeoutSeconds));
+      const auto action = m_captureTerminationGuard.update(!capturer.isIdle(), capturer.hasPendingCapture(),
+        CaptureTerminationGuard::Clock::now(), timeout);
+      if (action == CaptureTerminationGuard::Action::CancelPendingRequest) {
+        capturer.cancelPendingCapture(str::format("DXVK_TERMINATE_APP_FRAME waited ", timeoutSeconds, " seconds for it to start"));
+      }
+      if (action != CaptureTerminationGuard::Action::Wait) {
+        Logger::info(str::format("RTX: Terminating application"));
+        Metrics::serialize();
+        getCommonObjects()->metaExporter().waitForAllExportsToComplete();
+        env::killProcess();
+      }
     }
 
     // This needs to happen at the end of frame, after ImGUI rendering
@@ -1654,7 +1671,9 @@ namespace dxvk {
     constants.eyeArgs.normalBendingCornea = RtxOptions::Eye::corneaSphereOffset();
     constants.eyeArgs.whitesAlbedoScale = RtxOptions::Eye::eyeWhitesAlbedoScale();
     constants.eyeArgs.irisRadius = RtxOptions::Eye::irisRadius();
-    constants.eyeArgs.irisDepth = RtxOptions::Eye::irisDepth();
+    constants.eyeArgs.irisDepthScale = RtxOptions::Eye::irisDepthScale();
+    constants.eyeArgs.limbalRingScale = RtxOptions::Eye::limbalRingScale();
+    constants.eyeArgs.roughness = RtxOptions::Eye::roughness();
     const auto& eyeShadingToWorld = getSceneManager().getInstanceManager().getEyeShadingToWorld();
     const auto& eyeWorldToShading = getSceneManager().getInstanceManager().getEyeWorldToShading();
 

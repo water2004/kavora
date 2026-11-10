@@ -19,6 +19,8 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+#include <algorithm>
+
 #include "d3d9_swapchain.h"
 #include "d3d9_surface.h"
 #include "d3d9_monitor.h"
@@ -42,6 +44,10 @@ namespace dxvk {
         D3DPRESENT_PARAMETERS* pPresentParams,
   const D3DDISPLAYMODEEX* pFullscreenDisplayMode)
     : D3D9SwapChainEx(pDevice, pPresentParams, pFullscreenDisplayMode) {
+    constexpr uint32_t kDescriptorFrameLatency = D3D9DeviceEx::MaxFrameLatency - 1;
+    m_frameLatencyCap = m_frameLatencyCap
+      ? std::min(m_frameLatencyCap, kDescriptorFrameLatency)
+      : kDescriptorFrameLatency;
     m_frameEndSemaphore = RtxSemaphore::createBinary(pDevice->GetDXVKDevice().ptr(), "ExternalPresenter::frameEnd");
     m_frameResumeSemaphore = RtxSemaphore::createBinary(pDevice->GetDXVKDevice().ptr(), "ExternalPresenter::frameResume");
   }
@@ -415,6 +421,10 @@ namespace dxvk {
     if (m_interopEnabled && m_interopSubmitted) {
       return D3DERR_INVALIDCALL;
     }
+    if (!m_interopEnabled) {
+      ++m_frameId;
+      SyncFrameLatency();
+    }
     // NV-DXVK end
     if (hDestWindowOverride != nullptr) {
       m_window = hDestWindowOverride;
@@ -520,6 +530,7 @@ namespace dxvk {
 
     // signal to external that rendering is done
     m_context->getCommandList()->addSignalSemaphore(m_frameEndSemaphore->handle(), 1);
+    m_context->signal(m_frameLatencySignal, m_frameId);
     m_device->submitCommandList(m_context->endRecording(), VK_NULL_HANDLE, VK_NULL_HANDLE);
 
     m_parent->GetDXVKDevice()->incrementPresentCount();

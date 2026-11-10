@@ -44,6 +44,7 @@
 
 #include "rtx_game_capturer.h"
 #include "rtx_matrix_helpers.h"
+#include "rtx_skipping_writer.h"
 #include "dxvk_scoped_annotation.h"
 #include "rtx_lights_data.h"
 #include "rtx_light_utils.h"
@@ -163,10 +164,6 @@ namespace dxvk {
     instanceEvents.onInstanceUpdatedCallback = [this](RtInstance& instance, const DrawCallState& drawCall, const MaterialData* material, bool hasTransformChanged, bool hasVerticesChanged, bool isFirstUpdateThisFrame) { onInstanceUpdated(instance, drawCall, material, hasTransformChanged, hasVerticesChanged, isFirstUpdateThisFrame); };
     instanceEvents.onInstanceDestroyedCallback = [this](RtInstance& instance) { onInstanceDestroyed(instance); };
     m_instanceManager.addEventHandler(instanceEvents);
-    
-    if (env::getEnvVar("DXVK_RTX_CAPTURE_ENABLE_ON_FRAME") != "") {
-      m_beginUsdExportFrameNum = stoul(env::getEnvVar("DXVK_RTX_CAPTURE_ENABLE_ON_FRAME"));
-    }
   }
 
   SceneManager::~SceneManager() {
@@ -1380,6 +1377,13 @@ namespace dxvk {
   SceneManager::ObjectCacheState SceneManager::onSceneObjectUpdated(Rc<DxvkContext> ctx, const DrawCallState& drawCallState, BlasEntry* pBlas) {
     if (pBlas->frameLastTouched == m_device->getCurrentFrameId()) {
       pBlas->cacheMaterial(drawCallState.getMaterialData());
+      // Refresh the cached bone matrices for a mesh drawn repeatedly in one frame.
+      // An entry is only reused here when boneHash matches, and that hash covers just
+      // [minBoneIndex, numBones), so this updates the matrices below that range.
+      if (pBlas->input.getSkinningStateMutable().numBones > 0 &&
+          drawCallState.getSkinningState().numBones == pBlas->input.getSkinningState().numBones) {
+        pBlas->input.getSkinningStateMutable().pBoneMatrices = drawCallState.getSkinningState().pBoneMatrices;
+      }
       return SceneManager::ObjectCacheState::kUpdateInstance;
     }
 
@@ -1640,7 +1644,7 @@ namespace dxvk {
     }
     if (instance && pParticleSystemDesc) {
       RtxParticleSystemManager& particleSystem = device()->getCommon()->metaParticleSystem();
-      particleSystem.spawnParticles(ctx.ptr(), *pParticleSystemDesc, instance->getVectorIdx(), drawCallState, renderMaterialData);
+      particleSystem.spawnParticles(ctx.ptr(), *pParticleSystemDesc, *instance, drawCallState, renderMaterialData);
 
       if (pParticleSystemDesc->hideEmitter) {
         instance->setHidden(true);
@@ -2309,6 +2313,8 @@ namespace dxvk {
 
     // If there are no instances, we should do nothing!
     if (m_instanceManager.getActiveCount() == 0) {
+      m_device->getCommon()->capturer()->reportPendingCaptureBlocked("there are no active instances in the scene");
+
       // Clear the ray portal data before the next frame
       m_rayPortalManager.clear();
       return;
@@ -2462,7 +2468,10 @@ namespace dxvk {
 
         std::size_t dataOffset = 0;
         uint32_t surfaceIndex = 0;
-        std::vector<unsigned char> surfaceMaterialsGPUData(surfaceMaterialsGPUSize);
+        auto& surfaceMaterialsGPUData = m_materialUploadScratch;
+        if (surfaceMaterialsGPUData.size() < surfaceMaterialsGPUSize) {
+          surfaceMaterialsGPUData.resize(surfaceMaterialsGPUSize);
+        }
         for (auto&& pInstance : m_accelManager.getOrderedInstances()) {
           // PointInstancer duplicates reference the template material slot.
           const auto& surf = pInstance->surface;
@@ -2489,10 +2498,16 @@ namespace dxvk {
 
         assert(surfaceIndex == expectedSurfaceMaterialEntries);
         assert(dataOffset == surfaceMaterialsGPUSize);
-        assert(surfaceMaterialsGPUData.size() == surfaceMaterialsGPUSize);
         m_lastUploadedStartInMediumMaterialIndexInCache = m_startInMediumMaterialIndex_inCache;
 
-        ctx->writeToBuffer(m_surfaceMaterialBuffer, 0, surfaceMaterialsGPUData.size(), surfaceMaterialsGPUData.data());
+        // PointInstancer copies use the template material slot, so leave theirs out
+        {
+          SkippingWriter writer = SkippingWriter(*ctx, m_surfaceMaterialBuffer, surfaceMaterialsGPUData.data());
+          for (const PointInstancerBatch& batch : m_accelManager.getPointInstancerBatches()) {
+            writer.writeThenSkipGap((batch.baseSurfaceIndex + 1) * kSurfaceMaterialGPUSize, (batch.baseSurfaceIndex + batch.instanceCount) * kSurfaceMaterialGPUSize);
+          }
+          writer.writeUntil(surfaceMaterialsGPUSize);
+        }
       }
     } else {
       m_startInMediumMaterialIndex = m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex
@@ -2531,7 +2546,10 @@ namespace dxvk {
         }
 
         std::size_t dataOffset = 0;
-        std::vector<unsigned char> surfaceMaterialExtensionsGPUData(surfaceMaterialExtensionsGPUSize);
+        auto& surfaceMaterialExtensionsGPUData = m_materialUploadScratch;
+        if (surfaceMaterialExtensionsGPUData.size() < surfaceMaterialExtensionsGPUSize) {
+          surfaceMaterialExtensionsGPUData.resize(surfaceMaterialExtensionsGPUSize);
+        }
 
         uint32_t surfaceIndex = 0;
         for (auto&& surfaceMaterialExtension : m_surfaceMaterialExtensionCache.getObjectTable()) {
@@ -2540,9 +2558,8 @@ namespace dxvk {
         }
 
         assert(dataOffset == surfaceMaterialExtensionsGPUSize);
-        assert(surfaceMaterialExtensionsGPUData.size() == surfaceMaterialExtensionsGPUSize);
 
-        ctx->writeToBuffer(m_surfaceMaterialExtensionBuffer, 0, surfaceMaterialExtensionsGPUData.size(), surfaceMaterialExtensionsGPUData.data());
+        ctx->writeToBuffer(m_surfaceMaterialExtensionBuffer, 0, surfaceMaterialExtensionsGPUSize, surfaceMaterialExtensionsGPUData.data());
       }
 
       // Volume Material buffer
@@ -2557,16 +2574,18 @@ namespace dxvk {
         }
 
         std::size_t dataOffset = 0;
-        std::vector<unsigned char> volumeMaterialsGPUData(volumeMaterialsGPUSize);
+        auto& volumeMaterialsGPUData = m_materialUploadScratch;
+        if (volumeMaterialsGPUData.size() < volumeMaterialsGPUSize) {
+          volumeMaterialsGPUData.resize(volumeMaterialsGPUSize);
+        }
 
         for (auto&& volumeMaterial : m_volumeMaterialCache.getObjectTable()) {
           volumeMaterial.writeGPUData(volumeMaterialsGPUData.data(), dataOffset);
         }
 
         assert(dataOffset == volumeMaterialsGPUSize);
-        assert(volumeMaterialsGPUData.size() == volumeMaterialsGPUSize);
 
-        ctx->writeToBuffer(m_volumeMaterialBuffer, 0, volumeMaterialsGPUData.size(), volumeMaterialsGPUData.data());
+        ctx->writeToBuffer(m_volumeMaterialBuffer, 0, volumeMaterialsGPUSize, volumeMaterialsGPUData.data());
       }
     }
 
@@ -2588,11 +2607,7 @@ namespace dxvk {
     m_device->statCounters().setCtr(DxvkStatCounter::RtxLightCount, m_lightManager.getActiveCount());
     m_device->statCounters().setCtr(DxvkStatCounter::RtxSamplers, m_samplerCache.getActiveCount());
 
-    auto capturer = m_device->getCommon()->capturer();
-    if (m_device->getCurrentFrameId() == m_beginUsdExportFrameNum) {
-      capturer->triggerNewCapture();
-    }
-    capturer->step(ctx, ctx->getCommonObjects()->getLastKnownWindowHandle());
+    m_device->getCommon()->capturer()->step(ctx, ctx->getCommonObjects()->getLastKnownWindowHandle());
 
     // Clear the ray portal data before the next frame
     m_rayPortalManager.clear();
@@ -2626,6 +2641,7 @@ namespace dxvk {
     RTX_OPTION_INVALIDATION_SCOPE(RtxOptionFlags::InvalidatesDrawcallTranslation);
 
     Rc<DxvkSampler> externalSampler = getOrCreateExternalSampler();
+    state.drawCall.isExternalDraw = true;
 
     {
       state.drawCall.modifyMaterialData().samplers[0] = externalSampler;

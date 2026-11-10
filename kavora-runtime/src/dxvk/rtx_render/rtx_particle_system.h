@@ -49,6 +49,7 @@ namespace dxvk {
     struct SpawnContext {
       uint32_t numberOfParticles;
       uint32_t instanceId;
+      uint64_t instanceIdentity;
       XXH64_hash_t particleSystemHash;
       uint32_t particleOffset;
     };
@@ -90,6 +91,7 @@ namespace dxvk {
       const MaterialData materialData;
       const LegacyMaterialData legacyMaterialData;
       const CategoryFlags categories;
+      const bool isExternalDraw;
 
       uint64_t lastSpawnTimeMs;
 
@@ -113,7 +115,7 @@ namespace dxvk {
       uint32_t generationIdx = 0;
 
       ParticleSystem() = delete;
-      ParticleSystem(const RtxParticleSystemDesc& desc, const MaterialData& matData, const LegacyMaterialData& legacyMatData, const CategoryFlags& cats, const uint32_t seed);
+      ParticleSystem(const RtxParticleSystemDesc& desc, const MaterialData& matData, const LegacyMaterialData& legacyMatData, const CategoryFlags& cats, const bool isExternal, const uint32_t seed);
 
       XXH64_hash_t getHash() const {
         return m_cachedHash;
@@ -276,11 +278,11 @@ namespace dxvk {
       *
       * \param ctx                Command list to perform any potential allocation clears with.
       * \param desc               Description for the particle system.
-      * \param instanceIdx        This is the index into the vector of instances held by instance manager.
+      * \param instance           Emitter whose identity survives instance-table compaction.
       * \param drawCallState      The current draw call state referencing material info.
       * \param renderMaterialData The material preference to apply to particle system
       */
-    void spawnParticles(DxvkContext* ctx, const RtxParticleSystemDesc& desc, const uint32_t instanceIdx, const DrawCallState& drawCallState, const MaterialData& overrideMaterial);
+    void spawnParticles(DxvkContext* ctx, const RtxParticleSystemDesc& desc, const RtInstance& instance, const DrawCallState& drawCallState, const MaterialData& overrideMaterial);
 
     /**
       * Issues the draw state (vertex buffer, index buffer) for rendering particles

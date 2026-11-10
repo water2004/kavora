@@ -19,6 +19,10 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+//!variant srgb_dither.comp
+//!variant srgb_dither_inversion.comp
+//!>       DISPLAY_COLOR_INVERSION
+//!end-variants
 #include "rtx/pass/srgb_dither/srgb_dither.h"
 #include "rtx/pass/srgb_dither/display_color_grade.slangh"
 #include "rtx/pass/tonemap/tonemapping.slangh"
@@ -48,7 +52,12 @@ void main(uint2 threadId : SV_DispatchThreadID)
   {
     inputColor = gradeDisplayColor(inputColor, cb.colorBalance, cb.contrast, cb.saturation);
   }
+#ifdef DISPLAY_COLOR_INVERSION
+  const float3 inverted = invertDisplayColor(inputColor, cb.inversionAmount, cb.inversionMode, cb.inversionThreshold);
+  const float3 gammaColor = cb.performSRGBConversion ? inverted : gammaToLinear(inverted);
+#else
   const float3 gammaColor = (cb.performSRGBConversion > 0) ? linearToGamma(inputColor) : inputColor;
+#endif
 
   // Apply dithering as the last step before output to break up banding artifacts.
   // Dithering is performed in gamma space (when SRGB conversion is enabled) so the
