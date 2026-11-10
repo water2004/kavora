@@ -464,7 +464,9 @@ struct RaytraceArgs {
 
   uint ignoreSkyIfCameraInMedium;
   uint pomSilhouettesBehindTranslucency;
-  uint2 environmentPadding;
+  vec4 waterSimulation;
+  uint renderTargetHistoryValid;
+  uint environmentPadding;
 
   // NOTE: Add structs to the top section of RaytraceArgs, not the bottom.
   // NOTE: bool does not work in debug builds, use uint instead.

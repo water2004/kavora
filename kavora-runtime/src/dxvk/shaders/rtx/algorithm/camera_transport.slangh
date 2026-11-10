@@ -1,0 +1,34 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/utility/packing.slangh"
+
+// The host selects one attenuation encoding for the whole frame. The inactive
+// camera path preserves the precision and cost of the ordinary UNORM storage.
+uint packSceneAttenuation(float3 value, bool hdr) {
+  if (!hdr) {
+    return colorToR11G11B10(value);
+  }
+  value = clamp(sanitize(value, float3(0.0f)), 0.0f, 65408.0f);
+  const float largest = max(value.x, max(value.y, value.z));
+  if (largest == 0.0f) {
+    return 0;
+  }
+  uint exponent = uint(clamp(floor(log2(largest)) + 16.0f, 0.0f, 31.0f));
+  float scale = exp2(24.0f - float(exponent));
+  if (round(largest * scale) > 511.0f && exponent < 31u) {
+    ++exponent;
+    scale *= 0.5f;
+  }
+  const uint3 mantissa = uint3(min(round(value * scale), 511.0f));
+  return mantissa.x | (mantissa.y << 9) | (mantissa.z << 18) | (exponent << 27);
+}
+
+float3 unpackSceneAttenuation(uint value, bool hdr) {
+  if (!hdr) {
+    return r11g11b10ToColor(value);
+  }
+  const float scale = exp2(float(value >> 27) - 24.0f);
+  return float3(uint3(value, value >> 9, value >> 18) & 511u) * scale;
+}

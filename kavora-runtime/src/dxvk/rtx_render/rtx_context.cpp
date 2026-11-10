@@ -536,6 +536,8 @@ namespace dxvk {
 
     getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
 
+    m_common->waterSimulation().prepare(this, getSceneManager().hasSimulatedWater());
+
     // Generate ray tracing constant buffer
     updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
 
@@ -1289,6 +1291,8 @@ namespace dxvk {
     auto const& renderTargetCamera { getSceneManager().getCameraManager().getCamera(CameraType::RenderToTexture) };
     constants.renderTargetCamera = renderTargetCamera.getShaderConstants(/*freecam =*/ false);
     constants.enableRaytracedRenderTarget = renderTargetCamera.isValid(m_device->getCurrentFrameId()) && RtxOptions::RaytracedRenderTarget::enable();
+    constants.renderTargetHistoryValid = constants.enableRaytracedRenderTarget &&
+      RtxOptions::RaytracedRenderTarget::reproject() && getSceneManager().getCameraManager().renderTargetHistoryValid();
     const CameraManager& cameraManager = getSceneManager().getCameraManager();
 
     const bool enablePortalVolumes = RtxGlobalVolumetrics::enableInPortals() &&
@@ -1638,6 +1642,7 @@ namespace dxvk {
     constants.enableDLSSRR = useRR;
     constants.setLogValueForDisocclusionMaskForDLSSRR = DxvkRayReconstruction::enableDisocclusionMaskBlur();
     constants.invalidateHistoryForAnimatedWater = DxvkRayReconstruction::invalidateHistoryForAnimatedWater();
+    constants.waterSimulation = m_common->waterSimulation().shaderArgs();
 
     // The denoising normals are consumed only by NRD. dispatchDenoise reads these back rather than
     // recomputing the condition, so the GBuffer never writes a guide nothing will read.

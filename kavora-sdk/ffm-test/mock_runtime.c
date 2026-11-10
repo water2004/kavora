@@ -8,7 +8,18 @@
 static remixapi_ErrorCode REMIXAPI_CALL mock_Shutdown(void) {  return REMIXAPI_ERROR_CODE_SUCCESS; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_CreateMaterial(
     const remixapi_MaterialInfo*  info,
-    remixapi_MaterialHandle*      out_handle) { CHECK(info && info->sType == 2 && info->hash == 123); CHECK(info->albedoTexture == (void*)0x1111 && info->emissiveIntensity == 7.5f); *out_handle=(void*)0x1234; return REMIXAPI_ERROR_CODE_SUCCESS; }
+    remixapi_MaterialHandle*      out_handle) {
+    CHECK(info && info->sType == 2 && info->hash == 123);
+    CHECK(info->albedoTexture == (void*)0x1111 && info->emissiveIntensity == 7.5f);
+    if (info->pNext) {
+        const remixapi_MaterialInfoTranslucentEXT* translucent = info->pNext;
+        const remixapi_MaterialInfoWaterSurfaceEXT* water = translucent->pNext;
+        CHECK(translucent->sType == REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT);
+        CHECK(water && water->sType == REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT && !water->pNext);
+    }
+    *out_handle = (void*)0x1234;
+    return REMIXAPI_ERROR_CODE_SUCCESS;
+}
 static remixapi_ErrorCode REMIXAPI_CALL mock_DestroyMaterial(
     remixapi_MaterialHandle       handle) {  return REMIXAPI_ERROR_CODE_SUCCESS; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_CreateMesh(
@@ -164,7 +175,17 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_UpdateTextureFromMemory(
     return REMIXAPI_ERROR_CODE_SUCCESS;
 }
 static remixapi_ErrorCode REMIXAPI_CALL mock_dxvk_GetInteropInfo(remixapi_dxvk_InteropInfo* out_info) { memset(out_info,0,sizeof(*out_info)); out_info->width=640; out_info->height=480; out_info->dxvkDoneSemaphore_Handle=0x1234; out_info->depthImageMemory_Handle=0x5678; return REMIXAPI_ERROR_CODE_SUCCESS; }
-static remixapi_ErrorCode REMIXAPI_CALL mock_Submit(const remixapi_SubmitInfo* info) { CHECK(info && info->sType == 30 && info->interopFlags == 5); return REMIXAPI_ERROR_CODE_SUCCESS; }
+static remixapi_ErrorCode REMIXAPI_CALL mock_Submit(const remixapi_SubmitInfo* info) {
+    CHECK(info && info->sType == 30 && info->interopFlags == 5);
+    if (info->pNext) {
+        const remixapi_SubmitInfoWaterSimEXT* water = info->pNext;
+        CHECK(water->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT && !water->pNext);
+        CHECK(water->reset == 1 && water->impulseCount == 2 && water->impulses);
+        CHECK(water->impulses[0].position.x == 1 && water->impulses[0].position.y == 2 && water->impulses[0].position.z == 3);
+        CHECK(water->impulses[1].position.x == 4 && water->impulses[1].radius == 1.5f && water->impulses[1].strength == -0.5f);
+    }
+    return REMIXAPI_ERROR_CODE_SUCCESS;
+}
 static remixapi_ErrorCode REMIXAPI_CALL mock_AcquireConfigLayer(
     const char*                 path,
     float                       priority,

@@ -51,6 +51,8 @@ namespace dxvk {
     CameraType::Enum getLastSetCameraType() const { return m_lastSetCameraType; }
     
     bool isCameraValid(CameraType::Enum cameraType) const;
+    bool renderTargetHistoryValid() const { return m_renderTargetHistoryValid; }
+    void invalidateRenderTargetHistory() { m_renderTargetHistoryValid = false; }
 
     void onFrameEnd();
 
@@ -81,6 +83,7 @@ namespace dxvk {
   private:
     std::array<RtCamera, CameraType::Count> m_cameras;
     CameraType::Enum m_lastSetCameraType = CameraType::Unknown;
+    bool m_renderTargetHistoryValid = false;
     uint32_t m_lastCameraCutFrameId = -1;
     uint32_t m_lastCameraViewHistoryInvalidationFrameId = -1;
     fast_unordered_cache<DecomposeProjectionParams> m_decompositionCache;

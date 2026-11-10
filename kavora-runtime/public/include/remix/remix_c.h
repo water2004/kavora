@@ -164,6 +164,8 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_TRANSMITTANCE_EXT     = 45,
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_DOME_PROJECTION_EXT        = 46,
     REMIXAPI_STRUCT_TYPE_MESH_INFO_QUADS_EXT                   = 47,
+    REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT       = 48,
+    REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT             = 49,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -330,6 +332,12 @@ extern "C" {
     float                   thinWallThickness_value;
     remixapi_Bool           useDiffuseLayer;
   } remixapi_MaterialInfoTranslucentEXT;
+
+  /** Marks a thick translucent material as a water surface. */
+  typedef struct remixapi_MaterialInfoWaterSurfaceEXT {
+    remixapi_StructType sType;
+    void* pNext;
+  } remixapi_MaterialInfoWaterSurfaceEXT;
 
   typedef struct remixapi_MaterialInfoPortalEXT {
     remixapi_StructType sType;
@@ -626,6 +634,7 @@ extern "C" {
     REMIXAPI_CAMERA_TYPE_WORLD,
     REMIXAPI_CAMERA_TYPE_SKY,
     REMIXAPI_CAMERA_TYPE_VIEW_MODEL,
+    REMIXAPI_CAMERA_TYPE_RENDER_TARGET,
   } remixapi_CameraType;
 
   typedef struct remixapi_CameraInfoParameterizedEXT {
@@ -732,6 +741,7 @@ extern "C" {
     REMIXAPI_INSTANCE_CATEGORY_BIT_SMOOTH_NORMALS            = 1 << 24,
     REMIXAPI_INSTANCE_CATEGORY_BIT_HAIR_CARDS                = 1 << 25,
     REMIXAPI_INSTANCE_CATEGORY_BIT_VIEW_MODEL                = 1 << 26,
+    REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA               = 1 << 27,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;
@@ -1118,6 +1128,21 @@ extern "C" {
     void*                         pNext;
     remixapi_SubmitInteropFlags   interopFlags;
   } remixapi_SubmitInfo;
+
+  typedef struct remixapi_WaterImpulse {
+    remixapi_Float3D position;
+    float radius;
+    float strength;
+  } remixapi_WaterImpulse;
+
+  /** Submit up to 16 water disturbances in scene units for this frame. */
+  typedef struct remixapi_SubmitInfoWaterSimEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    const remixapi_WaterImpulse* impulses;
+    uint32_t impulseCount;
+    remixapi_Bool reset;
+  } remixapi_SubmitInfoWaterSimEXT;
   REMIXAPI_HELPER remixapi_SubmitInfo remixapi_SubmitInfo_init() {
     remixapi_SubmitInfo info = { (remixapi_StructType)0 };
     info.sType = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO;

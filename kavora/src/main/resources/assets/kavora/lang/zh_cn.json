@@ -123,6 +123,8 @@
   "kavora.effect.materials.normalStrength.tip": "不透明 PBR 材质的法线贴图强度。",
   "kavora.effect.water.normalStrength": "水面法线强度",
   "kavora.effect.water.normalStrength.tip": "透明表面的法线贴图强度，包括动态水面，也会影响玻璃法线贴图。",
+  "kavora.effect.water.simulation": "水面涟漪模拟",
+  "kavora.effect.water.simulation.tip": "模拟附近的水花，将产生的波形叠加到水面法线上。",
   "kavora.effect.sss.inRefraction": "水下植物透光",
   "kavora.effect.sss.inRefraction.tip": "为透过水面看到的树叶、植物保留薄片透光。",
   "kavora.effect.sss.transmission": "次表面透射",

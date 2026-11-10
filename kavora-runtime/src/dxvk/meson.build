@@ -390,6 +390,8 @@ dxvk_src = files([
   'rtx_render/rtx_types.cpp',
   'rtx_render/rtx_types.h',
   'rtx_render/rtx_utils.h',
+  'rtx_render/rtx_water_sim.cpp',
+  'rtx_render/rtx_water_sim.h',
   'rtx_render/rtx_xess.cpp',
   'shaders/rtx/utility/atlas_mip_bounds.h',
   'rtx_render/rtx_xess.h',

@@ -97,6 +97,9 @@ final class RemixLayouts {
                 JAVA_INT.withName("thinWallThickness_hasvalue"),
                 JAVA_FLOAT.withName("thinWallThickness_value"),
                 JAVA_INT.withName("useDiffuseLayer"));
+        define("MaterialInfoWaterSurfaceEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"));
         define("MaterialInfoPortalEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
@@ -454,6 +457,16 @@ final class RemixLayouts {
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 JAVA_INT.withName("interopFlags"));
+        define("WaterImpulse",
+                layout("Float3D").withName("position"),
+                JAVA_FLOAT.withName("radius"),
+                JAVA_FLOAT.withName("strength"));
+        define("SubmitInfoWaterSimEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                ADDRESS.withName("impulses"),
+                JAVA_INT.withName("impulseCount"),
+                JAVA_INT.withName("reset"));
         define("PresentInfo",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

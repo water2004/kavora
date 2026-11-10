@@ -72,7 +72,7 @@ struct PathState : IBasePayloadState
 #if NEE_CACHE_ENABLE || ENABLE_NRC
   float16_t solidAnglePdf; // unused (1b - sign bit)
 #endif
-  float16_t coneSpreadAngle; // unused (1b - sign bit)
+  float16_t _coneSpreadAngle; // Sign carries the specular-only camera visibility flag.
   float16_t _coneRadius; // unused (1b - sign bit)
   
   uint mediumMaterialIndex;
@@ -357,6 +357,18 @@ struct PathState : IBasePayloadState
 #endif
 
   // Passthrough accessors
+  property float16_t coneSpreadAngle
+  {
+    get { return abs(_coneSpreadAngle); }
+    set { _coneSpreadAngle = newValue; }
+  }
+
+  property bool specularOnlyCameraPath
+  {
+    get { return (reinterpret<uint16_t>(_coneSpreadAngle) & 0x8000u) != 0; }
+    set { _coneSpreadAngle = uint16BitsToHalf(uint16_t((reinterpret<uint16_t>(_coneSpreadAngle) & 0x7fffu) | (uint(newValue) << 15))); }
+  }
+
   property float3 origin 
   {
     get { return _origin; }

@@ -192,6 +192,10 @@ namespace pnext::detail {
   template<> constexpr auto ToEnum<remixapi_VoxelCoverageInfo> = REMIXAPI_STRUCT_TYPE_VOXEL_COVERAGE_INFO;
   template<> constexpr auto ToEnum<remixapi_MaterialInfoVertexColorMaskEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_VERTEX_COLOR_MASK_EXT;
   template<> struct Root<remixapi_MaterialInfoVertexColorMaskEXT> { using Type = remixapi_MaterialInfo; };
+  template<> constexpr auto ToEnum<remixapi_MaterialInfoWaterSurfaceEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT;
+  template<> struct Root<remixapi_MaterialInfoWaterSurfaceEXT> { using Type = remixapi_MaterialInfo; };
+  template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterSimEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT;
+  template<> struct Root<remixapi_SubmitInfoWaterSimEXT> { using Type = remixapi_SubmitInfo; };
   template<> constexpr auto ToEnum<remixapi_HostVulkanDeviceInfo> = REMIXAPI_STRUCT_TYPE_HOST_VULKAN_DEVICE_INFO;
   // clang-format on
 }

@@ -333,9 +333,32 @@ public final class RemixBridge {
             return call("Startup", info);
         }
     }
-    public static int submit(int interopFlags) {
+    public static int submit(int interopFlags) { return submit(interopFlags, null); }
+
+    public static int submit(int interopFlags, WaterSimulationFrame water) {
         try (Scratch arena = scratch()) {
-            MemorySegment info = info(arena, "SubmitInfo", StructType.SUBMIT_INFO, 0);
+            long chain = 0;
+            if (water != null && !water.isEmpty()) {
+                String type = "SubmitInfoWaterSimEXT";
+                MemorySegment extension = info(arena, type, StructType.SUBMIT_INFO_WATER_SIM_EXT, 0);
+                int count = water.count();
+                if (count != 0) {
+                    var layout = RemixLayouts.layout("WaterImpulse");
+                    long stride = layout.byteSize();
+                    MemorySegment impulses = arena.allocate(stride * WaterSimulationFrame.MAX_IMPULSES, layout.byteAlignment());
+                    for (int i = 0; i < count; i++) {
+                        MemorySegment impulse = impulses.asSlice(i * stride, stride);
+                        vector3(impulse, "WaterImpulse", "position", water.value(i, 0), water.value(i, 1), water.value(i, 2));
+                        put(impulse, "WaterImpulse", "radius", water.value(i, 3));
+                        put(impulse, "WaterImpulse", "strength", water.value(i, 4));
+                    }
+                    put(extension, type, "impulses", impulses.address());
+                }
+                put(extension, type, "impulseCount", count);
+                put(extension, type, "reset", water.resetsWaves() ? 1 : 0);
+                chain = extension.address();
+            }
+            MemorySegment info = info(arena, "SubmitInfo", StructType.SUBMIT_INFO, chain);
             put(info, "SubmitInfo", "interopFlags", interopFlags);
             return call("Submit", info);
         }
@@ -1114,6 +1137,18 @@ public final class RemixBridge {
             put(ext, "MaterialInfoTranslucentEXT", "useDiffuseLayer", useDiffuseLayer ? 1 : 0);
             extensions.put(ext.address(), arena);
             return ext.address();
+        } catch (Throwable error) {
+            arena.close();
+            throw failure(error);
+        }
+    }
+
+    static long allocWaterSurfaceExt() {
+        Arena arena = Arena.ofShared();
+        try {
+            MemorySegment extension = info(arena, "MaterialInfoWaterSurfaceEXT", StructType.MATERIAL_INFO_WATER_SURFACE_EXT, 0);
+            extensions.put(extension.address(), arena);
+            return extension.address();
         } catch (Throwable error) {
             arena.close();
             throw failure(error);

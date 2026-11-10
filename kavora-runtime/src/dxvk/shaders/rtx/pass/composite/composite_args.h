@@ -110,4 +110,5 @@ struct CompositeArgs {
   uint enableDlssNrVolumetricControlMask;
   uint stochasticAlphaBlendAverageSearchMatches;
   uint enableCoverageAov;
+  uint enableRaytracedRenderTarget;
 };

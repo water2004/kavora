@@ -27,6 +27,7 @@
 
 #include "rtx/pass/common_binding_indices.h" 
 #include "rtx/pass/particles/particle_drag.h"
+#include "rtx/pass/particles/particle_spawn_distribution.h"
 #include "dxvk_scoped_annotation.h"
 #include "dxvk_context.h"
 #include "rtx_context.h"
@@ -35,6 +36,9 @@
 #include "../util/util_global_time.h"
 
 #include <rtx_shaders/particle_system_spawn.h>
+#include <rtx_shaders/particle_system_spawn_area.h>
+#include <rtx_shaders/particle_spawn_areas.h>
+#include <rtx_shaders/particle_spawn_areas_finish.h>
 #include <rtx_shaders/particle_system_evolve.h>
 #include <rtx_shaders/particle_system_generate_geometry.h>
 #include "math.h"
@@ -59,6 +63,42 @@ namespace dxvk {
 
         RW_STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_PARTICLES_BUFFER_INPUT_OUTPUT)
         END_PARAMETER()
+    };
+
+    class ParticleSystemSpawnArea : public ManagedShader {
+      SHADER_SOURCE(ParticleSystemSpawnArea, VK_SHADER_STAGE_COMPUTE_BIT, particle_system_spawn_area)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+      COMMON_RAYTRACING_BINDINGS
+      CONSTANT_BUFFER(PARTICLE_SYSTEM_BINDING_CONSTANTS)
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXT_PARTICLE_MAPPING_INPUT)
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXTS_INPUT)
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_INPUT)
+      SAMPLER2D(PARTICLE_SYSTEM_BINDING_ANIMATION_DATA_INPUT)
+      RW_STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_PARTICLES_BUFFER_INPUT_OUTPUT)
+      END_PARAMETER()
+    };
+
+    class ParticleSpawnAreas : public ManagedShader {
+      SHADER_SOURCE(ParticleSpawnAreas, VK_SHADER_STAGE_COMPUTE_BIT, particle_spawn_areas)
+      BINDLESS_ENABLED()
+      PUSH_CONSTANTS(uvec4)
+      BEGIN_PARAMETER()
+      COMMON_RAYTRACING_BINDINGS
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXTS_INPUT)
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_AREA_JOBS)
+      RW_STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_OUTPUT)
+      END_PARAMETER()
+    };
+
+    class ParticleSpawnAreasFinish : public ManagedShader {
+      SHADER_SOURCE(ParticleSpawnAreasFinish, VK_SHADER_STAGE_COMPUTE_BIT, particle_spawn_areas_finish)
+      PUSH_CONSTANTS(uvec4)
+      BEGIN_PARAMETER()
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXTS_INPUT)
+      STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_AREA_JOBS)
+      RW_STRUCTURED_BUFFER(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_OUTPUT)
+      END_PARAMETER()
     };
 
     class ParticleSystemEvolve : public ManagedShader {
@@ -355,6 +395,7 @@ namespace dxvk {
     const RtCamera& camera = ctx->getSceneManager().getCamera();
     constants.viewToWorld = camera.getViewToWorld();
     constants.prevWorldToProjection = camera.getPreviousViewToProjection() * camera.getPreviousWorldToView();
+    constants.worldToProjection = camera.getViewToProjection() * camera.getWorldToView();
 
     constants.renderingWidth = ctx->getSceneManager().getCamera().m_renderResolution[0];
     constants.renderingHeight = ctx->getSceneManager().getCamera().m_renderResolution[1];
@@ -380,6 +421,10 @@ namespace dxvk {
   RtxParticleSystemDesc RtxParticleSystemManager::createGlobalParticleSystemDesc() {
     RtxParticleSystemDesc desc;
     desc.initialVelocityFromMotion = RtxParticleSystemManager::initialVelocityFromMotion();
+    desc.minScreenSize = minScreenSize();
+    desc.maxScreenSize = maxScreenSize();
+    desc.screenSizeCoverage = screenSizeCoverage();
+    desc.spawnBySurfaceArea = spawnBySurfaceArea();
     desc.initialVelocityFromNormal = RtxParticleSystemManager::initialVelocityFromNormal();
     desc.initialVelocityConeAngleDegrees = RtxParticleSystemManager::initialVelocityConeAngleDegrees();
     desc.alignParticlesToVelocity = RtxParticleSystemManager::alignParticlesToVelocity();
@@ -570,7 +615,7 @@ namespace dxvk {
       numParticles = getNumberOfParticlesToSpawn(particleSystem, drawCallState);
     }
 
-    if (numParticles == 0) {
+    if (numParticles == 0 || m_spawnContexts.size() > UINT16_MAX) {
       return;
     }
 
@@ -582,6 +627,7 @@ namespace dxvk {
     spawnCtx.particleOffset = particleSystem->context.particleHeadOffset;
     spawnCtx.instanceId = instance.getVectorIdx();
     spawnCtx.instanceIdentity = instance.getCacheIdentity();
+    spawnCtx.areaWeighted = particleSystem->context.desc.spawnBySurfaceArea;
 
     // Update material specific counters
     particleSystem->context.particleHeadOffset += numParticles;
@@ -602,6 +648,12 @@ namespace dxvk {
     if (!enable() || !m_initialized) {
       m_spawnContexts.clear();
       m_particleSystems.clear();
+      m_spawnAreaCache.clear();
+      m_freeSpawnAreas.clear();
+      m_spawnAreaEnd = 0;
+      m_spawnAreas = nullptr;
+      m_spawnAreaJobs = nullptr;
+      m_spawnAreaBudgetWarning = false;
       m_spawnContextsBuffer = nullptr;
       return;
     }
@@ -709,7 +761,13 @@ namespace dxvk {
           ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXT_PARTICLE_MAPPING_INPUT, DxvkBufferSlice(system.second->getSpawnContextMappingBuffer()));
           ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_PARTICLES_BUFFER_INPUT_OUTPUT, DxvkBufferSlice(system.second->getParticlesBuffer()));
 
-          ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ParticleSystemSpawn::getShader());
+          if (particleSystem.desc.spawnBySurfaceArea) {
+            ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_INPUT,
+              DxvkBufferSlice(m_spawnAreas != nullptr ? m_spawnAreas : m_spawnContextsBuffer));
+            ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ParticleSystemSpawnArea::getShader());
+          } else {
+            ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ParticleSystemSpawn::getShader());
+          }
 
           ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
         }
@@ -802,6 +860,174 @@ namespace dxvk {
     return motion.discontinuity ? currTransform : prevTransform;
   }
 
+  void RtxParticleSystemManager::releaseSpawnArea(SpawnAreaRange range) {
+    auto next = std::lower_bound(m_freeSpawnAreas.begin(), m_freeSpawnAreas.end(), range.offset,
+      [](const SpawnAreaRange& free, uint32_t offset) { return free.offset < offset; });
+    if (next != m_freeSpawnAreas.begin()) {
+      const auto previous = std::prev(next);
+      if (previous->offset + previous->length == range.offset) {
+        range.offset = previous->offset;
+        range.length += previous->length;
+        next = m_freeSpawnAreas.erase(previous);
+      }
+    }
+    if (next != m_freeSpawnAreas.end() && range.offset + range.length == next->offset) {
+      range.length += next->length;
+      next = m_freeSpawnAreas.erase(next);
+    }
+    if (range.offset + range.length == m_spawnAreaEnd) {
+      m_spawnAreaEnd = range.offset;
+    } else {
+      m_freeSpawnAreas.insert(next, range);
+    }
+  }
+
+  uint32_t RtxParticleSystemManager::reserveSpawnArea(uint32_t length) {
+    for (auto free = m_freeSpawnAreas.begin(); free != m_freeSpawnAreas.end(); ++free) {
+      if (free->length >= length) {
+        const uint32_t offset = free->offset;
+        free->length -= length;
+        free->offset += length;
+        if (free->length == 0) {
+          m_freeSpawnAreas.erase(free);
+        }
+        return offset;
+      }
+    }
+    constexpr uint32_t kAreaBudget = (32u << 20) / sizeof(float);
+    if (length > kAreaBudget - m_spawnAreaEnd) {
+      return kInvalidParticleAreaOffset;
+    }
+    const uint32_t offset = m_spawnAreaEnd;
+    m_spawnAreaEnd += length;
+    return offset;
+  }
+
+  bool RtxParticleSystemManager::prepareSpawnArea(const RtInstance& instance, GpuSpawnContext& context, uint32_t frameId) {
+    if (context.numTriangles == 0 || context.spawnMeshPositionsIdx == BINDING_INDEX_INVALID ||
+        context.spawnMeshIndexIdx == BINDING_INDEX_INVALID) {
+      return false;
+    }
+
+    // The normalized Gram matrix is invariant under translation, rotation and uniform scale.
+    const Matrix4& transform = instance.getTransform();
+    std::array<double, 6> metric{};
+    uint32_t element = 0;
+    for (uint32_t a = 0; a < 3; ++a) {
+      for (uint32_t b = a; b < 3; ++b) {
+        for (uint32_t axis = 0; axis < 3; ++axis) {
+          metric[element] += double(transform[a][axis]) * double(transform[b][axis]);
+        }
+        ++element;
+      }
+    }
+    const double trace = metric[0] + metric[3] + metric[5];
+    if (!(trace > 0.0) || !std::isfinite(trace)) {
+      return false;
+    }
+    for (double& value : metric) {
+      value /= trace;
+    }
+
+    const auto& blas = *instance.getBlas();
+    const auto& geometry = blas.modifiedGeometryData;
+    const auto positions = geometry.positionBuffer.getDescriptor().buffer;
+    const auto indices = geometry.indexBuffer.getDescriptor().buffer;
+    const uint64_t source[] = {
+      uintptr_t(&blas), blas.frameCreated, blas.frameLastUpdated,
+      std::hash<VkBuffer>{}(positions.buffer), positions.offset + geometry.positionBuffer.offsetFromSlice(),
+      std::hash<VkBuffer>{}(indices.buffer), indices.offset + geometry.indexBuffer.offsetFromSlice(),
+      context.numTriangles, context.indices32bit, context.spawnMeshPositionsOffset, context.spawnMeshPositionsStride
+    };
+    const auto version = XXH3_64bits(source, sizeof(source));
+    const uint32_t length = context.numTriangles + particleAreaBlockCount(context.numTriangles);
+    auto cached = m_spawnAreaCache.find(instance.getCacheIdentity());
+    if (cached != m_spawnAreaCache.end() && cached->second.range.length != length) {
+      releaseSpawnArea(cached->second.range);
+      m_spawnAreaCache.erase(cached);
+      cached = m_spawnAreaCache.end();
+    }
+    if (cached == m_spawnAreaCache.end()) {
+      const uint32_t offset = reserveSpawnArea(length);
+      if (offset == kInvalidParticleAreaOffset) {
+        if (!m_spawnAreaBudgetWarning) {
+          Logger::warn("Particle area distribution exhausted its 32 MiB cache");
+          m_spawnAreaBudgetWarning = true;
+        }
+        return false;
+      }
+      CachedSpawnArea entry;
+      entry.range = { offset, length };
+      cached = m_spawnAreaCache.emplace(instance.getCacheIdentity(), entry).first;
+    }
+
+    auto& entry = cached->second;
+    context.areaDistributionOffset = entry.range.offset;
+    entry.lastUsedFrame = frameId;
+    bool valid = version == entry.geometryVersion && metric == entry.metric;
+    if (!valid && version == entry.geometryVersion) {
+      // Scale the rounding tolerance by a lower bound on the smallest metric eigenvalue.
+      // This keeps rigid rotation cacheable without reusing areas across a change to a thin axis.
+      auto determinant = [](const std::array<double, 6>& m) {
+        return m[0] * (m[3] * m[5] - m[4] * m[4]) -
+          m[1] * (m[1] * m[5] - m[2] * m[4]) + m[2] * (m[1] * m[4] - m[2] * m[3]);
+      };
+      const double tolerance = 1e-6 * std::min(determinant(metric), determinant(entry.metric));
+      valid = tolerance > 0.0 && std::equal(metric.begin(), metric.end(), entry.metric.begin(),
+        [tolerance](double a, double b) { return std::abs(a - b) <= tolerance; });
+    }
+    if (!valid) {
+      entry.geometryVersion = version;
+      entry.metric = metric;
+    }
+    return !valid;
+  }
+
+  void RtxParticleSystemManager::buildSpawnAreas(RtxContext* ctx, const std::vector<uvec2>& jobs, uint32_t buildJobCount) {
+    const auto& device = ctx->getDevice();
+    const VkDeviceSize requiredBytes = VkDeviceSize(m_spawnAreaEnd) * sizeof(float);
+    if (m_spawnAreas == nullptr || m_spawnAreas->info().size < requiredBytes) {
+      const VkDeviceSize previousSize = m_spawnAreas != nullptr ? m_spawnAreas->info().size : 0;
+      DxvkBufferCreateInfo info;
+      info.size = std::min<VkDeviceSize>(32u << 20, std::max({ VkDeviceSize(65536), requiredBytes, previousSize * 2 }));
+      info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      info.stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+      info.access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+      auto next = device->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::RTXBuffer, "Particle Spawn Area Cache");
+      if (previousSize) {
+        ctx->copyBuffer(next, 0, m_spawnAreas, 0, previousSize);
+      }
+      m_spawnAreas = std::move(next);
+    }
+
+    const VkDeviceSize jobBytes = VkDeviceSize(jobs.size()) * sizeof(uvec2);
+    if (m_spawnAreaJobs == nullptr || m_spawnAreaJobs->info().size < jobBytes) {
+      DxvkBufferCreateInfo info;
+      const VkDeviceSize previousSize = m_spawnAreaJobs != nullptr ? m_spawnAreaJobs->info().size : 0;
+      info.size = std::max({ VkDeviceSize(4096), jobBytes, previousSize * 2 });
+      info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      info.stages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+      info.access = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+      m_spawnAreaJobs = device->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, DxvkMemoryStats::Category::RTXBuffer, "Particle Spawn Area Jobs");
+    }
+
+    ctx->writeToBuffer(m_spawnAreaJobs, 0, jobBytes, jobs.data());
+    ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXTS_INPUT, DxvkBufferSlice(m_spawnContextsBuffer));
+    ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_SPAWN_AREA_JOBS, DxvkBufferSlice(m_spawnAreaJobs));
+    ctx->bindResourceBuffer(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_OUTPUT, DxvkBufferSlice(m_spawnAreas));
+    const uint32_t maxGroups = device->properties().core.properties.limits.maxComputeWorkGroupCount[0];
+    auto dispatch = [&](uint32_t firstJob, uint32_t count) {
+      const uint32_t width = std::min(maxGroups, count);
+      const uvec4 args{ firstJob, width, count, 0 };
+      ctx->pushConstants(0, sizeof(args), &args);
+      ctx->dispatch(width, (count + width - 1) / width, 1);
+    };
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ParticleSpawnAreas::getShader());
+    dispatch(0, buildJobCount);
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ParticleSpawnAreasFinish::getShader());
+    dispatch(buildJobCount, uint32_t(jobs.size()) - buildJobCount);
+  }
+
   void RtxParticleSystemManager::writeSpawnContextsToGpu(RtxContext* ctx) {
     if (!m_spawnContexts.size()) {
       return;
@@ -813,6 +1039,8 @@ namespace dxvk {
     const auto& instances = ctx->getSceneManager().getInstanceTable();
     std::optional<std::unordered_map<uint64_t, const RtInstance*>> movedEmitters;
     std::vector<GpuSpawnContext> gpuSpawnContexts(m_spawnContexts.size());
+    std::vector<uvec2> areaJobs;
+    std::vector<uvec2> areaFinalizers;
     for (auto spawnCtxIt = m_spawnContexts.begin(); spawnCtxIt != m_spawnContexts.end(); spawnCtxIt++) {
       const SpawnContext& spawnCtx = *spawnCtxIt;
       const uint32_t contextIdx = spawnCtxIt - m_spawnContexts.begin();
@@ -860,11 +1088,26 @@ namespace dxvk {
       gpuCtx.spawnMeshColorsStride = pTargetInstance->surface.color0Stride;
       gpuCtx.spawnMeshTexcoordsOffset = pTargetInstance->surface.texcoordOffset;
       gpuCtx.spawnMeshTexcoordsStride = pTargetInstance->surface.texcoordStride;
+      if (spawnCtx.areaWeighted) {
+        gpuCtx.areaDistributionOffset = kInvalidParticleAreaOffset;
+        if (prepareSpawnArea(*pTargetInstance, gpuCtx, currentFrameId)) {
+          const uint32_t blocks = particleAreaBlockCount(gpuCtx.numTriangles);
+          for (uint32_t block = 0; block < blocks; ++block) {
+            areaJobs.push_back({ contextIdx, block });
+          }
+          areaFinalizers.push_back({ contextIdx, 0u });
+        }
+      }
     }
 
     // Send data to GPU
 
     ctx->writeToBuffer(m_spawnContextsBuffer, 0, gpuSpawnContexts.size() * sizeof(GpuSpawnContext), gpuSpawnContexts.data());
+    if (!areaJobs.empty()) {
+      const uint32_t buildJobCount = uint32_t(areaJobs.size());
+      areaJobs.insert(areaJobs.end(), areaFinalizers.begin(), areaFinalizers.end());
+      buildSpawnAreas(ctx, areaJobs, buildJobCount);
+    }
 
     for (const auto& keyPair : m_particleSystems) {
       const ParticleSystem& particleSystem = *(keyPair.second.get());
@@ -1178,6 +1421,22 @@ namespace dxvk {
   void RtxParticleSystemManager::prepareForNextFrame() {
     // Spawn contexts dont persist across frames, this is because we want to support objects with unstable hashes.
     m_spawnContexts.clear();
+    const uint32_t frame = device()->getCurrentFrameId();
+    if ((frame & 31u) == 0 && !m_spawnAreaCache.empty()) {
+      for (auto entry = m_spawnAreaCache.begin(); entry != m_spawnAreaCache.end();) {
+        if (frame - entry->second.lastUsedFrame > 120) {
+          releaseSpawnArea(entry->second.range);
+          entry = m_spawnAreaCache.erase(entry);
+        } else {
+          ++entry;
+        }
+      }
+      if (m_spawnAreaCache.empty()) {
+        m_spawnAreas = nullptr;
+        m_spawnAreaJobs = nullptr;
+        m_spawnAreaBudgetWarning = false;
+      }
+    }
 
     // Signals which version of the vertex data we are on due to simulation
 

@@ -32,6 +32,11 @@
 layout(binding = GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
 SamplerState LinearWrapSampler;
 
+#ifdef WATER_SIM_SAMPLE
+[[vk::binding(GBUFFER_BINDING_WATER_SIMULATION)]]
+Texture2D<float4> WaterSimulation;
+#endif
+
 layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
 Sampler3D<float4> VolumeFilteredRadianceY;
 

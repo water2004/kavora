@@ -183,7 +183,8 @@ public class RemixAPI {
 
     public void submit(SubmitInfo info) {
         checkInitialized();
-        int result = RemixBridge.submit(info != null ? info.interopFlags : 0);
+        int result = RemixBridge.submit(info != null ? info.interopFlags : 0,
+                info != null ? info.waterSimulation : null);
         if (result != ErrorCode.SUCCESS) {
             throw new RemixException("Submit failed", result);
     }
@@ -298,13 +299,19 @@ public class RemixAPI {
                     subsurfacePtr);
         } else if (info.translucentExt != null) {
             MaterialInfoTranslucentEXT t = info.translucentExt;
-            return RemixBridge.allocTranslucentExt(
-                    t.transmittanceTexture, t.refractiveIndex,
-                    t.transmittanceColor.x, t.transmittanceColor.y,
-                    t.transmittanceColor.z,
-                    t.transmittanceMeasurementDistance,
-                    t.thinWallThickness_hasvalue != 0, t.thinWallThickness_value,
-                    t.useDiffuseLayer != 0, 0);
+            long water = t.simulatedWater ? RemixBridge.allocWaterSurfaceExt() : 0;
+            try {
+                return RemixBridge.allocTranslucentExt(
+                        t.transmittanceTexture, t.refractiveIndex,
+                        t.transmittanceColor.x, t.transmittanceColor.y,
+                        t.transmittanceColor.z,
+                        t.transmittanceMeasurementDistance,
+                        t.thinWallThickness_hasvalue != 0, t.thinWallThickness_value,
+                        t.useDiffuseLayer != 0, water);
+            } catch (RuntimeException | Error failure) {
+                RemixBridge.freeExt(water);
+                throw failure;
+            }
         }
         return 0;
     }

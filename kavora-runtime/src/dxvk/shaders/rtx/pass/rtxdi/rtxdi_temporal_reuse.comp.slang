@@ -89,7 +89,9 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
     RAB_SkipRandoms(rng, 1);
   }
 
-  const float3 virtualMotionVector = PrimaryVirtualMotionVector[compactedCoordinate].xyz;
+  const float4 motion = PrimaryVirtualMotionVector[compactedCoordinate];
+  const float3 virtualMotionVector = motion.xyz;
+  const bool historyValid = !cb.enableRaytracedRenderTarget || motion.w >= 0.0f;
   const float3 prevVirtualWorldPosition = surface.virtualWorldPosition + virtualMotionVector;
 
   float viewDirectionDotGeometryNormal = abs(dot(surface.minimalRayInteraction.viewDirection, surface.minimalSurfaceInteraction.geometryNormal));
@@ -97,7 +99,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
   RTXDI_TemporalResamplingParameters tparams;
   tparams.prevPixelCenter = prevPixelCenter;
   tparams.expectedPrevHitDistance = calculateExpectedPreviousHitDistance(cb.camera, prevVirtualWorldPosition);
-  tparams.virtualMotionVector = virtualMotionVector;
+  tparams.virtualMotionVector = cb.enableRaytracedRenderTarget && motion.w == 1.0f ? float3(0.0f) : virtualMotionVector;
   tparams.sourceBufferIndex = RTXDI_GetTemporalInputPage();
   tparams.maxHistoryLength = cb.enableRtxdiTemporalReuse ? cb.rtxdiMaxHistoryLength : 0;
   tparams.biasCorrectionMode = cb.enableRtxdiTemporalBiasCorrection ? 
@@ -107,7 +109,7 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
     : RTXDI_BIAS_CORRECTION_OFF;
   tparams.depthThreshold = 0.01 / max(viewDirectionDotGeometryNormal, 0.01);
   tparams.normalThreshold = 0.8;
-  tparams.discardEnlargedPixels = cb.enableRtxdiDiscardEnlargedPixels;
+  tparams.discardEnlargedPixels = cb.enableRtxdiDiscardEnlargedPixels && (!cb.enableRaytracedRenderTarget || motion.w == 0.0f);
   tparams.discardInvisibleSamples = cb.enableRtxdiDiscardInvisibleSamples;
   tparams.enablePermutationSampling = cb.enableRtxdiPermutationSampling;
 #if RTXDI_NO_PORTALS
@@ -117,9 +119,11 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
 #endif
   tparams.uniformRandomNumber = cb.uniformRandomNumber;
 
-  int2 temporalSamplePixelPos;
-  bool isGBufferSimilar;
-  RTXDI_TemporalResampling(state, pixelCoordinate, surface, rng, tparams, temporalSamplePixelPos, isGBufferSimilar);
+  int2 temporalSamplePixelPos = -1;
+  bool isGBufferSimilar = false;
+  if (historyValid) {
+    RTXDI_TemporalResampling(state, pixelCoordinate, surface, rng, tparams, temporalSamplePixelPos, isGBufferSimilar);
+  }
 
   float currentReprojectionConfidence = 0;
   if (isGBufferSimilar)
@@ -127,7 +131,9 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
     currentReprojectionConfidence = ReprojectionConfidence[temporalSamplePixelPos];
   }
 
-  currentReprojectionConfidence = min(currentReprojectionConfidence + 1.f / kReprojectionConfidenceHistoryLength, 1.f);
+  if (historyValid) {
+    currentReprojectionConfidence = min(currentReprojectionConfidence + 1.f / kReprojectionConfidenceHistoryLength, 1.f);
+  }
   ReprojectionConfidence[pixelCoordinate] = currentReprojectionConfidence;
 
   // Remember which pixel the temporal reservoir belongs to, if it comes from a valid reprojection.

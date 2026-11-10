@@ -16,6 +16,7 @@ public class MaterialInfoTranslucentEXT {
     public int thinWallThickness_hasvalue = 0;
     public float thinWallThickness_value = 0.001f;
     public int useDiffuseLayer = 0;
+    public boolean simulatedWater;
 
     public MaterialInfoTranslucentEXT() {}
 
@@ -27,6 +28,7 @@ public class MaterialInfoTranslucentEXT {
         private boolean useThinWall = false;
         private float thinWallThickness = 0.001f;
         private boolean useDiffuseLayer = false;
+        private boolean simulatedWater;
 
         /**
          * Sets the refractive index of the material.
@@ -79,6 +81,11 @@ public class MaterialInfoTranslucentEXT {
             return this;
         }
 
+        public Builder simulatedWater(boolean enable) {
+            this.simulatedWater = enable;
+            return this;
+        }
+
         public MaterialInfoTranslucentEXT build() {
             MaterialInfoTranslucentEXT ext = new MaterialInfoTranslucentEXT();
             ext.transmittanceTexture = this.transmittanceTexture;
@@ -88,6 +95,7 @@ public class MaterialInfoTranslucentEXT {
             ext.thinWallThickness_hasvalue = this.useThinWall ? 1 : 0;
             ext.thinWallThickness_value = this.thinWallThickness;
             ext.useDiffuseLayer = this.useDiffuseLayer ? 1 : 0;
+            ext.simulatedWater = this.simulatedWater;
             return ext;
         }
     }

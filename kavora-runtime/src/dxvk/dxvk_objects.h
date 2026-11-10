@@ -58,6 +58,9 @@
 #include "rtx_render/rtx_reflex.h"
 #include "rtx_render/rtx_game_capturer.h"
 #include "rtx_render/rtx_dust_particles.h"
+// NV-DXVK start: Own the water simulation on the runtime device.
+#include "rtx_render/rtx_water_sim.h"
+// NV-DXVK end
 #include "rtx_render/rtx_particle_system.h"
 #include "rtx_render/rtx_point_instancer_system.h"
 #include "rtx_render/rtx_gpu_crash.h"
@@ -333,6 +336,12 @@ namespace dxvk {
       return m_dustParticles.get(m_device);
     }
 
+    // NV-DXVK start: Access the device-owned water simulation.
+    RtxWaterSimulation& waterSimulation() {
+      return m_waterSimulation.get(m_device);
+    }
+    // NV-DXVK end
+
     RtxParticleSystemManager& metaParticleSystem() {
       return m_particleSystem.get(m_device);
     }
@@ -422,6 +431,9 @@ namespace dxvk {
     Active<DxvkSRGBDither>                  m_srgbDither;
     Lazy<RtxReflex>                         m_reflex;
     Lazy<RtxDustParticles>                  m_dustParticles;
+    // NV-DXVK start: Retain the water clipmap with the device.
+    Lazy<RtxWaterSimulation>                m_waterSimulation;
+    // NV-DXVK end
     Lazy<RtxParticleSystemManager>          m_particleSystem;
     Lazy<RtxPointInstancerSystem>            m_pointInstancerSystem;
 

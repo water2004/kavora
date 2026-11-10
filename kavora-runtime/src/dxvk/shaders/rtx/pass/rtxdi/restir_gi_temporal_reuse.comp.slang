@@ -194,7 +194,12 @@ void main(int2 thread_id : SV_DispatchThreadID)
   // Reprojection
   // Note: Camera jittering not used for RTXDI. Also not using Ray and rayEvaluate here due to Ray using 16 bit
   // directions currently until we have a way to differentiate that on a per-instance basis (via generics).
-  const float3 virtualMotionVector = PrimaryVirtualMotionVector[thread_id].xyz;
+  const float4 motion = PrimaryVirtualMotionVector[thread_id];
+  if (cb.enableRaytracedRenderTarget && motion.w < 0.0f) {
+    RAB_StoreGIReservoir(inputReservoir, thread_id, ReSTIRGI_GetTemporalOutputPage());
+    return;
+  }
+  const float3 virtualMotionVector = motion.xyz;
   const float3 prevVirtualWorldPosition = surface.virtualWorldPosition + virtualMotionVector;
 
   vec4 prevNDC = mul(camera.prevWorldToProjection, vec4(prevVirtualWorldPosition, 1.0f));

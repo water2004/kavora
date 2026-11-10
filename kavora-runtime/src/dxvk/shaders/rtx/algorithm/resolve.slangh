@@ -369,6 +369,10 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
 
     isRaytracedRenderTarget = cb.enableRaytracedRenderTarget &&
       (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_FLAG_IS_RAYTRACED_RENDER_TARGET);
+    if (isRaytracedRenderTarget && opacity <= 0.0f && resolveVertexState.continueResolving) {
+      resolveVertexFinalContinue(ray, surfaceInteraction, teleport, teleportMatrix, resolveVertexState);
+      return 1.0f;
+    }
     opaqueHit = surface.isFullyOpaque || opacity >= cb.resolveOpaquenessThreshold;
     const bool approximate = !isRaytracedRenderTarget && !opaqueHit &&
       !separateUnorderedApproximations && usesOpaqueApproximation(resolveMode, surface);

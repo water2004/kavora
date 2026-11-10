@@ -22,6 +22,9 @@
 #pragma once
 
 #include "rtx/concept/surface_material/water_normal_coordinates.slangh"
+#ifdef WATER_SIM_SAMPLE
+#include "rtx/concept/surface_material/water_sim_surface.slangh"
+#endif
 
 // Translucent Surface Material Interaction Helper Functions
 
@@ -105,6 +108,19 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
     normal = normalize(mul(tangentToWorld, tangentNormal));
   }
 
+  bool simulatedWater = false;
+#ifdef WATER_SIM_SAMPLE
+  if (cb.waterSimulation.w && (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)) {
+    const float normalUp = cb.isZUp ? surfaceInteraction.triangleNormal.z : surfaceInteraction.triangleNormal.y;
+    if (abs(normalUp) > 0.55f) {
+      const float3 wave = sampleWaterSimulation(surfaceInteraction.position);
+      const float3 gradient = cb.isZUp ? float3(wave.yz, 0.0f) : float3(wave.y, 0.0f, wave.z);
+      normal = normalize(normal - gradient * normalUp);
+      simulatedWater = any(abs(wave) > 1e-4f);
+    }
+  }
+#endif
+
   // Note: Diffuse layer override encapsulated in if the diffuse layer flag is set or not as this override is able to be done on the CPU.
   const bool useDiffuseLayer = translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER;
 
@@ -152,7 +168,7 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
 
   // Transform to desired Translucent Material Interaction values
 
-  translucentSurfaceMaterialInteraction.isAnimatedWater = surface.isAnimatedWater;
+  translucentSurfaceMaterialInteraction.isAnimatedWater = surface.isAnimatedWater || simulatedWater;
   translucentSurfaceMaterialInteraction.shadingNormal = getBentNormal(surfaceInteraction.geometryNormal, normal, -minimalRayInteraction.viewDirection);
   translucentSurfaceMaterialInteraction.normalDetail = float(1.0 - dot(float3(translucentSurfaceMaterialInteraction.shadingNormal), float3(surfaceInteraction.geometryNormal)));
   translucentSurfaceMaterialInteraction.baseReflectivity = translucentSurfaceMaterial.baseReflectivity;
@@ -282,7 +298,8 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   }
 
   translucentSurfaceMaterialInteraction.flags =
-    (useDiffuseLayer ? TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER : 0);
+    (useDiffuseLayer ? TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER : 0) |
+    (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER);
 
   return translucentSurfaceMaterialInteraction;
 }

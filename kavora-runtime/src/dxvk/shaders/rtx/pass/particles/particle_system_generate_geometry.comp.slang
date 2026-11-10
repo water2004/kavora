@@ -138,10 +138,15 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
   const GpuParticle particle = Particles[particleIdx];
   
   // precache some values
-  const float2 size = particle.size(particleSystem, animationDataTex) * particleCb.sceneScale;
-  const float4 color = particle.color(particleSystem, animationDataTex);
+  float2 size = particle.size(particleSystem, animationDataTex) * particleCb.sceneScale;
+  float4 color = particle.color(particleSystem, animationDataTex);
+  const float minScreenSize = sanitize(max(0.0f, particleSystem.desc.minScreenSize), 0.0f);
+  const float maxScreenSize = sanitize(max(0.0f, particleSystem.desc.maxScreenSize), 0.0f);
+  const bool hasScreenSizeBounds = minScreenSize > 0.0f || maxScreenSize > 0.0f;
   
-  if(particle.isDead() || particle.isSleeping() || particle.isRejectedSpawn() || color.w < particleCb.resolveTransparencyThreshold || max(size.x, size.y) < 0.1f * particleCb.sceneScale)
+  if (particle.isDead() || particle.isSleeping() || particle.isRejectedSpawn() ||
+      color.w < particleCb.resolveTransparencyThreshold ||
+      (!hasScreenSizeBounds && max(size.x, size.y) < 0.1f * particleCb.sceneScale))
   {
     clearParticleVertices(threadIdx.x, particleSystem);
     return;
@@ -194,7 +199,8 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
     } break;
   }
   
-  // Screen-space size culling
+  // Keep the legacy culling path for emitters without authored bounds.
+  if (!hasScreenSizeBounds)
   {
     float4 centerClip = mul(particleCb.prevWorldToProjection, float4(particle.position, 1.0f));
     float4 offsetClip = mul(particleCb.prevWorldToProjection, float4(particle.position + basisRight * size.x + basisUp * size.y, 1.0f));
@@ -224,8 +230,60 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
     sincos(particle.rotation, s, c);
     rot2D = float2x2(c, -s, s, c);
   }
-  
-  
+
+  float2 trailDirection = float2(0.0f, 1.0f);
+  float2 trailRight = float2(-1.0f, 0.0f);
+  float trailLength = 0.0f;
+  if (particleSystem.desc.enableMotionTrail) {
+    const float2 motion = -float2(dot(particle.velocity, basisRight), dot(particle.velocity, basisUp));
+    const float speed = length(motion);
+    if (speed > 0.0f) {
+      trailDirection = motion / speed;
+      trailRight = float2(-trailDirection.y, trailDirection.x);
+    }
+    trailLength = speed * particleSystem.desc.motionTrailMultiplier * particleCb.deltaTimeSecs;
+  }
+
+  if (hasScreenSizeBounds) {
+    const float4 center = mul(particleCb.worldToProjection, float4(particle.position, 1.0f));
+    if (!all(isfinite(center)) || !all(isfinite(size)) || any(size <= 0.0f) || color.w <= 0.0f) {
+      clearParticleVertices(threadIdx.x, particleSystem);
+      return;
+    }
+
+    // Behind-camera particles remain visible to secondary rays at their world size.
+    if (center.w > 1e-5f) {
+      const float2 right = particleSystem.desc.enableMotionTrail ? trailRight : mul(rot2D, float2(1.0f, 0.0f));
+      const float2 up = particleSystem.desc.enableMotionTrail ? trailDirection : mul(rot2D, float2(0.0f, 1.0f));
+      const float4 rightClip = mul(particleCb.worldToProjection, float4((basisRight * right.x + basisUp * right.y) * size.x, 0.0f));
+      const float4 upClip = mul(particleCb.worldToProjection, float4((basisRight * up.x + basisUp * up.y) * size.y, 0.0f));
+      const float2 centerNdc = center.xy / center.w;
+      const float2 pixelScale = 0.5f * float2(particleCb.renderingWidth, particleCb.renderingHeight) / center.w;
+      const float2 projectedRight = (rightClip.xy - centerNdc * rightClip.w) * pixelScale;
+      const float2 projectedUp = (upClip.xy - centerNdc * upClip.w) * pixelScale;
+      const float longestEdge = sqrt(max(dot(projectedRight, projectedRight), dot(projectedUp, projectedUp)));
+      if (!isfinite(longestEdge) || longestEdge <= 0.0f) {
+        clearParticleVertices(threadIdx.x, particleSystem);
+        return;
+      }
+
+      const float target = maxScreenSize > 0.0f
+        ? clamp(longestEdge, minScreenSize, max(minScreenSize, maxScreenSize))
+        : max(longestEdge, minScreenSize);
+      const float scale = target / longestEdge;
+      if (!isfinite(scale) || !all(isfinite(size * scale))) {
+        clearParticleVertices(threadIdx.x, particleSystem);
+        return;
+      }
+      if (scale > 1.0f) {
+        const float areaRatio = (size.y + trailLength) / ((size.y * scale + trailLength) * scale);
+        const float coverage = saturate(sanitize(particleSystem.desc.screenSizeCoverage, 1.0f));
+        color.w *= pow(areaRatio, coverage);
+      }
+      size *= scale;
+    }
+  }
+
   float2 baseUvMin = particle.uvMinMax.xy;
   float2 baseUvMax = particle.uvMinMax.zw;
 
@@ -281,24 +339,16 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
     
     if (particleSystem.desc.enableMotionTrail) 
     {
-      // project velocity into billboard plane
-      float2 motionPlane = -float2(dot(particle.velocity, basisRight), dot(particle.velocity, basisUp));
-      float speed = length(motionPlane);
-
-      // forward axis & width axis
-      float2 motionDir = speed > 0 ? motionPlane / speed : float2(0, 1);
-      float2 orthoDir  = float2(-motionDir.y, motionDir.x);
-
       float width = offset.x * size.x;
 
       // indices 0..3 -> tail
       // indices 4..7 -> head
-      float len = (i >= 4) ? (speed * particleSystem.desc.motionTrailMultiplier * particleCb.deltaTimeSecs) : 0;                                       
+      float len = (i >= 4) ? trailLength : 0;
       
       float height = offset.y * size.y + len;
       
       // reconstruct world space offset
-      float2 planeOffset = width * orthoDir + height * motionDir;
+      float2 planeOffset = width * trailRight + height * trailDirection;
       worldOffset = planeOffset.x * basisRight + planeOffset.y * basisUp;
     } 
     else 

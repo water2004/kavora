@@ -14,6 +14,7 @@ public class SubmitInfo {
     public static final int DISABLE_QUEUE_SUBMIT            = 1 << 2;
 
     public int interopFlags; // see remixapi_SubmitInteropFlagBit
+    public WaterSimulationFrame waterSimulation;
 
     public SubmitInfo() {}
 }

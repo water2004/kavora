@@ -185,6 +185,7 @@ namespace dxvk {
       ScopedGpuProfileZone(ctx, "Prepare DLSS");
 
       RayReconstructionArgs constants = { };
+      constants.enableRaytracedRenderTarget = rtOutput.m_raytraceArgs.enableRaytracedRenderTarget;
       constants.camera = sceneManager.getCamera().getShaderConstants();
       constants.debugView = rtOutput.m_raytraceArgs.debugView;
       constants.debugKnob = rtOutput.m_raytraceArgs.debugKnob;

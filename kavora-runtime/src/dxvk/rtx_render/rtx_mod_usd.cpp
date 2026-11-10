@@ -1109,6 +1109,12 @@ std::optional<RtxParticleSystemDesc> UsdMod::Impl::processParticleSystem(Args& a
   _SafeGetParticlePrimvar(float, id, initialVelocityFromMotion, particleInfo.);
   _SafeGetParticlePrimvar(int, id, maxNumParticles, particleInfo.);
   _SafeGetParticlePrimvar(TfToken, id, billboardType, particleInfo.);
+  _SafeGetParticlePrimvar(float, id, minScreenSize, particleInfo.);
+  _SafeGetParticlePrimvar(float, id, maxScreenSize, particleInfo.);
+  _SafeGetParticlePrimvar(float, id, screenSizeCoverage, particleInfo.);
+  pxr::TfToken spawnDistribution;
+  _SafeGetParticlePrimvar(TfToken, id, spawnDistribution, );
+  particleInfo.spawnBySurfaceArea = spawnDistribution == pxr::TfToken("BySurfaceArea");
   _SafeGetParticlePrimvar(TfToken, id, spriteSheetMode, particleInfo.);
   _SafeGetParticlePrimvar(TfToken, id, collisionMode, particleInfo.);
   _SafeGetParticlePrimvar(TfToken, id, randomFlipAxis, particleInfo.);

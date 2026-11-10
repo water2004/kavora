@@ -37,7 +37,12 @@ public final class KavoraFramePresentation implements AutoCloseable {
 
     /** Seals the scene after capture and makes its producer signal available to the host. */
     public void submitScene() {
+        submit.waterSimulation = KavoraWaterRipples.pendingFrame();
         api.submit(submit);
+        if (submit.waterSimulation != null) {
+            KavoraWaterRipples.submitted();
+            submit.waterSimulation = null;
+        }
         submitted = true;
     }
 

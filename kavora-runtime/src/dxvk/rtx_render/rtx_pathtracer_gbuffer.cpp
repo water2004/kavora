@@ -91,6 +91,7 @@ namespace dxvk {
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_INPUT)
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_OUTPUT)
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
+        TEXTURE2D(GBUFFER_BINDING_WATER_SIMULATION)
 
         SAMPLER3D(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
         SAMPLER3D(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT)
@@ -817,6 +818,7 @@ namespace dxvk {
       VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
     ctx->bindResourceSampler(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER, linearWrapSampler);
+    ctx->bindResourceView(GBUFFER_BINDING_WATER_SIMULATION, ctx->getCommonObjects()->waterSimulation().view(), nullptr);
 
     // These resources give each pixel's slot in the compacted GBuffer. They are null when sparse rendering is inactive,
     // in which case DXVK substitutes a null descriptor.

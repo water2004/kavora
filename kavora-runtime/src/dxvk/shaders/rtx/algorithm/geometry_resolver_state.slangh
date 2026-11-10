@@ -24,6 +24,7 @@
 #include "rtx/pass/nrc/nrc_integrator_utilities.slangh"
 #include "rtx/concept/ray_portal/ray_portal.slangh"
 #include "rtx/utility/packing.slangh"
+#include "rtx/algorithm/camera_transport.slangh"
 #include "rtx/utility/common.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi_reservoir_pages.slangh"
 #include "rtxdi/RtxdiHelpers.slangh"
@@ -264,6 +265,9 @@ struct GeometryPSRResolverState : IBasePayloadState
   uint8_t bounceIteration;
   f16vec3 attenuation;
   u16vec2 _compactedCoordinate;
+  uint2 renderTargetTriangle;
+  vec2 renderTargetTile;
+  float renderTargetScreenDistance;
 
   // Property to get pixel coordinate
   property u16vec2 pixelCoordinate
@@ -398,6 +402,12 @@ struct GeometryPSRResolverState : IBasePayloadState
     set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 11, newValue); }
   }
 
+  property bool renderTargetPath
+  {
+    get { return packedFlagGet(_encodedFlags, 1 << 12); }
+    set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 12, newValue); }
+  }
+
   property bool directionAltered
   {
       get { return false; }
@@ -443,6 +453,8 @@ struct GbufferPSRData
   uint mediumMaterialIndexAndGeometryFlags;
 };
 
+static const uint kPSRRenderTargetPath = 1u << (SURFACE_INDEX_BIT_COUNT + 6);
+
 // Encodes various PSR data into storage formats
 // Note: mediumMaterialIndex occupies 21 bits (SURFACE_INDEX_BIT_COUNT), leaving 11 bits for
 // geometry flag data.  Only portalSpace (2 bits) and objectMask dynamic bits (4 bits) are
@@ -460,7 +472,7 @@ GbufferPSRData packPSRData(Ray sampledRay, uint mediumMaterialIndex, f16vec3 att
     (mediumMaterialIndex & SURFACE_INDEX_MAX_VALUE) |
     (portalSpaceBits << SURFACE_INDEX_BIT_COUNT) |
     (objectMaskDynBits << (SURFACE_INDEX_BIT_COUNT + 2));
-  psrData.attenuation = colorToR11G11B10(attenuation);
+  psrData.attenuation = packSceneAttenuation(attenuation, cb.enableRaytracedRenderTarget);
   psrData.encodedAccumulatedRotation = packFloat4x16(accumulatedRotation);
   return psrData;
 }
@@ -470,7 +482,7 @@ void unpackPSRData(GbufferPSRData psrData, inout GeometryPSRResolverState geomet
 {
   geometryPSRResolverState.origin = uintBitsToFloat(psrData.origin);
   geometryPSRResolverState.direction = snorm2x16ToSphereDirection(psrData.encodedDirection);
-  geometryPSRResolverState.attenuation = r11g11b10ToColor(psrData.attenuation);
+  geometryPSRResolverState.attenuation = unpackSceneAttenuation(psrData.attenuation, cb.enableRaytracedRenderTarget);
   geometryPSRResolverState.accumulatedRotation = unpackFloat4x16(psrData.encodedAccumulatedRotation);
   geometryPSRResolverState.mediumMaterialIndex = psrData.mediumMaterialIndexAndGeometryFlags & SURFACE_INDEX_MAX_VALUE;
   geometryPSRResolverState.insideMedium = geometryPSRResolverState.mediumMaterialIndex != SURFACE_INDEX_INVALID;

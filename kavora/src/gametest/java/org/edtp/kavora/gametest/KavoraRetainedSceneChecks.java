@@ -5,6 +5,9 @@
 package org.edtp.kavora.gametest;
 
 import org.edtp.kavora.sdk.HardcodedVertex;
+import org.edtp.kavora.sdk.CameraInfo;
+import org.edtp.kavora.sdk.CameraInfoParameterizedEXT;
+import org.edtp.kavora.sdk.CameraType;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.MaterialInfo;
 import org.edtp.kavora.sdk.MaterialInfoOpaqueEXT;
@@ -20,6 +23,8 @@ import org.edtp.kavora.sdk.TexturePatch;
 import org.edtp.kavora.sdk.TexturePatchInfo;
 import org.edtp.kavora.sdk.Transform;
 import org.edtp.kavora.KavoraMod;
+import org.edtp.kavora.render.KavoraWaterRipples;
+import org.joml.Quaternionf;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -51,6 +56,13 @@ final class KavoraRetainedSceneChecks {
                     "Retained scene camera teleport failed");
         });
         context.waitFor(client -> Math.abs(client.player.getY() - 120.38) < 0.01, 200);
+        boolean liveCamera = Boolean.getBoolean("kavora.gametest.liveCameraFixture");
+        boolean waterSimulation = Boolean.getBoolean("kavora.gametest.waterSimulationFixture");
+        boolean particleArea = Boolean.getBoolean("kavora.gametest.particleAreaFixture");
+        if (liveCamera) checkLiveCamera(context);
+        if (particleArea) checkParticleArea(context);
+        if (waterSimulation) checkWaterSimulation(context, world);
+        if (liveCamera || waterSimulation || particleArea) return;
         if (Boolean.getBoolean("kavora.gametest.pomSilhouetteFixture")) {
             checkPomTransmissionSilhouette(context);
             return;
@@ -156,6 +168,199 @@ final class KavoraRetainedSceneChecks {
                 }
                 return true;
             }, 100);
+        }
+    }
+
+    private static void checkLiveCamera(ClientGameTestContext context) {
+        String debug = "rtx.debugView.debugViewIdx";
+        String firstHit = "rtx.debugView.showFirstGBufferHit";
+        String override = "rtx.debugView.replaceCompositeOutput";
+        String reprojection = "rtx.raytracedRenderTarget.reproject";
+        Map<String, String> previous = context.computeOnClient(client ->
+                Map.of(debug, api().getConfigVariableResolved(debug), firstHit, api().getConfigVariableResolved(firstHit),
+                        override, api().getConfigVariableResolved(override), reprojection, api().getConfigVariableResolved(reprojection),
+                        OPTIONS[4], api().getConfigVariableResolved(OPTIONS[4])));
+        long[] material = new long[2], mesh = new long[2], instance = new long[2];
+        try {
+            context.runOnClient(client -> {
+                api().setConfigVariable(debug, "32");
+                api().setConfigVariable(firstHit, "False");
+                api().setConfigVariable(override, "False");
+                api().setConfigVariable(reprojection, "True");
+                api().setConfigVariable(OPTIONS[4], "1");
+                for (int i = 0; i < material.length; i++) {
+                    material[i] = api().createMaterial(material(0x7f0a0 + i, 1 - i, i, 0));
+                    mesh[i] = api().createMesh(MeshInfo.builder().hash(0x7f0b0 + i)
+                            .surfaces(new MeshInfoSurfaceTriangles[]{quad(material[i], -1.2f, 1.2f, false)}).build());
+                    instance[i] = api().sceneInstanceAdd(mesh[i], transform(i * 12f, 122f),
+                            i == 0 ? InstanceCategoryBit.LIVE_CAMERA : 0, 1, 0);
+                }
+            });
+            Pixels inactive = capture(context, "live-camera-inactive");
+            var camera = CameraInfo.builder().type(CameraType.RENDER_TARGET)
+                    .parameterizedExt(CameraInfoParameterizedEXT.builder().position(12, 122, -1.6f)
+                            .fovYInDegrees(32).aspect(2).build()).build();
+            context.runOnClient(client -> KavoraFrameProbe.frameAction = frame -> api().setupCamera(camera));
+            Pixels active = capture(context, "live-camera-active");
+            require(inactive.red() > 100 && active.green() > 100 && active.red() < inactive.red() / 2,
+                    "Screen did not display its live camera: " + inactive + " -> " + active);
+
+            context.runOnClient(client -> api().setConfigVariable(debug, "21"));
+            double staticMotion = centerRed(frame(context, "live-camera-motion-valid"));
+            context.runOnClient(client -> api().setConfigVariable(reprojection, "False"));
+            double rejectedMotion = centerRed(frame(context, "live-camera-motion-rejected"));
+            require(staticMotion < 36 && rejectedMotion > 220,
+                    "Screen motion did not distinguish static and rejected history: " + staticMotion + " -> " + rejectedMotion);
+            context.runOnClient(client -> {
+                api().setConfigVariable(reprojection, "True");
+                KavoraFrameProbe.frameAction = frame -> {
+                    camera.parameterizedExt.position.x = (frame & 1) == 0 ? 11.9985f : 12.0015f;
+                    api().setupCamera(camera);
+                };
+            });
+            double movingMotion = centerRed(frame(context, "live-camera-motion-moving"));
+            require(movingMotion > staticMotion + 20 && movingMotion < rejectedMotion - 20,
+                    "The remote camera's motion did not reach the screen: " + movingMotion);
+        } finally {
+            context.runOnClient(client -> {
+                KavoraFrameProbe.frameAction = null;
+                for (long handle : instance) if (handle != 0) api().sceneInstanceRemove(handle);
+                for (long handle : mesh) if (handle != 0) api().destroyMesh(handle);
+                for (long handle : material) if (handle != 0) api().destroyMaterial(handle);
+                previous.forEach(api()::setConfigVariable);
+            });
+        }
+    }
+
+    private static double centerRed(BufferedImage image) {
+        int width = image.getWidth(), height = image.getHeight();
+        long red = 0, count = 0;
+        for (int y = height * 47 / 100; y < height * 53 / 100; y++) {
+            for (int x = width * 47 / 100; x < width * 53 / 100; x++) {
+                red += image.getRGB(x, y) >>> 16 & 255;
+                count++;
+            }
+        }
+        return (double) red / count;
+    }
+
+    private static void checkParticleArea(ClientGameTestContext context) {
+        String preset = "rtx.particles.globalPreset.";
+        Map<String, String> options = Map.ofEntries(
+                Map.entry(OPTIONS[1], "32"), Map.entry(OPTIONS[2], "False"), Map.entry(OPTIONS[3], "False"),
+                Map.entry("rtx.particles.enable", "True"), Map.entry("rtx.particles.enableSpawning", "True"),
+                Map.entry(preset + "spawnBySurfaceArea", "True"), Map.entry(preset + "spawnRatePerSecond", "192"),
+                Map.entry(preset + "numberOfParticlesPerMaterial", "4096"),
+                Map.entry(preset + "minParticleLife", "30"), Map.entry(preset + "maxParticleLife", "30"),
+                Map.entry(preset + "minScreenSize", "4"), Map.entry(preset + "maxScreenSize", "4"),
+                Map.entry(preset + "screenSizeCoverage", "0"));
+        var previous = new HashMap<String, String>();
+        long[] handles = new long[3];
+        try {
+            context.runOnClient(client -> {
+                options.forEach((key, value) -> {
+                    previous.put(key, api().getConfigVariableResolved(key));
+                    api().setConfigVariable(key, value);
+                });
+                handles[0] = api().createMaterial(material(0x7f0d0, 0, 1, 0));
+                MeshInfoSurfaceTriangles emitter = new MeshInfoSurfaceTriangles();
+                emitter.material = handles[0];
+                emitter.vertexCount = emitter.indexCount = 6;
+                emitter.vertexBuffer = ByteBuffer.allocateDirect(6 * HardcodedVertex.STRIDE).order(ByteOrder.nativeOrder());
+                emitter.indexBuffer = ByteBuffer.allocateDirect(6 * Integer.BYTES).order(ByteOrder.nativeOrder());
+                float[][] points = {{-2.1f, -.35f}, {-1.7f, -.35f}, {-1.9f, .05f},
+                        {.6f, -.6f}, {2.6f, -.6f}, {1.6f, .8f}};
+                for (int i = 0; i < points.length; i++) {
+                    HardcodedVertex.create(points[i][0], points[i][1], 0, 0, 0, -1,
+                            0, 0, -1).writeTo(emitter.vertexBuffer);
+                    emitter.indexBuffer.putInt(i);
+                }
+                emitter.vertexBuffer.flip();
+                emitter.indexBuffer.flip();
+                handles[1] = api().createMesh(MeshInfo.builder().hash(0x7f0d1)
+                        .surfaces(new MeshInfoSurfaceTriangles[]{emitter}).build());
+                handles[2] = api().sceneInstanceAdd(handles[1], transform(0, 122f), InstanceCategoryBit.PARTICLE_EMITTER, 1, 0);
+            });
+            long frame = context.computeOnClient(client -> KavoraFrameProbe.presents);
+            context.waitFor(client -> KavoraFrameProbe.presents >= frame + 32, 200);
+            context.runOnClient(client -> {
+                api().sceneInstanceRemove(handles[2]);
+                handles[2] = 0;
+            });
+            BufferedImage particles = frame(context, "particles-area-weighted");
+            int large = 0, small = 0;
+            int width = particles.getWidth(), height = particles.getHeight();
+            for (int y = height / 3; y < 2 * height / 3; y++) {
+                for (int x = width / 4; x < 3 * width / 4; x++) {
+                    int rgb = particles.getRGB(x, y);
+                    int r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
+                    if (g <= r + 100 || g <= b + 100) continue;
+                    if (x < width / 2) large++;
+                    else small++;
+                }
+            }
+            require(large > 70 && large > small * 2,
+                    "Area-weighted particles did not favor the large triangle: " + large + " vs " + small);
+        } finally {
+            context.runOnClient(client -> {
+                if (handles[2] != 0) api().sceneInstanceRemove(handles[2]);
+                if (handles[1] != 0) api().destroyMesh(handles[1]);
+                if (handles[0] != 0) api().destroyMaterial(handles[0]);
+                previous.forEach(api()::setConfigVariable);
+            });
+        }
+    }
+
+    private static void checkWaterSimulation(ClientGameTestContext context, TestSingleplayerContext world) {
+        String toggle = "rtx.waterSim.enable";
+        Map<String, String> options = Map.of(toggle, "True", OPTIONS[1], "16", OPTIONS[2], "True",
+                OPTIONS[3], "False", OPTIONS[4], "1", "rtx.integrateIndirectMode", "0",
+                "rtx.sparseRendering.enableSparseRendering", "False", "rtx.gbuffer.logDispatch", "True");
+        var previous = new HashMap<String, String>();
+        long[] handles = new long[3];
+        world.getServer().runOnServer(server -> {
+            var player = server.getPlayerList().getPlayers().getFirst();
+            require(player.teleportTo(server.overworld(), 0, 120.38, -7, Set.of(), 0, 8, true),
+                    "Water fixture camera teleport failed");
+        });
+        context.waitFor(client -> Math.abs(client.player.getXRot() - 8) < 0.1f, 200);
+        try {
+            context.runOnClient(client -> {
+                options.forEach((key, value) -> {
+                    previous.put(key, api().getConfigVariableResolved(key));
+                    api().setConfigVariable(key, value);
+                });
+                handles[0] = api().createMaterial(MaterialInfo.builder().hash(0x7f0c0)
+                        .translucentExt(MaterialInfoTranslucentEXT.builder()
+                                .simulatedWater(true).transmittanceColor(1, 1, 1).build()).build());
+                handles[1] = api().createMesh(MeshInfo.builder().hash(0x7f0c1)
+                        .surfaces(new MeshInfoSurfaceTriangles[]{quad(handles[0], -1.2f, 1.2f, false)}).build());
+                Transform transform = Transform.fromTRS(0, 121.1f, -1,
+                        new Quaternionf().rotateX((float) (Math.PI / 2)), 4);
+                handles[2] = api().sceneInstanceAdd(handles[1], transform.matrix, 0, 1, 0);
+                KavoraWaterRipples.reset();
+            });
+            BufferedImage flat = frame(context, "water-flat");
+            context.runOnClient(client -> KavoraFrameProbe.frameAction = frame -> KavoraWaterRipples.splash(0, 121.1f, -1));
+            BufferedImage disturbed = frame(context, "water-disturbed");
+            int changed = 0;
+            int width = flat.getWidth(), height = flat.getHeight();
+            for (int y = height / 3; y < 2 * height / 3; y++) {
+                for (int x = width / 3; x < 2 * width / 3; x++) {
+                    int a = flat.getRGB(x, y), b = disturbed.getRGB(x, y);
+                    if (Math.abs((a >>> 16 & 255) - (b >>> 16 & 255)) + Math.abs((a & 255) - (b & 255)) > 12) changed++;
+                }
+            }
+            require(changed > 100, "Water disturbances did not change the water normals: " + changed);
+        } finally {
+            context.runOnClient(client -> {
+                KavoraFrameProbe.frameAction = null;
+                KavoraWaterRipples.reset();
+                if (handles[2] != 0) api().sceneInstanceRemove(handles[2]);
+                if (handles[1] != 0) api().destroyMesh(handles[1]);
+                if (handles[0] != 0) api().destroyMaterial(handles[0]);
+                previous.forEach(api()::setConfigVariable);
+            });
         }
     }
 

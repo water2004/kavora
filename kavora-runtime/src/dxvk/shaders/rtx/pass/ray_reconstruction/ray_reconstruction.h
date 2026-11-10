@@ -68,7 +68,7 @@ struct RayReconstructionArgs {
   float upscalerRoughnessDemodulationOffset;
   uint debugView;
 
-  uint pad0;
+  uint enableRaytracedRenderTarget;
   uint frameIdx;
   float rcpSquaredDisocclusionMaskBlurGaussianWeightSigma;
   uint enableDisocclusionMaskBlur;

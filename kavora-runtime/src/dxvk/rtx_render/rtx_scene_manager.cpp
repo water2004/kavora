@@ -308,6 +308,10 @@ namespace dxvk {
     // The surface material cache must still be valid here so those releases are not
     // silently skipped by the bounds check in releaseSurfaceMaterial.
     m_instanceManager.clear();
+    assert(m_simulatedWaterCount == 0);
+    m_simulatedWaterCount = 0;
+    m_device->getCommon()->waterSimulation().addImpulses(nullptr, 0, true);
+    m_cameraManager.invalidateRenderTargetHistory();
 
     // After all instances are destroyed their retain/release pairs must be balanced.
     // If any count is non-zero here there is a retain/release mismatch.
@@ -1459,6 +1463,9 @@ namespace dxvk {
     }
     auto& textureManager = m_device->getCommon()->getTextureManager();
     const RtSurfaceMaterial& mat = m_surfaceMaterialCache.getObjectTable()[matIdx];
+    if (mat.getType() == RtSurfaceMaterialType::Translucent && mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
+      ++m_simulatedWaterCount;
+    }
     mat.forEachTextureIndex([&](uint32_t texIdx) {
       textureManager.retainTexture(texIdx);
     });
@@ -1492,6 +1499,12 @@ namespace dxvk {
     }
     auto& textureManager = m_device->getCommon()->getTextureManager();
     const RtSurfaceMaterial& mat = m_surfaceMaterialCache.getObjectTable()[matIdx];
+    if (mat.getType() == RtSurfaceMaterialType::Translucent && mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
+      assert(m_simulatedWaterCount != 0);
+      if (m_simulatedWaterCount != 0) {
+        --m_simulatedWaterCount;
+      }
+    }
     mat.forEachTextureIndex([&](uint32_t texIdx) {
       textureManager.releaseTexture(texIdx);
     });
@@ -1992,7 +2005,8 @@ namespace dxvk {
       translucentMaterialData.getEnableDiffuseLayer(),
       samplerIndex,
       samplerFeedbackStamp,
-      reliefSamplerIndex
+      reliefSamplerIndex,
+      translucentMaterialData.getSimulatedWater()
     };
   }
 

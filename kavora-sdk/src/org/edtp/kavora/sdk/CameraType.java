@@ -11,6 +11,7 @@ public final class CameraType {
     public static final int WORLD = 0;
     public static final int SKY = 1;
     public static final int VIEW_MODEL = 2;
+    public static final int RENDER_TARGET = 3;
 
     private CameraType() {}
 }

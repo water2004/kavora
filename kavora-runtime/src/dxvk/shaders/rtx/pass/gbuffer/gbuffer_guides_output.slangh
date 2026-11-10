@@ -166,7 +166,7 @@ void guidesWriteFirstHit(
     }
 
     ReflectionPSRData1[pixelCoordinate] = packFloat4x16(vec4(min(emissiveRadiance, float16Max), blendInputValue));
-    ReflectionPSRData2[pixelCoordinate] = uint2(colorToR11G11B10(saturate(blendInputColor)), colorToR11G11B10(attenuation));
+    ReflectionPSRData2[pixelCoordinate] = uint2(colorToR11G11B10(saturate(blendInputColor)), packSceneAttenuation(attenuation, cb.enableRaytracedRenderTarget));
   }
 }
 
@@ -191,7 +191,7 @@ void guidesBlendDecal(
 
   const float opacity = decalMaterialInteraction.opacity;
   const uint2 blendInputs = ReflectionPSRData2[pixelCoordinate];
-  const vec3 tint = rrPathTint(r11g11b10ToColor(blendInputs.y));
+  const vec3 tint = rrPathTint(unpackSceneAttenuation(blendInputs.y, cb.enableRaytracedRenderTarget));
   const vec3 worldNormal = signedOctahedralToSphereDirection(
     snorm2x16ToFloat2x32(PrimaryWorldShadingNormalDense[pixelCoordinate]));
   const vec3 shadingNormal = normalize(mix(worldNormal, decalMaterialInteraction.shadingNormal, opacity));

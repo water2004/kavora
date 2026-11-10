@@ -48,7 +48,7 @@
 #include "../dxvk/shaders/rtx/pass/particles/particle_system_enums.h"
 
 namespace lss {
-  inline constexpr std::size_t kParticleSystemSchemaPropertyCount = 129;
+  inline constexpr std::size_t kParticleSystemSchemaPropertyCount = 133;
 
   template<typename TDest, typename TSrc>
   inline TDest AssignFromPrimvar(const TSrc& src) {

@@ -208,6 +208,7 @@ public:
   uint32_t getStartInMediumMaterialIndex() { return m_startInMediumMaterialIndex; }
   
   uint32_t getActivePOMCount() {return m_activePOMCount;}
+  bool hasSimulatedWater() const { return m_simulatedWaterCount != 0; }
 
   float getTotalMipBias();
   float getCalculatedUpscalingMipBias();
@@ -421,6 +422,7 @@ private:
   std::vector<unsigned char> m_materialUploadScratch;
 
   uint32_t m_activePOMCount = 0;
+  uint32_t m_simulatedWaterCount = 0;
   
   float m_uniqueObjectSearchDistance = 1.f;
 

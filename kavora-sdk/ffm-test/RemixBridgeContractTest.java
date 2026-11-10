@@ -65,6 +65,11 @@ public final class RemixBridgeContractTest {
         }
         equal(0, RemixBridge.startup(HANDLE, true, false, false, false, true));
         equal(0, RemixBridge.submit(5));
+        WaterSimulationFrame waves = new WaterSimulationFrame();
+        waves.resetWaves();
+        check(waves.add(1, 2, 3, 0.5f, 1), "First water disturbance was dropped");
+        check(waves.add(4, 5, 6, 1.5f, -0.5f), "Second water disturbance was dropped");
+        equal(0, RemixBridge.submit(5, waves));
         SharedBufferInfo shared = new SharedBufferInfo();
         equal(0, RemixBridge.createSharedBuffer(4096, shared));
         equal(0x7777, shared.buffer); equal(0x8888, shared.memoryHandle);
@@ -93,6 +98,14 @@ public final class RemixBridgeContractTest {
         equal(0x600000006L, clientFrame.generatedFrames);
         equal(HANDLE, RemixBridge.createMaterial(123, 0x1111, 0, 0, 0, 7.5f,
                 1, 2, 3, 2, 3, 4, 1, 1, 1, 0));
+        long water = RemixBridge.allocWaterSurfaceExt();
+        long translucent = RemixBridge.allocTranslucentExt(0, 1.33f, 1, 1, 1, 1, false, 0, false, water);
+        try {
+            equal(HANDLE, RemixBridge.createMaterial(123, 0x1111, 0, 0, 0, 7.5f,
+                    1, 2, 3, 2, 3, 4, 1, 1, 1, translucent));
+        } finally {
+            RemixBridge.freeExtChain(translucent);
+        }
         equal(0, RemixBridge.updateMaterial(HANDLE, 123, 0x1111, 0, 0, 0, 7.5f,
                 1, 2, 3, 2, 3, 4, 1, 1, 1, 0));
         ByteBuffer pixels = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());

@@ -21,6 +21,7 @@
 */
 #include "rtx/pass/ray_reconstruction/ray_reconstruction.h"
 #include "rtx/utility/packing.slangh"
+#include "rtx/algorithm/camera_transport.slangh"
 #include "rtx/utility/brdf.slangh"
 #include "rtx/concept/camera/camera.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
@@ -241,7 +242,7 @@ void preprocessInputsForRR(uint2 pixelCoordinate)
 {
   const GeometryFlags geometryFlags = geometryFlagsReadFromGBuffer(pixelCoordinate, SharedFlags);
 
-  const vec3 primaryAttenuation = r11g11b10ToColor(PrimaryAttenuation[pixelCoordinate]);
+  const vec3 primaryAttenuation = unpackSceneAttenuation(PrimaryAttenuation[pixelCoordinate], cb.enableRaytracedRenderTarget);
   const float primaryRoughness = PrimaryVirtualWorldNormalPerceptualRoughness[pixelCoordinate].w;
   vec3 specularGuide = PrimarySpecularAlbedo[pixelCoordinate].rgb *
     getRoughnessFactor(primaryRoughness) * rrPathTint(primaryAttenuation);
@@ -251,7 +252,7 @@ void preprocessInputsForRR(uint2 pixelCoordinate)
     const float secondaryRoughness = SecondaryVirtualWorldNormalPerceptualRoughness[pixelCoordinate].w;
     specularGuide += rrReflectedAlbedo(SecondaryAlbedo[pixelCoordinate].rgb,
       SecondarySpecularAlbedo[pixelCoordinate].rgb * getRoughnessFactor(secondaryRoughness),
-      r11g11b10ToColor(SecondaryAttenuation[pixelCoordinate]));
+      unpackSceneAttenuation(SecondaryAttenuation[pixelCoordinate], cb.enableRaytracedRenderTarget));
   }
 
   // The diffuse guide continues to describe the surface seen through the transmission path.

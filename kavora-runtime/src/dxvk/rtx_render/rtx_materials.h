@@ -1098,13 +1098,15 @@ struct RtTranslucentSurfaceMaterial {
     bool enableEmission, float emissiveIntensity, const Vector3& emissiveColorConstant,
     bool isThinWalled, float thinWallThickness, bool useDiffuseLayer, uint32_t samplerIndex,
     uint16_t samplerFeedbackStamp = SAMPLER_FEEDBACK_INVALID,
-    uint32_t reliefSamplerIndex = BINDING_INDEX_INVALID) :
+    uint32_t reliefSamplerIndex = BINDING_INDEX_INVALID,
+    bool simulatedWater = false) :
     m_normalTextureIndex(normalTextureIndex),
     m_transmittanceTextureIndex(transmittanceTextureIndex),
     m_emissiveColorTextureIndex(emissiveColorTextureIndex),
     m_refractiveIndex(refractiveIndex),
     m_transmittanceMeasurementDistance(transmittanceMeasurementDistance), m_transmittanceColor(transmittanceColor),
-    m_enableEmission(enableEmission), m_emissiveIntensity(emissiveIntensity), m_emissiveColorConstant(emissiveColorConstant),
+    m_enableEmission(enableEmission), m_simulatedWater(simulatedWater),
+    m_emissiveIntensity(emissiveIntensity), m_emissiveColorConstant(emissiveColorConstant),
     m_isThinWalled(isThinWalled), m_thinWallThickness(thinWallThickness), m_useDiffuseLayer(useDiffuseLayer), m_samplerIndex(samplerIndex),
     m_samplerFeedbackStamp(samplerFeedbackStamp),
     m_reliefSamplerIndex(reliefSamplerIndex == BINDING_INDEX_INVALID ? samplerIndex : reliefSamplerIndex)
@@ -1113,6 +1115,8 @@ struct RtTranslucentSurfaceMaterial {
     updateCachedHash();
   }
 
+  bool isSimulatedWater() const { return m_simulatedWater; }
+
   void writeGPUData(unsigned char* data, std::size_t& offset, uint32_t materialIndex) const {
     [[maybe_unused]] const std::size_t oldOffset = offset;
 
@@ -1120,6 +1124,9 @@ struct RtTranslucentSurfaceMaterial {
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
 
     uint16_t flags = surfaceMaterialTypeTranslucent;
+    if (m_simulatedWater) {
+      flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER;
+    }
 
     // Note: Respect override flag here to let the GPU do less work in determining if the diffuse layer should be used or not.
     if (m_useDiffuseLayer || getEnableDiffuseLayerOverrideHack()) {
@@ -1214,6 +1221,7 @@ private:
       uint32_t samplerIndex;
       uint32_t samplerFeedbackStamp; // NOTE: uint32_t to avoid padding
       uint32_t reliefSamplerIndex;
+      uint32_t simulatedWater;
       // NOTE: There must be NO padding between members, as the struct is used for hashing
     };
     static_assert(alignof(HashStruct) == 4 && sizeof(HashStruct) % 4 == 0);
@@ -1233,6 +1241,7 @@ private:
       m_samplerIndex,
       m_samplerFeedbackStamp,
       m_reliefSamplerIndex,
+      m_simulatedWater,
     };
     m_cachedHash = XXH3_64bits(&hashData, sizeof(hashData));
   }
@@ -1267,6 +1276,7 @@ private:
   Vector3 m_transmittanceColor;
   float m_transmittanceMeasurementDistance;
   bool m_enableEmission;
+  bool m_simulatedWater;
   float m_emissiveIntensity;
   Vector3 m_emissiveColorConstant;
   bool m_isThinWalled;

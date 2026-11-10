@@ -403,6 +403,8 @@ namespace dxvk {
     } shader;
 
     struct RaytracedRenderTarget {
+      RTX_OPTION("rtx.raytracedRenderTarget", bool, reproject, true,
+        "Reproject live camera hits through the previous camera and screen geometry.");
       RTX_OPTION("rtx.raytracedRenderTarget", bool, enable, true,
                       "Enables or disables raytracing for render-to-texture effects.  The render target to be raytraced must be specified in the texture selection menu.");
     } raytracedRenderTarget;

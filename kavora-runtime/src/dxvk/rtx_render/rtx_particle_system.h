@@ -51,6 +51,19 @@ namespace dxvk {
       uint32_t instanceId;
       uint64_t instanceIdentity;
       uint32_t particleOffset;
+      bool areaWeighted;
+    };
+
+    struct SpawnAreaRange {
+      uint32_t offset;
+      uint32_t length;
+    };
+
+    struct CachedSpawnArea {
+      SpawnAreaRange range{};
+      uint32_t lastUsedFrame = kInvalidFrameIndex;
+      XXH64_hash_t geometryVersion = kEmptyHash;
+      std::array<double, 6> metric{};
     };
 
     class ConservativeCounter : public RcObject {
@@ -171,6 +184,17 @@ namespace dxvk {
 
     fast_unordered_cache<std::shared_ptr<ParticleSystem>> m_particleSystems;
     Rc<DxvkBuffer> m_spawnContextsBuffer;
+    Rc<DxvkBuffer> m_spawnAreas;
+    Rc<DxvkBuffer> m_spawnAreaJobs;
+    std::unordered_map<uint64_t, CachedSpawnArea> m_spawnAreaCache;
+    std::vector<SpawnAreaRange> m_freeSpawnAreas;
+    uint32_t m_spawnAreaEnd = 0;
+    bool m_spawnAreaBudgetWarning = false;
+
+    void releaseSpawnArea(SpawnAreaRange range);
+    uint32_t reserveSpawnArea(uint32_t length);
+    bool prepareSpawnArea(const RtInstance& instance, GpuSpawnContext& context, uint32_t frameId);
+    void buildSpawnAreas(RtxContext* ctx, const std::vector<uvec2>& jobs, uint32_t buildJobCount);
 
     // Monotonically increases as new particle systems are created.  Never decrements.
     uint32_t m_particleSystemCounter = 0;
@@ -227,6 +251,10 @@ namespace dxvk {
     RTX_OPTION("rtx.particles.globalPreset", bool, enableMotionTrail, false, "Elongates the particle with respect to velocity, texture edges are preserved, with only the center being stretched which provides a motion blur like effect on the particles themselves.  This will automatically align particles rotation with their individual velocity (similar to rtx.particles.globalPreset.alignParticlesToVelocity) and so rotation parameters are no longer taken into account when this setting is enabled.");
     RTX_OPTION("rtx.particles.globalPreset", float, motionTrailMultiplier, 1.f, "When enableMotionTrail is set to enabled, this value can be used to increase (or decrease) the length of the tail artificially, which is determined by the velocity.  A value of 1 (the default) will ensure each particle is the exact size of the motion over the previous frame.  Values greater than 1 will increase that size linearly.  Likewise for smaller than 1.  0 and below is an invalid value.");
     RTX_OPTION("rtx.particles.globalPreset", ParticleBillboardType, billboardType, ParticleBillboardType::FaceCamera_Spherical, "Billboard type to use for the global particle preset.");
+    RTX_OPTION("rtx.particles.globalPreset", float, minScreenSize, 0.f, "Minimum particle billboard edge in internal render pixels. Zero disables the bound.");
+    RTX_OPTION("rtx.particles.globalPreset", bool, spawnBySurfaceArea, false, "Distribute particle births according to world-space triangle area.");
+    RTX_OPTION("rtx.particles.globalPreset", float, maxScreenSize, 0.f, "Maximum particle billboard edge in internal render pixels. Zero disables the bound.");
+    RTX_OPTION("rtx.particles.globalPreset", float, screenSizeCoverage, 1.f, "Opacity compensation when enlarging particles to their minimum screen size.");
     RTX_OPTION("rtx.particles.globalPreset", ParticleSpriteSheetMode, spriteSheetMode, ParticleSpriteSheetMode::UseMaterialSpriteSheet, "Sprite sheet mode to use for generating particle UVs.  Options are, 0: Prefer material sprite sheet parameters - 1: Animate spritesheet with respect to the lifetime of the particle - 2: Pick a random sprite from the sheet per particle to use as the texture.");
     RTX_OPTION("rtx.particles.globalPreset", Vector3, attractorPosition, Vector3(0.f, 0.f, 0.f), "The position in world space of the 'attractor' - which can be used to make particles be drawn to and even orbit a particular location.");
     RTX_OPTION("rtx.particles.globalPreset", float, attractorForce, 0.f, "How strongly should the particles be attracted to the the attractor position.  A value of 0 defines no attraction what soever, the unit is centimeters per second per second.");

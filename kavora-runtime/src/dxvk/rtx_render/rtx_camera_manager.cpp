@@ -127,6 +127,7 @@ namespace dxvk {
     auto& camera = getCamera(cameraType);
     auto cameraSequence = RtCameraSequence::getInstance();
     bool shouldUpdateMainCamera = cameraType == CameraType::Main && camera.getLastUpdateFrame() != frameId;
+    const uint32_t previousFrame = camera.getLastUpdateFrame();
     bool isPlaying = RtCameraSequence::mode() == RtCameraSequence::Mode::Playback;
     bool isBrowsing = RtCameraSequence::mode() == RtCameraSequence::Mode::Browse;
     bool isCameraCut = false;
@@ -165,6 +166,9 @@ namespace dxvk {
     if (isCameraCut && cameraType == CameraType::Main) {
       m_lastCameraCutFrameId = m_device->getCurrentFrameId();
     }
+    if (cameraType == CameraType::RenderToTexture && previousFrame != frameId) {
+      m_renderTargetHistoryValid = frameId != 0 && previousFrame == frameId - 1 && !isCameraCut;
+    }
     m_lastSetCameraType = cameraType;
 
     return cameraType;
@@ -179,8 +183,11 @@ namespace dxvk {
                                             const Matrix4& viewToProjection) {
     DecomposeProjectionParams decomposeProjectionParams = getOrDecomposeProjection(viewToProjection);
 
-    getCamera(type).update(
-      m_device->getCurrentFrameId(),
+    auto& camera = getCamera(type);
+    const uint32_t frameId = m_device->getCurrentFrameId();
+    const uint32_t previousFrame = camera.getLastUpdateFrame();
+    const bool cut = camera.update(
+      frameId,
       worldToView,
       viewToProjection,
       decomposeProjectionParams.fov,
@@ -188,6 +195,9 @@ namespace dxvk {
       decomposeProjectionParams.nearPlane,
       decomposeProjectionParams.farPlane,
       decomposeProjectionParams.isLHS);
+    if (type == CameraType::RenderToTexture && previousFrame != frameId) {
+      m_renderTargetHistoryValid = frameId != 0 && previousFrame == frameId - 1 && !cut;
+    }
   }
 
     DecomposeProjectionParams CameraManager::getOrDecomposeProjection(const Matrix4& viewToProjection) {

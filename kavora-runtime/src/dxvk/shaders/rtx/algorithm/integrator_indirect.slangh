@@ -52,7 +52,7 @@ PathState pathStateCreateEmpty(GeometryFlags geometryFlags)
   // direction assumed to be set by primary vertex intergation.
 
   pathState.bounceIteration = uint8_t(1);
-  pathState.coneSpreadAngle = cb.screenSpacePixelSpreadHalfAngle;
+  pathState._coneSpreadAngle = cb.screenSpacePixelSpreadHalfAngle;
 
   pathState.radiance = vec3(0.0f, 0.0f, 0.0f);
   pathState.throughput = f16vec3(1.h);
@@ -407,6 +407,36 @@ void integratePathVertex(
   accumulateRadiance(pathState, emissiveRadiance);
   accumulateThroughput(pathState, radianceAttenuation);
 
+  if (cb.enableRaytracedRenderTarget && isRaytracedRenderTarget && rayInteractionHasHit(rayInteraction) &&
+      !pathState.continueResolving) {
+    const OpaqueSurfaceMaterial material = opaqueSurfaceMaterialCreate(surfaceMaterials[surface.surfaceMaterialIndex]);
+    const float coverage = saturate(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).opacity);
+    RNG cameraRng = createRNGStream(pathState.pixelCoordinate, cb.frameIdx, RNGStream::IndirectLighting,
+      pathState.calculateRNGOffset(13));
+    const bool throughCamera = coverage >= 1.0f || getNextSampleBlueNoise(cameraRng) < coverage;
+    const bool emissive = material.emissiveIntensity > 0.0h;
+    if (pathState.bounceIteration >= pathState.pathMaxBounces ||
+        (throughCamera && !emissive && !pathState.specularOnlyCameraPath)) {
+      pathState.continuePath = false;
+      return;
+    }
+    const Ray continuation = throughCamera
+      ? rayCreateRenderTarget(cb.renderTargetCamera, surfaceInteraction.textureCoordinates, ray)
+      : rayCreateDirection(rayInteraction, surfaceInteraction, ray, ray.direction, true);
+    pathState.origin = continuation.origin;
+    pathState.direction = continuation.direction;
+    pathState.coneRadius = continuation.coneRadius;
+    if (throughCamera) {
+      pathState.insideMedium = false;
+      pathState.mediumMaterialIndex = SURFACE_INDEX_INVALID;
+      if (emissive) {
+        accumulateThroughput(pathState, vec3(float(material.emissiveIntensity)));
+      }
+    }
+    pathState.continuePath = true;
+    return;
+  }
+
   // Update NRC on hit
   
   NrcProgressState nrcProgressState = NrcProgressState::Continue;
@@ -422,26 +452,6 @@ void integratePathVertex(
       return;
     }
   } 
-
-  // If the camera index changed then this ray passed through a render target. Cast a ray from the new camera.
-  // Note: NRC TerminateImmediately with boostEmissives must take priority as a query record has already been created
-  if (cb.enableRaytracedRenderTarget && isRaytracedRenderTarget && pathState.bounceIteration == 1
-      && !(ENABLE_NRC && nrcProgressState == NrcProgressState::TerminateImmediately))
-  { 
-    Ray newRay = rayCreateRenderTarget(cb.renderTargetCamera, surfaceInteraction.textureCoordinates, ray);
-    pathState.origin = newRay.origin;
-    pathState.direction = newRay.direction;
-    pathState.insideMedium = false;
-    pathState.mediumMaterialIndex = SURFACE_INDEX_INVALID;
-    pathState.continuePath = true;
-    
-    if (cb.debugView == DEBUG_VIEW_RAYTRACED_RENDER_TARGET_INDIRECT
-      && TRUE_OR_CHECK_WHEN_NRC_ENABLED(pathState.isNrcQuery))
-    {
-      storeInDebugView(pathState.pixelCoordinate, vec4(1.f));
-    }
-    return;
-  }
 
   // Process SHaRC arrival transport before integrating destination-local lighting.
   if (ENABLE_SHARC && rayInteractionHasHit(rayInteraction) && !pathState.continueResolving)
@@ -555,6 +565,10 @@ void integratePathVertex(
         continuationLobe, sampledLobePdf, solidAnglePdf,
         false);
       sampledContinuationThroughput = f16vec3(sampledThroughput);
+      if (cb.enableRaytracedRenderTarget && materialType == surfaceMaterialTypeOpaque &&
+          (continuationLobe == opaqueLobeTypeDiffuseReflection || continuationLobe == opaqueLobeTypeDiffuseTransmission)) {
+        pathState.specularOnlyCameraPath = false;
+      }
 
       // Stop recording hit geometry when translucent material emitting a scattering ray
       if (materialType == surfaceMaterialTypeTranslucent && dot(sampledRay.direction, pathState.direction) < 0.9)
@@ -1520,6 +1534,9 @@ void integrateIndirectPath(
   pathState.accumulatedHitDistance = gbufferSurfaceHitDistance;
   pathState.solidAnglePdf = asfloat(NeeCacheThreadTask[compactedCoordinate].x);
   pathState.coneSpreadAngle = calculateSpreadAngleFromSolidAnglePdf(pathState.coneSpreadAngle, firstSampledSolidAnglePdf);
+  if (cb.enableRaytracedRenderTarget) {
+    pathState.specularOnlyCameraPath = geometryFlags.firstSampledLobeIsSpecular || firstSampledLobeIsOpacityTransmission;
+  }
   // Enable nee cache for PSR reflection, which cannot be handled by ReSTIR GI.
   pathState.enableNeeCacheAfterFirstBounce =
     (geometryFlags.performPSRR || NEECache.shouldUseHigherBounceNeeCache(geometryFlags.firstSampledLobeIsSpecular, calcRoughness(firstHitPerceptualRoughness)));

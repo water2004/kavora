@@ -26,6 +26,7 @@
 
 #include "rtx/utility/common.slangh"
 #include "rtx/utility/packing.slangh"
+#include "rtx/algorithm/camera_transport.slangh"
 #include "rtx/utility/noise.slangh"
 #include "rtx/utility/color.slangh"
 #include "rtx/utility/froxel.slangh"
@@ -529,13 +530,13 @@ vec4 compositeResult(
   vec3 secondarySpecularAlbedo = vec3(0);
   if (geometryFlags.secondarySurfaceMask)
   {
-    secondaryAttenuation = r11g11b10ToColor(imageLoad(SecondaryAttenuation, ivec2(compactedCoordinate)));
+    secondaryAttenuation = unpackSceneAttenuation(imageLoad(SecondaryAttenuation, ivec2(compactedCoordinate)), cb.enableRaytracedRenderTarget);
     secondaryAlbedo = SecondaryAlbedo[compactedCoordinate].xyz;
     secondarySpecularAlbedo = SecondarySpecularAlbedo[compactedCoordinate].xyz;
   }
   if (pixelIsActive)
   {
-    primaryAttenuation = r11g11b10ToColor(PrimaryAttenuation[compactedCoordinate]);
+    primaryAttenuation = unpackSceneAttenuation(PrimaryAttenuation[compactedCoordinate], cb.enableRaytracedRenderTarget);
     primaryAlbedo = PrimaryAlbedo[compactedCoordinate].xyz;
     primarySpecularAlbedo = PrimarySpecularAlbedo[compactedCoordinate].xyz;
     perceptualRoughness = PrimaryVirtualWorldNormalPerceptualRoughness[compactedCoordinate].w;

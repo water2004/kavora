@@ -6,15 +6,21 @@ package org.edtp.kavora.mixin;
 
 import org.edtp.kavora.profiling.ParticleTickProfiler;
 import org.edtp.kavora.profiling.ProfileScope;
+import org.edtp.kavora.render.KavoraWaterRipples;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleGroup;
 import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.particle.ParticleRenderType;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Map;
 
@@ -27,6 +33,15 @@ public abstract class ParticleManagerMixin {
     @Shadow @Final private Map<ParticleRenderType, ParticleGroup<?>> particles;
 
     private static final ThreadLocal<ProfileScope> kavora$tickScope = new ThreadLocal<>();
+
+    @Inject(method = "createParticle", at = @At("RETURN"))
+    private void kavora$recordSplash(ParticleOptions options, double x, double y, double z,
+                                    double vx, double vy, double vz, CallbackInfoReturnable<Particle> cir) {
+        if (KavoraWaterRipples.isEnabled() && options.getType() == ParticleTypes.SPLASH
+                && cir.getReturnValue() != null && Minecraft.getInstance().isSameThread()) {
+            KavoraWaterRipples.splash((float) x, (float) y, (float) z);
+        }
+    }
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void kavora$tickHead(CallbackInfo ci) {

@@ -317,6 +317,7 @@ namespace dxvk {
     const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
 
     CompositeArgs compositeArgs = {};
+    compositeArgs.enableRaytracedRenderTarget = rtOutput.m_raytraceArgs.enableRaytracedRenderTarget;
     compositeArgs.enableSeparatedDenoisers = rtOutput.m_raytraceArgs.enableSeparatedDenoisers;
 
     // Fill in accumulation args

@@ -936,6 +936,13 @@ class "ParticleSystemAPI" (
             displayName = "Hide Emitter"
         )
 
+    uniform token primvars:particle:spawnDistribution = "ByTriangle" (
+            allowedTokens = ["ByTriangle", "BySurfaceArea"]
+            doc = "Weight triangle selection by world-space area or give every triangle equal probability."
+            displayGroup = "Spawn"
+            displayName = "Spawn Distribution"
+        )
+
     bool primvars:particle:useSpawnTexcoords = false (
             doc = "Use the texture coordinates of the emitter mesh when sampling spawn positions or velocities."
             displayGroup = "Spawn"
@@ -1110,6 +1117,24 @@ class "ParticleSystemAPI" (
         )
 
     # Visual
+    float primvars:particle:minScreenSize = 0.0 (
+            doc = "Minimum longest base billboard edge in internal render pixels. Zero disables the bound."
+            displayGroup = "Visual"
+            displayName = "Minimum Screen Size"
+        )
+
+    float primvars:particle:maxScreenSize = 0.0 (
+            doc = "Maximum longest base billboard edge in internal render pixels. Zero disables the bound."
+            displayGroup = "Visual"
+            displayName = "Maximum Screen Size"
+        )
+
+    float primvars:particle:screenSizeCoverage = 1.0 (
+            doc = "Opacity compensation on enlargement. Zero preserves opacity and one preserves projected coverage."
+            displayGroup = "Visual"
+            displayName = "Screen Size Coverage"
+        )
+
     bool primvars:particle:alignParticlesToVelocity = false (
             doc = "When enabled, rotates particles so their up axis always aligns with their direction of travel. Rotation speed settings are ignored."
             displayGroup = "Visual"

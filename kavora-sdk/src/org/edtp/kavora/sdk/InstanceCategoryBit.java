@@ -35,6 +35,7 @@ public final class InstanceCategoryBit {
     public static final int SMOOTH_NORMALS = 1 << 24;
     public static final int HAIR_CARDS = 1 << 25;
     public static final int VIEW_MODEL = 1 << 26;
+    public static final int LIVE_CAMERA = 1 << 27;
 
     private InstanceCategoryBit() {}
 }

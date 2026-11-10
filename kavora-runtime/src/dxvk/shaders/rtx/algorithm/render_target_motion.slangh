@@ -1,0 +1,63 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/concept/camera/camera.slangh"
+#include "rtx/concept/surface/surface.slangh"
+
+// Recover the previous screen point from its affine triangle UV mapping.
+bool projectCameraScreenPoint(uint2 triangle, float2 tile, float4 previousRemotePoint, out float3 previousScreenPoint) {
+  previousScreenPoint = float3(0.0f);
+  if (!cb.renderTargetHistoryValid || triangle.x == SURFACE_INDEX_INVALID) {
+    return false;
+  }
+  const float4 clip = mul(cb.renderTargetCamera.prevWorldToProjection, previousRemotePoint);
+  if (!all(isfinite(clip)) || clip.w <= 1e-6f) {
+    return false;
+  }
+  const float2 uv = cameraNDCToScreenUV(cb.renderTargetCamera, clip.xy / clip.w);
+  if (any(uv < 0.0f) || any(uv > 1.0f)) {
+    return false;
+  }
+
+  const Surface screen = surfaces[triangle.x];
+  if (screen.texcoordBufferIndex == BINDING_INDEX_INVALID ||
+      screen.texcoordGenerationMode != uint(TexGenMode::None) || screen.hasMaterialChanged) {
+    return false;
+  }
+
+  float3 position[3];
+  float2 texcoord[3];
+  [unroll]
+  for (uint corner = 0; corner < 3; ++corner) {
+    const uint address = triangle.y * 3 + corner + screen.firstIndex;
+    uint vertex = address;
+    if (screen.indexBufferIndex != BINDING_INDEX_INVALID) {
+      const uint buffer = screen.indexBufferIndex;
+      vertex = screen.indexStride == 4 ? BUFFER_ARRAY(indices32, buffer, address) : BUFFER_ARRAY(indices, buffer, address);
+    }
+    const bool usePrevious = !screen.isStatic && screen.previousPositionBufferIndex != BINDING_INDEX_INVALID;
+    const uint buffer = usePrevious ? screen.previousPositionBufferIndex : screen.positionBufferIndex;
+    const uint start = (vertex * uint(screen.positionStride) + (usePrevious ? screen.previousPositionOffset : screen.positionOffset)) / 4;
+    const float3 local = float3(BUFFER_ARRAY(geometries, buffer, start),
+      BUFFER_ARRAY(geometries, buffer, start + 1), BUFFER_ARRAY(geometries, buffer, start + 2));
+    position[corner] = mul(screen.isStatic ? screen.objectToWorld : screen.prevObjectToWorld, float4(local, 1.0f));
+
+    const uint uvStart = (vertex * uint(screen.texcoordStride) + screen.texcoordOffset) / 4;
+    const uint uvBuffer = screen.texcoordBufferIndex;
+    const float2 raw = float2(BUFFER_ARRAY(geometries, uvBuffer, uvStart), BUFFER_ARRAY(geometries, uvBuffer, uvStart + 1));
+    texcoord[corner] = mul(screen.textureTransform, float4(raw, 1.0f, 1.0f));
+  }
+
+  const float2 u = texcoord[1] - texcoord[0];
+  const float2 v = texcoord[2] - texcoord[0];
+  const float determinant = u.x * v.y - u.y * v.x;
+  if (!isfinite(determinant) || abs(determinant) <= 1e-8f) {
+    return false;
+  }
+  const float2 delta = uv + tile - texcoord[0];
+  const float2 barycentric = float2(delta.x * v.y - delta.y * v.x, u.x * delta.y - u.y * delta.x) / determinant;
+  previousScreenPoint = position[0] + (position[1] - position[0]) * barycentric.x +
+    (position[2] - position[0]) * barycentric.y;
+  return all(isfinite(previousScreenPoint));
+}

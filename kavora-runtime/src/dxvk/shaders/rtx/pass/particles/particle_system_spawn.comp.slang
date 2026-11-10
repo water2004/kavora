@@ -19,7 +19,11 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+//!variant particle_system_spawn.comp
+//!variant particle_system_spawn_area.comp PARTICLE_AREA_SPAWN
+//!end-variants
 #include "rtx/pass/particles/particle_system_bindings.slangh"
+#include "rtx/pass/particles/particle_spawn_distribution.h"
 
 #include "rtx/utility/common.slangh"
 #include "rtx/utility/noise.slangh"
@@ -41,6 +45,60 @@ StructuredBuffer<GpuSpawnContext> SpawnContexts;
 layout(binding = PARTICLE_SYSTEM_BINDING_PARTICLES_BUFFER_INPUT_OUTPUT)
 RWStructuredBuffer<GpuParticle> Particles;
 
+#ifdef PARTICLE_AREA_SPAWN
+[[vk::binding(PARTICLE_SYSTEM_BINDING_SPAWN_AREAS_INPUT)]]
+StructuredBuffer<float> SpawnAreas;
+
+uint findParticleArea(uint start, uint count, float target) {
+  uint end = start + count;
+  while (start < end) {
+    const uint middle = start + (end - start) / 2;
+    if (SpawnAreas[middle] <= target) {
+      start = middle + 1;
+    } else {
+      end = middle;
+    }
+  }
+  return start;
+}
+
+uint sampleParticleArea(GpuSpawnContext context, float randomValue) {
+  const uint start = context.areaDistributionOffset;
+  if (start == kInvalidParticleAreaOffset) {
+    return kInvalidParticleAreaOffset;
+  }
+  const uint blockTotals = start + context.numTriangles;
+  const uint blocks = particleAreaBlockCount(context.numTriangles);
+  const float total = SpawnAreas[blockTotals + blocks - 1];
+  if (!(total > 0.0f)) {
+    return kInvalidParticleAreaOffset;
+  }
+
+  const float target = min(randomValue * total, asfloat(asuint(total) - 1u));
+  const uint block = findParticleArea(blockTotals, blocks, target) - blockTotals;
+  if (block >= blocks) {
+    return kInvalidParticleAreaOffset;
+  }
+  const uint first = block * kParticleAreaBlockSize;
+  const uint count = min(kParticleAreaBlockSize, context.numTriangles - first);
+  const float prior = block == 0 ? 0.0f : SpawnAreas[blockTotals + block - 1];
+  const float localTotal = SpawnAreas[start + first + count - 1];
+  if (!(localTotal > 0.0f)) {
+    return kInvalidParticleAreaOffset;
+  }
+  const float localTarget = min(max(target - prior, 0.0f), asfloat(asuint(localTotal) - 1u));
+  const uint triangle = findParticleArea(start + first, count, localTarget) - start;
+  return triangle < first + count ? triangle : kInvalidParticleAreaOffset;
+}
+#endif
+
+GpuParticle rejectedSpawn(const GpuParticleSystem particleSystem, float seed) {
+  // Retire rejected slots at the normal age to keep the ring contiguous.
+  GpuParticle particle;
+  particle.reset(particleSystem, float3(0.0f), float3(0.0f), f16vec4(0.0h), float4(0.0f), seed);
+  particle.flags = GpuParticle::kRejectedSpawnFlag;
+  return particle;
+}
 
 f16vec3 sampleDirectionInCone(f16vec3 axis, float cosConeHalfAngle, float2 rndUV)
 {
@@ -64,11 +122,7 @@ GpuParticle respawn(uint particleIdx, uint spawnCtxIdx, const GpuParticleSystem 
   GpuSpawnContext spawnCtx = SpawnContexts[spawnCtxIdx];
 
   if (spawnCtx.numTriangles == 0) {
-    // Retire rejected slots at the normal age to keep the ring contiguous.
-    const float seed = randomFloat(uint2(particleIdx, particleCb.frameIdx));
-    newParticle.reset(particleSystem, float3(0.0f), float3(0.0f), f16vec4(0.0h), float4(0.0f), seed);
-    newParticle.flags = GpuParticle::kRejectedSpawnFlag;
-    return newParticle;
+    return rejectedSpawn(particleSystem, randomFloat(uint2(particleIdx, particleCb.frameIdx)));
   }
   
   // Get random triangle
@@ -79,11 +133,24 @@ GpuParticle respawn(uint particleIdx, uint spawnCtxIdx, const GpuParticleSystem 
   float4 uvMinMax = float4(0..xx, 1..xx);
   
   uint randomSeed = particleIdx;
-    
+
+#ifdef PARTICLE_AREA_SPAWN
+  const float areaSample = randomFloat(uint2(randomSeed++, particleCb.frameIdx));
+  const uint triIdx = sampleParticleArea(spawnCtx, areaSample);
+  if (triIdx == kInvalidParticleAreaOffset) {
+    return rejectedSpawn(particleSystem, areaSample);
+  }
+  float2 uv = float2(randomFloat(uint2(randomSeed++, particleCb.frameIdx)), randomFloat(uint2(randomSeed++, particleCb.frameIdx)));
+  if (uv.x + uv.y > 1.0f) {
+    uv = 1.0f - uv;
+  }
+  const float3 randomBary = float3(1.0f - uv.x - uv.y, uv);
+#else
   float3 random01 = float3(randomFloat(uint2(randomSeed++, particleCb.frameIdx)), randomFloat(uint2(randomSeed++, particleCb.frameIdx)), randomFloat(uint2(randomSeed++, particleCb.frameIdx)));
   float3 randomBary = saturate(random01 / dot(random01, 1..xxx));
   
   uint triIdx = randomFloat(uint2(randomSeed++, particleCb.frameIdx)) * spawnCtx.numTriangles;
+#endif
   
   for (uint i=0 ; i<3 ; i++)
   {

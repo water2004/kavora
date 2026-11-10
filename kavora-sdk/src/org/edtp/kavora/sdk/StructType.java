@@ -58,6 +58,8 @@ public final class StructType {
 
     public static final int LIGHT_INFO_DOME_PROJECTION_EXT = 46;
     public static final int MESH_INFO_QUADS_EXT = 47;
+    public static final int MATERIAL_INFO_WATER_SURFACE_EXT = 48;
+    public static final int SUBMIT_INFO_WATER_SIM_EXT = 49;
 
     private StructType() {}
 }

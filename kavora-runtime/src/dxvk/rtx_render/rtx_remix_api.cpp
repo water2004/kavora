@@ -391,6 +391,7 @@ namespace {
           src.getEnableThinWalled(),
           src.getThinWallThickness(),
           src.getEnableDiffuseLayer(),
+          src.getSimulatedWater(),
           src.getFilterMode(),
           src.getWrapModeU(),
           src.getWrapModeV(),
@@ -502,6 +503,8 @@ namespace {
           tobool(extTranslucent->thinWallThickness_hasvalue),
           extTranslucent->thinWallThickness_hasvalue ? extTranslucent->thinWallThickness_value : 0.001f, // default TranslucentMaterial::ThinWallThickness
           tobool(extTranslucent->useDiffuseLayer),
+          !extTranslucent->thinWallThickness_hasvalue &&
+            pnext::find<remixapi_MaterialInfoWaterSurfaceEXT>(&info) != nullptr,
           info.filterMode,
           info.wrapModeU,
           info.wrapModeV,
@@ -539,6 +542,7 @@ namespace {
       case REMIXAPI_CAMERA_TYPE_WORLD: return CameraType::Main;
       case REMIXAPI_CAMERA_TYPE_VIEW_MODEL: return CameraType::ViewModel;
       case REMIXAPI_CAMERA_TYPE_SKY: return CameraType::Sky;
+      case REMIXAPI_CAMERA_TYPE_RENDER_TARGET: return CameraType::RenderToTexture;
       default: assert(0); return CameraType::Main;
       }
     }
@@ -707,6 +711,7 @@ namespace {
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_ANTI_CULLING      ){ result.set(InstanceCategories::IgnoreAntiCulling     ); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_MOTION_BLUR       ){ result.set(InstanceCategories::IgnoreMotionBlur      ); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_OPACITY_MICROMAP  ){ result.set(InstanceCategories::IgnoreOpacityMicromap ); }
+      if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA              ){ result.set(InstanceCategories::IgnoreOpacityMicromap ); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_ALPHA_CHANNEL     ){ result.set(InstanceCategories::IgnoreAlphaChannel    ); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_HIDDEN                   ){ result.set(InstanceCategories::Hidden                ); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_PARTICLE                 ){ result.set(InstanceCategories::Particle              ); }
@@ -853,6 +858,9 @@ std::unique_ptr<dxvk::ExternalDrawState> dxvk::RemixAPIPrivateAccessor::toRtDraw
     prototype.transformData.objectToWorld = convert::tomat4(info.transform);
     prototype.transformData.texgenMode = TexGenMode::None;
     prototype.categories = convert::toRtCategories(info.categoryFlags);
+    if (info.categoryFlags & REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA) {
+      prototype.isUsingRaytracedRenderTarget = true;
+    }
   }
 
   if (auto objectPicking = pnext::find<remixapi_InstanceInfoObjectPickingEXT>(&info)) {
@@ -1262,7 +1270,8 @@ namespace {
     if (!remixDevice) {
       return REMIXAPI_ERROR_CODE_REMIX_DEVICE_WAS_NOT_REGISTERED;
     }
-    if (!info || info->sType != REMIXAPI_STRUCT_TYPE_CAMERA_INFO) {
+    if (!info || info->sType != REMIXAPI_STRUCT_TYPE_CAMERA_INFO ||
+        info->type < REMIXAPI_CAMERA_TYPE_WORLD || info->type > REMIXAPI_CAMERA_TYPE_RENDER_TARGET) {
       return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
     }
     std::lock_guard lock { s_mutex };
@@ -2062,7 +2071,11 @@ namespace {
 
   remixapi_ErrorCode REMIXAPI_CALL remixapi_Submit(const remixapi_SubmitInfo* info) {
     const uint32_t flags = info ? info->interopFlags : 0;
-    if ((info && (info->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO || info->pNext)) ||
+    const auto* water = info && info->pNext
+      ? static_cast<const remixapi_SubmitInfoWaterSimEXT*>(info->pNext) : nullptr;
+    if ((info && info->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO) ||
+        (water && (water->sType != REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT || water->pNext ||
+          water->impulseCount > kWaterSimMaxImpulses || (water->impulseCount && !water->impulses) || water->reset > 1)) ||
         (flags & ~uint32_t(REMIXAPI_SUBMIT_INTEROP_BIT_FORCE_WAIT_DEVICE_IDLE |
           REMIXAPI_SUBMIT_INTEROP_BIT_DISABLE_CPU_WAIT_FOR_VK_SUBMIT))) {
       return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
@@ -2081,6 +2094,22 @@ namespace {
     }
     if (device->GetDXVKDevice()->getDeviceStatus() != VK_SUCCESS) {
       return REMIXAPI_ERROR_CODE_GENERAL_FAILURE;
+    }
+    if (water) {
+      std::array<WaterSimImpulse, kWaterSimMaxImpulses> impulses{};
+      const bool zUp = dxvk::RtxOptions::zUp();
+      for (uint32_t i = 0; i < water->impulseCount; ++i) {
+        const auto& impulse = water->impulses[i];
+        if (!std::isfinite(impulse.position.x) || !std::isfinite(impulse.position.y) || !std::isfinite(impulse.position.z) ||
+            !(impulse.radius >= 0.25f && impulse.radius <= 32.0f) || !(std::abs(impulse.strength) <= 4.0f)) {
+          return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
+        }
+        impulses[i] = { vec2(impulse.position.x, zUp ? impulse.position.y : impulse.position.z),
+          impulse.radius, impulse.strength };
+      }
+      device->EmitCs([impulses, count = water->impulseCount, reset = water->reset != 0](dxvk::DxvkContext* ctx) {
+        ctx->getCommonObjects()->waterSimulation().addImpulses(impulses.data(), count, reset);
+      });
     }
     device->EmitCs([](dxvk::DxvkContext* ctx) { replayRetainedSceneInstances(ctx); });
     if (FAILED(device->Present(nullptr, nullptr, nullptr, nullptr))) {

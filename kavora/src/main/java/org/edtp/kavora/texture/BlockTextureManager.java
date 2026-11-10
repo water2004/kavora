@@ -861,6 +861,7 @@ public class BlockTextureManager {
                         .transmittanceColor(waterTransmittanceR, waterTransmittanceG, waterTransmittanceB)
                         .transmittanceMeasurementDistance(waterTransmittanceDistance)
                         .useDiffuseLayer(false)
+                        .simulatedWater(true)
                         .build())
                 .build();
     }

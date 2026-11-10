@@ -899,6 +899,7 @@ public class KavoraRenderer {
         LOGGER.info("World clear requested (will execute on render thread)");
         Minecraft.getInstance().execute(() -> {
             if (initialized) {
+                org.edtp.kavora.render.KavoraWaterRipples.reset();
                 doClearWorld();
             }
         });
