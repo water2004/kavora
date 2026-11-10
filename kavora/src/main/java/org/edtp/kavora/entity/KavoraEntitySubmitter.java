@@ -6,6 +6,7 @@ package org.edtp.kavora.entity;
 
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.texture.ParticleAtlasManager;
+import org.edtp.kavora.particle.KavoraParticleRenderer;
 import org.edtp.kavora.texture.LabPBRConverter;
 import org.edtp.kavora.texture.DynamicTextureCache;
 import org.edtp.kavora.texture.BlockTextureManager;
@@ -140,6 +141,7 @@ public class KavoraEntitySubmitter {
                     RenderLayerUtils.SurfaceMode.OPAQUE);
     static final InstanceInfoBlendEXT VERTEX_COLOR_MODULATE =
             InstanceInfoBlendEXT.textureTimesVertexColor();
+    private static final InstanceInfoBlendEXT PARTICLE_BLEND = KavoraParticleRenderer.createTranslucentBlend();
     static final InstanceInfoBlendEXT BANNER_PATTERN_BLEND =
             InstanceInfoBlendEXT.textureTimesVertexColorTextureAlphaBlend(1);
     /** Fewest vertices a triangle strip needs before it closes a triangle. */
@@ -1582,6 +1584,7 @@ public class KavoraEntitySubmitter {
                                      boolean cuboid,
                                      int tintColor,
                                      PatternCanvasRole role) {
+        if (PARTICLE_ATLAS_ID.equals(textureId)) return PARTICLE_BLEND;
         if (BlockTextureManager.BLOCK_ATLAS_ID.equals(textureId)) {
             return surfaceMode == RenderLayerUtils.SurfaceMode.TRANSLUCENT
                     || surfaceMode == RenderLayerUtils.SurfaceMode.GLASS

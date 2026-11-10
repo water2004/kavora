@@ -6,6 +6,7 @@ package org.edtp.kavora.entity;
 
 import org.edtp.kavora.sdk.InstanceInfoBlendEXT;
 import org.edtp.kavora.texture.BlockTextureManager;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
 import org.edtp.kavora.entity.KavoraEntitySubmitter.PatternCanvasRole;
 import org.junit.jupiter.api.AfterEach;
@@ -21,6 +22,7 @@ import static org.edtp.kavora.sdk.InstanceInfoBlendEXT.RT_TEX_OP_SELECT_ARG1;
 import static org.edtp.kavora.sdk.InstanceInfoBlendEXT.VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 import static org.edtp.kavora.sdk.InstanceInfoBlendEXT.VK_BLEND_FACTOR_SRC_ALPHA;
 import static org.edtp.kavora.sdk.InstanceInfoBlendEXT.VK_COMPARE_OP_GREATER;
+import static org.edtp.kavora.sdk.InstanceInfoBlendEXT.VK_COMPARE_OP_GREATER_OR_EQUAL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -209,5 +211,20 @@ class KavoraEntitySubmitterBlendTest {
         assertSame(BlockTextureManager.ATLAS_CUTOUT_BLEND, submitter.blendExtFor(
                 BlockTextureManager.BLOCK_ATLAS_ID, RenderLayerUtils.SurfaceMode.CUTOUT,
                 false, WHITE, PatternCanvasRole.NONE));
+    }
+
+    @Test
+    void heldTorchParticlesBlendTextureCoverageWithVertexOpacity() {
+        var blend = submitter.blendExtFor(TextureAtlas.LOCATION_PARTICLES,
+                RenderLayerUtils.SurfaceMode.EMISSIVE, false, WHITE, PatternCanvasRole.NONE);
+        assertEquals(1, blend.alphaBlendEnabled);
+        assertEquals(VK_BLEND_FACTOR_SRC_ALPHA, blend.srcColorBlendFactor);
+        assertEquals(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, blend.dstColorBlendFactor);
+        assertEquals(1, blend.alphaTestEnabled);
+        assertEquals(VK_COMPARE_OP_GREATER_OR_EQUAL, blend.alphaTestCompareOp);
+        assertEquals(26, blend.alphaTestReferenceValue & 0xff);
+        assertEquals(RT_TEXTURE_ARG_TEXTURE, blend.textureAlphaArg1Source);
+        assertEquals(RT_TEXTURE_ARG_VERTEX_COLOR, blend.textureAlphaArg2Source);
+        assertEquals(RT_TEX_OP_MODULATE, blend.textureAlphaOperation);
     }
 }

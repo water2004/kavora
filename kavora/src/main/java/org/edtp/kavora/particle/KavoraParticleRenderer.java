@@ -106,10 +106,16 @@ public class KavoraParticleRenderer {
         this.atlasManager = atlasManager;
     }
 
+    /** Draw state for a blended particle sprite, including sprites captured with held items. */
+    public static InstanceInfoBlendEXT createTranslucentBlend() {
+        InstanceInfoBlendEXT blend = InstanceInfoBlendEXT.textureTimesVertexColorAlphaBlend(ALPHA_CUTOFF);
+        blend.alphaTestCompareOp = InstanceInfoBlendEXT.VK_COMPARE_OP_GREATER_OR_EQUAL;
+        return blend;
+    }
+
     private void ensureBlendExts() {
         if (translucentBlendExt == null) {
-            translucentBlendExt = InstanceInfoBlendEXT.textureTimesVertexColorAlphaBlend(ALPHA_CUTOFF);
-            translucentBlendExt.alphaTestCompareOp = InstanceInfoBlendEXT.VK_COMPARE_OP_GREATER_OR_EQUAL;
+            translucentBlendExt = createTranslucentBlend();
             translucentPNext = translucentBlendExt.allocNative(0);
         }
         if (cutoutBlendExt == null) {

@@ -5,17 +5,22 @@
 package org.edtp.kavora.gametest;
 
 import org.edtp.kavora.KavoraMod;
+import org.edtp.kavora.light.HeldLightState;
 import org.edtp.kavora.render.RenderBackend;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Set;
 import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.SingleQuadParticle;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.gamerules.GameRules;
 
@@ -45,6 +50,10 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
             });
             context.waitTicks(30);
             Path baseline = KavoraWorldGameTest.assertWorldRenders(context, world, "particle-baseline");
+            if (Boolean.getBoolean("kavora.gametest.heldTorch")) {
+                checkHeldTorch(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.particleTemporalOnly")) {
                 KavoraParticleTemporalChecks.run(context, world);
                 return;
@@ -92,6 +101,78 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
                     "Particle native alpha policies: ordinary delta={}, terrain delta={}", ordinaryDelta, terrainDelta);
         } finally {
             context.runOnClient(client -> { if (client.gui.hud.isHidden() != hidden) client.gui.hud.toggle(); });
+        }
+    }
+
+    private static void checkHeldTorch(ClientGameTestContext context, TestSingleplayerContext world) {
+        world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                "item replace entity @a weapon.mainhand with minecraft:torch"));
+        context.waitFor(client -> client.player.getMainHandItem().is(Items.TORCH), 200);
+        context.runOnClient(client -> {
+            if (client.gui.hud.isHidden()) client.gui.hud.toggle();
+        });
+        boolean lightsWereOff = context.computeOnClient(client -> HeldLightState.isLocalHeldLightsOff());
+        try {
+            setHeldTorchLit(context, false);
+            context.waitTicks(20);
+            Path off = KavoraWorldGameTest.captureCompletedFrame(context, "held-torch-off");
+            setHeldTorchLit(context, true);
+            context.waitTicks(20);
+            Path lit = KavoraWorldGameTest.captureCompletedFrame(context, "held-torch-lit");
+            double backgroundChange = changedTorchBackground(lit, off);
+            KavoraWorldGameTest.require(backgroundChange < .32,
+                    "Held flame or smoke obscures its background with an opaque quad: " + backgroundChange);
+            KavoraWorldGameTest.require(heldFlameCoverage(lit) - heldFlameCoverage(off) > .008,
+                    "Blended held flame disappeared: " + lit);
+        } finally {
+            setHeldTorchLit(context, !lightsWereOff);
+        }
+    }
+
+    private static void setHeldTorchLit(ClientGameTestContext context, boolean lit) {
+        context.runOnClient(client -> {
+            if (HeldLightState.isLocalHeldLightsOff() == lit) HeldLightState.toggleLocalHeldLights();
+        });
+    }
+
+    private static double changedTorchBackground(Path lit, Path off) {
+        // This region contains flame and smoke sprites over the sky and terrain, above the torch handle.
+        BufferedImage a = readCapture(lit), b = readCapture(off);
+        int left = a.getWidth() * 77 / 100, right = a.getWidth() * 99 / 100;
+        int top = a.getHeight() * 7 / 100, bottom = a.getHeight() * 71 / 100;
+        int changed = 0;
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                int litRgb = a.getRGB(x, y), offRgb = b.getRGB(x, y);
+                int dr = Math.abs((litRgb >> 16 & 255) - (offRgb >> 16 & 255));
+                int dg = Math.abs((litRgb >> 8 & 255) - (offRgb >> 8 & 255));
+                int db = Math.abs((litRgb & 255) - (offRgb & 255));
+                if (Math.max(dr, Math.max(dg, db)) > 36) changed++;
+            }
+        }
+        return (double) changed / ((right - left) * (bottom - top));
+    }
+
+    private static double heldFlameCoverage(Path path) {
+        BufferedImage image = readCapture(path);
+        int left = image.getWidth() * 77 / 100, right = image.getWidth() * 99 / 100;
+        int top = image.getHeight() * 43 / 100, bottom = image.getHeight() * 84 / 100;
+        int flame = 0;
+        for (int y = top; y < bottom; y++) {
+            for (int x = left; x < right; x++) {
+                int rgb = image.getRGB(x, y);
+                int r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
+                if (r > 110 && r > 1.15 * g && g > 1.25 * b) flame++;
+            }
+        }
+        return (double) flame / ((right - left) * (bottom - top));
+    }
+
+    private static BufferedImage readCapture(Path path) {
+        try {
+            return ImageIO.read(path.toFile());
+        } catch (IOException e) {
+            throw new AssertionError("Cannot read held torch capture: " + path, e);
         }
     }
 
