@@ -131,8 +131,7 @@ public final class EntityRenderContext {
 
     /**
      * The terrain layer of the block item currently being rendered, as a
-     * {@code BlockTextureManager} layer type, or {@link #NO_BLOCK_ITEM}. Ice and
-     * stained glass are {@code L_TRANS}, clear glass {@code L_GLASS}.
+     * {@code BlockTextureManager} layer type, or {@link #NO_BLOCK_ITEM}.
      *
      * <p>Set by {@code ItemRendererMixin} for the duration of one
      * {@code ItemRenderer.renderItem} call and sampled by

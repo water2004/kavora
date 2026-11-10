@@ -79,7 +79,7 @@ void storePSRState(uint pixel, GeometryPSRResolverState state, uint seed)
   PathStorage[b + 8] = psrPackHalf2(state._accumulatedRotation.xy);
   PathStorage[b + 9] = psrPackHalf2(state._accumulatedRotation.zw);
   PathStorage[b + 10] = asuint(state.accumulatedHitDistance);
-  PathStorage[b + 11] = state.mediumMaterialIndex;
+  PathStorage[b + 11] = state.mediumState;
   PathStorage[b + 12] = psrPackHalf2(state._direction.xy);
   PathStorage[b + 13] = f32tof16(state._direction.z) | (uint(state._rayMask) << 16) | (uint(state.bounceIteration) << 24);
   PathStorage[b + 14] = psrPackHalf2(state.attenuation.xy);
@@ -99,7 +99,7 @@ GeometryPSRResolverState loadPSRState(uint pixel)
   state._segmentHitDistance = asfloat(PathStorage[b + 7]);
   state._accumulatedRotation = f16vec4(psrUnpackHalf2(PathStorage[b + 8]), psrUnpackHalf2(PathStorage[b + 9]));
   state.accumulatedHitDistance = asfloat(PathStorage[b + 10]);
-  state.mediumMaterialIndex = PathStorage[b + 11];
+  state.mediumState = PathStorage[b + 11];
   state._direction = f16vec3(psrUnpackHalf2(PathStorage[b + 12]), f16tof32(PathStorage[b + 13] & 0xffff));
   state._rayMask = uint8_t(PathStorage[b + 13] >> 16);
   state.bounceIteration = uint8_t(PathStorage[b + 13] >> 24);

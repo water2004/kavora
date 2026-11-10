@@ -191,6 +191,10 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   translucentSurfaceMaterialInteraction.sourcePackedGammaEmissiveColor = colorToR5G6B5(linearToGammaFast(emissiveColor));
 
   translucentSurfaceMaterialInteraction.flags = translucentSurfaceMaterial.flags;
+  if (transmittanceOrDiffuseLoaded && !useDiffuseLayer)
+  {
+    translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE;
+  }
 
 #ifdef RAY_TRACING_PRIMARY_RAY
   storeSamplerFeedback(translucentSurfaceMaterial.samplerFeedbackStamp, surfaceInteraction);
@@ -299,6 +303,10 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   translucentSurfaceMaterialInteraction.flags =
     (useDiffuseLayer ? TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER : 0) |
     (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER);
+  if (!useDiffuseLayer && translucentSurfaceMaterial.transmittanceOrDiffuseTextureIndex != BINDING_INDEX_INVALID)
+  {
+    translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE;
+  }
 
   return translucentSurfaceMaterialInteraction;
 }

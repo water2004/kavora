@@ -257,10 +257,11 @@ public final class TerrainMaterialPalette {
         model.collectParts(random, parts);
         List<FaceCandidate>[] candidates = new List[6];
         for (int i = 0; i < 6; i++) candidates[i] = new ArrayList<>();
-        boolean glass = state.is(Blocks.GLASS) || state.is(Blocks.GLASS_PANE);
+        String layerOverride = BlockTextureManager.glassLayerOverride(state);
+        int glassLayer = layerOverride == null ? -1 : BlockTextureManager.layerType(layerOverride);
         for (BlockStateModelPart part : parts) {
-            for (Direction side : DIRECTIONS) collect(candidates, part.getQuads(side), glass);
-            collect(candidates, part.getQuads(null), glass);
+            for (Direction side : DIRECTIONS) collect(candidates, part.getQuads(side), glassLayer);
+            collect(candidates, part.getQuads(null), glassLayer);
         }
         parts.clear();
         for (int side = 0; side < 6; side++) result[side] = selectLayers(candidates[side]);
@@ -285,14 +286,14 @@ public final class TerrainMaterialPalette {
         }
     }
 
-    private void collect(List<FaceCandidate>[] result, List<BakedQuad> quads, boolean glass) {
+    private void collect(List<FaceCandidate>[] result, List<BakedQuad> quads, int glassLayer) {
         for (BakedQuad quad : quads) {
             int side = quad.direction().ordinal();
             var sprite = quad.materialInfo().sprite();
             var entry = textures.getSpriteById(sprite.contents().name());
             int faceLayer =
-                    glass
-                            ? BlockTextureManager.L_GLASS
+                    glassLayer >= 0
+                            ? glassLayer
                             : switch (quad.materialInfo().layer()) {
                                 case TRANSLUCENT -> BlockTextureManager.L_TRANS;
                                 case CUTOUT -> BlockTextureManager.L_CUTOUT;
@@ -317,8 +318,7 @@ public final class TerrainMaterialPalette {
                 maxV = Math.max(maxV, t);
             }
             boolean blended =
-                    faceLayer == BlockTextureManager.L_TRANS
-                            || glass
+                    BlockTextureManager.isTranslucentLayer(faceLayer)
                             || entry != null && entry.hasTransparency(minU, minV, maxU, maxV);
             boolean sss =
                     entry != null

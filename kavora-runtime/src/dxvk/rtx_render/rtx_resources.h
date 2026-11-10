@@ -292,7 +292,7 @@ namespace dxvk
       AliasedResource m_sharedIntegrationSurfacePdf;
       Resource m_sharedMaterialData0;
       Resource m_sharedMaterialData1;
-      Resource m_sharedMediumMaterialIndex;
+      Resource m_sharedMediumState;
       AliasedResource m_sharedBiasCurrentColorMask;
       AliasedResource m_sharedSurfaceIndex;
       Resource m_sharedSubsurfaceData;

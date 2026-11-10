@@ -309,7 +309,7 @@ public final class DirectQuadWriter {
         int layerType = BlockTextureManager.layerType(renderLayer);
         boolean isWater = spriteId == null;
 
-        int cat = isBlendedLayer(renderLayer) ? ChunkManager.CAT_TRANSLUCENT
+        int cat = BlockTextureManager.isTranslucentLayer(layerType) ? ChunkManager.CAT_TRANSLUCENT
                                               : ChunkManager.CAT_SOLID;
 
         String bk = isWater ? "water" : renderLayer;
@@ -387,7 +387,7 @@ public final class DirectQuadWriter {
 
             if (stageOverlay[i]) {
                 stageCategory[i] = ChunkManager.CAT_OVERLAY;
-            } else if (isBlendedLayer(layer)) {
+            } else if (BlockTextureManager.isTranslucentLayer(layerType)) {
                 stageCategory[i] = ChunkManager.CAT_TRANSLUCENT;
             } else if (layerType == solidType || (sprite != null && !sprite.hasTransparency)) {
                 stageCategory[i] = ChunkManager.CAT_SOLID;
@@ -693,9 +693,8 @@ public final class DirectQuadWriter {
         };
     }
 
-    /** Layers whose material blends rather than tests alpha: vanilla's translucent layer and clear glass. */
-    static boolean isBlendedLayer(String layer) {
-        return "translucent".equals(layer) || "glass".equals(layer);
+    private static boolean isBlendedLayer(String layer) {
+        return BlockTextureManager.isTranslucentLayer(BlockTextureManager.layerType(layer));
     }
 
 }

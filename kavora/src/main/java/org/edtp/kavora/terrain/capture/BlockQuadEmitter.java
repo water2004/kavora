@@ -29,7 +29,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.SingleThreadedRandomSource;
@@ -351,9 +350,9 @@ public final class BlockQuadEmitter {
         }
 
         BlockStateModel model = blockRenderManager.get(state);
-        String layerName = isClearGlass(state) ? "glass" : "solid";
+        String layerOverride = BlockTextureManager.glassLayerOverride(state);
 
-        emitVanillaBlock(world, state, model, layerName, lx, ly, lz);
+        emitVanillaBlock(world, state, model, layerOverride, lx, ly, lz);
     }
 
     /**
@@ -420,7 +419,7 @@ public final class BlockQuadEmitter {
     }
 
     private void emitVanillaBlock(BlockAndTintGetter world, BlockState state,
-                                   BlockStateModel model, String layerName,
+                                   BlockStateModel model, String layerOverride,
                                    float lx, float ly, float lz) {
 
         modelParts.clear();
@@ -435,7 +434,7 @@ public final class BlockQuadEmitter {
                 List<BakedQuad> quads = modelParts.get(p).getQuads(dir);
                 for (int q = 0; q < quads.size(); q++) {
                     BakedQuad bq = quads.get(q);
-                    String quadLayer = "glass".equals(layerName) ? layerName : classifyLayer(bq.materialInfo().layer());
+                    String quadLayer = layerOverride != null ? layerOverride : classifyLayer(bq.materialInfo().layer());
                     stageBakedQuad(bq, quadLayer, state, world, lx, ly, lz);
                 }
             }
@@ -999,12 +998,8 @@ public final class BlockQuadEmitter {
      * question, so it shades as its placed counterpart does.
      */
     public static String classifyBlockLayer(BlockState state) {
-        // Vanilla draws clear glass as a cutout: the texture is alpha 0 between
-        // the frame pixels and the GL path simply discards those. Remix can
-        // refract through it instead, so clear glass takes its own layer and a
-        // translucent material with the frame as a diffuse layer.
-        // Stained glass is already translucent and keeps vanilla's layer.
-        if (isClearGlass(state)) return "glass";
+        String layerOverride = BlockTextureManager.glassLayerOverride(state);
+        if (layerOverride != null) return layerOverride;
         BlockStateModel model = Minecraft.getInstance().getModelManager().getBlockStateModelSet().get(state);
         LayerSampler sampler = LAYER_SAMPLER.get();
         sampler.parts.clear();
@@ -1023,10 +1018,6 @@ public final class BlockQuadEmitter {
             }
         }
         return layer;
-    }
-
-    private static boolean isClearGlass(BlockState state) {
-        return state.is(Blocks.GLASS) || state.is(Blocks.GLASS_PANE);
     }
 
     private static final class LayerSampler {

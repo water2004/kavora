@@ -238,7 +238,7 @@ void integrate_indirect_pass(uvec2 threadIndex)
 
   // Read the medium material index
 
-  const uint mediumMaterialIndex = SharedMediumMaterialIndex[compactedCoordinate];
+  const uint mediumState = SharedMediumState[compactedCoordinate];
 
   // Load state data carried over from the direct integration pass
 
@@ -276,7 +276,7 @@ void integrate_indirect_pass(uvec2 threadIndex)
   integrateIndirectPath(
     u16vec2(gbufferPixelCoordinate), u16vec2(cacheUpdatePixelCoordinate), u16vec2(compactedCoordinate), u16vec2(nrcPixelIndex),
     INTEGRATE_INDIRECT_SBT_OFFSET_STANDARD, indirectPathTextures,
-    geometryFlags, mediumMaterialIndex, rayOrigin, rayDirection,
+    geometryFlags, mediumState, rayOrigin, rayDirection,
     throughput, coneRadius, firstHitPerceptualRoughness,
     firstSampledLobePdf, firstSampledSolidAnglePdf, indirectSampleData.firstSampledLobeIsOpacityTransmission,
     gbufferSurfaceHitDistance, isCacheUpdate);

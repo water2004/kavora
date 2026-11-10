@@ -1409,7 +1409,7 @@ namespace dxvk {
     m_raytracingOutput.m_sharedMaterialData1 = createImageResource(ctx, "shared material data 1", compactedExtent, VK_FORMAT_R32_UINT);
     // Note: This value is isolated rather than being packed with other data (such as the alpha channel combined with the Shared Radiance RGB) so that
     // reads/writes to it do not bring in extra unneeded data into the cachelines (as we don't need that shared radiance information except in compositing).
-    m_raytracingOutput.m_sharedMediumMaterialIndex = createImageResource(ctx, "shared medium material index", compactedExtent, VK_FORMAT_R32_UINT);
+    m_raytracingOutput.m_sharedMediumState = createImageResource(ctx, "shared medium state", compactedExtent, VK_FORMAT_R32_UINT);
     m_raytracingOutput.m_sharedBiasCurrentColorMask = AliasedResource(ctx, m_downscaledExtent, VK_FORMAT_R8_UNORM, "Shared Attenuation", allowCompatibleFormatAliasing);
     // The shared surface index is dense only while it hosts the disocclusion mask.
     m_disocclusionMaskForRRAllocated = needsDisocclusionMaskForRR(m_compactedStorageCapacity);

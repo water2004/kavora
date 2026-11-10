@@ -179,39 +179,6 @@ Ray sampleDirection(
     polymorphicSurfaceMaterialInteraction, sampledLobe, dummySampledLobePdf, dummySolidAnglePdf, isPrimaryIndirectSample);
 }
 
-bool evalMediumChange(
-  bool oldInsideMedium, bool insideMedium,
-  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
-  inout uint mediumMaterialIndex)
-{
-  // Set the material medium index if a medium was entered or exited
-  // Note: This does not work for nested translucency as most recent medium entered is stored, but this is a fine thing to not support as
-  // it is not super common. Additionally this path should only be invoked if PSTR is desired, and only in the case of actual thick translucency
-  // which changes the medium flag.
-
-  const bool enteredMedium = !oldInsideMedium && insideMedium;
-  const bool exitedMedium = oldInsideMedium && !insideMedium;
-
-  if (enteredMedium)
-  {
-    // Note: For now we always know the only type of material which can trigger this path is the translucent material, so no need to check it.
-    const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
-      translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
-
-    mediumMaterialIndex = translucentSurfaceMaterialInteraction.sourceSurfaceMaterialIndex;
-
-    return true;
-  }
-  else if (exitedMedium)
-  {
-    mediumMaterialIndex = SURFACE_INDEX_INVALID;
-
-    return true;
-  }
-
-  return false;
-}
-
 bool evalNEESecondary(
   LightSample lightSample,
   uint8_t sampledTransportPortalIndex, 

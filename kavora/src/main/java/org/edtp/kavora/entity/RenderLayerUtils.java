@@ -29,7 +29,7 @@ import net.minecraft.resources.Identifier;
  */
 final class RenderLayerUtils {
 
-    /** Material behavior encoded by Minecraft's actual render phases, and clear glass. */
+    /** Material behavior derived from Minecraft render phases and block-atlas optics. */
     enum SurfaceMode {
         OPAQUE,
         CUTOUT,
@@ -37,13 +37,9 @@ final class RenderLayerUtils {
         EMISSIVE,
         /** Full-bright alpha-tested coverage, retaining the opaque core of a beam. */
         EMISSIVE_CUTOUT,
-        /**
-         * Clear glass on the block atlas: blended, through the refracting material
-         * terrain gives placed clear glass. No render phase encodes it, since vanilla
-         * draws clear glass as a cutout; {@code KavoraEntitySubmitter.atlasSurfaceMode}
-         * assigns it to geometry from a clear-glass block item.
-         */
-        GLASS;
+        /** Refracting clear glass on the block atlas. */
+        GLASS,
+        STAINED_GLASS_BLOCK;
 
         boolean isEmissive() { return this == EMISSIVE || this == EMISSIVE_CUTOUT; }
     }

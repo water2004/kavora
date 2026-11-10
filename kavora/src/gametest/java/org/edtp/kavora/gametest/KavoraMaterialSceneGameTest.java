@@ -4,12 +4,18 @@
  */
 package org.edtp.kavora.gametest;
 
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Set;
+import javax.imageio.ImageIO;
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.render.RenderBackend;
-import java.util.Set;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.gamerules.GameRules;
+import net.minecraft.world.phys.AABB;
 
 /** Fixed camera views exercise the same geometry under sunlight, water, weather and emitters. */
 public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
@@ -46,6 +52,10 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
             }
             if (Boolean.getBoolean("kavora.gametest.beaconOnly")) {
                 checkVanillaBeacon(context, world);
+                return;
+            }
+            if (Boolean.getBoolean("kavora.gametest.stainedGlassOnly")) {
+                checkStainedGlass(context, world);
                 return;
             }
             if (Boolean.getBoolean("kavora.gametest.lightingOnly")) {
@@ -134,6 +144,72 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
             context.runOnClient(client -> {
                 if (client.gui.hud.isHidden() != hudWasHidden) client.gui.hud.toggle();
             });
+        }
+    }
+
+    private static void checkStainedGlass(ClientGameTestContext context, TestSingleplayerContext world) {
+        world.getServer().runOnServer(server -> {
+            var rules = server.getGameRules();
+            rules.set(GameRules.ADVANCE_TIME, false, server);
+            rules.set(GameRules.SPAWN_MOBS, false, server);
+            for (var mob : server.overworld().getEntitiesOfClass(Mob.class, new AABB(-14, -64, -14, 14, -50, 10))) {
+                mob.discard();
+            }
+            KavoraSceneFixtures.commands(server,
+                    "gamemode creative @a", "time set 6000", "weather clear",
+                    "fill -10 -61 -8 10 -61 6 minecraft:smooth_quartz",
+                    "fill -10 -60 4 10 -54 4 minecraft:white_concrete",
+                    "fill -9 -60 1 -7 -54 1 minecraft:glass",
+                    "fill -6 -60 1 -4 -54 1 minecraft:red_stained_glass",
+                    "fill -3 -60 1 -1 -54 1 minecraft:red_stained_glass_pane",
+                    "fill 0 -60 1 2 -54 1 minecraft:blue_stained_glass_pane",
+                    "fill 3 -60 1 5 -54 1 minecraft:blue_stained_glass",
+                    "fill 6 -60 1 8 -54 1 minecraft:glass_pane");
+        });
+        context.runOnClient(client -> { if (!client.gui.hud.isHidden()) client.gui.hud.toggle(); });
+        pose(world, -4.5, -58.5, -5.0, 0, 0);
+        Path redBlock = capture(context, world, "glass-red-block");
+        Path redPane = captureGlassPanel(context, world, -1.5, "glass-red-pane");
+        Path bluePane = captureGlassPanel(context, world, 1.5, "glass-blue-pane");
+        Path blueBlock = captureGlassPanel(context, world, 4.5, "glass-blue-block");
+        double clearBlockTint = glassTint(captureGlassPanel(context, world, -7.5, "glass-clear-block"));
+        double clearPaneTint = glassTint(captureGlassPanel(context, world, 7.5, "glass-clear-pane"));
+
+        double redBlockTint = glassTint(redBlock) - clearBlockTint;
+        double redPaneTint = glassTint(redPane) - clearPaneTint;
+        double bluePaneTint = clearPaneTint - glassTint(bluePane);
+        double blueBlockTint = clearBlockTint - glassTint(blueBlock);
+        if (redPaneTint < 0.02 || bluePaneTint < 0.02
+                || redBlockTint < 0.02 || blueBlockTint < 0.02) {
+            throw new AssertionError("Incorrect glass transmission (red block, red pane, blue pane, blue block) "
+                    + redBlockTint + ", " + redPaneTint + ", " + bluePaneTint + ", " + blueBlockTint);
+        }
+    }
+
+    private static Path captureGlassPanel(ClientGameTestContext context, TestSingleplayerContext world,
+                                          double x, String name) {
+        pose(world, x, -58.5, -5.0, 0, 0);
+        long presents = context.computeOnClient(client -> KavoraFrameProbe.presents);
+        context.waitFor(client -> KavoraFrameProbe.presents >= presents + 40, 2400);
+        return KavoraWorldGameTest.captureCompletedFrame(context, name + "-vulkan");
+    }
+
+    private static double glassTint(Path path) {
+        try {
+            var image = ImageIO.read(path.toFile());
+            long red = 0, green = 0, blue = 0;
+            int width = image.getWidth(), height = image.getHeight();
+            for (int y = height * 47 / 100; y < height * 53 / 100; y++) {
+                for (int x = width * 47 / 100; x < width * 53 / 100; x++) {
+                    int rgb = image.getRGB(x, y);
+                    red += (rgb >>> 16) & 255;
+                    green += (rgb >>> 8) & 255;
+                    blue += rgb & 255;
+                }
+            }
+            return (double) (red - blue) / Math.max(1, red + green + blue);
+        } catch (IOException error) {
+            throw new AssertionError("Cannot inspect stained glass screenshot " + path, error);
         }
     }
 

@@ -470,7 +470,7 @@ void geometryResolverOutputSurface<
   Surface surface, SurfaceInteraction surfaceInteraction,
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   vec3 radiance, vec3 attenuation, vec4 accumulatedRotation,
-  uint mediumMaterialIndex, float virtualHitDistance, bool directionAltered,
+  uint mediumState, float virtualHitDistance, bool directionAltered,
   vec3 virtualMotion, VirtualHitProjection projection,
   bool useAlternateDisocclusionThreshold, bool isViewModel, bool decalCandidateSeen = true,
   bool alphaBlendSurfaceStored = true)
@@ -692,7 +692,7 @@ void geometryResolverOutputSurface<
 
   if (SELECTED_INTEGRATION_SURFACE)
   {
-    imageStore(SharedMediumMaterialIndex, compactedCoordinate, mediumMaterialIndex);
+    imageStore(SharedMediumState, compactedCoordinate, mediumState);
   }
 
   // Serialize out the Surface Material Interaction
@@ -733,7 +733,7 @@ void geometryResolverOutputSurfaceDynamic(
   Surface surface, SurfaceInteraction surfaceInteraction,
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   vec3 radiance, vec3 attenuation, vec4 accumulatedRotation,
-  uint mediumMaterialIndex, float virtualHitDistance, bool directionAltered,
+  uint mediumState, float virtualHitDistance, bool directionAltered,
   bool useAlternateDisocclusionThreshold, bool isViewModel,
   bool renderTargetPath, bool cameraHistoryValid, vec3 previousScreenPoint)
 {
@@ -764,7 +764,7 @@ void geometryResolverOutputSurfaceDynamic(
       geometryResolverOutputSurface<true, true>(
         pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
         polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
-        mediumMaterialIndex, virtualHitDistance, directionAltered,
+        mediumState, virtualHitDistance, directionAltered,
         virtualMotion, projection,
         useAlternateDisocclusionThreshold, isViewModel);
     }
@@ -773,7 +773,7 @@ void geometryResolverOutputSurfaceDynamic(
       geometryResolverOutputSurface<true, false>(
         pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
         polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
-        mediumMaterialIndex, virtualHitDistance, directionAltered,
+        mediumState, virtualHitDistance, directionAltered,
         virtualMotion, projection,
         useAlternateDisocclusionThreshold, isViewModel);
     }
@@ -785,7 +785,7 @@ void geometryResolverOutputSurfaceDynamic(
       geometryResolverOutputSurface<false, true>(
         pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
         polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
-        mediumMaterialIndex, virtualHitDistance, directionAltered,
+        mediumState, virtualHitDistance, directionAltered,
         virtualMotion, projection,
         useAlternateDisocclusionThreshold, isViewModel);
     }
@@ -794,7 +794,7 @@ void geometryResolverOutputSurfaceDynamic(
       geometryResolverOutputSurface<false, false>(
         pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
         polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
-        mediumMaterialIndex, virtualHitDistance, directionAltered,
+        mediumState, virtualHitDistance, directionAltered,
         virtualMotion, projection,
         useAlternateDisocclusionThreshold, isViewModel);
     }
@@ -2488,28 +2488,9 @@ void geometryResolverVertex(
       gbufferSurfaceRadiance);
   }
 
-  // Set the PSTR material medium index if a medium was entered
-  // Note: This does not work for nested translucency as most recent medium entered is stored, but this is a fine thing to not support as
-  // it is not super common. Additionally this path should only be invoked if PSTR is desired, and only in the case of actual thick translucency
-  // which changes the medium flag.
-
-  const bool enteredMedium = !oldInsideMedium && geometryResolverState.insideMedium;
-  const bool exitedMedium = oldInsideMedium && !geometryResolverState.insideMedium;
-  uint transmissionMediumMaterialIndex = cb.startInMediumMaterialIndex;
-
-  if (enteredMedium)
-  {
-    // Note: For now we always know the only type of material which can trigger this path is the translucent material, so no need to check it.
-    const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
-
-    // Note: Only setting this for PSTR as it's the only path currently which would need this information (PSRR doesn't off the first interaction at least, but does later
-    // during PSR resolving due to things like TIR).
-    transmissionMediumMaterialIndex = translucentSurfaceMaterialInteraction.sourceSurfaceMaterialIndex;
-  }
-  else if (exitedMedium)
-  {
-    transmissionMediumMaterialIndex = SURFACE_INDEX_INVALID;
-  }
+  uint transmissionMediumState = cb.startInMediumMaterialIndex;
+  evalMediumChange(oldInsideMedium, geometryResolverState.insideMedium,
+    polymorphicSurfaceMaterialInteraction, transmissionMediumState);
 
   if (rayInteraction.isViewModel)
   {
@@ -2583,7 +2564,7 @@ void geometryResolverVertex(
         packedGeometryFlags);
       psrData.origin = floatBitsToUint(vec3(floor(surfaceInteraction.textureCoordinates), 0.0f));
       psrData.encodedAccumulatedRotation = uint2(rayInteraction.surfaceIndex, rayInteraction.primitiveIndex);
-      psrData.mediumMaterialIndexAndGeometryFlags |= kPSRRenderTargetPath;
+      psrData.mediumStateAndGeometryFlags |= kPSRRenderTargetPath;
         
       storeTransmissionPSRData(psrData, geometryResolverState.pixelCoordinate);
       geometryResolverStorePSRContinuation(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate,
@@ -2664,7 +2645,7 @@ void geometryResolverVertex(
 
       vec4 vectorTransform = quaternionMultiply(geometryResolverState.accumulatedRotation, surfaceMaterialInteractionTransmissionPSRSample.vectorTransform, true);
       
-      const GbufferPSRData psrData = packPSRData(sampledRay, transmissionMediumMaterialIndex,
+      const GbufferPSRData psrData = packPSRData(sampledRay, transmissionMediumState,
         geometryResolverState.attenuation * surfaceMaterialInteractionTransmissionPSRSample.attenuation,
         vectorTransform,
         packedGeometryFlags);
@@ -2896,7 +2877,7 @@ void geometryPSRResolverVertex(
     radianceAttenuation, emissiveRadiance,
     numUnorderedInteractions, 
     geometryPSRResolverState.decalEncountered, decalMemory, decalEmissiveRadiance, surfaceIndex,
-    geometryPSRResolverState.mediumMaterialIndex);
+    geometryPSRResolverState.mediumState);
 
   // Note: Add to the number of unordered interactions in the debug view based on the number of unordered interactions in resolving.
   if (gbufferDebugViewEnabled && (cb.debugView == DEBUG_VIEW_PRIMARY_UNORDERED_INTERACTIONS || cb.debugView == DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS))
@@ -2937,7 +2918,7 @@ void geometryPSRResolverVertex(
     cb.screenSpacePixelSpreadHalfAngle,
     isStochasticAlphaBlend, firstRayPortal,
     geometryPSRResolverState.pomOpaqueSurfaceEncountered,
-    isRaytracedRenderTarget, geometryPSRResolverState.mediumMaterialIndex,
+    isRaytracedRenderTarget, geometryPSRResolverState.mediumState,
     false, false, false, false, evaluatePomSilhouette);
 
 #ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
@@ -2973,7 +2954,7 @@ void geometryPSRResolverVertex(
         // Resolve already integrated the segment up to the original triangle.
         resolveAtmosphere(silhouetteRay.Origin, ray.direction, distance,
           portalSpaceToVolumeHint(geometryPSRResolverState.portalSpace),
-          radianceAttenuation, emissiveRadiance, geometryPSRResolverState.mediumMaterialIndex);
+          radianceAttenuation, emissiveRadiance, geometryPSRResolverState.mediumState);
       }
     }
   }
@@ -3090,7 +3071,7 @@ void geometryPSRResolverVertex(
       geometryPSRResolverState.renderTargetPath = true;
       geometryPSRResolverState.renderTargetTriangle.x = SURFACE_INDEX_INVALID;
       geometryPSRResolverState.insideMedium = false;
-      geometryPSRResolverState.mediumMaterialIndex = cb.startInMediumMaterialIndex;
+      geometryPSRResolverState.mediumState = cb.startInMediumMaterialIndex;
       geometryPSRResolverState.accumulatedRotation = getIdentityQuaternion();
     }
     return;
@@ -3160,25 +3141,8 @@ void geometryPSRResolverVertex(
     }
   }
 
-  // Set the material medium index if a medium was entered or exited
-  // Note: This does not work for nested translucency as most recent medium entered is stored, but this is a fine thing to not support as
-  // it is not super common. Additionally this path should only be invoked if PSTR is desired, and only in the case of actual thick translucency
-  // which changes the medium flag.
-
-  const bool enteredMedium = !oldInsideMedium && geometryPSRResolverState.insideMedium;
-  const bool exitedMedium = oldInsideMedium && !geometryPSRResolverState.insideMedium;
-
-  if (enteredMedium)
-  {
-    // Note: For now we always know the only type of material which can trigger this path is the translucent material, so no need to check it.
-    const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
-
-    geometryPSRResolverState.mediumMaterialIndex = translucentSurfaceMaterialInteraction.sourceSurfaceMaterialIndex;
-  }
-  else if (exitedMedium)
-  {
-    geometryPSRResolverState.mediumMaterialIndex = SURFACE_INDEX_INVALID;
-  }
+  evalMediumChange(oldInsideMedium, geometryPSRResolverState.insideMedium,
+    polymorphicSurfaceMaterialInteraction, geometryPSRResolverState.mediumState);
 
   // Handle PSR continuation or output a surface otherwise
 
@@ -3249,7 +3213,7 @@ void geometryPSRResolverVertex(
       surface, surfaceInteraction,
       polymorphicSurfaceMaterialInteraction,
       geometryPSRResolverState.radiance, geometryPSRResolverState.attenuation,
-      geometryPSRResolverState.accumulatedRotation, geometryPSRResolverState.mediumMaterialIndex,
+      geometryPSRResolverState.accumulatedRotation, geometryPSRResolverState.mediumState,
       renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.accumulatedHitDistance, true,
       geometryPSRResolverState.useAlternateDisocclusionThreshold,
       geometryPSRResolverState.isViewModelSurface, renderTargetPath, cameraHistoryValid, previousScreenPoint);
@@ -4025,27 +3989,30 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction =
     polymorphicSurfaceMaterialInteractionCreate(surfaceMaterialInteractionMemory);
 
-  if (cb.sssArgs.enableThinOpaque || cb.sssArgs.enableDiffusionProfile)
+  if (polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction) == surfaceMaterialTypeOpaque)
   {
-    const SubsurfaceMaterialInteraction subsurfaceMaterialInteraction =
-      subSurfaceMaterialReadHelper(
-        SharedSubsurfaceData[pixelCoordinate],
-        SharedSubsurfaceDiffusionProfileData[pixelCoordinate]);
+    if (cb.sssArgs.enableThinOpaque || cb.sssArgs.enableDiffusionProfile)
+    {
+      const SubsurfaceMaterialInteraction subsurfaceMaterialInteraction =
+        subSurfaceMaterialReadHelper(
+          SharedSubsurfaceData[pixelCoordinate],
+          SharedSubsurfaceDiffusionProfileData[pixelCoordinate]);
 
-    polymorphicSurfaceMaterialInteraction.fdata5 = subsurfaceMaterialInteraction.measurementDistance;
-    polymorphicSurfaceMaterialInteraction.i32data0 = subsurfaceMaterialInteraction.packedTransmittanceColor;
-    polymorphicSurfaceMaterialInteraction.i32data1 = subsurfaceMaterialInteraction.packedSingleScatteringAlbedo;
-    polymorphicSurfaceMaterialInteraction.bdata1 = subsurfaceMaterialInteraction.volumetricAnisotropy;
-    polymorphicSurfaceMaterialInteraction.bdata2 = subsurfaceMaterialInteraction.maxSampleRadius;
-  }
-  else
-  {
-    polymorphicSurfaceMaterialInteraction.fdata5 = 0.0f;
-    polymorphicSurfaceMaterialInteraction.idata0 = 0;
-    polymorphicSurfaceMaterialInteraction.i32data0 = 0;
-    polymorphicSurfaceMaterialInteraction.i32data1 = 0;
-    polymorphicSurfaceMaterialInteraction.bdata1 = 0;
-    polymorphicSurfaceMaterialInteraction.bdata2 = 0;
+      polymorphicSurfaceMaterialInteraction.fdata5 = subsurfaceMaterialInteraction.measurementDistance;
+      polymorphicSurfaceMaterialInteraction.i32data0 = subsurfaceMaterialInteraction.packedTransmittanceColor;
+      polymorphicSurfaceMaterialInteraction.i32data1 = subsurfaceMaterialInteraction.packedSingleScatteringAlbedo;
+      polymorphicSurfaceMaterialInteraction.bdata1 = subsurfaceMaterialInteraction.volumetricAnisotropy;
+      polymorphicSurfaceMaterialInteraction.bdata2 = subsurfaceMaterialInteraction.maxSampleRadius;
+    }
+    else
+    {
+      polymorphicSurfaceMaterialInteraction.fdata5 = 0.0f;
+      polymorphicSurfaceMaterialInteraction.idata0 = 0;
+      polymorphicSurfaceMaterialInteraction.i32data0 = 0;
+      polymorphicSurfaceMaterialInteraction.i32data1 = 0;
+      polymorphicSurfaceMaterialInteraction.bdata1 = 0;
+      polymorphicSurfaceMaterialInteraction.bdata2 = 0;
+    }
   }
 
   RNG randomState = createRNG(pixelCoordinate, cb.frameIdx);
@@ -4140,20 +4107,8 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   // PrimaryConeRadius. PSR resolving consumes this texture as a raw cone radius.
   PrimaryConeRadius[pixelCoordinate] = minimalRayInteraction.coneRadius;
 
-  const bool enteredMedium = !oldInsideMedium && insideMedium;
-  const bool exitedMedium = oldInsideMedium && !insideMedium;
-  uint transmissionMediumMaterialIndex = cb.startInMediumMaterialIndex;
-
-  if (enteredMedium)
-  {
-    const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
-      translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
-    transmissionMediumMaterialIndex = translucentSurfaceMaterialInteraction.sourceSurfaceMaterialIndex;
-  }
-  else if (exitedMedium)
-  {
-    transmissionMediumMaterialIndex = SURFACE_INDEX_INVALID;
-  }
+  uint transmissionMediumState = cb.startInMediumMaterialIndex;
+  evalMediumChange(oldInsideMedium, insideMedium, polymorphicSurfaceMaterialInteraction, transmissionMediumState);
 
   const uint packedGeometryFlags = geometryFlagsEncode(geometryFlags);
   bool useAlternateDisocclusionThreshold = false;
@@ -4193,7 +4148,7 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
     const vec4 vectorTransform =
       quaternionMultiply(accumulatedRotation, transmissionPSRSample.vectorTransform, true);
     const GbufferPSRData psrData = packPSRData(
-      sampledRay, transmissionMediumMaterialIndex,
+      sampledRay, transmissionMediumState,
       attenuation * transmissionPSRSample.attenuation,
       vectorTransform,
       packedGeometryFlags);
@@ -4274,7 +4229,7 @@ GeometryPSRResolverState decodeInitialPSRState(InitialPSRData initial, bool isTr
   geometryPSRResolverState.renderTargetTile = vec2(0.0f);
   geometryPSRResolverState.renderTargetScreenDistance = 0.0f;
   if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET &&
-      (initial.continuation.mediumMaterialIndexAndGeometryFlags & kPSRRenderTargetPath))
+      (initial.continuation.mediumStateAndGeometryFlags & kPSRRenderTargetPath))
   {
     geometryPSRResolverState.renderTargetPath = true;
     geometryPSRResolverState.renderTargetTriangle = initial.continuation.encodedAccumulatedRotation;

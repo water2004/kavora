@@ -57,7 +57,7 @@ PathState pathStateCreateEmpty(GeometryFlags geometryFlags)
   pathState.radiance = vec3(0.0f, 0.0f, 0.0f);
   pathState.throughput = f16vec3(1.h);
   pathState.firstBounceHitDistance = kEmptyPixelHitDistance;
-  pathState.mediumMaterialIndex = SURFACE_INDEX_INVALID;
+  pathState.mediumState = SURFACE_INDEX_INVALID;
   
   pathState.continueResolving = true;
   pathState.continuePath = true;
@@ -260,7 +260,7 @@ void integratePathVertex(
       pathState.accumulatedHitDistance, pathState.getUnorderedApproximationSelectionProbability(),
       radianceAttenuation, emissiveRadiance,
       numUnorderedInteractions, 
-      pathState.decalEncountered, decalMemory, decalEmissiveRadiance, unorderedSurfaceIndex, pathState.mediumMaterialIndex);
+      pathState.decalEncountered, decalMemory, decalEmissiveRadiance, unorderedSurfaceIndex, pathState.mediumState);
 
     if ((cb.debugView == DEBUG_VIEW_SECONDARY_UNORDERED_INTERACTIONS 
          || cb.debugView == DEBUG_VIEW_SECONDARY_RAY_AND_UNORDERED_INTERACTIONS)
@@ -307,7 +307,7 @@ void integratePathVertex(
     pathState.coneSpreadAngle,
     isStochasticAlphaBlend, firstRayPortal,
     pomOpaqueSurfaceEncountered,
-    isRaytracedRenderTarget, pathState.mediumMaterialIndex);
+    isRaytracedRenderTarget, pathState.mediumState);
 
 
   if (rayInteractionHasHit(rayInteraction) && !pathState.continueResolving)
@@ -428,7 +428,7 @@ void integratePathVertex(
     pathState.coneRadius = continuation.coneRadius;
     if (throughCamera) {
       pathState.insideMedium = false;
-      pathState.mediumMaterialIndex = SURFACE_INDEX_INVALID;
+      pathState.mediumState = SURFACE_INDEX_INVALID;
       if (emissive) {
         accumulateThroughput(pathState, vec3(float(material.emissiveIntensity)));
       }
@@ -587,7 +587,7 @@ void integratePathVertex(
     
     evalMediumChange(
       oldInsideMedium, pathState.insideMedium,
-      polymorphicSurfaceMaterialInteraction, pathState.mediumMaterialIndex);
+      polymorphicSurfaceMaterialInteraction, pathState.mediumState);
     
     // Get Opaque material information for future reference
     
@@ -1512,7 +1512,7 @@ void integrateIndirectPath(
   u16vec2 nrcPixelIndex,
   uint indirectSbtOffset,
   IndirectPathTextures indirectPathTextures,
-  GeometryFlags geometryFlags, uint mediumMaterialIndex, vec3 rayOrigin, vec3 rayDirection,
+  GeometryFlags geometryFlags, uint mediumState, vec3 rayOrigin, vec3 rayDirection,
   vec3 throughput, float rayConeRadius, float firstHitPerceptualRoughness,
   float firstSampledLobePdf, float firstSampledSolidAnglePdf,
   bool firstSampledLobeIsOpacityTransmission,
@@ -1528,7 +1528,7 @@ void integrateIndirectPath(
   pathState.pixelCoordinate = gbufferPixelCoordinate;
   pathState.coneRadius = rayConeRadius;
   pathState.direction = rayDirection;
-  pathState.mediumMaterialIndex = mediumMaterialIndex;
+  pathState.mediumState = mediumState;
   pathState.throughput = throughput;
   pathState.insideMedium = geometryFlags.insideMedium;
   pathState.accumulatedHitDistance = gbufferSurfaceHitDistance;

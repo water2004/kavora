@@ -25,6 +25,7 @@
 #include "rtx/concept/ray_portal/ray_portal.slangh"
 #include "rtx/utility/packing.slangh"
 #include "rtx/algorithm/camera_transport.slangh"
+#include "rtx/concept/surface_material/translucent_medium_state.slangh"
 #include "rtx/utility/common.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi_reservoir_pages.slangh"
 #include "rtxdi/RtxdiHelpers.slangh"
@@ -258,7 +259,7 @@ struct GeometryPSRResolverState : IBasePayloadState
   
   f16vec4 _accumulatedRotation;
   float accumulatedHitDistance;
-  uint mediumMaterialIndex;
+  uint mediumState;
   
   f16vec3 _direction;
   uint8_t _rayMask;
@@ -450,16 +451,14 @@ struct GbufferPSRData
 
   uint2 encodedAccumulatedRotation;
   uint attenuation;
-  uint mediumMaterialIndexAndGeometryFlags;
+  uint mediumStateAndGeometryFlags;
 };
 
-static const uint kPSRRenderTargetPath = 1u << (SURFACE_INDEX_BIT_COUNT + 6);
+static const uint kPSRRenderTargetPath = 1u << (mediumStateBitCount + 6);
 
-// Encodes various PSR data into storage formats
-// Note: mediumMaterialIndex occupies 21 bits (SURFACE_INDEX_BIT_COUNT), leaving 11 bits for
-// geometry flag data.  Only portalSpace (2 bits) and objectMask dynamic bits (4 bits) are
-// needed on unpack, so we compress the full geometry flags into 6 bits above the index.
-GbufferPSRData packPSRData(Ray sampledRay, uint mediumMaterialIndex, f16vec3 attenuation,
+// Encodes the medium state, portal space (2 bits), and dynamic object mask (4 bits).
+// The remaining high bit marks render-target paths.
+GbufferPSRData packPSRData(Ray sampledRay, uint mediumState, f16vec3 attenuation,
   vec4 accumulatedRotation, uint packedGeometryFlags)
 {
   GbufferPSRData psrData = (GbufferPSRData)0;
@@ -468,10 +467,10 @@ GbufferPSRData packPSRData(Ray sampledRay, uint mediumMaterialIndex, f16vec3 att
   // portalSpace is at bits 3-4, objectMask dynamic bits at bits 11-14 of packedGeometryFlags.
   const uint portalSpaceBits = (packedGeometryFlags >> 3) & 0x3;
   const uint objectMaskDynBits = (packedGeometryFlags >> 11) & 0xF;
-  psrData.mediumMaterialIndexAndGeometryFlags =
-    (mediumMaterialIndex & SURFACE_INDEX_MAX_VALUE) |
-    (portalSpaceBits << SURFACE_INDEX_BIT_COUNT) |
-    (objectMaskDynBits << (SURFACE_INDEX_BIT_COUNT + 2));
+  psrData.mediumStateAndGeometryFlags =
+    (mediumState & mediumStateMask) |
+    (portalSpaceBits << mediumStateBitCount) |
+    (objectMaskDynBits << (mediumStateBitCount + 2));
   psrData.attenuation = packSceneAttenuation(attenuation, cb.enableRaytracedRenderTarget);
   psrData.encodedAccumulatedRotation = packFloat4x16(accumulatedRotation);
   return psrData;
@@ -484,13 +483,13 @@ void unpackPSRData(GbufferPSRData psrData, inout GeometryPSRResolverState geomet
   geometryPSRResolverState.direction = snorm2x16ToSphereDirection(psrData.encodedDirection);
   geometryPSRResolverState.attenuation = unpackSceneAttenuation(psrData.attenuation, cb.enableRaytracedRenderTarget);
   geometryPSRResolverState.accumulatedRotation = unpackFloat4x16(psrData.encodedAccumulatedRotation);
-  geometryPSRResolverState.mediumMaterialIndex = psrData.mediumMaterialIndexAndGeometryFlags & SURFACE_INDEX_MAX_VALUE;
-  geometryPSRResolverState.insideMedium = geometryPSRResolverState.mediumMaterialIndex != SURFACE_INDEX_INVALID;
+  geometryPSRResolverState.mediumState = psrData.mediumStateAndGeometryFlags & mediumStateMask;
+  geometryPSRResolverState.insideMedium = geometryPSRResolverState.mediumState != SURFACE_INDEX_INVALID;
 
   // Reconstruct portalSpace and objectMask from the compressed geometry flag bits
-  const uint packed = psrData.mediumMaterialIndexAndGeometryFlags;
-  geometryPSRResolverState.portalSpace = PortalSpace2BitsType((packed >> SURFACE_INDEX_BIT_COUNT) & 0x3);
-  const uint objectMaskDynBits = (packed >> (SURFACE_INDEX_BIT_COUNT + 2)) & 0xF;
+  const uint packed = psrData.mediumStateAndGeometryFlags;
+  geometryPSRResolverState.portalSpace = PortalSpace2BitsType((packed >> mediumStateBitCount) & 0x3);
+  const uint objectMaskDynBits = (packed >> (mediumStateBitCount + 2)) & 0xF;
   geometryPSRResolverState.rayMask = uint8_t(objectMaskDynBits << OBJECT_MASK_ALL_DYNAMIC_FIRST_ACTIVE_BIT_OFFSET) | OBJECT_MASK_ALL;
 }
 
@@ -498,7 +497,7 @@ void storeReflectionPSRData(GbufferPSRData psrData, uint2 pixelCoordinate)
 {
   aliasedData0.ReflectionPSRData0[pixelCoordinate] = asfloat(uint4(psrData.origin.xyz, psrData.encodedDirection));
   ReflectionPSRData1[pixelCoordinate] = psrData.encodedAccumulatedRotation;
-  ReflectionPSRData2[pixelCoordinate] = uint2(psrData.attenuation, psrData.mediumMaterialIndexAndGeometryFlags);
+  ReflectionPSRData2[pixelCoordinate] = uint2(psrData.attenuation, psrData.mediumStateAndGeometryFlags);
 }
 
 GbufferPSRData loadReflectionPSRData(uint2 pixelCoordinate)
@@ -522,7 +521,7 @@ GbufferPSRData loadReflectionPSRData(uint2 pixelCoordinate)
   psrData.encodedDirection = data0.w;
   psrData.encodedAccumulatedRotation = data1;
   psrData.attenuation = data2.x;
-  psrData.mediumMaterialIndexAndGeometryFlags = data2.y;
+  psrData.mediumStateAndGeometryFlags = data2.y;
   return psrData;
 }
 
@@ -538,7 +537,7 @@ void storeTransmissionPSRData(GbufferPSRData psrData, uint2 pixelCoordinate)
   RTXDI_PackedReservoir packedData;
   packedData.data0 = uint4(psrData.origin, psrData.encodedDirection);
   packedData.data1 = uint4(
-    psrData.encodedAccumulatedRotation, psrData.attenuation, psrData.mediumMaterialIndexAndGeometryFlags);
+    psrData.encodedAccumulatedRotation, psrData.attenuation, psrData.mediumStateAndGeometryFlags);
 
   TransmissionPSRData[transmissionPSRDataPointer(pixelCoordinate)] = packedData;
 }
@@ -561,6 +560,6 @@ GbufferPSRData loadTransmissionPSRData(uint2 pixelCoordinate)
   psrData.encodedDirection = packedData.data0.w;
   psrData.encodedAccumulatedRotation = packedData.data1.xy;
   psrData.attenuation = packedData.data1.z;
-  psrData.mediumMaterialIndexAndGeometryFlags = packedData.data1.w;
+  psrData.mediumStateAndGeometryFlags = packedData.data1.w;
   return psrData;
 }

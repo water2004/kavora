@@ -67,8 +67,8 @@ StructuredBuffer<uint> ActivePixelCount;
 [[vk::binding(INTEGRATE_DIRECT_BINDING_SHARED_FLAGS_INPUT_OUTPUT)]]
 RWTexture2D<uint16_t> SharedFlags;
 
-[[vk::binding(INTEGRATE_DIRECT_BINDING_SHARED_MEDIUM_MATERIAL_INDEX_INPUT_OUTPUT)]]
-RWTexture2D<uint> SharedMediumMaterialIndex;
+[[vk::binding(INTEGRATE_DIRECT_BINDING_SHARED_MEDIUM_STATE_INPUT_OUTPUT)]]
+RWTexture2D<uint> SharedMediumState;
 
 // Primary Inputs
 

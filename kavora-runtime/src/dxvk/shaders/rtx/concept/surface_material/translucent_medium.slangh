@@ -22,17 +22,31 @@
 #pragma once
 
 #include "rtx/concept/surface_material/translucent_surface_material.slangh"
+#include "rtx/concept/surface_material/translucent_medium_state.slangh"
 #include "rtx/utility/brdf.slangh"
 
-// Resolves the ray's current material into linear RGB extinction per world unit.
-// SURFACE_INDEX_INVALID denotes vacuum. Ray stages apply distance separately.
-vec3 translucentMediumExtinction(uint mediumMaterialIndex)
+uint translucentMediumEnter(TranslucentSurfaceMaterialInteraction interaction)
 {
-  if (mediumMaterialIndex == SURFACE_INDEX_INVALID)
+  if (interaction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE)
+  {
+    return packMediumExtinction(transmittanceToAttenuationCoefficient(
+      max(interaction.transmittanceColor, vec3(1e-30f)), interaction.thicknessOrMeasurementDistance));
+  }
+  return interaction.sourceSurfaceMaterialIndex;
+}
+
+// Returns linear RGB extinction per world unit. Ray stages apply distance separately.
+vec3 translucentMediumExtinction(uint mediumState)
+{
+  if (mediumState == SURFACE_INDEX_INVALID)
   {
     return vec3(0);
   }
-  const TranslucentSurfaceMaterial medium = translucentSurfaceMaterialCreate(surfaceMaterials[mediumMaterialIndex]);
+  if (mediumState & mediumStateSampledBit)
+  {
+    return unpackMediumExtinction(mediumState);
+  }
+  const TranslucentSurfaceMaterial medium = translucentSurfaceMaterialCreate(surfaceMaterials[mediumState]);
   return transmittanceToAttenuationCoefficient(max(medium.transmittanceColor, vec3(1e-30f)),
     medium.thicknessOrMeasurementDistance);
 }

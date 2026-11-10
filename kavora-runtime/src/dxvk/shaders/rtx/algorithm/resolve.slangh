@@ -207,7 +207,7 @@ void resolveVertexFinalMiss<let overrideRayInteraction : bool, T : IBasePayloadS
   inout vec3 radianceAttenuation,
   inout vec3 emissiveRadiance,
   float alreadyAttenuatedDistance = 0.0f,
-  uint mediumMaterialIndex = SURFACE_INDEX_INVALID)
+  uint mediumState = SURFACE_INDEX_INVALID)
 {
   resolveVertexSetMiss<overrideRayInteraction>(resolveVertexState, rayInteraction);
 
@@ -216,7 +216,7 @@ void resolveVertexFinalMiss<let overrideRayInteraction : bool, T : IBasePayloadS
 #ifdef RESOLVER_USE_VOLUMETRIC_ATTENUATION
   resolveAtmosphere(resolveVertexState.origin + resolveVertexState.direction * alreadyAttenuatedDistance,
     resolveVertexState.direction, floatMax, portalSpaceToVolumeHint(resolveVertexState.portalSpace),
-    radianceAttenuation, emissiveRadiance, mediumMaterialIndex);
+    radianceAttenuation, emissiveRadiance, mediumState);
 #else 
   unused(radianceAttenuation);
   unused(emissiveRadiance);
@@ -258,7 +258,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   inout uint8_t firstRayPortal,
   inout bool pomOpaqueSurfaceEncountered,
   inout bool isRaytracedRenderTarget,
-  uint mediumMaterialIndex,
+  uint mediumState,
   // Forces enablement of ray portal resolve path regardless of global resolve mask 
   // Needed for RayQuery paths for visibility rays from CHS as they don't run material specific hit groups
   // Visibility rays are expected not to start from RayPortal surfaces, and thus only RayPortal path is force enabled
@@ -323,10 +323,10 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   {
     resolveAtmosphere(ray.origin, ray.direction, hasSurface ? rayHitInfo.hitDistance : floatMax,
       portalSpaceToVolumeHint(resolveVertexState.portalSpace),
-      radianceAttenuation, emissiveRadiance, mediumMaterialIndex);
+      radianceAttenuation, emissiveRadiance, mediumState);
   }
 #else
-  radianceAttenuation *= volumeTransmittance(translucentMediumExtinction(mediumMaterialIndex),
+  radianceAttenuation *= volumeTransmittance(translucentMediumExtinction(mediumState),
     hasSurface ? rayHitInfo.hitDistance : floatMax);
 #endif
 
@@ -608,7 +608,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
       if (isRayMaskEmpty(resolveVertexState.rayMask))
       {
         resolveVertexFinalMiss<true>(resolveVertexState, rayInteraction, radianceAttenuation, emissiveRadiance,
-          rayInteraction.hitDistance, mediumMaterialIndex);
+          rayInteraction.hitDistance, mediumState);
 
         return 1.0f;
       }
@@ -765,7 +765,7 @@ float resolveVertexUnorderedParticles<
   out uint numInteractions,
   out int surfaceIndex,
   inout bool decalCandidateSeen,
-  uint mediumMaterialIndex = SURFACE_INDEX_INVALID)
+  uint mediumState = SURFACE_INDEX_INVALID)
 {
   surfaceIndex = -1;
 
@@ -779,7 +779,7 @@ float resolveVertexUnorderedParticles<
     return 1.0f;
   }
 
-  const float3 mediumExtinction = translucentMediumExtinction(mediumMaterialIndex);
+  const float3 mediumExtinction = translucentMediumExtinction(mediumState);
 
   if (useIntersectionBillboards)
   {
@@ -1164,7 +1164,7 @@ void resolveVertexUnordered<
   inout uint4 decalMemory,
   inout f16vec3 decalEmissiveRadiance,
   inout int surfaceIndex,
-  uint mediumMaterialIndex = SURFACE_INDEX_INVALID)
+  uint mediumState = SURFACE_INDEX_INVALID)
 {
   // Early out if approximations are not desired to be separated out
 
@@ -1177,7 +1177,7 @@ void resolveVertexUnordered<
     return;
   }
 
-  const float3 mediumExtinction = translucentMediumExtinction(mediumMaterialIndex);
+  const float3 mediumExtinction = translucentMediumExtinction(mediumState);
 
   uint rayFlags = RAY_FLAG_CULL_OPAQUE;
 

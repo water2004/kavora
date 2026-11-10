@@ -99,8 +99,8 @@ RWTexture2D<uint> SharedMaterialData0;
 layout(r32ui, binding = GBUFFER_BINDING_SHARED_MATERIAL_DATA1_OUTPUT)
 RWTexture2D<uint> SharedMaterialData1;
 
-layout(r32ui, binding = GBUFFER_BINDING_SHARED_MEDIUM_MATERIAL_INDEX_OUTPUT)
-RWTexture2D<uint> SharedMediumMaterialIndex;
+layout(r32ui, binding = GBUFFER_BINDING_SHARED_MEDIUM_STATE_OUTPUT)
+RWTexture2D<uint> SharedMediumState;
 
 // Primary Surface Outputs (Coherent)
 

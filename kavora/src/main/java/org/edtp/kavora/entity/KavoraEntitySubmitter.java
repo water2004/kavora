@@ -922,9 +922,8 @@ public class KavoraEntitySubmitter {
      * treatment the atlas has always used. Every part narrows through here, so
      * the material cache holds one interpretation of an atlas mode.
      *
-     * <p>Clear glass goes the other way: vanilla draws it as a cutout, and terrain
-     * gives it its own refracting layer, so geometry from a clear-glass block item
-     * takes {@link RenderLayerUtils.SurfaceMode#GLASS} whatever it was captured as.
+     * <p>Glass block items use the same optical material as the placed blocks,
+     * regardless of the item render layer.
      *
      * @param blockItemLayer the terrain layer of the block item the geometry came
      *                       from, or {@link EntityRenderContext#NO_BLOCK_ITEM}
@@ -937,6 +936,9 @@ public class KavoraEntitySubmitter {
         }
         if (blockItemLayer == BlockTextureManager.L_GLASS) {
             return RenderLayerUtils.SurfaceMode.GLASS;
+        }
+        if (blockItemLayer == BlockTextureManager.L_STAINED_GLASS_BLOCK) {
+            return RenderLayerUtils.SurfaceMode.STAINED_GLASS_BLOCK;
         }
         if (surfaceMode != RenderLayerUtils.SurfaceMode.TRANSLUCENT
                 || blockItemLayer == BlockTextureManager.L_TRANS) {
@@ -954,6 +956,7 @@ public class KavoraEntitySubmitter {
         return switch (surfaceMode) {
             case TRANSLUCENT -> BlockTextureManager.L_TRANS;
             case GLASS -> BlockTextureManager.L_GLASS;
+            case STAINED_GLASS_BLOCK -> BlockTextureManager.L_STAINED_GLASS_BLOCK;
             default -> BlockTextureManager.L_CUTOUT;
         };
     }
@@ -1586,8 +1589,7 @@ public class KavoraEntitySubmitter {
                                      PatternCanvasRole role) {
         if (PARTICLE_ATLAS_ID.equals(textureId)) return PARTICLE_BLEND;
         if (BlockTextureManager.BLOCK_ATLAS_ID.equals(textureId)) {
-            return surfaceMode == RenderLayerUtils.SurfaceMode.TRANSLUCENT
-                    || surfaceMode == RenderLayerUtils.SurfaceMode.GLASS
+            return BlockTextureManager.isTranslucentLayer(atlasLayerType(surfaceMode))
                     ? BlockTextureManager.ATLAS_TRANSLUCENT_BLEND
                     : BlockTextureManager.ATLAS_CUTOUT_BLEND;
         }

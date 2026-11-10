@@ -311,7 +311,7 @@ void sampleIndirectRayForFirstBounce(
   MinimalRayInteraction primaryMinimalRayInteraction, 
   MinimalSurfaceInteraction primaryMinimalSurfaceInteraction,
   PolymorphicSurfaceMaterialInteraction primaryPolymorphicSurfaceMaterialInteraction,
-  inout uint mediumMaterialIndex,
+  inout uint mediumState,
   inout bool insideMedium,
   out bool mediumChanged,
   out Ray sampledRay,
@@ -358,7 +358,7 @@ void sampleIndirectRayForFirstBounce(
                                true);
 
   // Set the material medium index if a medium was entered or exited
-  mediumChanged = evalMediumChange(oldInsideMedium, insideMedium, primaryPolymorphicSurfaceMaterialInteraction, mediumMaterialIndex);
+  mediumChanged = evalMediumChange(oldInsideMedium, insideMedium, primaryPolymorphicSurfaceMaterialInteraction, mediumState);
   
   // Set the first sampled lobe type
 
@@ -385,7 +385,7 @@ void sampleAndStoreIndirectRayPathSample(
   inout GeometryFlags geometryFlags)
 {
   // Only stored back when the medium changes, in which case evalMediumChange overwrites it.
-  uint mediumMaterialIndex = SURFACE_INDEX_INVALID;
+  uint mediumState = SURFACE_INDEX_INVALID;
   bool insideMedium = geometryFlags.insideMedium;
 
   bool mediumChanged;
@@ -402,14 +402,14 @@ void sampleAndStoreIndirectRayPathSample(
                                   primaryMinimalRayInteraction, 
                                   primarySurfaceInteraction,
                                   primaryPolymorphicSurfaceMaterialInteraction,
-                                  mediumMaterialIndex, insideMedium, 
+                                  mediumState, insideMedium,
                                   mediumChanged, sampledRay, throughput, perceptualRoughness, 
                                   firstRayPathSampledLobe, firstSampledLobePdf, firstSampledSolidAnglePdf, firstSampledLobeIsSpecular);
 
   // Serialize out the Medium Material Index if it changed
   if (mediumChanged)
   {
-    imageStore(SharedMediumMaterialIndex, ivec2(compactedCoordinate), mediumMaterialIndex);
+    imageStore(SharedMediumState, ivec2(compactedCoordinate), mediumState);
   }
 
   // Output the sampled lobe information for the Indirect integration pass

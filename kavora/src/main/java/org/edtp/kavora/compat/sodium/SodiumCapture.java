@@ -10,6 +10,7 @@ import org.edtp.kavora.terrain.capture.BlockDataQueue;
 import org.edtp.kavora.terrain.capture.BlockQuadEmitter;
 import org.edtp.kavora.terrain.capture.SectionBlockData;
 import org.edtp.kavora.terrain.ChunkManager;
+import org.edtp.kavora.texture.BlockTextureManager;
 import org.edtp.kavora.compat.sodium.mixin.SodiumWorldRendererAccessor;
 import org.edtp.kavora.compat.sodium.mixin.SodiumSectionManagerAccessor;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -25,7 +26,6 @@ import net.caffeinemc.mods.sodium.client.world.LevelSlice;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,14 +44,14 @@ public final class SodiumCapture {
         final float[] uv = new float[8];
         final int[] colors = new int[4];
         Material material;
-        boolean clearGlass;
+        String glassLayer;
     }
 
     public static void begin(RenderSection section, ChunkBuildContext context) {
         State state = WORK.get();
         state.capturing = VanillaSectionBuilds.beginBuild(KavoraMod::isRtxEnabled);
         state.material = null;
-        state.clearGlass = false;
+        state.glassLayer = null;
         if (!state.capturing) return;
         state.section = section.getPosition();
         state.token = BlockDataQueue.beginCapture(state.section.x(), state.section.z());
@@ -65,7 +65,7 @@ public final class SodiumCapture {
         if (!state.capturing) return;
         BlockQuadEmitter emitter = BlockQuadEmitter.threadLocal();
         emitter.finishEvaluatedBlock();
-        state.clearGlass = block.is(Blocks.GLASS) || block.is(Blocks.GLASS_PANE);
+        state.glassLayer = BlockTextureManager.glassLayerOverride(block);
         state.material = null;
         emitter.processBlock(block, world, state.pos.set(x, y, z), block.isSolidRender());
     }
@@ -74,7 +74,7 @@ public final class SodiumCapture {
         State state = WORK.get();
         if (!state.capturing) return;
         BlockQuadEmitter.threadLocal().finishEvaluatedBlock();
-        state.clearGlass = false;
+        state.glassLayer = null;
         state.material = null;
     }
 
@@ -100,8 +100,11 @@ public final class SodiumCapture {
         }
         var sprite = SpriteFinderCache.forBlockAtlas().find(u * 0.25f, v * 0.25f);
         Material material = state.material;
-        String layer = material != null && material.isTranslucent() ? "translucent"
-                : state.clearGlass ? "glass" : (materialBits >>> 1) != 0 ? "cutout" : "solid";
+        String layer = state.glassLayer;
+        if (layer == null) {
+            layer = material != null && material.isTranslucent() ? "translucent"
+                    : (materialBits >>> 1) != 0 ? "cutout" : "solid";
+        }
         BlockQuadEmitter.threadLocal().captureEvaluatedQuad(state.positions, state.uv, state.colors, sprite, layer);
     }
 

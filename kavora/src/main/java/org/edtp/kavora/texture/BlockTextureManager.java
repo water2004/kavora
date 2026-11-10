@@ -41,7 +41,10 @@ import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.StainedGlassBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -61,6 +64,10 @@ public class BlockTextureManager {
             InstanceInfoBlendEXT.textureTimesVertexColor();
     private static final float POM_DISPLACE_IN = 0.25f;
     private static final float COMMON_GLASS_IOR = 1.52f;
+    private static final float GLASS_TRANSMITTANCE_DISTANCE = 0.35f;
+    // A glass pane is 2/16 of a block thick. Match its tint at normal incidence.
+    private static final float STAINED_GLASS_BLOCK_TRANSMITTANCE_DISTANCE = 8.0f * GLASS_TRANSMITTANCE_DISTANCE;
+    public static final String STAINED_GLASS_BLOCK_LAYER = "stained_glass_block";
     private static final float THIN_SSS_MEASUREMENT_DISTANCE = 0.75f;
     private static final int THIN_SSS_DEFAULT_THICKNESS = Math.round(THIN_SSS_MEASUREMENT_DISTANCE * 255.0f);
     private static final float DEFAULT_CUTOUT_SSS_TRANSMISSION_DISTANCE = THIN_SSS_MEASUREMENT_DISTANCE;
@@ -69,7 +76,8 @@ public class BlockTextureManager {
     public static final float DEFAULT_TERRAIN_EMISSION_MULTIPLIER = 1.0f;
     public static final float MAX_TERRAIN_EMISSION_MULTIPLIER = 50.0f;
     private static final float BASE_TERRAIN_EMISSION_INTENSITY = 100.0f;
-    public static final int L_SOLID = 0, L_CUTOUT = 1, L_CUTOUT_MIPPED = 2, L_TRANS = 3, L_GLASS = 4, LAYER_COUNT = 5;
+    public static final int L_SOLID = 0, L_CUTOUT = 1, L_CUTOUT_MIPPED = 2, L_TRANS = 3,
+            L_GLASS = 4, L_STAINED_GLASS_BLOCK = 5, LAYER_COUNT = 6;
 
     private static BlockTextureManager INSTANCE;
 
@@ -256,13 +264,14 @@ public class BlockTextureManager {
                 labPBRVariants = LabPBRConverter.buildVariantCache(client.getResourceManager());
             }
             buildSprites(spriteAtlas, labPBRVariants);
+            Map<SpriteEntry, SpriteEntry> stainedGlassEdges = prepareVanillaStainedGlass(client.getResourceManager());
             if (!materialSettingsInitialized) {
                 appliedTerrainEmissionMultiplier = terrainEmissionMultiplier;
                 appliedAutoPbr = autoPbr;
             }
             Map<String, AnimatedSpriteLabPBR> labPBRMap =
                 buildAnimatedSpriteLabPBRMap(labPBRVariants, spriteAtlas);
-            buildAtlasMaterials(api, spriteAtlas, labPBRVariants, labPBRMap);
+            buildAtlasMaterials(api, spriteAtlas, labPBRVariants, labPBRMap, stainedGlassEdges);
             buildWaterMaterials(api);
             AtlasAnimationForwarder.init(labPBRMap, Set.copyOf(spriteById.keySet()));
 
@@ -285,6 +294,59 @@ public class BlockTextureManager {
         albedoRGBA = stitchAtlasRGBA(atlas);
         LOGGER.info("Atlas {}x{} (stitched from {} sprites)",
                 atlasW, atlasH, ((SpriteAtlasAccessor) atlas).getSprites().size());
+    }
+
+    /** Bakes a uniform dye and identifies the corresponding clear-glass edge normal templates. */
+    private Map<SpriteEntry, SpriteEntry> prepareVanillaStainedGlass(ResourceManager resources) {
+        Map<SpriteEntry, SpriteEntry> edges = new HashMap<>();
+        for (SpriteEntry sprite : sprites) {
+            String path = sprite.id.getPath();
+            if (!sprite.id.getNamespace().equals("minecraft") || !path.startsWith("block/")) continue;
+            boolean paneTop = path.endsWith("_pane_top");
+            String facePath = paneTop ? path.substring(0, path.length() - "_pane_top".length()) : path;
+            if (!facePath.endsWith("_stained_glass")) continue;
+
+            SpriteEntry face = spriteById.get(sprite.id.withPath(facePath));
+            if (face == null || !isVanillaBlockTexture(resources, face.id)
+                    || (face != sprite && !isVanillaBlockTexture(resources, sprite.id))) continue;
+
+            // The center of the vanilla face is the dye color and alpha between its frame marks.
+            int center = ((face.pixY + face.pixH / 2) * atlasW + face.pixX + face.pixW / 2) * 4;
+            byte[] dye = Arrays.copyOfRange(albedoRGBA, center, center + 4);
+            for (int y = 0; y < sprite.pixH; y++) {
+                int first = ((sprite.pixY + y) * atlasW + sprite.pixX) * 4;
+                for (int x = 0; x < sprite.pixW; x++) {
+                    System.arraycopy(dye, 0, albedoRGBA, first + x * 4, 4);
+                }
+            }
+
+            SpriteEntry clear = spriteById.get(sprite.id.withPath(paneTop ? "block/glass_pane_top" : "block/glass"));
+            if (clear != null && clear.pixW == sprite.pixW && clear.pixH == sprite.pixH) {
+                edges.put(sprite, clear);
+            }
+        }
+        return edges;
+    }
+
+    private static boolean isVanillaBlockTexture(ResourceManager resources, Identifier sprite) {
+        return resources.getResource(sprite.withPath("textures/" + sprite.getPath() + ".png"))
+                .filter(resource -> resource.sourcePackId().equals("vanilla")).isPresent();
+    }
+
+    private void copyGlassEdgeNormals(byte[] normals, SpriteEntry stained, SpriteEntry clear) {
+        // The pane edge uses a narrow strip inside its texture. The face uses only the outermost texels.
+        boolean paneTop = clear.id.getPath().equals("block/glass_pane_top");
+        int rowBytes = stained.pixW * 4;
+        for (int y = 0; y < stained.pixH; y++) {
+            int source = ((clear.pixY + y) * atlasW + clear.pixX) * 4;
+            int target = ((stained.pixY + y) * atlasW + stained.pixX) * 4;
+            if (paneTop || y == 0 || y == stained.pixH - 1) {
+                System.arraycopy(normals, source, normals, target, rowBytes);
+            } else {
+                System.arraycopy(normals, source, normals, target, 4);
+                System.arraycopy(normals, source + rowBytes - 4, normals, target + rowBytes - 4, 4);
+            }
+        }
     }
 
     // ====================================================================
@@ -400,7 +462,8 @@ public class BlockTextureManager {
     // ====================================================================
 
     private void buildAtlasMaterials(RemixAPI api, TextureAtlas atlas, LabPBRConverter.VariantCache labPBRVariants,
-                                     Map<String, AnimatedSpriteLabPBR> animations) {
+                                     Map<String, AnimatedSpriteLabPBR> animations,
+                                     Map<SpriteEntry, SpriteEntry> stainedGlassEdges) {
         int pixels = atlasW * atlasH;
         boolean animatedRoughness = false, animatedMetallic = false, animatedThickness = false;
         for (var animation : animations.values()) {
@@ -438,6 +501,7 @@ public class BlockTextureManager {
             NativeImage sssI = labPBRVariants.loadVariant(se.id, "_sss");
             try {
                 if (nI != null) {
+                    stainedGlassEdges.remove(se);
                     LabPBRConverter.blitNormal(normalAtlas, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
                     LabPBRConverter.blitHeight(heightAtlas, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
                     LabPBRConverter.applyAO(albedoRGBA, atlasW, nI, se.pixX, se.pixY, se.pixW, se.pixH);
@@ -491,6 +555,7 @@ public class BlockTextureManager {
             }
         }
 
+        stainedGlassEdges.forEach((stained, clear) -> copyGlassEdgeNormals(normalAtlas, stained, clear));
         SpriteAtlasContent.extrudePadding(atlas, albedoRGBA, 4);
         SpriteAtlasContent.extrudePadding(atlas, normalAtlas, 4);
         SpriteAtlasContent.extrudePadding(atlas, heightAtlas, 1);
@@ -565,10 +630,8 @@ public class BlockTextureManager {
         atlasSssAlbedoTex = sssAlbedoTex;
 
         for (int lt = 0; lt < LAYER_COUNT; lt++) {
-            if (lt == L_TRANS) {
-                atlasMaterials[lt] = createAtlasTransMaterial(emissiveTex, normalTex);
-            } else if (lt == L_GLASS) {
-                atlasMaterials[lt] = createAtlasGlassMaterial(emissiveTex, normalTex);
+            if (isTranslucentLayer(lt)) {
+                atlasMaterials[lt] = createAtlasTranslucentMaterial(lt, emissiveTex, normalTex);
             } else {
                 atlasMaterials[lt] = createAtlasOpaqueMaterial(lt, normalTex, heightTex,
                         roughnessTex, metallicTex, emissiveTex, null, null);
@@ -693,31 +756,8 @@ public class BlockTextureManager {
     }
 
 
-    private KavoraMaterial createAtlasTransMaterial(KavoraTexture emissiveTex, KavoraTexture normalTex) {
-        return createMaterialViaStore(buildAtlasTransMaterialInfo(
-                emissiveTex, normalTex, terrainEmissionIntensity()));
-    }
-
-    private MaterialInfo buildAtlasTransMaterialInfo(
-            KavoraTexture emissiveTex, KavoraTexture normalTex, float emissionIntensity) {
-        MaterialInfo.Builder mb = MaterialInfo.builder()
-                .albedoTexture(atlasAlbedo.getHandle()).filterMode(0);
-        if (normalTex != null)   mb.normalTexture(normalTex.getHandle());
-        if (emissiveTex != null) {
-            mb.emissiveTexture(emissiveTex.getHandle())
-                    .emissiveIntensity(emissionIntensity);
-        }
-        return mb.translucentExt(atlasTranslucentOptics(atlasAlbedo.getHandle(), false)).build();
-    }
-
-    /**
-     * Clear glass. Vanilla's glass texture is alpha 0 between its frame pixels, with
-     * mid-grey RGB there, so the stained-glass material (transmittance from the
-     * albedo) would make it grey. Here the glass itself is a constant near-clear
-     * transmission and the albedo rides on top as a diffuse layer blended by its
-     * alpha, which draws the frame and streaks opaque and leaves the rest to refract.
-     */
-    private KavoraMaterial createAtlasGlassMaterial(KavoraTexture emissiveTex, KavoraTexture normalTex) {
+    private KavoraMaterial createAtlasTranslucentMaterial(
+            int layer, KavoraTexture emissiveTex, KavoraTexture normalTex) {
         MaterialInfo.Builder mb = MaterialInfo.builder()
                 .albedoTexture(atlasAlbedo.getHandle()).filterMode(0);
         if (normalTex != null) mb.normalTexture(normalTex.getHandle());
@@ -725,15 +765,21 @@ public class BlockTextureManager {
             mb.emissiveTexture(emissiveTex.getHandle())
                     .emissiveIntensity(terrainEmissionIntensity());
         }
-        return createMaterialViaStore(mb.translucentExt(atlasTranslucentOptics(atlasAlbedo.getHandle(), true)).build());
+        return createMaterialViaStore(mb.translucentExt(atlasTranslucentOptics(atlasAlbedo.getHandle(), layer)).build());
     }
 
     /** Common optical parameters for near terrain and baked far-terrain atlases. */
     public static MaterialInfoTranslucentEXT atlasTranslucentOptics(long albedo, boolean clearGlass) {
+        return atlasTranslucentOptics(albedo, clearGlass ? L_GLASS : L_TRANS);
+    }
+
+    static MaterialInfoTranslucentEXT atlasTranslucentOptics(long albedo, int layer) {
         var optics = MaterialInfoTranslucentEXT.builder()
                 .refractiveIndex(COMMON_GLASS_IOR).transmittanceColor(0.97f, 0.97f, 0.97f)
-                .transmittanceMeasurementDistance(0.35f).useDiffuseLayer(clearGlass);
-        if (!clearGlass) optics.transmittanceTexture(albedo);
+                .transmittanceMeasurementDistance(layer == L_STAINED_GLASS_BLOCK
+                        ? STAINED_GLASS_BLOCK_TRANSMITTANCE_DISTANCE : GLASS_TRANSMITTANCE_DISTANCE)
+                .useDiffuseLayer(layer == L_GLASS);
+        if (layer != L_GLASS) optics.transmittanceTexture(albedo);
         return optics.build();
     }
 
@@ -1091,8 +1137,19 @@ public class BlockTextureManager {
             case "cutout_mipped" -> L_CUTOUT_MIPPED;
             case "translucent" -> L_TRANS;
             case "glass" -> L_GLASS;
+            case STAINED_GLASS_BLOCK_LAYER -> L_STAINED_GLASS_BLOCK;
             default -> L_SOLID;
         };
+    }
+
+    /** Returns the material layer override for glass with distinct atlas optics. */
+    public static String glassLayerOverride(BlockState state) {
+        if (state.is(Blocks.GLASS) || state.is(Blocks.GLASS_PANE)) return "glass";
+        return state.getBlock() instanceof StainedGlassBlock ? STAINED_GLASS_BLOCK_LAYER : null;
+    }
+
+    public static boolean isTranslucentLayer(int layer) {
+        return layer == L_TRANS || layer == L_GLASS || layer == L_STAINED_GLASS_BLOCK;
     }
 
     // ====================================================================
