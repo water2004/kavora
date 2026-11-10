@@ -8,6 +8,7 @@
     ],
     "client": [
         "AbstractTextureMixin",
+        "BitmapGlyphUploadMixin",
         "BackupConfirmScreenAccessor",
         "BakedQuadMixin",
         "BillboardParticleAccessor",

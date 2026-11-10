@@ -4,6 +4,8 @@
  */
 package org.edtp.kavora.texture;
 
+import com.mojang.blaze3d.platform.NativeImage;
+
 import com.mojang.renderpearl.api.textures.GpuTexture;
 import java.nio.ByteBuffer;
 import java.util.IdentityHashMap;
@@ -93,6 +95,18 @@ public final class TextureSourceRegistry {
 
     public static synchronized void registerGlyph(GpuTexture texture, GlyphPageMirror mirror) {
         GLYPHS.put(texture, mirror);
+    }
+
+    /** Mirrors a bitmap glyph from the original image used for Minecraft's GPU buffer copy. */
+    public static synchronized void uploadBitmapGlyph(GpuTexture texture, NativeImage image,
+            int sourceX, int sourceY, int x, int y, int width, int height) {
+        GlyphPageMirror page = GLYPHS.get(texture);
+        if (page == null) return;
+        int channels = image.format().components();
+        int rowPitch = image.getWidth() * channels;
+        ByteBuffer pixels = image.getPixelBytes();
+        pixels.position(pixels.position() + sourceY * rowPitch + sourceX * channels);
+        page.blit(x, y, width, height, channels, pixels, rowPitch);
     }
 
     /** Atlas pixels remain in SpriteContents and use the atlas-specific capture and animation hooks. */

@@ -19,6 +19,7 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
         if (Boolean.getBoolean("kavora.gametest.dimensionColourOnly")) return;
         if (Boolean.getBoolean("kavora.gametest.cloudsOnly")) return;
         if (Boolean.getBoolean("kavora.gametest.settingsOnly")
+                || Boolean.getBoolean("kavora.gametest.entityMaterialsOnly")
                 || Boolean.getBoolean("kavora.gametest.qualityVisualOnly")
                 || Boolean.getBoolean("kavora.gametest.terrainReloadOnly")
                 || Boolean.getBoolean("kavora.gametest.particleOnly")

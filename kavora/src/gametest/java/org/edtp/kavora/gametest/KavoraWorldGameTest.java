@@ -103,6 +103,10 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         try (TestSingleplayerContext world = worldBuilder.create()) {
             save = world.getWorldSave();
             assertWorldRenders(context, world, "created");
+            if (Boolean.getBoolean("kavora.gametest.entityMaterialsOnly")) {
+                KavoraSceneFixtures.captureEntityMaterials(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.nightSkyOnly")) {
                 KavoraNightSkyChecks.run(context, world);
                 return;

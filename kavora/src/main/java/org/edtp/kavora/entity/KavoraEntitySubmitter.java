@@ -601,6 +601,8 @@ public class KavoraEntitySubmitter {
 
     private static final class EntityTextureSet {
         KavoraTexture albedo;
+        EntityCutoutCoverage cutoutCoverage;
+        boolean resourceBacked;
         KavoraTexture normal;
         KavoraTexture height;
         KavoraTexture roughness;
@@ -1290,7 +1292,7 @@ public class KavoraEntitySubmitter {
                     textureId,
                     RenderLayerUtils.Topology.QUADS,
                     shellLayer,
-                    material);
+                    material, null);
             if (mesh == null) {
                 textures.destroyEmissionScaledAtlasMaterial(material);
                 return null;
@@ -1337,8 +1339,9 @@ public class KavoraEntitySubmitter {
         rigidMeshLookupKey.setLayer(texId, surfaceMode, layerIndex);
         rigidMeshLookupKey.setCanvas(consumer.getPartSides(firstPart), consumer, firstPart, patternCount);
         pendingPartKey = null;
-        KavoraMesh mesh = pooledMesh();
-        if (mesh == null) {
+        PooledMesh pooled = pooledMesh();
+        KavoraMesh mesh;
+        if (pooled == null) {
             RigidMeshKey meshKey = rigidMeshLookupKey.immutableCopy();
             pendingPartKey = meshKey;
             rebuildScratch.clear();
@@ -1347,8 +1350,10 @@ public class KavoraEntitySubmitter {
             // Every layer's depth is already in its vertices, so the mesh is built at shell 0.
             mesh = createRigidMesh(meshKey, rebuildScratch, 0, rebuildScratch.getVertexCount(),
                     texId, surfaceMode, RenderLayerUtils.Topology.QUADS, 0);
-            if (mesh == null) return;
+        } else {
+            mesh = pooled.mesh;
         }
+        if (mesh == null) return;
         drawRetainedPart(result, consumer.getPartBone(firstPart), layerIndex, firstPart,
                 categoryFlags, mesh, BANNER_PATTERN_BLEND, worldTransform);
     }
@@ -1414,19 +1419,18 @@ public class KavoraEntitySubmitter {
     }
 
     /**
-     * The live pooled mesh for {@link #rigidMeshLookupKey}, or null on a miss. An entry
-     * whose mesh was destroyed under it is dropped and reported as a miss, so the caller
-     * rebuilds at once.
+     * The pooled result for {@link #rigidMeshLookupKey}, or null on a miss. An entry with
+     * no mesh represents a cuboid whose texture has no coverage on any face.
      */
-    private KavoraMesh pooledMesh() {
+    private PooledMesh pooledMesh() {
         PooledMesh pooled = rigidMeshPool.get(rigidMeshLookupKey);
         if (pooled == null) return null;
-        if (pooled.mesh.isDeletedFast()) {
+        if (pooled.mesh != null && pooled.mesh.isDeletedFast()) {
             rigidMeshPool.remove(rigidMeshLookupKey);
             return null;
         }
         pooled.lastUsedFrame = frameIndex();
-        return pooled.mesh;
+        return pooled;
     }
 
     /**
@@ -1442,8 +1446,8 @@ public class KavoraEntitySubmitter {
                                         int shellLayer,
                                         ModelPart.Polygon[] sides,
                                         TextureAtlasSprite sprite) {
-        KavoraMesh pooled = pooledMesh();
-        if (pooled != null) return pooled;
+        PooledMesh pooled = pooledMesh();
+        if (pooled != null) return pooled.mesh;
 
         RigidMeshKey meshKey = rigidMeshLookupKey.immutableCopy();
         pendingPartKey = meshKey;
@@ -1451,6 +1455,20 @@ public class KavoraEntitySubmitter {
             return createRigidMesh(meshKey, consumer, startVertex, vertexCount,
                     texId, surfaceMode, topology, shellLayer);
         }
+        KavoraMaterial material = entityMaterial(texId, surfaceMode);
+        if (material == null) return null;
+        CuboidCutout cutout = null;
+        if (sprite == null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
+            EntityTextureSet textures = textureSets.get(texId);
+            if (textures != null && textures.cutoutCoverage != null) {
+                cutout = buildCuboidCutout(sides, textures.cutoutCoverage, shellLayer > 0);
+            }
+        }
+        if (cutout != null && cutout.quadCount() == 0) {
+            rigidMeshPool.put(meshKey, new PooledMesh(null, frameIndex()));
+            return null;
+        }
+
         // Rebuild through the same emitter and the same buildSurface the captured
         // path uses, so there is one geometry path rather than two that can drift.
         rebuildScratch.clear();
@@ -1460,8 +1478,37 @@ public class KavoraEntitySubmitter {
         rebuildScratch.emitCuboidGeometry(sides, 0xFFFFFFFF, 0, sprite);
         rebuildScratch.finishOpenVertex();
         // A cuboid is quads by construction, whatever topology its layer draws.
-        return createRigidMesh(meshKey, rebuildScratch, 0, vertexCount,
-                texId, surfaceMode, RenderLayerUtils.Topology.QUADS, shellLayer);
+        KavoraMesh mesh = createMeshWithMaterial(rebuildScratch, 0, vertexCount, texId,
+                RenderLayerUtils.Topology.QUADS, shellLayer, material, cutout);
+        if (mesh != null) rigidMeshPool.put(meshKey, new PooledMesh(mesh, frameIndex()));
+        return mesh;
+    }
+
+    private record CuboidCutout(int[][] faces, int quadCount, int textureWidth, int textureHeight) {}
+
+    private static CuboidCutout buildCuboidCutout(ModelPart.Polygon[] sides, EntityCutoutCoverage coverage,
+                                                 boolean split) {
+        int[][] faces = null;
+        int quadCount = sides.length;
+        for (int i = 0; i < sides.length; i++) {
+            float minU = Float.POSITIVE_INFINITY, minV = Float.POSITIVE_INFINITY;
+            float maxU = Float.NEGATIVE_INFINITY, maxV = Float.NEGATIVE_INFINITY;
+            for (ModelPart.Vertex vertex : sides[i].vertices()) {
+                minU = Math.min(minU, vertex.u());
+                minV = Math.min(minV, vertex.v());
+                maxU = Math.max(maxU, vertex.u());
+                maxV = Math.max(maxV, vertex.v());
+            }
+            // Exclude transparent texels from thin overlays before traversal can step
+            // through both the overlay and the skin behind it at large world coordinates.
+            int[] rects = coverage.faceRectangles(minU, minV, maxU, maxV, split);
+            if (rects != null) {
+                if (faces == null) faces = new int[sides.length][];
+                faces[i] = rects;
+                quadCount += rects.length / 4 - 1;
+            }
+        }
+        return faces == null ? null : new CuboidCutout(faces, quadCount, coverage.width(), coverage.height());
     }
 
     private RetainedEntityPart createPendingRetainedPart() {
@@ -1848,7 +1895,8 @@ public class KavoraEntitySubmitter {
                                           RenderLayerUtils.Topology topology,
                                           boolean text,
                                           int shellLayer,
-                                          KavoraMaterial mat) {
+                                          KavoraMaterial mat,
+                                          CuboidCutout cutout) {
         float[] cpx = consumer.getPx(), cpy = consumer.getPy(), cpz = consumer.getPz();
         float[] cnx = consumer.getNx(), cny = consumer.getNy(), cnz = consumer.getNz();
         float[] ctu = consumer.getTu(), ctv = consumer.getTv();
@@ -1877,9 +1925,16 @@ public class KavoraEntitySubmitter {
 
         // Written straight into the pooled buffer in the native layout: a HardcodedVertex per
         // vertex (four objects each) was the entity path's largest remaining allocation.
-        ByteBuffer vertices = DirectBufferPool.acquire(vertCount * HardcodedVertex.STRIDE);
-        for (int i = 0; i < vertCount; i++) {
+        int meshVertexCount = cutout == null ? vertCount : cutout.quadCount() * 4;
+        ByteBuffer vertices = DirectBufferPool.acquire(meshVertexCount * HardcodedVertex.STRIDE);
+        for (int i = 0; i < vertCount; ) {
             int source = sourceStart + i;
+            int[] rects = cutout == null ? null : cutout.faces()[i / 4];
+            if (rects != null) {
+                putCutoutFace(vertices, consumer, i, rects, cutout, offset);
+                i += 4;
+                continue;
+            }
             KavoraMeshSurface.putVertex(vertices,
                 offset ? cpx[source] + shellOffsetX[i] : cpx[source],
                 offset ? cpy[source] + shellOffsetY[i] : cpy[source],
@@ -1888,14 +1943,50 @@ public class KavoraEntitySubmitter {
                 ctu[source], ctv[source],
                 cColors[source],
                 boundsMin[source], boundsMax[source]);
+            i++;
         }
         vertices.flip();
 
-        int[] indices = buildIndices(vertCount, topology);
+        int[] indices = buildIndices(meshVertexCount, topology);
         return new KavoraMeshSurface(mat)
-                .setVertexData(vertices, vertCount)
+                .setVertexData(vertices, meshVertexCount)
                 .setIndexDataFrom(indices, indices.length)
                 .setFlags(MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS);
+    }
+
+    /** Clip the already expanded face in UV space, preserving its winding and texture clamp. */
+    private void putCutoutFace(ByteBuffer target, KavoraCapturingConsumer source, int start,
+                               int[] rects, CuboidCutout cutout, boolean offset) {
+        if (rects.length == 0) return;
+        float[] u = source.getTu(), v = source.getTv();
+        float[] px = source.getPx(), py = source.getPy(), pz = source.getPz();
+        int next = start + 1, prev = start + 3;
+        float u0 = u[start], v0 = v[start];
+        float minU = Math.min(u0, u[start + 2]), minV = Math.min(v0, v[start + 2]);
+        for (int r = 0; r < rects.length; r += 4) {
+            for (int corner = start; corner < start + 4; corner++) {
+                float tu = (float) rects[r + (u[corner] == minU ? 0 : 2)] / cutout.textureWidth();
+                float tv = (float) rects[r + (v[corner] == minV ? 1 : 3)] / cutout.textureHeight();
+                float s = u[next] != u0 ? (tu - u0) / (u[next] - u0) : (tv - v0) / (v[next] - v0);
+                float t = u[prev] != u0 ? (tu - u0) / (u[prev] - u0) : (tv - v0) / (v[prev] - v0);
+                KavoraMeshSurface.putVertex(target,
+                        facePosition(px, shellOffsetX, start, offset, s, t),
+                        facePosition(py, shellOffsetY, start, offset, s, t),
+                        facePosition(pz, shellOffsetZ, start, offset, s, t),
+                        source.getNx()[start], source.getNy()[start], source.getNz()[start], tu, tv,
+                        source.getColors()[start], source.getTexcoordBoundsMin()[start], source.getTexcoordBoundsMax()[start]);
+            }
+        }
+    }
+
+    private static float facePosition(float[] values, float[] offsets, int start, boolean offset, float s, float t) {
+        float a = values[start], b = values[start + 1], d = values[start + 3];
+        if (offset) {
+            a += offsets[start];
+            b += offsets[start + 1];
+            d += offsets[start + 3];
+        }
+        return a + s * (b - a) + t * (d - a);
     }
 
     /**
@@ -1981,6 +2072,12 @@ public class KavoraEntitySubmitter {
                                  RenderLayerUtils.SurfaceMode surfaceMode,
                                  RenderLayerUtils.Topology topology,
                                  int shellLayer) {
+        KavoraMaterial material = entityMaterial(textureId, surfaceMode);
+        return material == null ? null : createMeshWithMaterial(
+                consumer, sourceStart, vertexCount, textureId, topology, shellLayer, material, null);
+    }
+
+    private KavoraMaterial entityMaterial(Identifier textureId, RenderLayerUtils.SurfaceMode surfaceMode) {
         KavoraMaterial material = materialCache.get(materialLookupKey.set(textureId, surfaceMode));
         if (material == null || material.isDeleted()) {
             EntityMaterialKey materialKey = new EntityMaterialKey(textureId, surfaceMode);
@@ -1991,14 +2088,7 @@ public class KavoraEntitySubmitter {
                 return null;
             }
         }
-        return createMeshWithMaterial(
-                consumer,
-                sourceStart,
-                vertexCount,
-                textureId,
-                topology,
-                shellLayer,
-                material);
+        return material;
     }
 
     private KavoraMesh createMeshWithMaterial(
@@ -2008,7 +2098,8 @@ public class KavoraEntitySubmitter {
             Identifier textureId,
             RenderLayerUtils.Topology topology,
             int shellLayer,
-            KavoraMaterial material) {
+            KavoraMaterial material,
+            CuboidCutout cutout) {
         boolean strip = topology == RenderLayerUtils.Topology.TRIANGLE_STRIP;
         boolean valid = strip
                 ? vertexCount >= STRIP_MIN_VERTICES
@@ -2019,7 +2110,7 @@ public class KavoraEntitySubmitter {
             return null;
         }
         KavoraMeshSurface surface = buildSurface(consumer, sourceStart, vertexCount,
-                topology, DynamicTextureCache.isGlyphPage(textureId), shellLayer, material);
+                topology, DynamicTextureCache.isGlyphPage(textureId), shellLayer, material, cutout);
         try {
             KavoraMesh mesh = new KavoraMesh(new KavoraMeshSurface[]{surface});
             try (ProfileScope createScope = ProfileScope.begin("Entity createRigidMesh")) {
@@ -2215,6 +2306,10 @@ public class KavoraEntitySubmitter {
         if (textures.albedo == null) {
             textures.destroy();
             return null;
+        }
+        textures.resourceBacked = resource.isPresent();
+        if (textures.resourceBacked && textures.height == null) {
+            textures.cutoutCoverage = EntityCutoutCoverage.fromRgba(pixels, width, height);
         }
         if (cachedPixels != null && cachedPixels.version() > 0L) {
             dynamicTextureVersions.put(textureId, cachedPixels.version());
@@ -2423,8 +2518,8 @@ public class KavoraEntitySubmitter {
         EntityTextureSet textures = textureSets.get(textureId);
         if (textures == null || textures.albedo == null || textures.albedo.isDeleted()) return;
 
-        if (textures.hasPBR) {
-            // AO and emissive are derived from albedo; rebuild the complete set.
+        if (textures.hasPBR || textures.resourceBacked) {
+            // AO, emissive and culled cuboid faces are derived from albedo.
             invalidateMaterialTexture(textureId);
             return;
         }
@@ -2771,7 +2866,7 @@ public class KavoraEntitySubmitter {
         clearBeaconLensAssets();
 
         for (PooledMesh pooled : rigidMeshPool.values()) {
-            if (!pooled.mesh.isDeletedFast()) pooled.mesh.destroy();
+            if (pooled.mesh != null && !pooled.mesh.isDeletedFast()) pooled.mesh.destroy();
         }
         rigidMeshPool.clear();
         destroyMeshes(previousTransientMeshes);
