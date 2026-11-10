@@ -13,7 +13,6 @@ import org.edtp.kavora.sdk.LightInfoLightShaping;
 import org.edtp.kavora.sdk.LightInfoSphereEXT;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixException;
-import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.asset.KavoraLight;
 import org.edtp.kavora.asset.KavoraLightStore;
 import org.edtp.kavora.block.CopperBeaconBlock;
@@ -111,7 +110,9 @@ public class LightManager {
     private static float moonIntensity = DEFAULT_MOON_INTENSITY;
     private static float moonPhaseContrast = DEFAULT_MOON_PHASE_CONTRAST;
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
+    private final BlockTextureManager textures;
+    private final KavoraFirstPersonPass firstPersonPass;
 
     private final Map<EntityLightKey, KavoraLight> entityLights = new HashMap<>();
     /** Reusable scratch set for {@link #updateEntityLights}; cleared per call. */
@@ -142,8 +143,10 @@ public class LightManager {
     private Vec3 firstPersonShadowModelOffset = Vec3.ZERO;
     private long lastEntityLightUpdateNanos;
 
-    public LightManager(KavoraRenderer renderer) {
-        this.renderer = renderer;
+    public LightManager(RemixAPI api, BlockTextureManager textures, KavoraFirstPersonPass firstPersonPass) {
+        this.api = api;
+        this.textures = textures;
+        this.firstPersonPass = firstPersonPass;
         LOGGER.info("Light manager initialized");
     }
 
@@ -183,7 +186,7 @@ public class LightManager {
      * Updates sky light and draws entity + sky lights.
      */
     public void updateLights(ClientLevel world) {
-        if (world == null || renderer.getRemixApi() == null) return;
+        if (world == null || api == null) return;
         updateSkyLight(world);
         drawActiveLights();
     }
@@ -207,7 +210,6 @@ public class LightManager {
      *                  own housing
      */
     public void updateEntityLights(ClientLevel world, Camera camera, float tickDelta) {
-        RemixAPI api = renderer.getRemixApi();
         if (api == null || world == null || camera == null) return;
 
         seenEntityKeys.clear();
@@ -790,7 +792,7 @@ public class LightManager {
 
         boolean localFirstPerson = isLocalFirstPersonPlayer(holder);
         Vec3 capturedPosition = localFirstPerson
-                ? renderer.getFirstPersonHeldLightPosition(slot)
+                ? firstPersonPass.getPendingHeldLightPosition(slot)
                 : null;
         float viewModelScale = capturedPosition != null
                 ? KavoraFirstPersonPass.VIEW_MODEL_SCALE
@@ -955,7 +957,7 @@ public class LightManager {
     }
 
     private float[] itemLightColor(Block block) {
-        BlockTextureManager tex = renderer.getTextureManager();
+        BlockTextureManager tex = textures;
         return tex != null ? tex.getLightColorForBlock(block) : new float[]{1.0f, 1.0f, 1.0f};
     }
 
@@ -1196,7 +1198,6 @@ public class LightManager {
     // ================================================================
 
     private void drawActiveLights() {
-        RemixAPI api = renderer.getRemixApi();
         if (api == null) return;
         try {
             if (sunLight != null) sunLight.draw(api);

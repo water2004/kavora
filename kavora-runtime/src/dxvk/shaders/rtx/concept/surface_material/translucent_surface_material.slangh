@@ -40,16 +40,3 @@ TranslucentSurfaceMaterial translucentSurfaceMaterialCreate(MemoryPolymorphicSur
     return reinterpret<TranslucentSurfaceMaterial>(memoryPolymorphicSurfaceMaterial);
   }
 }
-
-// A medium index names the thick material containing the current ray.
-vec3 translucentMediumExtinction(uint mediumMaterialIndex)
-{
-  if (mediumMaterialIndex == SURFACE_INDEX_INVALID)
-  {
-    return vec3(0);
-  }
-  const TranslucentSurfaceMaterial medium = translucentSurfaceMaterialCreate(surfaceMaterials[mediumMaterialIndex]);
-  return transmittanceToAttenuationCoefficient(max(medium.transmittanceColor, vec3(1e-30f)),
-    medium.thicknessOrMeasurementDistance);
-}
-

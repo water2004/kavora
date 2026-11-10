@@ -136,7 +136,8 @@ namespace dxvk {
     static void triggerScreenshot() { s_triggerScreenshot = true; }
     static void triggerUsdCapture() { s_triggerUsdCapture = true; }
 
-    void bindCommonRayTracingResources(const Resources::RaytracingOutput& rtOutput);
+    // Binds the current scene's shared descriptor set after constants are uploaded.
+    void bindCommonRayTracingResources();
 
     void bindResourceView(const uint32_t slot, const Rc<DxvkImageView>& imageView, const Rc<DxvkBufferView>& bufferView);
 
@@ -199,6 +200,17 @@ namespace dxvk {
     VkExtent3D onInjectRtxFrameBegin(const VkExtent3D& upscaleExtent);
     void onInjectRtxFrameEnd(bool raytracedThisFrame);
 
+    // A prepared scene and a live command list are required. Records the final target
+    // and frame-generation inputs for the presenter to consume.
+    void recordRaytracedFrame(const Rc<DxvkImage>& targetImage, bool captureScreenImage, bool captureDebugImage);
+    // Consumes the current camera, constants and scene buffers. Produces HDR composite color
+    // and the depth, motion and material guides needed by reconstruction.
+    void recordSceneLighting(const Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage);
+    // Consumes composite color and guides. Writes linear HDR finalOutput at display resolution.
+    void reconstructSceneImage(const Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage);
+    // Consumes linear HDR finalOutput in place. Leaves graded display color ready for export.
+    void recordDisplayEffects(Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage);
+
     void dispatchVolumetrics(const Resources::RaytracingOutput& rtOutput);
     void dispatchIntegrate(const Resources::RaytracingOutput& rtOutput);
     void dispatchPathTracing(const Resources::RaytracingOutput& rtOutput);
@@ -217,7 +229,7 @@ namespace dxvk {
     void dispatchBloom(const Resources::RaytracingOutput& rtOutput);
     void dispatchPostFxMotionBlur(Resources::RaytracingOutput& rtOutput);
     void dispatchPostFxLensEffects(Resources::RaytracingOutput& rtOutput);
-    void dispatchSRGBDither(const Resources::RaytracingOutput& rtOutput, bool performSRGBConversion);
+    void dispatchSRGBDither(const Resources::AliasedResource& color, bool performSRGBConversion);
     void dispatchDebugView(Rc<DxvkImage>& srcImage, const Resources::RaytracingOutput& rtOutput, bool captureScreenImage);
     void dispatchObjectPicking(Resources::RaytracingOutput& rtOutput, const VkExtent3D& srcExtent, const VkExtent3D& targetExtent);
     void dispatchDLFG();

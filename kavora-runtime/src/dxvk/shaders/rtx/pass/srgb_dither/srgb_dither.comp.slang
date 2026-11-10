@@ -20,6 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/srgb_dither/srgb_dither.h"
+#include "rtx/pass/srgb_dither/display_color_grade.slangh"
 #include "rtx/pass/tonemap/tonemapping.slangh"
 #include "rtx/pass/tonemap/tonemapping_noise.slangh"
 #include "rtx/utility/color.slangh"
@@ -45,9 +46,7 @@ void main(uint2 threadId : SV_DispatchThreadID)
   float3 inputColor = imageLoad(InOutColorBuffer, threadId).xyz;
   if (cb.colorGradingEnabled)
   {
-    inputColor *= cb.colorBalance;
-    inputColor = saturate(cb.contrast * (inputColor - 0.18f) + 0.18f);
-    inputColor = lerp(calcBt709Luminance(inputColor).xxx, inputColor, cb.saturation);
+    inputColor = gradeDisplayColor(inputColor, cb.colorBalance, cb.contrast, cb.saturation);
   }
   const float3 gammaColor = (cb.performSRGBConversion > 0) ? linearToGamma(inputColor) : inputColor;
 

@@ -37,6 +37,7 @@
 #include "rtx/concept/surface_material/opaque_surface_material_interaction.slangh"
 #include "rtx/concept/surface_material/translucent_surface_material.slangh"
 #include "rtx/concept/surface_material/translucent_surface_material_interaction.slangh"
+#include "rtx/concept/surface_material/translucent_psr.slangh"
 #include "rtx/concept/surface_material/ray_portal_surface_material.slangh"
 #include "rtx/concept/surface_material/ray_portal_surface_material_interaction.slangh"
 #include "rtx/concept/surface_material/polymorphic_surface_material.slangh"

@@ -27,7 +27,6 @@ import org.edtp.kavora.asset.KavoraLightStore;
 import org.edtp.kavora.asset.KavoraLight;
 import org.edtp.kavora.asset.KavoraInstanceStore;
 import org.edtp.kavora.asset.KavoraInstance;
-import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.ClientViewDistance;
 import org.edtp.kavora.sdk.Float3D;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
@@ -91,7 +90,8 @@ public class ChunkManager {
     public static final int MIN_LIGHT_REACH_BLOCKS = 16;
     public static final int MAX_LIGHT_REACH_BLOCKS = 256;
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
+    private final BlockTextureManager textures;
     private final TerrainState terrain;
     private final BlockMeshBuilder meshBuilder;
     private final LongObjectMap<ColumnRenderState> renderColumns = new LongObjectMap<>();
@@ -512,8 +512,9 @@ public class ChunkManager {
 
     // --- construction ---
 
-    public ChunkManager(KavoraRenderer renderer) {
-        this.renderer = renderer;
+    public ChunkManager(RemixAPI api, BlockTextureManager textures) {
+        this.api = api;
+        this.textures = textures;
 
         terrain = new TerrainState(DEFAULT_LIGHT_CULL_CHUNKS * 16);
         meshBuilder = new BlockMeshBuilder();
@@ -643,7 +644,7 @@ public class ChunkManager {
 
     public void updateVisibleChunks(ClientLevel world, Vec3 cam,
                                      PerformanceTimer timer, int perfGen, int perfDraw) {
-        if (world == null || renderer.getRemixApi() == null) return;
+        if (world == null || api == null) return;
         try (ProfileScope updateScope = ProfileScope.begin("updateVisibleChunks")) {
 
             if (world != currentWorld) {
@@ -654,9 +655,8 @@ public class ChunkManager {
                 currentWorld = world;
             }
 
-            BlockTextureManager tex = renderer.getTextureManager();
+            BlockTextureManager tex = textures;
             if (tex == null || !tex.isInitialized()) return;
-            RemixAPI api = renderer.getRemixApi();
             try (ProfileScope ignored = ProfileScope.begin("Lod.Tick")) {
                 lodScene.tick(api, tex, world, cam);
             }
@@ -927,7 +927,7 @@ public class ChunkManager {
             BlockDataQueue.drain(pending);
         }
 
-        BlockTextureManager tex = renderer.getTextureManager();
+        BlockTextureManager tex = textures;
         int skipped = 0;
         int processed = 0;
 
@@ -1124,7 +1124,7 @@ public class ChunkManager {
         renderColumns.remove(state.key);
         lodScene.recordNear(state.key, Set.of());
         for (InstalledMeshPage page : state.activePages) {
-            if (lodScene.isActive()) page.instance.hideFromScene(renderer.getRemixApi());
+            if (lodScene.isActive()) page.instance.hideFromScene(api);
             retirementQueue.retire(page.instance);
         }
         retainedPageCount -= state.activePages.size();
@@ -1605,7 +1605,7 @@ public class ChunkManager {
         while (oldPages.hasNext()) {
             InstalledMeshPage page = oldPages.next();
             if ((categoryMask & (1 << page.category)) == 0) continue;
-            if (lodScene.isActive()) page.instance.hideFromScene(renderer.getRemixApi());
+            if (lodScene.isActive()) page.instance.hideFromScene(api);
             oldPages.remove();
             retainedPageCount--;
             retirementQueue.retire(page.instance);
@@ -1893,7 +1893,6 @@ public class ChunkManager {
     /** Hides retained terrain instances while preserving cached meshes. */
     public void hideRetainedInstances() {
         lodScene.suspend();
-        RemixAPI api = renderer.getRemixApi();
         if (api != null) {
             for (ColumnRenderState state : renderColumns.values()) {
                 for (InstalledMeshPage page : state.activePages) {

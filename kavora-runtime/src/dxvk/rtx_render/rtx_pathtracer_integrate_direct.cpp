@@ -141,7 +141,7 @@ namespace dxvk {
 
     // Bind resources
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     Rc<DxvkSampler> linearSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 

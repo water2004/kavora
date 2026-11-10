@@ -18,7 +18,6 @@ import org.edtp.kavora.texture.BlockTextureManager;
 import org.edtp.kavora.texture.ParticleAtlasManager;
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.profiling.ProfileScope;
-import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.mixin.BillboardParticleAccessor;
 import org.edtp.kavora.mixin.ParticleAccessor;
 import org.edtp.kavora.mixin.ParticleManagerAccessor;
@@ -70,7 +69,8 @@ public class KavoraParticleRenderer {
     private static final int BLEND_TRANSLUCENT = 1;
     private static final int BLEND_CUTOUT = 2;
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
+    private final BlockTextureManager blockTextures;
     private final ParticleAtlasManager atlasManager;
     private final HashMap<BucketKey, DynamicBucket> buckets = new HashMap<>();
     private final org.joml.Quaternionf particleRotation = new org.joml.Quaternionf();
@@ -100,8 +100,9 @@ public class KavoraParticleRenderer {
     private int capacityGrowsThisFrame;
     private int meshUpdatesThisFrame;
 
-    public KavoraParticleRenderer(KavoraRenderer renderer, ParticleAtlasManager atlasManager) {
-        this.renderer = renderer;
+    public KavoraParticleRenderer(RemixAPI api, BlockTextureManager blockTextures, ParticleAtlasManager atlasManager) {
+        this.api = api;
+        this.blockTextures = blockTextures;
         this.atlasManager = atlasManager;
     }
 
@@ -142,7 +143,7 @@ public class KavoraParticleRenderer {
             return finishPreparation(frame);
         }
 
-        BlockTextureManager blockTexMgr = renderer.getTextureManager();
+        BlockTextureManager blockTexMgr = blockTextures;
         var camera = client.gameRenderer.mainCamera();
 
         for (var entry : particleMap.entrySet()) {
@@ -259,7 +260,6 @@ public class KavoraParticleRenderer {
     public void submit(PreparedFrame preparedFrame) {
         if (preparedFrame == null) return;
 
-        RemixAPI api = renderer.getRemixApi();
         int draws = 0;
         int activeQuads = 0;
         try {

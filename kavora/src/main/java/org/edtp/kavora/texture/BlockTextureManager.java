@@ -14,7 +14,6 @@ import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixException;
 import org.edtp.kavora.sdk.TextureFormat;
 import org.edtp.kavora.sdk.TexturePurpose;
-import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.asset.KavoraMaterial;
 import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraTexture;
@@ -76,7 +75,7 @@ public class BlockTextureManager {
 
     public static BlockTextureManager get() { return INSTANCE; }
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
     private byte[] albedoRGBA;
     private KavoraTexture atlasAlbedo;
     private KavoraTexture atlasEmissive;
@@ -233,8 +232,8 @@ public class BlockTextureManager {
         }
     }
 
-    public BlockTextureManager(KavoraRenderer renderer) {
-        this.renderer = renderer;
+    public BlockTextureManager(RemixAPI api) {
+        this.api = api;
         INSTANCE = this;
     }
 
@@ -245,7 +244,6 @@ public class BlockTextureManager {
     public void initialize() {
         if (initialized || initFailed) return;
         try {
-            RemixAPI api = renderer.getRemixApi();
             Minecraft client = Minecraft.getInstance();
             if (api == null || client == null || client.getTextureManager() == null) return;
 
@@ -973,7 +971,6 @@ public class BlockTextureManager {
     }
 
     private boolean rebuildCutoutSssMaterials() {
-        RemixAPI api = renderer.getRemixApi();
         if (api == null) {
             LOGGER.warn("Cannot rebuild cutout SSS materials: Remix API unavailable");
             return false;
@@ -1246,7 +1243,6 @@ public class BlockTextureManager {
         atlasMetallicTex = null;
         atlasSssTex = null;
         atlasSssAlbedoTex = null;
-        RemixAPI api = renderer.getRemixApi();
         if (api != null) {
             destroyWaterResources(api);
         } else {

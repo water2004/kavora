@@ -326,9 +326,8 @@ namespace dxvk {
   void DxvkPostFx::dispatchLensEffects(
     Rc<RtxContext> ctx,
     Rc<DxvkSampler> linearSampler,
-    const uvec2& mainCameraResolution,
-    const uint32_t frameIdx,
-    const Resources::RaytracingOutput& rtOutput)
+    const Resources::AliasedResource& color,
+    const Resources::AliasedResource& scratch)
   {
     if (!enable()) {
       return;
@@ -340,16 +339,13 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "PostFx Lens Effects");
     ctx->setFramePassStage(RtxFramePassStage::PostFX);
 
-    const Resources::Resource& inOutColorTexture = rtOutput.m_finalOutput.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inOutColorTexture = color.resource(Resources::AccessType::ReadWrite);
     const VkExtent3D& inputSize = inOutColorTexture.image->info().extent;
     const VkExtent3D workgroups = util::computeBlockCount(inputSize, VkExtent3D { POST_FX_TILE_SIZE , POST_FX_TILE_SIZE, 1 } );
 
     PostFxArgs postFxArgs = {};
     postFxArgs.imageSize = { (uint)inputSize.width, (uint)inputSize.height };
     postFxArgs.invImageSize = { 1.0f / (float) inputSize.width, 1.0f / (float) inputSize.height };
-    postFxArgs.invMainCameraResolution = float2(1.0f / (float)mainCameraResolution.x, 1.0f / (float)mainCameraResolution.y);
-    postFxArgs.inputOverOutputViewSize = float2((float)mainCameraResolution.x * postFxArgs.invImageSize.x, (float)mainCameraResolution.y * postFxArgs.invImageSize.y);
-    postFxArgs.frameIdx = frameIdx;
     postFxArgs.chromaticCenterAttenuationAmount = chromaticCenterAttenuationAmount();
     postFxArgs.chromaticAberrationScale = calculateChromaticAberrationScale(isChromaticAberrationEnabled() ? chromaticAberrationAmount() : 0.0f);
     postFxArgs.vignetteIntensity = isVignetteEnabled() ? vignetteIntensity() : 0.0f;
@@ -358,8 +354,7 @@ namespace dxvk {
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
-    const Resources::Resource& postFxIntermediateTexture =
-      rtOutput.m_postFxIntermediateTexture.resource(Resources::AccessType::Write);
+    const Resources::Resource& postFxIntermediateTexture = scratch.resource(Resources::AccessType::Write);
     dispatchPostLensEffects(ctx, linearSampler, postFxArgs, workgroups,
                             inOutColorTexture, postFxIntermediateTexture);
 
@@ -370,7 +365,7 @@ namespace dxvk {
       inOutColorTexture.image,
       { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
       { 0, 0, 0 },
-      rtOutput.m_postFxIntermediateTexture.image(Resources::AccessType::Read),
+      scratch.image(Resources::AccessType::Read),
       { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
       { 0, 0, 0 },
       inputSize);

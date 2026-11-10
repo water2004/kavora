@@ -37,9 +37,10 @@ namespace dxvk {
   public:
     explicit DxvkSRGBDither(DxvkDevice* device);
 
+    // Grades linear post-tonemap color in place. Conversion and dithering follow grading.
     void dispatch(
       Rc<RtxContext> ctx,
-      const Resources::RaytracingOutput& rtOutput,
+      const Resources::AliasedResource& color,
       bool performSRGBConversion);
 
     void showImguiSettings();

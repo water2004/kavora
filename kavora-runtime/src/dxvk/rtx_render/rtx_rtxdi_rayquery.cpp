@@ -451,7 +451,7 @@ namespace dxvk {
       VkExtent3D{ COMPACT_ACTIVE_PIXELS_CONSUMER_GROUP_SIZE_X, COMPACT_ACTIVE_PIXELS_CONSUMER_GROUP_SIZE_Y, 1 });
     const bool usePortalShaderVariants = useRtxdiPortalShaderVariants();
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
     
     {
       ctx->setFramePassStage(RtxFramePassStage::RTXDI_InitialTemporalReuse);
@@ -614,7 +614,7 @@ namespace dxvk {
     VkExtent3D numThreads = rtOutput.m_compositeOutputExtent;
     VkExtent3D workgroups = util::computeBlockCount(numThreads, VkExtent3D { 16 * RTXDI_GRAD_FACTOR, 8 * RTXDI_GRAD_FACTOR, 1 });
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
@@ -681,7 +681,7 @@ namespace dxvk {
     VkExtent3D numThreads = rtOutput.m_compositeOutputExtent;
     VkExtent3D workgroups = util::computeBlockCount(numThreads, VkExtent3D { 16 * RTXDI_GRAD_FACTOR, 8 * RTXDI_GRAD_FACTOR, 1 });
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 

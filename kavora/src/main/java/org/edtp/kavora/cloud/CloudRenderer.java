@@ -11,7 +11,7 @@ import org.edtp.kavora.asset.KavoraMeshStore;
 import org.edtp.kavora.asset.KavoraMesh;
 import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraMaterial;
-import org.edtp.kavora.KavoraRenderer;
+import org.edtp.kavora.benchmark.BenchmarkController;
 import java.nio.ByteBuffer;
 import com.mojang.blaze3d.platform.NativeImage;
 import org.edtp.kavora.sdk.HardcodedVertex;
@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.client.CloudStatus;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.Identifier;
@@ -47,7 +48,8 @@ public final class CloudRenderer {
     private static final double VANILLA_COLOR_INFLUENCE = 0.2;
     private static final float SSS_RADIUS_SCALE = 5000.0f;
     private static final float SSS_MAX_SAMPLE_RADIUS = 1.0f;
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
+    private final BenchmarkController clock;
     private final MeshCreator meshCreator;
     private final VolumetricCloudState volumetricState;
     private final Map<Long, PaletteEntry> vanillaChunks = new HashMap<>();
@@ -78,27 +80,28 @@ public final class CloudRenderer {
     private int lastTriangleCount;
     private long lastGenerationNanos;
 
-    public CloudRenderer(KavoraRenderer renderer) {
-        this(renderer, null);
+    public CloudRenderer(RemixAPI api, BenchmarkController clock) {
+        this(api, clock, null);
     }
 
-    CloudRenderer(KavoraRenderer renderer, MeshCreator meshCreator) {
-        this.renderer = renderer;
+    CloudRenderer(RemixAPI api, BenchmarkController clock, MeshCreator meshCreator) {
+        this.api = api;
+        this.clock = clock;
         this.meshCreator = meshCreator;
-        this.volumetricState = new VolumetricCloudState((key, value) -> renderer.getRemixApi().setConfigVariable(key, value));
+        this.volumetricState = new VolumetricCloudState((key, value) -> api.setConfigVariable(key, value));
     }
 
-    public void render(ClientLevel world, Vec3 cameraPos, float tickDelta) {
+    /** Publishes cloud state or classic cloud instances for the supplied world and camera. */
+    public void render(ClientLevel world, Camera camera, Vec3 cameraPos, float tickDelta, CloudStatus cloudStatus) {
         resetFrameStats();
         if (world != currentWorld) {
             releaseResources();
             currentWorld = world;
         }
-        Minecraft client = Minecraft.getInstance();
-        environment.capture(world, client.gameRenderer.mainCamera(), tickDelta);
-        double frameGameTime = renderer.getBenchmarkController().animationGameTime(environment.gameTime);
+        environment.capture(world, camera, tickDelta);
+        double frameGameTime = clock.animationGameTime(environment.gameTime);
         float cloudHeight = environment.cloudHeight;
-        boolean visible = client.options.getCloudStatus() != CloudStatus.OFF
+        boolean visible = cloudStatus != CloudStatus.OFF
                 && environment.cloudAlpha > 0 && Float.isFinite(cloudHeight);
         if (proceduralClouds && visible) {
             volumetricState.update(frameGameTime / 20.0, cloudHeight + cloudsHeight, environment.rain, environment.thunder);
@@ -333,7 +336,6 @@ public final class CloudRenderer {
         ensureVanillaCloudMask();
 
         publishVanillaChunks();
-        RemixAPI api = renderer.getRemixApi();
         VanillaCloudPlacement.forEachVisible(
                 cameraPos.x,
                 cameraPos.z,

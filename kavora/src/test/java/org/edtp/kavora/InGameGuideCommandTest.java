@@ -71,7 +71,7 @@ class InGameGuideCommandTest {
      * the closing backtick of a table cell ends the path.
      */
     private static final Pattern DOCUMENTED_COMMAND = Pattern.compile(
-            "/rtx(?:\\s+([A-Za-z][A-Za-z0-9_-]*))?(?:\\s+([A-Za-z][A-Za-z0-9_-]*))?");
+            "/" + ROOT + "(?:\\s+([A-Za-z][A-Za-z0-9_-]*))?(?:\\s+([A-Za-z][A-Za-z0-9_-]*))?");
 
     @Test
     void everyDocumentedCommandIsRegistered() {
@@ -86,7 +86,7 @@ class InGameGuideCommandTest {
         for (String path : documented) {
             String[] literals = path.split(" ");
             if (!isFirstLevel(children, literals[0])) {
-                missing.add("/kavora " + path + ": '" + literals[0] + "' is not registered under /rtx");
+                missing.add("/" + ROOT + " " + path + ": '" + literals[0] + "' is not registered under /" + ROOT);
             } else if (literals.length > 1
                     && !children.getOrDefault(literals[0], Set.of()).contains(literals[1])) {
                 missing.add("/kavora " + path + ": '" + literals[1] + "' is not registered under '"
@@ -111,7 +111,7 @@ class InGameGuideCommandTest {
 
     /**
      * The literal nodes the command sources build, as children by parent name.
-     * {@link #NO_PARENT} holds {@code /rtx} itself and the root of every
+     * {@link #NO_PARENT} holds the command root and the root of every
      * subtree built by its own method.
      */
     private static Map<String, Set<String>> registeredCommandTree() {

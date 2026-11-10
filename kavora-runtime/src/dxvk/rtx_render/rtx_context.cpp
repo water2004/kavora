@@ -50,6 +50,7 @@
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/raytrace_args.h"
+#include "raytrace_layout_asserts.h"
 #include "rtx/pass/volume_args.h"
 #include "rtx/utility/debug_view_indices.h"
 #include "rtx/utility/gpu_printing.h"
@@ -519,6 +520,240 @@ namespace dxvk {
   }
 #endif
 
+  __forceinline void RtxContext::recordRaytracedFrame(const Rc<DxvkImage>& targetImage, bool captureScreenImage, bool captureDebugImage) {
+    VkExtent3D downscaledExtent = onInjectRtxFrameBegin(targetImage->info().extent);
+
+    Resources::RaytracingOutput& rtOutput = getResourceManager().getRaytracingOutput();
+
+    // The queues hold a single entry unless frame generation runs, see Resources::createDlfgResourceQueues.
+    if (rtOutput.m_primaryDepthQueue[1].isValid()) {
+      rtOutput.m_primaryDepthQueue.next();
+      rtOutput.m_primaryScreenSpaceMotionVectorQueue.next();
+    }
+
+    rtOutput.m_primaryDepth = rtOutput.m_primaryDepthQueue.get();
+    rtOutput.m_primaryScreenSpaceMotionVector = rtOutput.m_primaryScreenSpaceMotionVectorQueue.get();
+
+    getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
+
+    // Generate ray tracing constant buffer
+    updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
+
+    recordSceneLighting(rtOutput, captureScreenImage, captureDebugImage);
+
+    getCommonObjects()->getTextureManager().copySamplerFeedbackToHost(this);
+    dispatchObjectPicking(rtOutput, downscaledExtent, targetImage->info().extent);
+
+    reconstructSceneImage(rtOutput, captureScreenImage, captureDebugImage);
+    recordDisplayEffects(rtOutput, captureScreenImage, captureDebugImage);
+
+    // Set up output src
+    Rc<DxvkImage> srcImage = rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image;
+
+    // Debug view
+    dispatchDebugView(srcImage, rtOutput, captureScreenImage);
+
+    dispatchDLFG();
+
+    // Blit to the game target
+    {
+      ScopedGpuProfileZone(this, "Blit to Game");
+
+      // Note: the resolution between srcImage and dstImage always matches
+      // so we can use the same blit with nearest neighbor filtering
+      assert(srcImage->info().extent == targetImage->info().extent);
+      blitImageHelper(this, srcImage, targetImage, VkFilter::VK_FILTER_NEAREST);
+    }
+
+    // Log stats when an image is taken
+    if (captureScreenImage) {
+      getSceneManager().logStatistics();
+    }
+  }
+
+  __forceinline void RtxContext::recordSceneLighting(const Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage) {
+    m_common->metaGlobalVolumetrics().dispatchCloudSky(this, rtOutput.m_raytraceArgs.volumeArgs.clouds);
+
+    if (RtxAnimationTime::overridden()) {
+      const auto& args = rtOutput.m_raytraceArgs;
+      const auto name = str::format("Animation ms=", RtxAnimationTime::milliseconds(),
+        " fogMs=", args.volumeArgs.densityTimeMS, " cloudSeconds=", CloudOptions::worldTimeSeconds(),
+        " frame=", args.frameIdx);
+      VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+      label.pLabelName = name.c_str();
+      beginDebugLabel(&label);
+    }
+    // First-hit traversal needs the scene and camera, but not volumetric radiance or sparse compaction.
+    m_common->metaPathtracerGbuffer().dispatchPrimaryTraversal(this, rtOutput);
+    if (RtxAnimationTime::overridden()) {
+      endDebugLabel();
+    }
+
+    // Volumetric Lighting
+    dispatchVolumetrics(rtOutput);
+
+    // Path Tracing
+    dispatchPathTracing(rtOutput);
+
+    // Neural Radiance Cache
+    m_common->metaNeuralRadianceCache().dispatchTrainingAndResolve(*this, rtOutput);
+
+    // RTXDI confidence
+    m_common->metaRtxdiRayQuery().dispatchConfidence(this, rtOutput);
+
+    // ReSTIR GI
+    m_common->metaReSTIRGIRayQuery().dispatch(this, rtOutput);
+
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("baseReflectivity", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
+      takeScreenshot("sharedSubsurfaceData", rtOutput.m_sharedSubsurfaceData.image);
+      takeScreenshot("sharedSubsurfaceDiffusionProfileData", rtOutput.m_sharedSubsurfaceDiffusionProfileData.image);
+      takeScreenshot("sharedMaterialData1", rtOutput.m_sharedMaterialData1.image);
+      takeScreenshot("sharedFlags", rtOutput.m_sharedFlags.image);
+      if (!rtOutput.m_sharedFlagsDense.empty()) {
+        takeScreenshot("sharedFlagsDense", rtOutput.m_sharedFlagsDense.image(Resources::AccessType::Read));
+      }
+      takeScreenshot("sharedIntegrationSurfacePdf", rtOutput.m_sharedIntegrationSurfacePdf.image(Resources::AccessType::Read));
+      takeScreenshot("primaryDirectDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("primaryDirectSpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("primaryIndirectDiffuse", rtOutput.m_primaryIndirectDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("primaryIndirectSpecular", rtOutput.m_primaryIndirectSpecularRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("sharedRadianceRG", rtOutput.m_sharedRadianceRG.image);
+      takeScreenshot("sharedRadianceB", rtOutput.m_sharedRadianceB.image);
+      takeScreenshot("primaryWorldPositionWorldTriangleNormal", rtOutput.getCompactedPrimaryWorldPositionWorldTriangleNormal().image(Resources::AccessType::Read));
+    }
+
+    // Demodulation
+    dispatchDemodulate(rtOutput);
+
+    // Note: Primary direct diffuse/specular radiance textures noisy and in a demodulated state after demodulation step.
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("noisyDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("noisySpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
+    }
+
+    // Denoising
+    dispatchDenoise(rtOutput);
+
+    // Note: Primary direct diffuse/specular radiance textures denoised but in a still demodulated state after denoising step.
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("denoisedDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("denoisedSpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
+    }
+
+    // Composition
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("primaryIndirectDiffuseComposite", rtOutput.m_primaryIndirectDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("primaryIndirectSpecularComposite", rtOutput.m_primaryIndirectSpecularRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("primaryAttenuation", rtOutput.m_primaryAttenuation.image);
+      takeScreenshot("primaryAlbedoComposite", rtOutput.m_primaryAlbedo.image);
+      takeScreenshot("primarySpecularAlbedoComposite", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
+      takeScreenshot("primaryNormalRoughnessComposite", rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.image);
+      takeScreenshot("bsdfFactor", rtOutput.m_bsdfFactor.image);
+      takeScreenshot("secondaryCombinedDiffuse", rtOutput.m_secondaryCombinedDiffuseRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("secondaryCombinedSpecular", rtOutput.m_secondaryCombinedSpecularRadiance.image(Resources::AccessType::Read));
+      takeScreenshot("secondaryAttenuation", rtOutput.m_secondaryAttenuation.image);
+      takeScreenshot("secondaryAlbedo", rtOutput.m_secondaryAlbedo.image);
+      takeScreenshot("secondarySpecularAlbedo", rtOutput.m_secondaryBaseReflectivity.image(Resources::AccessType::Read));
+    }
+    dispatchComposite(rtOutput);
+
+    // Post composite Debug View that may overwrite Composite output
+    dispatchReplaceCompositeWithDebugView(rtOutput);
+
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("rtxImagePostComposite", rtOutput.m_compositeOutput.resource(Resources::AccessType::Read).image);
+    }
+  }
+
+  __forceinline void RtxContext::reconstructSceneImage(const Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage) {
+    // Upscaling if DLSS/NIS enabled, or the Composition Pass will do upscaling
+    if (m_currentUpscaler == InternalUpscaler::DLSS) {
+      // xxxnsubtil: the DLSS indicator reads our exposure texture even with DLSS autoexposure on
+      // make sure it has been created, otherwise we run into trouble on the first frame
+      m_common->metaAutoExposure().createResources(this);
+      dispatchDLSS(rtOutput);
+    } else if (m_currentUpscaler == InternalUpscaler::DLSS_RR) {
+      m_common->metaAutoExposure().createResources(this);
+      dispatchRayReconstruction(rtOutput);
+    } else if (m_currentUpscaler == InternalUpscaler::XeSS) {
+      m_common->metaAutoExposure().createResources(this);
+      dispatchXeSS(rtOutput);
+    } else if (m_currentUpscaler == InternalUpscaler::NIS) {
+      dispatchNIS(rtOutput);
+    } else if (m_currentUpscaler == InternalUpscaler::TAAU){
+      dispatchTemporalAA(rtOutput);
+    } else {
+      copyImage(
+        rtOutput.m_finalOutput.resource(Resources::AccessType::Write).image,
+        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        { 0, 0, 0 },
+        rtOutput.m_compositeOutput.image(Resources::AccessType::Read),
+        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+        { 0, 0, 0 },
+        rtOutput.m_compositeOutputExtent);
+    }
+    m_previousUpscaler = m_currentUpscaler;
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("rtxImagePostUpscaling", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
+      if (m_currentUpscaler == InternalUpscaler::DLSS_RR) {
+        const bool compacted = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+        takeScreenshot("rrDiffuseGuide", compacted ? rtOutput.m_primaryAlbedoDLSSRR.image : rtOutput.m_primaryAlbedo.image);
+        takeScreenshot("rrSpecularGuide", compacted ? rtOutput.m_primarySpecularAlbedoDLSSRR.image : rtOutput.m_primarySpecularAlbedo.image(Resources::AccessType::Read));
+        takeScreenshot("rrNormalGuide", rtOutput.m_primaryWorldShadingNormalDLSSRR.image(Resources::AccessType::Read));
+        takeScreenshot("rrDepthGuide", rtOutput.m_primaryDepthDLSSRR.image(Resources::AccessType::Read));
+        takeScreenshot("rrMotionGuide", rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR.image);
+        takeScreenshot("rrRoughnessGuide", rtOutput.m_primaryPerceptualRoughness.image);
+        takeScreenshot("primaryResolvedDepth", rtOutput.m_primaryDepth.image);
+        takeScreenshot("primaryResolvedMotion", rtOutput.m_primaryScreenSpaceMotionVector.image);
+        if (compacted) {
+          takeScreenshot("compactedPixelIndices", rtOutput.m_sparseRenderingCompactedPixelIndices.image);
+        }
+      }
+    }
+  }
+
+  __forceinline void RtxContext::recordDisplayEffects(Resources::RaytracingOutput& rtOutput, bool captureScreenImage, bool captureDebugImage) {
+    RtxDustParticles& dust = m_common->metaDustParticles();
+    dust.simulateAndDraw(this, m_state, rtOutput);
+
+    const bool dlssNrEnabled = dispatchDlssNR(rtOutput);
+    if (captureScreenImage && captureDebugImage) {
+      takeScreenshot("rtxImagePostNeuralRendering", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
+    }
+
+    dispatchBloom(rtOutput);
+
+    // Motion blur runs before tonemapping while the image is still in linear HDR space.
+    dispatchPostFxMotionBlur(rtOutput);
+
+    dispatchToneMapping(rtOutput, !dlssNrEnabled);
+
+    // Lens effects (chromatic aberration, vignette) run AFTER tonemapping. They are
+    // display-space artifacts so they operate on post-tonemap LDR data.
+    dispatchPostFxLensEffects(rtOutput);
+
+    // Final output pass grades the linear post-tonemap LDR image, converts to sRGB and applies
+    // dithering as the very last step. SRGB conversion is suppressed for screenshot
+    // captures (WAR for TREX-553: NVTT implicitly applies sRGB during dds->png conversion
+    // for 16bit float formats).
+    const bool performSRGBConversion = !captureScreenImage && g_allowSrgbConversionForOutput;
+    dispatchSRGBDither(rtOutput.m_finalOutput, performSRGBConversion);
+
+    if (captureScreenImage) {
+      if (m_common->metaDebugView().debugViewIdx() == DEBUG_VIEW_DISABLED) {
+        takeScreenshot("rtxImagePostTonemapping", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
+      }
+
+      if (captureDebugImage) {
+        takeScreenshot("albedo", rtOutput.m_primaryAlbedo.image);
+        takeScreenshot("worldNormals", rtOutput.m_primaryWorldShadingNormal.image);
+        takeScreenshot("worldMotion", rtOutput.m_primaryVirtualMotionVector.image(Resources::AccessType::Read));
+        takeScreenshot("linearZ", rtOutput.m_primaryLinearViewZ.image);
+      }
+    }
+  }
+
   // Hooked into D3D9 presentImage (same place HUD rendering is)
   void RtxContext::injectRTX(std::uint64_t cachedReflexFrameId, Rc<DxvkImage> targetImage) {
     ScopedCpuProfileZone();
@@ -708,226 +943,7 @@ namespace dxvk {
       // If we really don't have any RT to do, just bail early (could be UI/menus rendering)
       if (getSceneManager().getSurfaceBuffer() != nullptr) {
 
-        VkExtent3D downscaledExtent = onInjectRtxFrameBegin(targetImage->info().extent);
-
-        Resources::RaytracingOutput& rtOutput = getResourceManager().getRaytracingOutput();
-
-        // The queues hold a single entry unless frame generation runs, see Resources::createDlfgResourceQueues.
-        if (rtOutput.m_primaryDepthQueue[1].isValid()) {
-          rtOutput.m_primaryDepthQueue.next();
-          rtOutput.m_primaryScreenSpaceMotionVectorQueue.next();
-        }
-
-        rtOutput.m_primaryDepth = rtOutput.m_primaryDepthQueue.get();
-        rtOutput.m_primaryScreenSpaceMotionVector = rtOutput.m_primaryScreenSpaceMotionVectorQueue.get();
-
-        getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
-
-        // Generate ray tracing constant buffer
-        updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
-        m_common->metaGlobalVolumetrics().dispatchCloudSky(this, rtOutput);
-
-        if (RtxAnimationTime::overridden()) {
-          const auto& args = rtOutput.m_raytraceArgs;
-          const auto name = str::format("Animation ms=", RtxAnimationTime::milliseconds(),
-            " fogMs=", args.volumeArgs.densityTimeMS, " cloudSeconds=", CloudOptions::worldTimeSeconds(),
-            " frame=", args.frameIdx);
-          VkDebugUtilsLabelEXT label = { VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
-          label.pLabelName = name.c_str();
-          beginDebugLabel(&label);
-        }
-        // First-hit traversal needs the scene and camera, but not volumetric radiance or sparse compaction.
-        m_common->metaPathtracerGbuffer().dispatchPrimaryTraversal(this, rtOutput);
-        if (RtxAnimationTime::overridden()) {
-          endDebugLabel();
-        }
-
-        // Volumetric Lighting
-        dispatchVolumetrics(rtOutput);
-        
-        // Path Tracing
-        dispatchPathTracing(rtOutput);
-
-        // Neural Radiance Cache
-        m_common->metaNeuralRadianceCache().dispatchTrainingAndResolve(*this, rtOutput);
-
-        // RTXDI confidence
-        m_common->metaRtxdiRayQuery().dispatchConfidence(this, rtOutput);
-
-        // ReSTIR GI
-        m_common->metaReSTIRGIRayQuery().dispatch(this, rtOutput);
-        
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("baseReflectivity", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
-          takeScreenshot("sharedSubsurfaceData", rtOutput.m_sharedSubsurfaceData.image);
-          takeScreenshot("sharedSubsurfaceDiffusionProfileData", rtOutput.m_sharedSubsurfaceDiffusionProfileData.image);
-          takeScreenshot("sharedMaterialData1", rtOutput.m_sharedMaterialData1.image);
-          takeScreenshot("sharedFlags", rtOutput.m_sharedFlags.image);
-          if (!rtOutput.m_sharedFlagsDense.empty()) {
-            takeScreenshot("sharedFlagsDense", rtOutput.m_sharedFlagsDense.image(Resources::AccessType::Read));
-          }
-          takeScreenshot("sharedIntegrationSurfacePdf", rtOutput.m_sharedIntegrationSurfacePdf.image(Resources::AccessType::Read));
-          takeScreenshot("primaryDirectDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("primaryDirectSpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("primaryIndirectDiffuse", rtOutput.m_primaryIndirectDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("primaryIndirectSpecular", rtOutput.m_primaryIndirectSpecularRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("sharedRadianceRG", rtOutput.m_sharedRadianceRG.image);
-          takeScreenshot("sharedRadianceB", rtOutput.m_sharedRadianceB.image);
-          takeScreenshot("primaryWorldPositionWorldTriangleNormal", rtOutput.getCompactedPrimaryWorldPositionWorldTriangleNormal().image(Resources::AccessType::Read));
-        }
-
-        // Demodulation
-        dispatchDemodulate(rtOutput);
-
-        // Note: Primary direct diffuse/specular radiance textures noisy and in a demodulated state after demodulation step.
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("noisyDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("noisySpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
-        }
-
-        // Denoising
-        dispatchDenoise(rtOutput);
-
-        // Note: Primary direct diffuse/specular radiance textures denoised but in a still demodulated state after denoising step.
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("denoisedDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("denoisedSpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
-        }
-
-        // Composition
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("primaryIndirectDiffuseComposite", rtOutput.m_primaryIndirectDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("primaryIndirectSpecularComposite", rtOutput.m_primaryIndirectSpecularRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("primaryAttenuation", rtOutput.m_primaryAttenuation.image);
-          takeScreenshot("primaryAlbedoComposite", rtOutput.m_primaryAlbedo.image);
-          takeScreenshot("primarySpecularAlbedoComposite", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
-          takeScreenshot("primaryNormalRoughnessComposite", rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.image);
-          takeScreenshot("bsdfFactor", rtOutput.m_bsdfFactor.image);
-          takeScreenshot("secondaryCombinedDiffuse", rtOutput.m_secondaryCombinedDiffuseRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("secondaryCombinedSpecular", rtOutput.m_secondaryCombinedSpecularRadiance.image(Resources::AccessType::Read));
-          takeScreenshot("secondaryAttenuation", rtOutput.m_secondaryAttenuation.image);
-          takeScreenshot("secondaryAlbedo", rtOutput.m_secondaryAlbedo.image);
-          takeScreenshot("secondarySpecularAlbedo", rtOutput.m_secondaryBaseReflectivity.image(Resources::AccessType::Read));
-        }
-        dispatchComposite(rtOutput);
-
-        // Post composite Debug View that may overwrite Composite output
-        dispatchReplaceCompositeWithDebugView(rtOutput);
-        
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("rtxImagePostComposite", rtOutput.m_compositeOutput.resource(Resources::AccessType::Read).image);
-        }
-
-        getCommonObjects()->getTextureManager().copySamplerFeedbackToHost(this);
-        dispatchObjectPicking(rtOutput, downscaledExtent, targetImage->info().extent);
-
-        // Upscaling if DLSS/NIS enabled, or the Composition Pass will do upscaling
-        if (m_currentUpscaler == InternalUpscaler::DLSS) {
-          // xxxnsubtil: the DLSS indicator reads our exposure texture even with DLSS autoexposure on
-          // make sure it has been created, otherwise we run into trouble on the first frame
-          m_common->metaAutoExposure().createResources(this);
-          dispatchDLSS(rtOutput);
-        } else if (m_currentUpscaler == InternalUpscaler::DLSS_RR) {
-          m_common->metaAutoExposure().createResources(this);
-          dispatchRayReconstruction(rtOutput);
-        } else if (m_currentUpscaler == InternalUpscaler::XeSS) {
-          m_common->metaAutoExposure().createResources(this);
-          dispatchXeSS(rtOutput);
-        } else if (m_currentUpscaler == InternalUpscaler::NIS) {
-          dispatchNIS(rtOutput);
-        } else if (m_currentUpscaler == InternalUpscaler::TAAU){
-          dispatchTemporalAA(rtOutput);
-        } else {
-          copyImage(
-            rtOutput.m_finalOutput.resource(Resources::AccessType::Write).image,
-            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-            { 0, 0, 0 },
-            rtOutput.m_compositeOutput.image(Resources::AccessType::Read),
-            { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-            { 0, 0, 0 },
-            rtOutput.m_compositeOutputExtent);
-        }
-        m_previousUpscaler = m_currentUpscaler;
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("rtxImagePostUpscaling", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
-          if (m_currentUpscaler == InternalUpscaler::DLSS_RR) {
-            const bool compacted = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
-            takeScreenshot("rrDiffuseGuide", compacted ? rtOutput.m_primaryAlbedoDLSSRR.image : rtOutput.m_primaryAlbedo.image);
-            takeScreenshot("rrSpecularGuide", compacted ? rtOutput.m_primarySpecularAlbedoDLSSRR.image : rtOutput.m_primarySpecularAlbedo.image(Resources::AccessType::Read));
-            takeScreenshot("rrNormalGuide", rtOutput.m_primaryWorldShadingNormalDLSSRR.image(Resources::AccessType::Read));
-            takeScreenshot("rrDepthGuide", rtOutput.m_primaryDepthDLSSRR.image(Resources::AccessType::Read));
-            takeScreenshot("rrMotionGuide", rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR.image);
-            takeScreenshot("rrRoughnessGuide", rtOutput.m_primaryPerceptualRoughness.image);
-            takeScreenshot("primaryResolvedDepth", rtOutput.m_primaryDepth.image);
-            takeScreenshot("primaryResolvedMotion", rtOutput.m_primaryScreenSpaceMotionVector.image);
-            if (compacted) {
-              takeScreenshot("compactedPixelIndices", rtOutput.m_sparseRenderingCompactedPixelIndices.image);
-            }
-          }
-        }
-
-        RtxDustParticles& dust = m_common->metaDustParticles();
-        dust.simulateAndDraw(this, m_state, rtOutput);
-
-        const bool dlssNrEnabled = dispatchDlssNR(rtOutput);
-        if (captureScreenImage && captureDebugImage) {
-          takeScreenshot("rtxImagePostNeuralRendering", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
-        }
-
-        dispatchBloom(rtOutput);
-
-        // Motion blur runs before tonemapping while the image is still in linear HDR space.
-        dispatchPostFxMotionBlur(rtOutput);
-
-        dispatchToneMapping(rtOutput, !dlssNrEnabled);
-
-        // Lens effects (chromatic aberration, vignette) run AFTER tonemapping. They are
-        // display-space artifacts so they operate on post-tonemap LDR data.
-        dispatchPostFxLensEffects(rtOutput);
-
-        // Final output pass grades the linear post-tonemap LDR image, converts to sRGB and applies
-        // dithering as the very last step. SRGB conversion is suppressed for screenshot
-        // captures (WAR for TREX-553: NVTT implicitly applies sRGB during dds->png conversion
-        // for 16bit float formats).
-        const bool performSRGBConversion = !captureScreenImage && g_allowSrgbConversionForOutput;
-        dispatchSRGBDither(rtOutput, performSRGBConversion);
-
-        if (captureScreenImage) {
-          if (m_common->metaDebugView().debugViewIdx() == DEBUG_VIEW_DISABLED) {
-            takeScreenshot("rtxImagePostTonemapping", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
-          }
-          
-          if (captureDebugImage) {
-            takeScreenshot("albedo", rtOutput.m_primaryAlbedo.image);
-            takeScreenshot("worldNormals", rtOutput.m_primaryWorldShadingNormal.image);
-            takeScreenshot("worldMotion", rtOutput.m_primaryVirtualMotionVector.image(Resources::AccessType::Read));
-            takeScreenshot("linearZ", rtOutput.m_primaryLinearViewZ.image);
-          }
-        }
-
-        // Set up output src
-        Rc<DxvkImage> srcImage = rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image;
-
-        // Debug view
-        dispatchDebugView(srcImage, rtOutput, captureScreenImage);
-
-        dispatchDLFG();
-
-        // Blit to the game target
-        {
-          ScopedGpuProfileZone(this, "Blit to Game");
-          
-          // Note: the resolution between srcImage and dstImage always matches
-          // so we can use the same blit with nearest neighbor filtering
-          assert(srcImage->info().extent == targetImage->info().extent);
-          blitImageHelper(this, srcImage, targetImage, VkFilter::VK_FILTER_NEAREST);
-        }
-
-        // Log stats when an image is taken
-        if (captureScreenImage) {
-          getSceneManager().logStatistics();
-        }
-
+        recordRaytracedFrame(targetImage, captureScreenImage, captureDebugImage);
         raytracedThisFrame = true;
       }
 
@@ -1668,7 +1684,7 @@ namespace dxvk {
     }
   }
 
-  void RtxContext::bindCommonRayTracingResources(const Resources::RaytracingOutput& rtOutput) {
+  void RtxContext::bindCommonRayTracingResources() {
     ScopedCpuProfileZone();
 
     Rc<DxvkBuffer> constantsBuffer = getResourceManager().getConstantsBuffer();
@@ -2182,22 +2198,19 @@ namespace dxvk {
   void RtxContext::dispatchPostFxLensEffects(Resources::RaytracingOutput& rtOutput) {
     ScopedCpuProfileZone();
     DxvkPostFx& postFx = m_common->metaPostFx();
-    const RtCamera& mainCamera = getSceneManager().getCamera();
     if (!postFx.enable()) {
       return;
     }
 
     postFx.dispatchLensEffects(this,
       getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-      mainCamera.getShaderConstants().resolution,
-      RtxOptions::rngSeedWithFrameIndex() ? m_device->getCurrentFrameId() : 0,
-      rtOutput);
+      rtOutput.m_finalOutput, rtOutput.m_postFxIntermediateTexture);
   }
 
-  void RtxContext::dispatchSRGBDither(const Resources::RaytracingOutput& rtOutput, bool performSRGBConversion) {
+  void RtxContext::dispatchSRGBDither(const Resources::AliasedResource& color, bool performSRGBConversion) {
     ScopedCpuProfileZone();
 
-    m_common->metaSRGBDither().dispatch(this, rtOutput, performSRGBConversion);
+    m_common->metaSRGBDither().dispatch(this, color, performSRGBConversion);
   }
 
   void RtxContext::dispatchDebugView(Rc<DxvkImage>& srcImage, const Resources::RaytracingOutput& rtOutput, bool captureScreenImage)  {

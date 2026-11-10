@@ -8,10 +8,9 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import org.edtp.kavora.sdk.CameraInfo;
 import org.edtp.kavora.sdk.CameraInfoParameterizedEXT;
 import org.edtp.kavora.sdk.CameraType;
-import org.edtp.kavora.sdk.PresentInfo;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixException;
-import org.edtp.kavora.sdk.SubmitInfo;
+import org.edtp.kavora.sdk.VulkanClientFrameInfo;
 import org.edtp.kavora.asset.KavoraInstanceStore;
 import org.edtp.kavora.asset.KavoraLightStore;
 import org.edtp.kavora.asset.KavoraMaterial;
@@ -21,9 +20,8 @@ import org.edtp.kavora.asset.KavoraTexture;
 import org.edtp.kavora.asset.KavoraTextureStore;
 import org.edtp.kavora.benchmark.BenchmarkController;
 import org.edtp.kavora.render.KavoraInterop;
+import org.edtp.kavora.render.KavoraFramePresentation;
 import org.edtp.kavora.render.RenderBackend;
-import org.edtp.kavora.render.NativeMenuOverlay;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
 import org.edtp.kavora.light.LightManager;
 import org.edtp.kavora.logic.ViewDistanceFade;
 import org.edtp.kavora.profiling.PerformanceTimer;
@@ -34,7 +32,7 @@ import org.edtp.kavora.terrain.ChunkManager;
 import org.edtp.kavora.texture.AtlasAnimationForwarder;
 import org.edtp.kavora.texture.BlockTextureManager;
 import org.edtp.kavora.texture.ParticleAtlasManager;
-import org.edtp.kavora.particle.KavoraParticleRenderer.PreparedFrame;
+import org.edtp.kavora.particle.ParticleFramePipeline;
 import org.edtp.kavora.particle.KavoraParticleRenderer;
 import org.edtp.kavora.weather.KavoraWeatherRenderer;
 import org.edtp.kavora.camera.CameraController;
@@ -64,7 +62,6 @@ import org.joml.Matrix4fc;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.material.FogType;
 import net.minecraft.world.phys.Vec3;
@@ -75,11 +72,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Render-thread bridge between Minecraft's world and the Kavora runtime.
@@ -90,9 +82,8 @@ import java.util.concurrent.TimeUnit;
  * frame submission. All of it runs once per rendered frame on the render
  * thread, not once per client tick.
  *
- * <p>{@link KavoraInterop} imports the runtime's dedicated Vulkan allocations
- * onto Minecraft's device. Timeline semaphores and external queue-family
- * transfers protect the shared images; Minecraft owns the final presentation.
+ * <p>{@link KavoraFramePresentation} owns the scene Submit and Present pair.
+ * {@link KavoraInterop} borrows the runtime images on the shared Vulkan device.
  */
 public class KavoraRenderer {
 
@@ -100,17 +91,11 @@ public class KavoraRenderer {
 
     // Remix API instance
     private RemixAPI remixApi;
-    // Publish the runtime's Vulkan signal before Minecraft waits on it during presentation.
-    private final SubmitInfo vulkanSubmit = new SubmitInfo();
     private boolean initialized = false;
-    private long windowHandle;
     
     private KavoraInterop interop = null;
     private RenderBackend backend;
-    private final NativeMenuOverlay nativeMenuOverlay = new NativeMenuOverlay();
-    
-    private boolean submitFrameCalled = false;
-    private final PresentInfo presentInfo = new PresentInfo();
+    private KavoraFramePresentation presentation;
 
     // Scene managers
     private ChunkManager chunkManager;
@@ -145,79 +130,18 @@ public class KavoraRenderer {
 
     // Particle rendering: atlas manager + per-frame renderer
     private ParticleAtlasManager particleAtlasManager;
-    private KavoraParticleRenderer particleRenderer;
     private KavoraWeatherRenderer weatherRenderer;
-    private final ExecutorService particleExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "Kavora Particles");
-        thread.setDaemon(true);
-        return thread;
-    });
-    private volatile CompletableFuture<ParticleRenderResult> particleRenderFuture;
-    // Double-buffer: holds frame N's prepared particles for submission during frame N+1.
-    private PreparedFrame pendingParticleFrame;
-    private long particleNanosThisFrame;
-    /** World the pending payload was prepared against, so a swap cannot publish it. */
-    private ClientLevel pendingParticleFrameWorld;
-    
     // Deferred operations: flags are set from any thread, executed on the render thread.
     private volatile boolean pendingTextureReload = false;
     private volatile boolean pendingTerrainRecaptureAfterTextureReload = false;
     
     // Performance timing & benchmarking
-    private final PerformanceTimer perfTimer = new PerformanceTimer();
+    private final KavoraFrameMetrics perfTimer = new KavoraFrameMetrics();
+    private final ParticleFramePipeline particles = new ParticleFramePipeline(perfTimer);
     private final CameraController cameraController = new CameraController();
     private final BenchmarkController benchmarkController = new BenchmarkController(cameraController);
-    private int perfCamera = -1;
-    private int perfLights = -1;
-    private int perfChunkGen = -1;
-    private int perfChunkDraw = -1;
-    private int perfEntities = -1;
-    private int perfSky = -1;
-    private int perfClouds = -1;
-    private int perfCloudGen = -1;
-    private int perfAtlas = -1;
-    private int perfSubmit = -1;
-    private int cntTextureSharedSavedMB = -1;
-    private int cntPresentedFrames = -1, cntGeneratedFrames = -1;
-    private int cntDeviceLocalUsedMB = -1, cntDeviceLocalBudgetMB = -1;
-    private int cntRenderWidth = -1, cntRenderHeight = -1;
-    private int cntInteropSnapshots = -1, cntInteropSnapshotCopies = -1;
-    private long presentationEpoch, lastPresentedFrames, lastGeneratedFrames;
-    private int cntEntities = -1;
-    private int cntEntLayers = -1;
-    private int cntEntDraws = -1;
-    private int cntEntBones = -1;
-    private int cntEntMeshCreates = -1;
-    private int cntCloudVisible = -1;
-    private int cntCloudInstances = -1;
-    private int cntCloudPaletteCreates = -1;
-    private int cntCloudDraws = -1;
-    private int cntCloudVertices = -1;
-    private int cntCloudTriangles = -1;
-    private int cntEntSkipped = -1;
-    private int perfEntCapture = -1;
-    private int perfEntSubmit = -1;
-    private int perfEntOffSweep = -1;
-    private int cntEntOffFrustum = -1;
-    private int cntEntOffDraws = -1;
-    private int cntEntOffReused = -1;
-    private int cntEntPoolSize = -1;
-    private int perfBlockEntityCapture = -1;
-    private int perfBlockEntitySubmit = -1;
-    private int cntBlockEntities = -1;
-    private int cntBlockEntityParts = -1;
-    private int cntBlockEntityMeshCreates = -1;
     private long lastCameraMediumHandle = Long.MIN_VALUE;
     private final ViewDistanceFade viewDistanceFade = new ViewDistanceFade();
-    private int perfParticles = -1;
-    private int cntParticles = -1;
-    private int cntParticleDraws = -1;
-    private int cntParticleDynamicQuads = -1;
-    private int cntParticleNewSlots = -1;
-    private int cntParticleRemovedSlots = -1;
-    private int cntParticleCapacityGrows = -1;
-    private int cntParticleCapacity = -1;
-    private int cntParticleMeshUpdates = -1;
     
     /**
      * Initializes the Kavora runtime with the Minecraft window
@@ -230,90 +154,33 @@ public class KavoraRenderer {
 
             Minecraft client = Minecraft.getInstance();
             remixApi = NativeRuntime.startup(client.getWindow().handle());
-            windowHandle = NativeRuntime.windowHandle();
 
             postProcessingSettings = new PostProcessingSettings(remixApi::setConfigVariable);
             
             backend = RenderBackend.current();
             interop = backend.createInterop(remixApi);
+            presentation = new KavoraFramePresentation(remixApi, interop, NativeRuntime.windowHandle());
             LOGGER.info("{} runtime interop initialized", backend);
             
-            textureManager = new BlockTextureManager(this);
-            chunkManager = new ChunkManager(this);
-            lightManager = new LightManager(this);
-            skyRenderer = new SkyRenderer(this);
-            cloudRenderer = new CloudRenderer(this);
+            textureManager = new BlockTextureManager(remixApi);
+            chunkManager = new ChunkManager(remixApi, textureManager);
+            firstPersonPass = new KavoraFirstPersonPass();
+            lightManager = new LightManager(remixApi, textureManager, firstPersonPass);
+            skyRenderer = new SkyRenderer(remixApi, benchmarkController, lightManager);
+            cloudRenderer = new CloudRenderer(remixApi, benchmarkController);
             
-            particleAtlasManager = new ParticleAtlasManager(this);
+            particleAtlasManager = new ParticleAtlasManager(remixApi);
             entityPass = new KavoraEntityPass(lightManager::ownsLightThisFrame);
             entitySubmitter = new KavoraEntitySubmitter(remixApi, particleAtlasManager);
-            firstPersonPass = new KavoraFirstPersonPass();
 
             blockEntityPass = new KavoraBlockEntityPass();
             blockDamagePass = new KavoraBlockDamagePass();
 
-            particleRenderer = new KavoraParticleRenderer(this, particleAtlasManager);
+            particles.attach(new KavoraParticleRenderer(remixApi, textureManager, particleAtlasManager));
             weatherRenderer = new KavoraWeatherRenderer();
             
-            perfCamera = perfTimer.registerSection("Camera");
-            perfLights = perfTimer.registerSection("Lights");
-            perfChunkGen = perfTimer.registerSection("Chunk.Gen");
-            perfChunkDraw = perfTimer.registerSection("Chunk.Draw");
-            perfEntities = perfTimer.registerSection("Entities");
-            perfSky = perfTimer.registerSection("Sky");
-            perfClouds = perfTimer.registerSection("Clouds");
-            perfCloudGen = perfTimer.registerSection("Cloud.Gen");
-            cntTextureSharedSavedMB = perfTimer.registerCounter("Texture.SharedSavedMiB");
-            cntPresentedFrames = perfTimer.registerCounter("DLSS.RenderedPresents");
-            cntGeneratedFrames = perfTimer.registerCounter("DLSS.GeneratedPresents");
-            cntDeviceLocalUsedMB = perfTimer.registerCounter("Vulkan.DeviceLocalUsedMiB");
-            cntDeviceLocalBudgetMB = perfTimer.registerCounter("Vulkan.DeviceLocalBudgetMiB");
-            cntRenderWidth = perfTimer.registerCounter("Vulkan.RenderWidth");
-            cntRenderHeight = perfTimer.registerCounter("Vulkan.RenderHeight");
-            cntInteropSnapshots = perfTimer.registerCounter("Interop.SnapshotBytes");
-            cntInteropSnapshotCopies = perfTimer.registerCounter("Interop.SnapshotCopiedBytes");
-            cntEntities = perfTimer.registerCounter("Ent.Count");
-            cntEntLayers = perfTimer.registerCounter("Ent.Layers");
-            cntEntDraws = perfTimer.registerCounter("Ent.Draws");
-            cntEntBones = perfTimer.registerCounter("Ent.Bones");
-            cntEntMeshCreates = perfTimer.registerCounter("Ent.MeshCreates");
-            cntCloudVisible = perfTimer.registerCounter("Cloud.Visible");
-            cntCloudInstances = perfTimer.registerCounter("Cloud.Instances");
-            cntCloudPaletteCreates = perfTimer.registerCounter("Cloud.PaletteCreates");
-            cntCloudDraws = perfTimer.registerCounter("Cloud.Draws");
-            cntCloudVertices = perfTimer.registerCounter("Cloud.Vertices");
-            cntCloudTriangles = perfTimer.registerCounter("Cloud.Triangles");
-            cntEntSkipped = perfTimer.registerCounter("Ent.Skipped");
-            // Only the capture half is addressable from Java; the submit half is
-            // almost entirely native, so judging them together hides which one moved.
-            perfEntCapture = perfTimer.registerSection("Ent.Capture");
-            perfEntSubmit = perfTimer.registerSection("Ent.Submit");
-            // Selecting which off-screen entities to capture: the world walk and the
-            // closest-first heap. The capture and submit work that follows is reported by
-            // Ent.Capture and Ent.Submit, so these three do not overlap and can be summed.
-            perfEntOffSweep = perfTimer.registerSection("Ent.OffSweep");
-            cntEntOffFrustum = perfTimer.registerCounter("Ent.OffFrustum");
-            cntEntOffDraws = perfTimer.registerCounter("Ent.OffDraws");
-            cntEntOffReused = perfTimer.registerCounter("Ent.OffReused");
-            cntEntPoolSize = perfTimer.registerCounter("Ent.PoolSize");
-            // Block entities are captured and submitted in place during vanilla's
-            // world render, so both halves are timed there and injected here.
-            perfBlockEntityCapture = perfTimer.registerSection("BE.Capture");
-            perfBlockEntitySubmit = perfTimer.registerSection("BE.Submit");
-            perfSubmit = perfTimer.registerSection("Submit");
-            cntBlockEntities = perfTimer.registerCounter("BE.Count");
-            cntBlockEntityParts = perfTimer.registerCounter("BE.Parts");
-            cntBlockEntityMeshCreates = perfTimer.registerCounter("BE.MeshCreates");
-            perfAtlas = perfTimer.registerSection("Atlas");
-            perfParticles = perfTimer.registerSection("Particles");
-            cntParticles = perfTimer.registerCounter("Ptcl.Count");
-            cntParticleDraws = perfTimer.registerCounter("Ptcl.MeshBuckets");
-            cntParticleDynamicQuads = perfTimer.registerCounter("Ptcl.DynamicQuads");
-            cntParticleNewSlots = perfTimer.registerCounter("Ptcl.NewSlots");
-            cntParticleRemovedSlots = perfTimer.registerCounter("Ptcl.RemovedSlots");
-            cntParticleCapacityGrows = perfTimer.registerCounter("Ptcl.CapacityGrows");
-            cntParticleCapacity = perfTimer.registerCounter("Ptcl.Capacity");
-            cntParticleMeshUpdates = perfTimer.registerCounter("Ptcl.MeshUpdates");
+            perfTimer.registerFrameMetrics();
+            particles.registerMetrics();
             
             initAssetStores();
             blockOutlinePass = new KavoraBlockOutlinePass(remixApi);
@@ -417,8 +284,8 @@ public class KavoraRenderer {
         boolean recaptureTerrain = pendingTerrainRecaptureAfterTextureReload;
         pendingTextureReload = false;
         LOGGER.info("Reloading textures, materials, and terrain");
-        joinInFlightParticleRenderTask();
-        discardPendingParticleFrame();
+        particles.discardInFlight();
+        particles.discardPendingFrame();
         AtlasAnimationForwarder.clear();
         // Retained meshes hold material handles. Release them before any of the
         // materials they reference are destroyed or rebuilt: the submitter's own,
@@ -426,7 +293,7 @@ public class KavoraRenderer {
         // particle atlas material it borrows from ParticleAtlasManager.
         if (entitySubmitter != null) entitySubmitter.reloadMaterials();
         if (entityPass != null) entityPass.discardPoseSnapshots();
-        if (particleRenderer != null) particleRenderer.cleanup();
+        particles.clearResources();
         if (particleAtlasManager != null) particleAtlasManager.cleanup();
         entityAtlasPreloadPending = true;
         if (weatherRenderer != null) weatherRenderer.cleanup();
@@ -636,27 +503,8 @@ public class KavoraRenderer {
             renderThreadNamed = true;
         }
 
-        perfTimer.beginFrame();
-        long epoch = org.edtp.kavora.vulkan.NativeVulkanSurface.presentationEpoch();
-        long rendered = org.edtp.kavora.vulkan.NativeVulkanSurface.renderedFrames();
-        long generated = org.edtp.kavora.vulkan.NativeVulkanSurface.generatedFrames();
-        if (epoch == presentationEpoch) {
-            perfTimer.count(cntPresentedFrames, Math.max(0, rendered - lastPresentedFrames));
-            perfTimer.count(cntGeneratedFrames, Math.max(0, generated - lastGeneratedFrames));
-        }
-        presentationEpoch = epoch;
-        lastPresentedFrames = rendered;
-        lastGeneratedFrames = generated;
-        perfTimer.count(cntDeviceLocalUsedMB,
-                org.edtp.kavora.vulkan.NativeVulkanSurface.deviceLocalUsageBytes() / (1024L * 1024L));
-        perfTimer.count(cntDeviceLocalBudgetMB,
-                org.edtp.kavora.vulkan.NativeVulkanSurface.deviceLocalBudgetBytes() / (1024L * 1024L));
-        perfTimer.count(cntRenderWidth, interop.renderWidth());
-        perfTimer.count(cntRenderHeight, interop.renderHeight());
-        perfTimer.count(cntInteropSnapshots, interop.snapshotTextureBytes());
-        perfTimer.count(cntInteropSnapshotCopies, interop.copiedSnapshotBytes());
+        perfTimer.beginFrame(interop);
 
-        CompletableFuture<ParticleRenderResult> particleFuture = null;
         boolean entityFrameClosed = false;
         try (ProfileScope frameScope = ProfileScope.begin("renderAndSubmitFrame")) {
             Minecraft client = Minecraft.getInstance();
@@ -664,54 +512,39 @@ public class KavoraRenderer {
             
             if (world == null || client.gameRenderer == null) {
                 if (chunkManager != null) chunkManager.hideRetainedInstances();
-                discardPendingParticleFrame();
+                particles.discardPendingFrame();
                 // Closed by the finally, like the RTX-disabled branch below. endFrame is not
                 // idempotent: it re-adds elapsed from the same frame start and refolds min,
                 // max and the frame count.
                 return;
             }
 
-            // RTX disabled: hand all rendering back to vanilla's GL path. Skip every
-            // scene-submission step below (particle task, camera, lights, chunks,
-            // entities, block entities, sky, atlas flush, Submit). The present path
-            // (RenderSystemMixin -> preparePresentFrame -> releaseInteropFrame) still runs
-            // unconditionally and composites vanilla's Vulkan frame, exactly like the
-            // no-world case above. The finally block closes the frame (gc, endFrame,
-            // benchmark). Vulkan shared-image semaphore signaling lives in the present path and is
-            // intentionally left untouched so off<->on transitions don't desync.
+            // Vanilla draws this frame. The presentation owner still completes the
+            // shared-image handoff for the host frame.
             if (!KavoraMod.isRtxEnabled()) {
                 if (chunkManager != null) chunkManager.hideRetainedInstances();
                 // A payload prepared before the toggle holds world-space vertices from the
                 // old camera position; publishing it on re-enable would draw stale geometry.
-                discardPendingParticleFrame();
+                particles.discardPendingFrame();
                 return;
             }
 
-            // Submit the prepared frame from the previous render call before dispatching
-            // the next prepare task. The render thread never blocks on particles here:
-            // the work is already done and waiting. A world swap that keeps the connection
-            // alive, such as a portal, replaces client.world without a disconnect or a null
-            // frame, so the payload is checked against the world it was prepared for rather
-            // than relying on a teardown path to have discarded it.
-            if (pendingParticleFrame != null && pendingParticleFrameWorld != world) {
-                discardPendingParticleFrame();
-            }
-            submitPendingParticleFrame();
+            particles.submitPendingFrame(world);
 
             Camera camera = client.gameRenderer.mainCamera();
             float tickDelta = client.getDeltaTracker().getGameTimeDeltaPartialTick(true);
-            particleFuture = startParticleRenderTask(tickDelta, ProfileScope.currentFrameIndex());
+            particles.startPrepare(particleAtlasManager, tickDelta, ProfileScope.currentFrameIndex());
             
-            perfTimer.begin(perfCamera);
+            perfTimer.begin(perfTimer.perfCamera);
             try (ProfileScope cameraScope = ProfileScope.begin("Camera")) {
                 updateCamera(camera, tickDelta);
             } finally {
-                perfTimer.end(perfCamera);
+                perfTimer.end(perfTimer.perfCamera);
             }
             
             Vec3 cameraPos = camera.position();
 
-            perfTimer.begin(perfLights);
+            perfTimer.begin(perfTimer.perfLights);
             try (ProfileScope lightsScope = ProfileScope.begin("Lights")) {
                 // Entity lights first: updateLights() draws them, so updating
                 // after it would submit last frame's positions. Visible as a
@@ -719,12 +552,12 @@ public class KavoraRenderer {
                 lightManager.updateEntityLights(world, camera, tickDelta);
                 lightManager.updateLights(world);
             } finally {
-                perfTimer.end(perfLights);
+                perfTimer.end(perfTimer.perfLights);
             }
 
             if (KavoraMod.isWorldEnabled()) {
                 try {
-                    chunkManager.updateVisibleChunks(world, cameraPos, perfTimer, perfChunkGen, perfChunkDraw);
+                    chunkManager.updateVisibleChunks(world, cameraPos, perfTimer, perfTimer.perfChunkGen, perfTimer.perfChunkDraw);
                 } catch (Exception e) {
                     LOGGER.error("Error updating chunks", e);
                 }
@@ -735,7 +568,7 @@ public class KavoraRenderer {
             entitySubmitter.beginFrame();
             try {
                 if (KavoraMod.isEntitiesEnabled()) {
-                    perfTimer.begin(perfEntities);
+                    perfTimer.begin(perfTimer.perfEntities);
                     try (ProfileScope entitiesScope = ProfileScope.begin("Entities")) {
                         KavoraEntityPass.FrameStats stats =
                                 entityPass.finishFrame(
@@ -744,28 +577,11 @@ public class KavoraRenderer {
                                         tickDelta,
                                         lightManager.getFirstPersonShadowModelOffset(),
                                         entitySubmitter);
-                        entitiesScope.entityCount(stats.entityCount())
-                                .layerCount(stats.layerCount())
-                                .boneCount(stats.boneCount())
-                                .drawCalls(stats.drawCount())
-                                .meshCreates(stats.meshCreates());
-                        perfTimer.count(cntEntities, stats.entityCount());
-                        perfTimer.count(cntEntLayers, stats.layerCount());
-                        perfTimer.count(cntEntBones, stats.boneCount());
-                        perfTimer.count(cntEntDraws, stats.drawCount());
-                        perfTimer.count(cntEntMeshCreates, stats.meshCreates());
-                        perfTimer.count(cntEntSkipped, stats.capSkipped());
-                        perfTimer.injectNanos(perfEntCapture, stats.captureMicros() * 1000L);
-                        perfTimer.injectNanos(perfEntSubmit, stats.submitMicros() * 1000L);
-                        perfTimer.count(cntEntOffFrustum, stats.offFrustumCount());
-                        perfTimer.injectNanos(perfEntOffSweep, stats.offSweepMicros() * 1000L);
-                        perfTimer.count(cntEntOffDraws, stats.offFrustumDraws());
-                        perfTimer.count(cntEntOffReused, stats.offFrustumReused());
-                        perfTimer.count(cntEntPoolSize, stats.poolSize());
+                        perfTimer.recordEntities(entitiesScope, stats);
                     } catch (Exception e) {
                         LOGGER.error("Error rendering entities", e);
                     } finally {
-                        perfTimer.end(perfEntities);
+                        perfTimer.end(perfTimer.perfEntities);
                     }
                 }
 
@@ -794,35 +610,24 @@ public class KavoraRenderer {
             }
 
             // The sky owner also clears host metadata when its rendering is disabled.
-            perfTimer.begin(perfSky);
+            perfTimer.begin(perfTimer.perfSky);
             try (ProfileScope skyScope = ProfileScope.begin("Sky")) {
-                skyRenderer.render(world, cameraPos, tickDelta);
+                skyRenderer.render(world, camera, cameraPos, tickDelta, confLayerDriver);
             } catch (Exception e) {
                 LOGGER.error("Error rendering sky", e);
             } finally {
-                perfTimer.end(perfSky);
+                perfTimer.end(perfTimer.perfSky);
             }
 
             if (KavoraMod.isWorldActive()) {
-                perfTimer.begin(perfClouds);
+                perfTimer.begin(perfTimer.perfClouds);
                 try (ProfileScope cloudScope = ProfileScope.begin("Clouds")) {
-                    cloudRenderer.render(world, cameraPos, tickDelta);
-                    perfTimer.injectNanos(perfCloudGen, cloudRenderer.getLastGenerationNanos());
-                    perfTimer.count(cntCloudVisible, cloudRenderer.getLastCloudCount());
-                    perfTimer.count(cntCloudInstances, cloudRenderer.getLastInstanceCount());
-                    perfTimer.count(
-                            cntCloudPaletteCreates,
-                            cloudRenderer.getLastPaletteCreateCount());
-                    perfTimer.count(cntCloudDraws, cloudRenderer.getLastDrawCount());
-                    perfTimer.count(cntCloudVertices, cloudRenderer.getLastVertexCount());
-                    perfTimer.count(cntCloudTriangles, cloudRenderer.getLastTriangleCount());
-                    cloudScope
-                            .drawCalls(cloudRenderer.getLastDrawCount())
-                            .vertexCount(cloudRenderer.getLastVertexCount());
+                    cloudRenderer.render(world, camera, cameraPos, tickDelta, client.options.getCloudStatus());
+                    perfTimer.recordClouds(cloudScope, cloudRenderer);
                 } catch (Exception e) {
                     LOGGER.error("Error rendering clouds", e);
                 } finally {
-                    perfTimer.end(perfClouds);
+                    perfTimer.end(perfTimer.perfClouds);
                 }
             } else {
                 try {
@@ -834,7 +639,7 @@ public class KavoraRenderer {
 
             // Forward atlas animation patches to Remix before presenting
             if (textureManager != null) {
-                perfTimer.begin(perfAtlas);
+                perfTimer.begin(perfTimer.perfAtlas);
                 try (ProfileScope atlasScope = ProfileScope.begin("Atlas")) {
                     KavoraTexture albedoTex = textureManager.getBlockAtlasTexture();
                     KavoraTexture emissiveTex = textureManager.getEmissiveAtlasTexture();
@@ -851,22 +656,19 @@ public class KavoraRenderer {
                                 roughnessHandle, metallicHandle, sssHandle);
                     }
                 } finally {
-                    perfTimer.end(perfAtlas);
+                    perfTimer.end(perfTimer.perfAtlas);
                 }
             }
 
-            perfTimer.begin(perfSubmit);
+            perfTimer.begin(perfTimer.perfSubmit);
             try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
-                submitFrame();
-                submitFrameCalled = true;
+                presentation.submitScene();
             } finally {
-                perfTimer.end(perfSubmit);
+                perfTimer.end(perfTimer.perfSubmit);
             }
 
-            // Join after present: if the particle worker is slow, the delay lands in
-            // the inter-frame gap rather than pushing out this frame's submit.
-            joinAndStoreParticleFrame(particleFuture, world);
-            particleFuture = null;
+            // The worker publishes CPU data for the next scene after this one is submitted.
+            particles.finishAfterSubmit(world);
 
         } catch (RemixException e) {
             LOGGER.error("Remix error during frame render: {} (code: {})",
@@ -884,16 +686,12 @@ public class KavoraRenderer {
                     LOGGER.error("Error closing the entity frame", e);
                 }
             }
-            // Error path: future wasn't joined in the try block, so discard without submitting.
-            if (particleFuture != null) {
-                discardParticleRenderTask(particleFuture);
-            }
-            flushParticleFrameTiming();
+            particles.discardInFlight();
+            particles.recordFrameTiming();
             try (ProfileScope gcScope = ProfileScope.begin("gcAssetStores")) {
                 gcAssetStores();
             }
-            perfTimer.count(cntTextureSharedSavedMB, KavoraTextureStore.get().getSharedImageSavingsBytes() / (1024L * 1024L));
-            perfTimer.endFrame();
+            perfTimer.finishFrame();
             benchmarkController.onFrameEnd(perfTimer);
         }
     }
@@ -911,191 +709,8 @@ public class KavoraRenderer {
         if (!KavoraMod.isBlockEntitiesEnabled()) {
             return;
         }
-        perfTimer.count(cntBlockEntities, stats.count());
-        perfTimer.count(cntBlockEntityParts, stats.parts());
-        perfTimer.count(cntBlockEntityMeshCreates, stats.meshCreates());
-        perfTimer.injectNanos(perfBlockEntityCapture, stats.captureMicros() * 1000L);
-        perfTimer.injectNanos(perfBlockEntitySubmit, stats.submitMicros() * 1000L);
+        perfTimer.recordBlockEntities(stats);
     }
-
-    private CompletableFuture<ParticleRenderResult> startParticleRenderTask(float tickDelta, long frameIndex) {
-        if (!KavoraMod.isParticlesEnabled() || particleRenderer == null || particleAtlasManager == null) {
-            if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-            return null;
-        }
-
-        if (!particleAtlasManager.isInitialized()) {
-            particleAtlasManager.initialize();
-        }
-        if (!particleAtlasManager.isInitialized()) {
-            return null;
-        }
-
-        CompletableFuture<ParticleRenderResult> future = CompletableFuture.supplyAsync(
-                () -> renderParticlesOnWorker(tickDelta, frameIndex),
-                particleExecutor);
-        particleRenderFuture = future;
-        return future;
-    }
-
-    private ParticleRenderResult renderParticlesOnWorker(float tickDelta, long frameIndex) {
-        RemixAPI.tracyThreadName("Particles");
-        long previousFrameIndex = ProfileScope.setFrameIndexForCurrentThread(frameIndex);
-        PreparedFrame preparedFrame = null;
-        // The scope records the worker's own duration on the worker thread, which is where it
-        // belongs. It is deliberately not returned to the render thread: it is off the critical
-        // path, so charging it to a render-thread section overstates that section.
-        try (ProfileScope particleScope = ProfileScope.begin("Particles")) {
-            preparedFrame = particleRenderer.prepare(tickDelta);
-            particleScope
-                    .captureCount(preparedFrame.particleCount())
-                    .drawCalls(preparedFrame.plannedDrawCount())
-                    .vertexCount(preparedFrame.plannedActiveQuadCount() * 4);
-            return new ParticleRenderResult(preparedFrame, null);
-        } catch (Exception e) {
-            if (preparedFrame != null) preparedFrame.close();
-            return new ParticleRenderResult(null, e);
-        } catch (Error e) {
-            if (preparedFrame != null) preparedFrame.close();
-            throw e;
-        } finally {
-            ProfileScope.restoreFrameIndexForCurrentThread(previousFrameIndex);
-        }
-    }
-
-    /**
-     * Joins the particle worker and releases its payload without publishing it. Used on the
-     * frame error path and by every teardown path, where publishing transient native assets
-     * moments before {@code particleRenderer.cleanup()} would leak them.
-     */
-    private void discardParticleRenderTask(CompletableFuture<ParticleRenderResult> future) {
-        if (future == null) {
-            return;
-        }
-
-        try {
-            ParticleRenderResult result = future.join();
-            PreparedFrame preparedFrame = result.preparedFrame();
-            if (preparedFrame != null) {
-                preparedFrame.close();
-            }
-            if (result.error() != null) {
-                if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-                LOGGER.error("Error rendering particles", result.error());
-            }
-        } catch (CompletionException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            LOGGER.error("Error rendering particles", cause);
-        } finally {
-            if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-            if (particleRenderFuture == future) {
-                particleRenderFuture = null;
-            }
-        }
-    }
-
-    /** Submits the frame prepared by the previous render call. No blocking: the work is already done. */
-    private void submitPendingParticleFrame() {
-        PreparedFrame frame = pendingParticleFrame;
-        pendingParticleFrame = null;
-        if (frame == null) return;
-
-        long submitStart = System.nanoTime();
-        try (ProfileScope scope = ProfileScope.begin("Particles.Submit")) {
-            particleRenderer.submit(frame);
-            scope.captureCount(particleRenderer.getLastParticleCount())
-                 .drawCalls(particleRenderer.getLastDrawCount())
-                 .vertexCount(particleRenderer.getLastActiveQuadCount() * 4);
-            recordParticleCounters();
-        } catch (Exception e) {
-            particleRenderer.invalidateMotionHistory();
-            LOGGER.error("Error submitting particles", e);
-        } finally {
-            frame.close();
-            particleNanosThisFrame += System.nanoTime() - submitStart;
-        }
-    }
-
-    /**
-     * Joins the particle worker after {@code submitFrame()} and stores the result for the
-     * next frame's submit. Never submits native Remix calls, which happen in
-     * {@link #submitPendingParticleFrame()}.
-     *
-     * <p>Only the wait itself is charged to the frame, not the worker's own run time. Since the
-     * prepare task is dispatched at the top of the frame and joined after Submit, it has
-     * normally finished long before this runs, so its duration is not on the critical path.
-     * Charging it made the section report several times what the render thread actually paid,
-     * and made it appear to grow on slow frames it had not contributed to. Timing the wait
-     * keeps a worker that genuinely does stall the frame visible.
-     *
-     * @param preparedFor the world the prepare task was dispatched against, recorded with the
-     *                    payload so the next frame can refuse it after a world swap
-     */
-    private void joinAndStoreParticleFrame(CompletableFuture<ParticleRenderResult> future,
-                                           ClientLevel preparedFor) {
-        if (future == null) return;
-        try {
-            long waitStart = System.nanoTime();
-            ParticleRenderResult result = future.join();
-            particleNanosThisFrame += System.nanoTime() - waitStart;
-
-            if (result.error() != null) {
-                if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-                LOGGER.error("Error rendering particles", result.error());
-            } else {
-                pendingParticleFrame = result.preparedFrame();
-                pendingParticleFrameWorld = preparedFor;
-            }
-        } catch (CompletionException e) {
-            if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            LOGGER.error("Error rendering particles", cause);
-        } finally {
-            if (particleRenderFuture == future) particleRenderFuture = null;
-        }
-    }
-
-    /**
-     * Publishes the frame's total particle cost as one sample. {@code injectNanos} overwrites
-     * rather than accumulates, so the double-buffer's two contributions (the previous frame's
-     * submit and this frame's prepare) must be summed before a single injection.
-     */
-    private void flushParticleFrameTiming() {
-        perfTimer.injectNanos(perfParticles, particleNanosThisFrame);
-        particleNanosThisFrame = 0L;
-    }
-
-    /** Closes the pending particle frame without submitting it. Used during cleanup and world changes. */
-    private void discardPendingParticleFrame() {
-        PreparedFrame frame = pendingParticleFrame;
-        pendingParticleFrame = null;
-        pendingParticleFrameWorld = null;
-        if (frame != null) frame.close();
-        if (particleRenderer != null) particleRenderer.invalidateMotionHistory();
-    }
-
-    private void joinInFlightParticleRenderTask() {
-        CompletableFuture<ParticleRenderResult> future = particleRenderFuture;
-        if (future != null) {
-            discardParticleRenderTask(future);
-        }
-    }
-
-    private void recordParticleCounters() {
-        perfTimer.count(cntParticles, particleRenderer.getLastParticleCount());
-        perfTimer.count(cntParticleDraws, particleRenderer.getLastDrawCount());
-        perfTimer.count(cntParticleDynamicQuads, particleRenderer.getLastActiveQuadCount());
-        perfTimer.count(cntParticleNewSlots, particleRenderer.getLastNewSlotCount());
-        perfTimer.count(cntParticleRemovedSlots, particleRenderer.getLastRemovedSlotCount());
-        perfTimer.count(cntParticleCapacityGrows, particleRenderer.getLastCapacityGrowCount());
-        perfTimer.count(cntParticleCapacity, particleRenderer.getLastCapacityCount());
-        perfTimer.count(cntParticleMeshUpdates, particleRenderer.getLastMeshUpdateCount());
-    }
-
-    /** Exactly one component is set; a prepare that failed has already closed its frame. */
-    private record ParticleRenderResult(
-            PreparedFrame preparedFrame,
-            Exception error) {}
 
     public void onMinecraftRenderFrameEnd(long fullFrameNanos) {
         if (!initialized || benchmarkController == null) {
@@ -1241,44 +856,28 @@ public class KavoraRenderer {
         }
     }
     
-    private void submitFrame() {
-        remixApi.submit(vulkanSubmit);
-        submitFrameCalled = true;
-    }
-
     /** Draws the runtime's independent menu layer above Minecraft screens, immediately before the surface blit. */
     public void compositeRemixMenus() {
         if (!KavoraMod.getRemixInputGate().isCaptureSessionOpen()) return;
-        if (!submitFrameCalled) submitFrame();
-        interop.refreshImages();
-        interop.acquireImages();
-        nativeMenuOverlay.render(interop.menuTexture());
+        presentation.compositeMenu();
     }
     
     /** Records the shared-image release in Minecraft's frame submission. */
     public void preparePresentFrame() {
         try (ProfileScope ignored = ProfileScope.begin("Interop.ClientToRemix")) {
-            releaseInteropFrame();
+            presentation.releaseImages();
         }
     }
 
     /** Completes the runtime frame after Minecraft submits the shared-image release. */
-    public void presentFrame(org.edtp.kavora.sdk.VulkanClientFrameInfo frame) {
-        presentInfo.hwndOverride = windowHandle;
-        presentInfo.vulkanFrame = frame;
-        presentInfo.clientDoneSemaphore_ValueToWait = interop.clientDoneValue();
-        try (ProfileScope ignored = ProfileScope.begin("Remix.Present")) {
-            remixApi.present(presentInfo);
-        }
-        submitFrameCalled = false;
+    public void presentFrame(VulkanClientFrameInfo frame) {
+        presentation.present(frame);
     }
 
     /** Acquires runtime images even when disabled, then composites the world before screen effects and HUD. */
     public boolean compositeFrameColor() {
         try (ProfileScope ignored = ProfileScope.begin("Interop.RemixToClient")) {
-            if (!submitFrameCalled) submitFrame();
-            interop.refreshImages();
-            interop.acquireImages();
+            presentation.acquireImages();
             return KavoraMod.isRtxEnabled() && interop.blitColor(
                     Minecraft.getInstance().gameRenderer.mainRenderTarget().getColorTexture());
         }
@@ -1293,16 +892,6 @@ public class KavoraRenderer {
             weatherRenderer.render(interop);
             scope.drawCalls(weatherRenderer.getLastDrawCount()).vertexCount(weatherRenderer.getLastQuadCount() * 4);
         }
-    }
-
-    private void releaseInteropFrame() {
-        if (!submitFrameCalled) {
-            submitFrame();
-        }
-
-        interop.refreshImages();
-        interop.acquireImages();
-        interop.releaseImages();
     }
 
     /** Runs on the client executor so the clear lands during teardown, before the next world initializes. */
@@ -1358,8 +947,8 @@ public class KavoraRenderer {
      */
     private void doClearWorld() {
         LOGGER.info("Clearing world resources...");
-        joinInFlightParticleRenderTask();
-        discardPendingParticleFrame();
+        particles.discardInFlight();
+        particles.discardPendingFrame();
         
         if (chunkManager != null) {
             chunkManager.clear();
@@ -1377,9 +966,7 @@ public class KavoraRenderer {
         if (blockOutlinePass != null) {
             blockOutlinePass.clear();
         }
-        if (particleRenderer != null) {
-            particleRenderer.cleanup();
-        }
+        particles.clearResources();
         if (weatherRenderer != null) {
             weatherRenderer.cleanup();
         }
@@ -1407,9 +994,9 @@ public class KavoraRenderer {
         List<RuntimeException> failures = new ArrayList<>();
 
         runShutdownStep(failures, AtlasAnimationForwarder::clear);
-        runShutdownStep(failures, this::joinInFlightParticleRenderTask);
-        runShutdownStep(failures, this::discardPendingParticleFrame);
-        runShutdownStep(failures, this::shutdownParticleExecutor);
+        runShutdownStep(failures, particles::discardInFlight);
+        runShutdownStep(failures, particles::discardPendingFrame);
+        runShutdownStep(failures, particles::shutdownWorker);
         runShutdownStep(failures, this::doClearWorld);
         if (skyRenderer != null) {
             var resource = skyRenderer;
@@ -1431,11 +1018,7 @@ public class KavoraRenderer {
             entitySubmitter = null;
             runShutdownStep(failures, resource::close);
         }
-        if (particleRenderer != null) {
-            var resource = particleRenderer;
-            particleRenderer = null;
-            runShutdownStep(failures, resource::cleanup);
-        }
+        runShutdownStep(failures, particles::shutdownRenderer);
         if (weatherRenderer != null) {
             var resource = weatherRenderer;
             weatherRenderer = null;
@@ -1462,7 +1045,11 @@ public class KavoraRenderer {
             runShutdownStep(failures, resource::close);
         }
         runShutdownStep(failures, this::shutdownAssetStores);
-        runShutdownStep(failures, nativeMenuOverlay::close);
+        if (presentation != null) {
+            var resource = presentation;
+            presentation = null;
+            runShutdownStep(failures, resource::close);
+        }
         if (interop != null) {
             var resource = interop;
             interop = null;
@@ -1496,18 +1083,6 @@ public class KavoraRenderer {
         KavoraTextureStore.shutdown();
     }
 
-    private void shutdownParticleExecutor() {
-        particleExecutor.shutdown();
-        try {
-            if (!particleExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
-                particleExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            particleExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
-    
     public boolean isInitialized() {
         return initialized;
     }
@@ -1580,13 +1155,6 @@ public class KavoraRenderer {
 
     public KavoraEntityPass getEntityPass() {
         return entityPass;
-    }
-
-    /** Returns the current captured first-person held-beacon emitter anchor, if available. */
-    public Vec3 getFirstPersonHeldLightPosition(EquipmentSlot slot) {
-        return firstPersonPass != null
-                ? firstPersonPass.getPendingHeldLightPosition(slot)
-                : null;
     }
 
     public void captureFirstPersonModel(

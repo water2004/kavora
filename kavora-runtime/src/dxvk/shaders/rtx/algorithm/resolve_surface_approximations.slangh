@@ -1,0 +1,144 @@
+/*
+* Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/resolve.h"
+#include "rtx/concept/surface_material/surface_material.slangh"
+
+// Classifies material hits that contribute opacity or emission without
+// becoming the integration surface. The resolver retains traversal state.
+bool usesOpacityLightingApproximation(uint8_t resolveMode, Surface surface)
+{
+#ifdef RESOLVE_OPACITY_LIGHTING_APPROXIMATION
+  return surface.isParticle || packedFlagGet(resolveMode, resolveModeForceOpacityLightingApprox);
+#else
+  return false;
+#endif
+}
+
+bool usesOpaqueApproximation(uint8_t resolveMode, Surface surface)
+{
+  return usesOpacityLightingApproximation(resolveMode, surface) ||
+    packedFlagGet(resolveMode, resolveModeOpacityTransmissionApprox) ||
+    (packedFlagGet(resolveMode, resolveModeEmissiveOpacityTransmissionApprox) && surface.isEmissiveBlend);
+}
+
+bool evaluateOpaqueApproximations(
+  uint8_t resolveMode,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction,
+  PortalSpace2BitsType portalSpace,
+  // Note: Radiance attenuation split into incoming/outgoing rather than having the function accumulate into it
+  // to accomodate some processes optimize around the fact that opaque approximations only result in monochromatic attenuation.
+  vec3 incomingRadianceAttenuation, inout float outgoingRadianceAttenuation, inout vec3 emissiveRadiance)
+{
+  const Camera camera = cb.camera;
+  const VolumeArgs volumeArgs = cb.volumeArgs;
+  const float opacity = opaqueSurfaceMaterialInteraction.opacity;
+
+  // Handle lighting approximations
+  // Note: This has to be done with macros (unfortunately) due to the dependency on the volumetric radiance cache. Slang
+  // sadly does not support the compile time lazy code evaluation to make this any more elegant as far as I know. Currently this
+  // logic is only needed by the g-buffer pass which only deals with "primary" rays, but if we needed this in the integrator for
+  // some reason (like better quality particles in rough-ish reflections not covered by PSR) we'd want to find a non-macro way
+  // to do this so that this code does not run for NEE visibility rays in the same file as that would be not useful and bad for performance.
+
+#ifdef RESOLVE_OPACITY_LIGHTING_APPROXIMATION
+  // Note: Only perform the lighting approximation on particles using opacity, not just every surface using opacity.
+  const bool opacityLightingApprox = usesOpacityLightingApproximation(resolveMode, surface);
+
+  if (opacityLightingApprox)
+  {
+    const uint froxelVolumeHint = portalSpaceToVolumeHint(portalSpace);
+
+    const vec3 accumulatedOutgoingRadiance = evalVolumetricNEE(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, volumeArgs,
+      surfaceInteraction, opaqueSurfaceMaterialInteraction.shadingNormal, froxelVolumeHint);
+
+    // Note: Volume radiance cache assumes isotropic scattering (no directionality), but we want something closer to a "diffuse" distribution for
+    // the surface of a particle rather than a volumetric contribution, so we multiply it by 4 here (albedo * 4 * radiance / (4 * pi) = albedo / pi).
+    // Secondly, in the future this should use spherical harmonics to convert to a diffuse (or perhaps some sort of directional HG phase function to allow
+    // for some contribution from behind) distribution so more directionality is respected rather than this simple multiply by 4 hack (which is not super physically correct).
+    // Finally, albedo has opacity baked into it already so it does not need to be multiplied in here.
+    emissiveRadiance += opaqueSurfaceMaterialInteraction.albedo * accumulatedOutgoingRadiance * incomingRadianceAttenuation;
+  }
+#else
+  const bool opacityLightingApprox = false;
+#endif
+
+  // Handle typical emissive and attenuation approximations
+
+  // Note: Approximate opacity attenuation and emission when requested rather than returning a hit. Note while normal opacity transmission
+  // approximation is always done if requested, emissive opacity transmission approximation is only done when an emissive blend mode is in use,
+  // allowing objects with normal opacity behavior to be hit normally. Additionally, this logic is used when opacity lighting approximations are
+  // in place as this indicates that no opacity hits should be counted ever due to approximating the lighting manually without the need for a hit.
+  if (usesOpaqueApproximation(resolveMode, surface))
+  {
+    // Note: Accumulate the material's emission into the radiance approximation as this can be calculated on any hit arbitarily. This factors the
+    // attenuation across the resolve iterations in before emissive (to not cause self-attenuation) similar to any other path tracing loop in the project.
+    emissiveRadiance +=
+      opaqueSurfaceMaterialInteractionEvalEmissiveRadiance(opaqueSurfaceMaterialInteraction) *
+      incomingRadianceAttenuation;
+    // Note: Accumulate opacity into the radiance approximation, actually a perfect representation of the effects of
+    // opacity on visibility rays. This is done for both approximation modes as this resolve hit is being skipped in either
+    // case and this attenuation should give a more proper approximation for more complex emissive blending modes.
+    outgoingRadianceAttenuation *= 1.0f - opacity;
+    // Todo: Potentially evaluate ambient here too like we do for emission? Doesn't depend on light direction or anything
+    // either, but ideally we want to get rid of the ambient term some day so we'll skip it for now.
+
+    return true;
+  }
+
+  // Note: If no approximation was handled, treat as a hit where relevant.
+  return false;
+}
+
+bool evaluateTranslucentApproximations(
+  uint8_t resolveMode,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
+  vec3 incomingRadianceAttenuation, inout float outgoingRadianceAttenuation, inout vec3 emissiveRadiance)
+{
+  unused(outgoingRadianceAttenuation);
+  unused(emissiveRadiance);
+
+  // Handle typical attenuation approximations
+
+  const bool translucencyTransmissionApprox = packedFlagGet(resolveMode, resolveModeTranslucencyTransmissionApprox);
+
+  if (translucencyTransmissionApprox)
+  {
+    // Todo: Accumulate emission into emissive radiance on entry hit.
+    // Todo: Attenuate by fresnel factor on entry/exit points.
+    // Todo: Handle volume attenuation by adding in attenuation on the exiting hit of transmission and
+    // blindly having the ray go right through translucent objects like we did in the previous Aperture renderer.
+    // Note thin translucency can be approximated perfectly and uses a slightly different path. Note this will require
+    // returning to f16vec3 attenuation fully which will not play well with the current implementation of how the unordered
+    // approximations are handled, so it may require packing the color down into fewer bits or perhaps doing things
+    // differently (a fully ordered approach would solve a lot of this complexity and make the translucency approximations much
+    // easier to evaluate.)
+
+    return true;
+  }
+
+  // Note: If no approximation was handled, treat as a hit where relevant.
+  return false;
+}

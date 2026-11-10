@@ -75,7 +75,7 @@ class ServerSafetyTest {
     @Test
     void serverPathClassesDoNotReferenceTheClientEntrypoint() {
         for (String className : SERVER_PATH_CLASSES) {
-            assertFalse(referencesText(className, "minecraft/KavoraMod"),
+            assertFalse(referencesText(className, "org/edtp/kavora/KavoraMod"),
                     className + " references KavoraMod, the client entrypoint. Move whatever it "
                             + "needs onto KavoraCommonMod; a static final String only survives "
                             + "today because javac inlines compile-time constants.");
@@ -86,7 +86,7 @@ class ServerSafetyTest {
     @Test
     void referencesTextDetectsAKnownReference() {
         assertTrue(referencesText("org.edtp.kavora.block.CopperBeaconBlock",
-                        "minecraft/block/SpotLightBlock"),
+                        "org/edtp/kavora/block/SpotLightBlock"),
                 "CopperBeaconBlock extends SpotLightBlock, so the scan should see it; "
                         + "if this fails the other assertions in this class are vacuous.");
     }

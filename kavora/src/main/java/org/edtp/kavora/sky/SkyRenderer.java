@@ -13,7 +13,7 @@ import org.edtp.kavora.sdk.TextureBatchEntry;
 import org.edtp.kavora.sdk.TextureFormat;
 import org.edtp.kavora.sdk.TexturePatch;
 import org.edtp.kavora.sdk.TexturePatchInfo;
-import org.edtp.kavora.KavoraRenderer;
+import org.edtp.kavora.benchmark.BenchmarkController;
 import org.edtp.kavora.asset.KavoraAssetBase;
 import org.edtp.kavora.asset.KavoraLight;
 import org.edtp.kavora.asset.KavoraLightStore;
@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -106,7 +107,9 @@ public class SkyRenderer {
     public static final float SUN_PATH_ROTATION_DEG = LightManager.SUN_PATH_ROTATION_DEG;
     // ---- Instance state ----
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
+    private final BenchmarkController clock;
+    private final LightManager lights;
     private ClientLevel currentWorld;
     private KavoraTexture skyTextureAsset;
     private KavoraLight skyDomeLightAsset;
@@ -135,9 +138,11 @@ public class SkyRenderer {
     private static boolean skyAmbientRectEnabled = DEFAULT_SKY_AMBIENT_RECT_ENABLED;
     private static float skyDomeMultiplier = 1.0f;
 
-    public SkyRenderer(KavoraRenderer renderer) {
-        this.renderer = renderer;
-        nightSky = new NightSkyState((key, value) -> renderer.getRemixApi().setConfigVariable(key, value));
+    public SkyRenderer(RemixAPI api, BenchmarkController clock, LightManager lights) {
+        this.api = api;
+        this.clock = clock;
+        this.lights = lights;
+        nightSky = new NightSkyState(api::setConfigVariable);
         atmosphericGenerator = new AtmosphericSkyGenerator();
         atmosphericTexturePatch.width = SKY_W;
         atmosphericTexturePatch.height = SKY_H;
@@ -172,8 +177,8 @@ public class SkyRenderer {
 
     private final EnvironmentSnapshot environment = new EnvironmentSnapshot();
 
-    public void render(ClientLevel world, Vec3 cameraPos, float tickDelta) {
-        if (renderer.getRemixApi() == null) return;
+    /** Publishes the sky after the frame's celestial lights and weather layers have been resolved. */
+    public void render(ClientLevel world, Camera camera, Vec3 cameraPos, float tickDelta, ConfLayerDriver confLayers) {
         if (world == null || !enabled) {
             nightSky.disable();
             return;
@@ -186,14 +191,13 @@ public class SkyRenderer {
             currentWorld = world;
         }
 
-        RemixAPI api = renderer.getRemixApi();
-        environment.capture(world, Minecraft.getInstance().gameRenderer.mainCamera(), tickDelta);
+        environment.capture(world, camera, tickDelta);
         float[] fixedRadiance = fixedSkyRadiance(environment.skybox);
         if (fixedRadiance == null) {
-            renderAtmosphericSky(api, world, cameraPos, tickDelta);
+            renderAtmosphericSky(world, cameraPos, confLayers);
         } else {
             if (environment.skybox == DimensionType.Skybox.END) {
-                nightSky.updateEnd(renderer.getBenchmarkController().animationGameTime(environment.gameTime) * 0.05);
+                nightSky.updateEnd(clock.animationGameTime(environment.gameTime) * 0.05);
             } else {
                 nightSky.disable();
             }
@@ -215,27 +219,22 @@ public class SkyRenderer {
     }
 
     private void renderAtmosphericSky(
-            RemixAPI api,
             ClientLevel world,
             Vec3 cameraPos,
-            float tickDelta) {
+            ConfLayerDriver confLayers) {
         float skyAngle;
         LightManager.SkyLightState lightState;
         float[] sunDirection;
         WeatherDomeState weather;
         try (ProfileScope ignored = ProfileScope.begin("Sky.Prepare")) {
             skyAngle = environment.sunAngle;
-            ConfLayerDriver confLayers = renderer.getConfLayerDriver();
             ConfLayerDriver.WeatherStrengths weatherStrengths =
                     confLayers != null && confLayers.isActive()
                             ? confLayers.weatherStrengths()
                             : new ConfLayerDriver.WeatherStrengths(
                                     environment.rain,
                                     environment.thunder);
-            LightManager lightManager = renderer.getLightManager();
-            lightState = lightManager != null
-                    ? lightManager.getSkyLightState()
-                    : LightManager.SkyLightState.empty();
+            lightState = lights.getSkyLightState();
             sunDirection = LightManager.computeSunDirection(skyAngle);
             float celestialIntensity =
                     lightState.weatherDomeRadiance();
@@ -254,7 +253,7 @@ public class SkyRenderer {
         }
         try (ProfileScope ignored = ProfileScope.begin("Sky.Atmosphere")) {
             nightSky.update(environment.starBrightness, environment.starAngle,
-                    renderer.getBenchmarkController().animationGameTime(environment.gameTime) * 0.05, environment.moonPhase);
+                    clock.animationGameTime(environment.gameTime) * 0.05, environment.moonPhase);
             updateAtmosphericDomeLight(api, lightState, (float) (cameraPos.y - world.getSeaLevel()));
         }
         boolean weatherRendered;
@@ -626,8 +625,7 @@ public class SkyRenderer {
         releaseSkyLights();
         currentWorld = null;
 
-        RemixAPI api = renderer.getRemixApi();
-        if (overcastTextureHandle != 0 && api != null) {
+        if (overcastTextureHandle != 0) {
             try {
                 api.destroyTexture(overcastTextureHandle);
             } catch (RuntimeException e) {

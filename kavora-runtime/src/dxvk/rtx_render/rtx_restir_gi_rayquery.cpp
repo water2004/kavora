@@ -357,7 +357,7 @@ namespace dxvk {
     const auto& numRaysExtent = rtOutput.m_compositeOutputExtent;
     VkExtent3D workgroups = util::computeBlockCount(numRaysExtent, VkExtent3D { 16, 8, 1 });
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     {
       ScopedGpuProfileZone(ctx, "ReSTIR GI Temporal Reuse");
@@ -427,7 +427,7 @@ namespace dxvk {
     {
       ScopedGpuProfileZone(ctx, "ReSTIR GI Final Shading");
       ctx->setFramePassStage(RtxFramePassStage::ReSTIR_GI_FinalShading);
-      ctx->bindCommonRayTracingResources(rtOutput);
+      ctx->bindCommonRayTracingResources();
 
       ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
       ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_MATERIAL_DATA0_INPUT, rtOutput.m_sharedMaterialData0.view, nullptr);

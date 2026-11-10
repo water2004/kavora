@@ -281,7 +281,7 @@ namespace dxvk {
       ctx->clearBuffer(m_particles, 0, info.size, 0);
     }
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     DxvkContextState stateCopy = dxvkCtxState;
 

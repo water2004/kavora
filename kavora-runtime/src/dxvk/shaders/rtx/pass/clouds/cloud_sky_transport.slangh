@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+#pragma once
+
+// A cloud step adds linear radiance and multiplies the remaining transmittance.
+// The caller owns the sample grid, density lookup and termination policy.
+[ForceInline]
+void accumulateCloudSkyStep(float extinction, float length, float albedo, float3 incidentRadiance,
+  inout float3 radiance, inout float transmittance)
+{
+  const float stepTransmittance = exp(-extinction * length);
+  radiance += transmittance * (1.0f - stepTransmittance) * albedo * incidentRadiance;
+  transmittance *= stepTransmittance;
+}

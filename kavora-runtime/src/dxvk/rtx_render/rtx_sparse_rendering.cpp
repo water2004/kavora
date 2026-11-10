@@ -547,7 +547,7 @@ namespace dxvk {
 
     ctx.setFramePassStage(RtxFramePassStage::SparseRendering);
 
-    ctx.bindCommonRayTracingResources(rtOutput);
+    ctx.bindCommonRayTracingResources();
 
     dispatchActivePixelSamplingRate(ctx, rtOutput);
     dispatchActivePixelMask(ctx, rtOutput);

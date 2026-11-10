@@ -560,7 +560,33 @@ delayimp_dep = declare_dependency(
 	dependencies : [ lib_delayimp])
 dxvk_deps += delayimp_dep
 
-dxvk_lib = static_library('dxvk', dxvk_src, dxvk_version, [generated_dxvk_shaders, rtx_shaders, dxvk_generated_embedded_files],
+shader_layout_generator = files('../../scripts-common/generate_shader_layout_checks.py')
+shader_layout_flags = files('../../scripts-common/slang_spirv_layout.py')
+shader_layout_includes = [shader_directory, submodules_include_path_string,
+  rtxdi_include_path_string, rtxcr_include_path_string, volumetrics_include_path_string]
+
+raytrace_layout_checks = custom_target(
+  'raytrace_layout_checks',
+  input: '../../scripts-common/raytrace_layout.comp.slang',
+  output: 'raytrace_layout_asserts.h',
+  depfile: 'raytrace_layout.d',
+  depend_files: shader_layout_flags,
+  command: [python_interpreter, shader_layout_generator,
+    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'args', '16'] + shader_layout_includes,
+)
+
+display_color_layout_checks = custom_target(
+  'display_color_layout_checks',
+  input: 'shaders/rtx/pass/srgb_dither/srgb_dither.comp.slang',
+  output: 'display_color_layout_asserts.h',
+  depfile: 'display_color_layout.d',
+  depend_files: shader_layout_flags,
+  command: [python_interpreter, shader_layout_generator,
+    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'cb', '4'] + shader_layout_includes,
+)
+
+dxvk_lib = static_library('dxvk', dxvk_src, dxvk_version,
+  [generated_dxvk_shaders, rtx_shaders, dxvk_generated_embedded_files, raytrace_layout_checks, display_color_layout_checks],
   link_with           : [ util_lib, spirv_lib, usd_plugins ], 
   dependencies        : [ dxvk_deps ],
   include_directories : [ dxvk_include_path, dxvk_shader_include_path, rtxdi_include_path, remix_api_include_path, rtxcr_include_path, submodules_include_path ],

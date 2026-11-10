@@ -29,7 +29,7 @@ class ChunkManagerLightCullDistanceTest {
 
     @Test
     void theShippedDefaultStaysEightChunks() {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             assertEquals(8, ChunkManager.DEFAULT_LIGHT_CULL_CHUNKS);
             assertEquals(8, manager.getLightCullDistance());
@@ -40,7 +40,7 @@ class ChunkManagerLightCullDistanceTest {
 
     @Test
     void theUserValueIsKeptApartFromTheResolvedRadius() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = terrain(manager);
             manager.setLightCullDistance(0);
@@ -64,7 +64,7 @@ class ChunkManagerLightCullDistanceTest {
 
     @Test
     void lightReachClampsToItsRangeAndDefaultsToOneHundredTwentyEightBlocks() {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             assertEquals(128, manager.getLightReach());
             manager.setLightReach(4);
@@ -85,7 +85,7 @@ class ChunkManagerLightCullDistanceTest {
 
     @Test
     void lightStatsGroupByRuleAndCountOnlyLightsDrawnThisFrame() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = terrain(manager);
             TerrainState.SectionEntry entry = terrain.addSection(0, 0, 0, 1, "section");

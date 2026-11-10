@@ -6,8 +6,6 @@ package org.edtp.kavora.gametest.mixin;
 
 import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.gametest.KavoraFrameProbe;
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -27,27 +25,5 @@ public abstract class KavoraFrameProbeMixin {
     @Inject(method = "onMinecraftWorldRenderFrameStart", at = @At("HEAD"))
     private void prepareCamera(net.minecraft.client.Minecraft client, boolean tick, CallbackInfo ci) {
         if (KavoraFrameProbe.frameAction != null) KavoraFrameProbe.frameAction.accept(KavoraFrameProbe.presents);
-    }
-
-    @WrapMethod(method = "submitFrame")
-    private void submitted(Operation<Void> original) {
-        try {
-            original.call();
-            KavoraFrameProbe.submits++;
-        } catch (RuntimeException | Error failure) {
-            KavoraFrameProbe.failures++;
-            throw failure;
-        }
-    }
-
-    @WrapMethod(method = "presentFrame")
-    private void presented(org.edtp.kavora.sdk.VulkanClientFrameInfo frame, Operation<Void> original) {
-        try {
-            original.call(frame);
-            KavoraFrameProbe.presents++;
-        } catch (RuntimeException | Error failure) {
-            KavoraFrameProbe.failures++;
-            throw failure;
-        }
     }
 }

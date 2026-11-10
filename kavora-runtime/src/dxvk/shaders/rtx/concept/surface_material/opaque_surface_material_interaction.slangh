@@ -21,6 +21,8 @@
 */
 #pragma once
 
+#include "rtx/concept/surface_material/water_normal_coordinates.slangh"
+
 #include "opaque_surface_material_blending.slangh"
 
 // Opaque Surface Material Interaction Constants
@@ -818,12 +820,8 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
     const vec2 motionScale = vec2(cb.opaqueMaterialArgs.layeredWaterNormalMotionX, cb.opaqueMaterialArgs.layeredWaterNormalMotionY) * cb.opaqueMaterialArgs.layeredWaterNormalMotionScale;
     const float lodBias = cb.opaqueMaterialArgs.layeredWaterNormalLodBias;
 
-    mat4x2 xform = surface.textureTransform;
-    xform[0][2] *= motionScale.x;
-    xform[1][2] *= motionScale.y;
-
     vec2 savedCoordinates = surfaceInteraction.textureCoordinates;
-    surfaceInteraction.textureCoordinates = mul(xform, float4(surfaceInteraction.textureCoordinates, 0.f, 1.f)).xy;
+    surfaceInteraction.textureCoordinates = waterLayeredNormalUV(savedCoordinates, surface.textureTransform, motionScale);
     secondNormalLoaded = surfaceMaterialInteractionTextureReadHelper(opaqueSurfaceMaterial.normalTextureIndex, opaqueSurfaceMaterial.reliefSamplerIndex, surfaceInteraction, secondNormalSample, lodBias);
     surfaceInteraction.textureCoordinates = savedCoordinates;
   }

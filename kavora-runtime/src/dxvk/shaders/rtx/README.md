@@ -4,6 +4,58 @@ This document provides an overview for the general structure, standards and conv
 
 ## File Conventions
 
+### Ray tracing constant buffer
+
+`pass/raytrace_args.h` defines `RaytraceArgs` for the host and for the shader's
+`ConstantBuffer<RaytraceArgs>`. The host writes it in
+`RtxContext::updateRaytraceArgsConstantBuffer` before recording the scene.
+Use explicit-width storage and preserve the CPU/GPU field layout when adding
+parameters. Each pass keeps its descriptor indices alongside its bindings.
+
+The Meson `raytrace_layout_checks` target reflects a probe for `RaytraceArgs`.
+`display_color_layout_checks` reflects `SRGBDitherArgs` from the real output
+shader. Both use the production scalar-layout and matrix options and generate
+C++ assertions for sizes, field offsets and array strides. The owning C++
+translation units enforce the assertions at build time. Resource encodings,
+image access modes and history lifetime belong to each pass's contract.
+
+### Visual effect boundaries
+
+Keep the entry point responsible for descriptor bindings, dispatch coordinates,
+and output writes. Put an effect's calculations in a `.slangh` file with named
+inputs and outputs. Keep its existing slot, access mode, coordinate space and
+encoding when changing the calculation. Use `[ForceInline]` on helpers whose
+boundary must disappear in the release shader, and compare the emitted SPIR-V
+when moving work across that boundary.
+
+| Effect | Calculation owner | Contract |
+| --- | --- | --- |
+| Final color grading | [`display_color_grade.slangh`](pass/srgb_dither/display_color_grade.slangh) | Linear post-tonemap RGB and grading values in. Linear graded RGB out. The entry point owns sRGB conversion and dither. |
+| Cloud shape and motion | [`cloud_density.slangh`](utility/cloud_density.slangh) | World position and frame cloud parameters yield density. The same density feeds view rays, light visibility and the sky map. |
+| Cloud sky contribution | [`cloud_sky_transport.slangh`](pass/clouds/cloud_sky_transport.slangh) | Extinction, step length, albedo and incident radiance update the accumulated radiance and transmittance. The entry point owns the ray grid and termination. |
+| Cloud light and visibility | [`clouds.slangh`](algorithm/clouds.slangh) | A world-space ray segment yields cloud transmittance. A sample position, view direction and ambient radiance yield the incident cloud lighting. |
+| Fog cache sampling | [`fog_froxel_sampling.slangh`](algorithm/fog_froxel_sampling.slangh) | Uses the frame's volume cameras and supplied radiance volumes to evaluate incident light. `atmosphere.slangh` owns the joint fog, cloud and medium integration. |
+| Stars, galaxy and meteors | [`night_sky.slangh`](pass/dome_composite/night_sky.slangh) | Night-sky parameters, star and galaxy maps, and the view direction with neighboring directions yield linear radiance. The dome compositor owns layer composition. |
+| End sky and planet | [`end_sky.slangh`](pass/dome_composite/end_sky.slangh) | End-sky parameters, background map and world direction yield linear radiance for the dome layer. |
+| Visible moon | [`caustica_moon.slangh`](pass/dome_composite/caustica_moon.slangh) | Projected disc coordinates, gradients, texture and phase yield the disc's radiance and coverage. Scene illumination comes from the directional light. |
+| Water normal motion | [`water_normal_coordinates.slangh`](concept/surface_material/water_normal_coordinates.slangh) | Sprite coordinates, time and motion or a texture transform produce the UVs for the material's existing normal layers. The material owns sampling, LOD and normal blending. |
+| Translucent interface optics | [`translucent_interface_optics.slangh`](concept/surface_material/translucent_interface_optics.slangh) | Material thickness, IOR, color and ray geometry yield the relative indices and thin-sheet transmittance. BSDF and PSR share this calculation. |
+| Thick-medium absorption | [`translucent_medium.slangh`](concept/surface_material/translucent_medium.slangh) | The current medium index yields RGB extinction per world unit. The ray segment applies distance and keeps track of its current medium. |
+| Reflection and transmission continuation | [`translucent_bsdf.slangh`](concept/surface_material/translucent_bsdf.slangh), [`translucent_psr.slangh`](concept/surface_material/translucent_psr.slangh) | A decoded material and incident ray select the direction and throughput. PSR also owns its integration guides and disocclusion policy. |
+| Resolve attenuation and opacity | [`resolve_medium.slangh`](algorithm/resolve_medium.slangh), [`resolve_surface_approximations.slangh`](algorithm/resolve_surface_approximations.slangh) | Segment transport updates throughput and radiance once. Surface approximations report whether a hit contributed without becoming the integration surface. The resolver advances traversal. |
+
+To change an effect with the same data, edit its calculation owner. For
+example, a display tint fits in `gradeDisplayColor` and runs in the existing
+output dispatch. If it needs a new uniform, declare it in `SRGBDitherArgs` and
+fill it in `DxvkSRGBDither::dispatch`. Only effects that need a different image,
+history or execution point require a change to the pass contract and its caller.
+
+Rebuild affected variants with `meson compile -C _BuildMinecraft rtx_shaders`.
+When comparing code generation, use the same compiler, variant and build
+options. Check calls, branches, reads and writes in addition to instruction
+count. Water and glass share the translucent optics contracts across all
+consumers, including camera, secondary and visibility rays.
+
 ### Source-Level GPU Profiling
 
 Slang debug builds embed `NonSemantic.Shader.DebugInfo.100` variable information

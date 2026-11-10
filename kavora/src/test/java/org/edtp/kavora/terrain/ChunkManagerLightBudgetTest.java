@@ -23,7 +23,7 @@ class ChunkManagerLightBudgetTest {
 
     @Test
     void deferredLightRetirementHonorsExpiredFrameDeadline() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = field(manager, "terrain", TerrainState.class);
             TerrainState.SectionEntry entry = terrain.addSection(2, 3, -4, 1, "section");
@@ -49,7 +49,7 @@ class ChunkManagerLightBudgetTest {
 
     @Test
     void deferredLightRetirementHonorsNativeCallCap() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = field(manager, "terrain", TerrainState.class);
             TerrainState.SectionEntry entry = terrain.addSection(0, 0, 0, 1, "section");
@@ -70,7 +70,7 @@ class ChunkManagerLightBudgetTest {
 
     @Test
     void failedRetirementRetainsOwnershipAndDoesNotStarveLaterLights() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = field(manager, "terrain", TerrainState.class);
             TerrainState.SectionEntry entry = terrain.addSection(1, 1, 1, 1, "section");
@@ -99,7 +99,7 @@ class ChunkManagerLightBudgetTest {
 
     @Test
     void clearRetainsFailedRetirementForTheNextAttempt() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = field(manager, "terrain", TerrainState.class);
             TerrainState.SectionEntry entry = terrain.addSection(4, 0, 4, 1, "section");

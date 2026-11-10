@@ -328,18 +328,24 @@ final class KavoraSettingsChecks {
 
     private static void editNumber(String id, String value) {
         var client = net.minecraft.client.Minecraft.getInstance();
-        var widget = findWidget(client.gui.screen(), Component.translatable(setting(id).labelKey()).getString());
-        require(widget != null, "Missing shader option " + id);
-        int remaining = client.gui.screen().children().size();
-        while (!widget.visible && remaining-- > 0) {
-            client.gui.screen().keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_PAGEDOWN, 0, 0));
-        }
-        require(widget.visible, "Shader option cannot be reached by scrolling: " + id);
+        var widget = revealOption(client.gui.screen(), id);
         widget.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_RETURN, 0, 0));
         var input = client.gui.screen().children().stream().filter(child -> child instanceof net.minecraft.client.gui.components.EditBox)
-                .map(child -> (net.minecraft.client.gui.components.EditBox) child).findFirst().orElseThrow();
+                .map(child -> (net.minecraft.client.gui.components.EditBox) child).findFirst()
+                .orElseThrow(() -> new AssertionError("Numeric entry did not open for " + id));
         input.setValue(value);
         press(client.gui.screen(), "gui.done");
+    }
+
+    private static AbstractWidget revealOption(Screen screen, String id) {
+        var widget = findWidget(screen, Component.translatable(setting(id).labelKey()).getString());
+        require(widget != null, "Missing shader option " + id);
+        int remaining = screen.children().size();
+        while (!widget.visible && remaining-- > 0) {
+            screen.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_PAGEDOWN, 0, 0));
+        }
+        require(widget.visible, "Shader option cannot be reached by scrolling: " + id);
+        return widget;
     }
 
     private static void checkFolderNavigation(ClientGameTestContext context, Screen parent) {
@@ -464,7 +470,9 @@ final class KavoraSettingsChecks {
                 press(client.gui.screen(), "kavora.settings.category.weather");
                 press(client.gui.screen(), "kavora.settings.group.fog");
                 press(client.gui.screen(), "kavora.settings.group.fogQuality");
-                editNumber("fog.integration", "0");
+                var integration = revealOption(client.gui.screen(), "fog.integration");
+                require(integration.keyPressed(new KeyEvent(com.mojang.blaze3d.platform.InputConstants.KEY_RETURN, 0, 0)),
+                        "Fog integration mode did not accept the cycle input");
                 editNumber("fog.integrationResolution", "7");
                 press(client.gui.screen(), "kavora.settings.apply");
             });

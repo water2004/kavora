@@ -34,7 +34,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void stagingPublishesACompleteGroupOfColumnsAndReleasesTheirAccounting() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             Object a = readyEmptyColumn(manager, 1, 2), b = readyEmptyColumn(manager, 2, 2);
             Object c = readyEmptyColumn(manager, 3, 2);
@@ -51,7 +51,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void expiredInstallBudgetDefersTheCompleteBatchUntilTheNextPass() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             Object first = readyEmptyColumn(manager, 1, 2);
             Object second = readyEmptyColumn(manager, 2, 2);
@@ -78,7 +78,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void failedBatchActivationRollsBackItsAlreadyActivatedColumns() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         TrackingInstance first = new TrackingInstance(false), second = new TrackingInstance(true);
         try {
             Object a = newCursor(newDetachedResult(0)), b = newCursor(newDetachedResult(0));
@@ -99,7 +99,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void oneInstallPassPublishesMultipleCompletedColumnsWithoutNativeWork() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             Object firstOwner = readyEmptyColumn(manager, 1, 2);
             Object secondOwner = readyEmptyColumn(manager, 2, 2);
@@ -123,7 +123,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void rollbackHidesActivatedPrefixInReverseAndPreservesProgress() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         TrackingInstance first = new TrackingInstance(false);
         TrackingInstance second = new TrackingInstance(false);
         try {
@@ -153,7 +153,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void failedRollbackKeepsActivationOwnedByCursor() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         TrackingInstance instance = new TrackingInstance(true);
         try {
             Object cursor = newCursor(newDetachedResult(0));
@@ -174,7 +174,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void staleResultRequiresExactOwnerGenerationAndEpochAcrossReload() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             TerrainState terrain = terrain(manager);
             terrain.addSection(7, 3, -9, 1, "first load");
@@ -219,7 +219,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void categoryReplacementPreservesUnchangedPageIdentities() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             Object owner = markColumnDirty(manager, 2, 5, 1 << ChunkManager.CAT_CUTOUT);
             int[] ownerFingerprints = (int[]) field(owner, "categoryFingerprints");
@@ -267,7 +267,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void abortedInstallRestoresDirtyMaskAndBalancesByteAccounting() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         TrackingMesh uninstalledMesh = new TrackingMesh();
         try {
             terrain(manager).addSection(-2, 1, 4, 1, "live");
@@ -304,7 +304,7 @@ class ChunkManagerMeshInstallTest {
 
     @Test
     void freshSectionStreamingSettlesWhileReplacementBuildsImmediately() throws Exception {
-        ChunkManager manager = new ChunkManager(null);
+        ChunkManager manager = new ChunkManager(null, null);
         try {
             set(manager, "terrainFrame", 100L);
             Object owner = markColumnDirty(manager, 4, -6, 1 << ChunkManager.CAT_SOLID);

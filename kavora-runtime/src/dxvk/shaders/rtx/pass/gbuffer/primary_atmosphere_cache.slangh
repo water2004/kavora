@@ -4,7 +4,7 @@
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.h"
 #include "rtx/pass/gbuffer/primary_intersection.slangh"
 #include "rtx/utility/brdf.slangh"
-#include "rtx/concept/surface_material/translucent_surface_material.slangh"
+#include "rtx/concept/surface_material/translucent_medium.slangh"
 #include "rtx/algorithm/atmosphere.slangh"
 #include "rtx/algorithm/view_distance.slangh"
 

@@ -26,6 +26,7 @@
 #include "dxvk_scoped_annotation.h"
 #include "rtx_render/rtx_shader_manager.h"
 #include "rtx/pass/srgb_dither/srgb_dither.h"
+#include "display_color_layout_asserts.h"
 #include "rtx/pass/tonemap/tonemapping.h"
 #include "rtx_imgui.h"
 
@@ -55,14 +56,14 @@ namespace dxvk {
 
   void DxvkSRGBDither::dispatch(
     Rc<RtxContext> ctx,
-    const Resources::RaytracingOutput& rtOutput,
+    const Resources::AliasedResource& color,
     bool performSRGBConversion) {
 
     ScopedGpuProfileZone(ctx, "sRGB + Dither");
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
-    const Resources::Resource& inoutColorBuffer = rtOutput.m_finalOutput.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inoutColorBuffer = color.resource(Resources::AccessType::ReadWrite);
 
     const VkExtent3D workgroups = util::computeBlockCount(inoutColorBuffer.view->imageInfo().extent, VkExtent3D{ 16, 16, 1 });
 

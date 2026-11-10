@@ -53,13 +53,12 @@ namespace dxvk {
 
     // Lens effects phase (chromatic aberration + vignette). Runs after tonemapping
     // so it operates on post-tonemap LDR data — these are display-space lens artifacts.
-    // Reads and writes m_finalOutput in place.
+    // Writes the result into scratch before copying it back into color.
     void dispatchLensEffects(
       Rc<RtxContext> ctx,
       Rc<DxvkSampler> linearSampler,
-      const uvec2& mainCameraResolution,
-      const uint32_t frameIdx,
-      const Resources::RaytracingOutput& rtOutput);
+      const Resources::AliasedResource& color,
+      const Resources::AliasedResource& scratch);
 
     void dispatchHighlighting(
       Rc<RtxContext> ctx,

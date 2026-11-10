@@ -729,7 +729,7 @@ namespace dxvk {
       return;
     }
     ctx->setFramePassStage(RtxFramePassStage::GBufferPrimaryRays);
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
     const VkExtent3D& rayDims = rtOutput.m_compositeOutputExtent;
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
     const auto& volume = rtOutput.m_raytraceArgs.volumeArgs;
@@ -810,7 +810,7 @@ namespace dxvk {
 
     // Bind resources
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
     // Note: Clamp to edge used to avoid interpolation to black on the edges of the view.
     Rc<DxvkSampler> linearClampSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     Rc<DxvkSampler> linearWrapSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,

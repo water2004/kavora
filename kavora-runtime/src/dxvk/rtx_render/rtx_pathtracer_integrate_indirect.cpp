@@ -584,7 +584,7 @@ namespace dxvk {
       VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     Rc<DxvkBuffer> primitiveIDPrefixSumBuffer = ctx->getSceneManager().getCurrentFramePrimitiveIDPrefixSumBuffer();
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     ctx->bindResourceSampler(INTEGRATE_INDIRECT_BINDING_LINEAR_WRAP_SAMPLER, linearWrapSampler);
 
@@ -727,7 +727,7 @@ namespace dxvk {
 
     ScopedGpuProfileZone(ctx, "Integrate NEE");
     ctx->setFramePassStage(RtxFramePassStage::NEE_Integration);
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     // Inputs
 

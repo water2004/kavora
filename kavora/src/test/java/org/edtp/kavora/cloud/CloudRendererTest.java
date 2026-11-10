@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CloudRendererTest {
     @Test
     void defaultsToVanillaClouds() {
-        assertFalse(new CloudRenderer(null).isProceduralClouds());
+        assertFalse(new CloudRenderer(null, null).isProceduralClouds());
     }
 
     @Test
@@ -27,7 +27,7 @@ class CloudRendererTest {
 
     @Test
     void vanillaFailureFallsBackUntilChunkInvalidationResetsIt() {
-        CloudRenderer renderer = new CloudRenderer(null);
+        CloudRenderer renderer = new CloudRenderer(null, null);
         renderer.setProceduralClouds(false);
         long failedEpoch = renderer.vanillaGenerationEpoch();
 
@@ -49,7 +49,7 @@ class CloudRendererTest {
         RuntimeException creationFailure = new IllegalStateException("mesh creation failed");
 
         CloudRenderer vanilla = new CloudRenderer(
-                null, (vertices, indices) -> {
+                null, null, (vertices, indices) -> {
                     throw creationFailure;
                 });
         vanilla.setProceduralClouds(false);

@@ -736,8 +736,7 @@ namespace dxvk {
     return volumeArgs;
   }
 
-  void RtxGlobalVolumetrics::dispatchCloudSky(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
-    const auto& clouds = rtOutput.m_raytraceArgs.volumeArgs.clouds;
+  void RtxGlobalVolumetrics::dispatchCloudSky(RtxContext* ctx, const CloudArgs& clouds) {
     if (!clouds.enable || clouds.transportMode != 1) {
       m_cloudSky.reset();
       return;
@@ -749,7 +748,7 @@ namespace dxvk {
       m_cloudSky = Resources::createImageResource(resourceContext, "cloud sky radiance and transmittance", extent,
         VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
     }
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
     const auto clampSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     const auto wrapSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
       VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
@@ -764,7 +763,7 @@ namespace dxvk {
   void RtxGlobalVolumetrics::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, uint32_t numActiveFroxelVolumes) {
     // Bind resources
 
-    ctx->bindCommonRayTracingResources(rtOutput);
+    ctx->bindCommonRayTracingResources();
 
     // Note: Clamp to edge used to avoid interpolation to black on the edges of the view. Note this is fine here as the temporal reprojection lookups will ensure
     // their UVW coordinates are not out of the [0, 1] range before looking up the value.

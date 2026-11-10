@@ -317,7 +317,8 @@ namespace dxvk {
     VolumeArgs getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes) const;
 
     void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, uint32_t numActiveFroxelVolumes);
-    void dispatchCloudSky(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
+    // Uses the current frame's uploaded scene constants. Publishes linear radiance in RGB and transmittance in A.
+    void dispatchCloudSky(class RtxContext* ctx, const CloudArgs& clouds);
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
     
     const Resources::Resource& getCurrentVolumeReservoirs() const { return m_volumeReservoirs[0]; }

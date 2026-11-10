@@ -10,7 +10,6 @@ import org.edtp.kavora.asset.KavoraTextureStore;
 import org.edtp.kavora.asset.KavoraTexture;
 import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraMaterial;
-import org.edtp.kavora.KavoraRenderer;
 import com.mojang.blaze3d.platform.NativeImage;
 import org.edtp.kavora.sdk.MaterialInfo;
 import org.edtp.kavora.sdk.MaterialInfoOpaqueEXT;
@@ -50,7 +49,7 @@ public class ParticleAtlasManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ParticleAtlasManager.class);
 
-    private final KavoraRenderer renderer;
+    private final RemixAPI api;
     private final Identifier atlasId;
     private final Map<Identifier, ParticleAtlasManager> additionalAtlases = new java.util.HashMap<>();
 
@@ -62,12 +61,12 @@ public class ParticleAtlasManager {
     private boolean initialized;
     private boolean initFailed;
 
-    public ParticleAtlasManager(KavoraRenderer renderer) {
-        this(renderer, TextureAtlas.LOCATION_PARTICLES);
+    public ParticleAtlasManager(RemixAPI api) {
+        this(api, TextureAtlas.LOCATION_PARTICLES);
     }
 
-    private ParticleAtlasManager(KavoraRenderer renderer, Identifier atlasId) {
-        this.renderer = renderer;
+    private ParticleAtlasManager(RemixAPI api, Identifier atlasId) {
+        this.api = api;
         this.atlasId = atlasId;
     }
 
@@ -81,7 +80,6 @@ public class ParticleAtlasManager {
     public void initialize() {
         if (initialized || initFailed) return;
         try {
-            RemixAPI api = renderer.getRemixApi();
             Minecraft client = Minecraft.getInstance();
             if (api == null || client == null || client.getTextureManager() == null) return;
 
@@ -200,7 +198,7 @@ public class ParticleAtlasManager {
             }
 
             if (atlasId.equals(TextureAtlas.LOCATION_PARTICLES)) {
-                ParticleAtlasManager items = new ParticleAtlasManager(renderer, TextureAtlas.LOCATION_ITEMS);
+                ParticleAtlasManager items = new ParticleAtlasManager(api, TextureAtlas.LOCATION_ITEMS);
                 items.initialize();
                 additionalAtlases.put(TextureAtlas.LOCATION_ITEMS, items);
             }

@@ -14,6 +14,7 @@ import depfile
 from shader_dependencies import ShaderDependencyCache
 from shader_generation import publish_shader_generation, shader_generation_include
 from shader_embedding import deduplicate_shaders, restore_inline_shaders
+from slang_spirv_layout import LAYOUT_FLAGS
 
 report_lock = threading.Lock()
 task_lock = threading.Lock()
@@ -225,16 +226,13 @@ def createSlangTask(inputFile, variantSpec):
         task.customName = f'{os.path.basename(inputFile)} ({variantName})'
 
     command1 = f'{args.slangc} -entry main -target spirv -zero-initialize -emit-spirv-directly -verbose-paths {includePaths} ' \
-            + f'-depfile {depFile} {inputFile} -D__SLANG__ {variantDefines} ' \
-            + f'-matrix-layout-column-major ' \
+            + f'-depfile {depFile} {inputFile} {variantDefines} ' \
+            + ' '.join(LAYOUT_FLAGS) + ' ' \
             + f'-Wno-30081 '
 
     # Add SER capability only for variants that use Shader Execution Reordering
     if 'RT_SHADER_EXECUTION_REORDERING' in variantSpec:
         command1 += f'-capability spvShaderInvocationReorderNV '
-
-    # Force scalar block layout in shaders - buffers are required to be aligned as such by Neural Radiance Cache
-    command1 += f'-fvk-use-scalar-layout '
 
     if args.debug:
         command1 += '-g2 '

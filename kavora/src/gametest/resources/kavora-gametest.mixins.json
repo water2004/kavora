@@ -2,6 +2,6 @@
   "required": true,
   "package": "org.edtp.kavora.gametest.mixin",
   "compatibilityLevel": "JAVA_25",
-  "client": ["KavoraFrameProbeMixin", "KavoraParticleMotionProbeMixin", "KavoraEntityTextureProbeMixin", "KavoraEntityCaptureProbeMixin", "KavoraSectionCaptureProbeMixin", "KavoraTestSurfaceBoundsMixin", "KavoraWaterGeometryProbeMixin", "SodiumTerrainTestAccess"],
+  "client": ["KavoraFrameProbeMixin", "KavoraPresentationProbeMixin", "KavoraParticleMotionProbeMixin", "KavoraEntityTextureProbeMixin", "KavoraEntityCaptureProbeMixin", "KavoraSectionCaptureProbeMixin", "KavoraTestSurfaceBoundsMixin", "KavoraWaterGeometryProbeMixin", "SodiumTerrainTestAccess"],
   "injectors": {"defaultRequire": 1}
 }

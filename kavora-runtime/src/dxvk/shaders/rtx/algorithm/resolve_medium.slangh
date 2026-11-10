@@ -1,0 +1,66 @@
+/*
+* Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/concept/surface_material/translucent_medium.slangh"
+#include "rtx/algorithm/atmosphere.slangh"
+#include "rtx/algorithm/environment_radiance.slangh"
+
+// Applies one ray segment to its incoming throughput and emitted radiance.
+// Each resolver variant chooses the existing atmosphere implementation.
+#ifdef RESOLVER_USE_VOLUMETRIC_ATTENUATION
+#ifdef RESOLVER_PRECOMPUTED_PRIMARY_ATMOSPHERE
+#include "rtx/pass/gbuffer/primary_atmosphere.slangh"
+#endif
+#ifdef RESOLVER_ATMOSPHERE_CALLABLE
+#include "rtx/pass/gbuffer/atmosphere_call.slangh"
+#endif
+
+void resolveAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
+  inout float3 attenuation, inout float3 radiance, uint mediumMaterialIndex = SURFACE_INDEX_INVALID)
+{
+  const float3 mediumExtinction = translucentMediumExtinction(mediumMaterialIndex);
+  if (!cb.volumeArgs.enable && !cb.volumeArgs.clouds.enable)
+  {
+    attenuation *= volumeTransmittance(mediumExtinction, distance);
+    return;
+  }
+#ifdef RESOLVER_ATMOSPHERE_CALLABLE
+  AtmosphereCallData data;
+  data.origin = origin;
+  data.direction = direction;
+  data.distance = distance;
+  data.volumeHint = volumeHint;
+  data.mediumExtinction = mediumExtinction;
+  CallShader(0, data);
+  const AtmosphereSegment segment = { data.radiance, data.transmittance };
+#else
+  float3 ambient = cb.volumeArgs.clouds.enable
+    ? sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, LinearWrapSampler, cb.volumeArgs.sceneUpDirection) * 0.5f
+    : float3(0);
+  AtmosphereSegment segment = integrateAtmosphereSegment(cb.volumeArgs, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg, origin, direction, distance, ambient, volumeHint, mediumExtinction);
+#endif
+  radiance += attenuation * segment.radiance;
+  attenuation *= segment.transmittance;
+}
+#endif

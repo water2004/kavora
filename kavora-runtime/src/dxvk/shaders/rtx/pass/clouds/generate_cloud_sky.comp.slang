@@ -4,6 +4,7 @@
 #include "rtx/utility/math.slangh"
 #include "rtx/concept/camera/camera.slangh"
 #include "rtx/algorithm/clouds.slangh"
+#include "rtx/pass/clouds/cloud_sky_transport.slangh"
 #include "rtx/algorithm/cloud_sky.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 
@@ -35,10 +36,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
     const float extinction = cloudExtinction(args, position);
     if (extinction > 0)
     {
-      const float stepTransmittance = exp(-extinction * (next - previous));
-      radiance += transmittance * (1.0f - stepTransmittance) * args.albedo
-        * cloudIncidentRadiance(args, position, direction, ambient);
-      transmittance *= stepTransmittance;
+      accumulateCloudSkyStep(extinction, next - previous, args.albedo,
+        cloudIncidentRadiance(args, position, direction, ambient), radiance, transmittance);
     }
     if (transmittance < kOpaqueCloudTransmittance) break;
     previous = next;

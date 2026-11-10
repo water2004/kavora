@@ -1,0 +1,97 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/algorithm/volume_lighting.slangh"
+
+// Froxel projection and incident radiance. The frame constant buffer owns the
+// portal camera array. The caller supplies the radiance volumes and segment.
+// Project a ray once, rather than loading two camera matrices at every fog sample.
+// Homogeneous projection is affine along the ray; the perspective divide and
+// nonlinear froxel depth mapping still happen at each original sample position.
+struct FogRayProjection
+{
+  float3 projectionOrigin;
+  float3 projectionDirection;
+  float originDepth;
+  float directionDepth;
+  float nearPlane;
+  uint volume;
+};
+
+FogRayProjection createFogRayProjection(VolumeArgs args, float3 origin, float3 direction, uint volumeHint)
+{
+  FogRayProjection ray;
+  ray.volume = volumeHint % args.numActiveFroxelVolumes;
+  VolumeDefinitionCamera camera = cb.volumeArgs.cameras[ray.volume];
+  float3 translatedOrigin = worldToTranslatedWorld(camera, origin);
+  ray.projectionOrigin = mul(camera.translatedWorldToProjectionJittered, float4(translatedOrigin, 1)).xyw;
+  ray.projectionDirection = mul(camera.translatedWorldToProjectionJittered, float4(direction, 0)).xyw;
+  float viewSign = packedFlagGet(camera.flags, rightHandedFlag) ? -1.0f : 1.0f;
+  ray.originDepth = mul(camera.translatedWorldToView, float4(translatedOrigin, 1)).z * viewSign;
+  ray.directionDepth = mul(camera.translatedWorldToView, float4(direction, 0)).z * viewSign;
+  ray.nearPlane = camera.nearPlane;
+  return ray;
+}
+
+float3 fogRayFroxelUVW(VolumeArgs args, FogRayProjection ray, float distance)
+{
+  float3 projected = ray.projectionOrigin + ray.projectionDirection * distance;
+  float2 uv = projected.xy / projected.z * float2(0.5f, -0.5f) + 0.5f;
+  float viewDepth = ray.originDepth + ray.directionDepth * distance;
+  float slice = viewZToDepthSlice(args.froxelDepthSlices, args.froxelDepthSliceDistributionExponent,
+    args.froxelMaxDistance, ray.nearPlane, viewDepth, false);
+  return float3(uv, slice / args.froxelDepthSlices);
+}
+
+bool fogFroxelContains(float3 uvw)
+{
+  return all(uvw.xy > 0) && all(uvw.xy < 1) && uvw.z > 0;
+}
+
+struct FogRadianceSample
+{
+  SphericalHarmonic radiance;
+  bool found;
+
+  float3 evaluate(float4 projectedPhase, float3 multiScattering)
+  {
+    return found
+      ? max(0.0f, radiance.evaluateHenyeyGreenstein(projectedPhase)) + multiScattering
+      : multiScattering;
+  }
+};
+
+FogRadianceSample fogSampleIncidentRadiance(VolumeArgs args, Sampler3D<float4> radianceY,
+  Sampler3D<float2> radianceCoCg, float3 uvw, uint volume)
+{
+  uvw.z = min(uvw.z, 1.0f - 0.5f / args.froxelDepthSlices);
+  uvw = virtualFroxelUVWToPhysicalFroxelUVW(uvw, volume,
+    args.minFilteredRadianceU, args.maxFilteredRadianceU, args.inverseNumFroxelVolumes);
+  FogRadianceSample sample;
+  sample.radiance = HarmonicsHelpers::loadFiltered3D<SphericalHarmonic>(radianceY, radianceCoCg, uvw);
+  sample.found = true;
+  return sample;
+}
+
+FogRadianceSample fogIncidentRadiance(VolumeArgs args, Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
+  float3 position, FogRayProjection firstVolumeRay, float distance)
+{
+  float3 uvw = fogRayFroxelUVW(args, firstVolumeRay, distance);
+  if (fogFroxelContains(uvw))
+  {
+    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, uvw, firstVolumeRay.volume);
+  }
+  // Portal volumes are searched cyclically from the preferred volume.
+  for (uint i = 1; i < args.numActiveFroxelVolumes; i++)
+  {
+    uint volume = (i + firstVolumeRay.volume) % args.numActiveFroxelVolumes;
+    VolumeDefinitionCamera camera = cb.volumeArgs.cameras[volume];
+    uvw = translatedWorldPositionToFroxelUVW(camera.translatedWorldToView,
+      camera.translatedWorldToProjectionJittered, packedFlagGet(camera.flags, rightHandedFlag),
+      args.froxelDepthSlices, args.froxelDepthSliceDistributionExponent, args.froxelMaxDistance, camera.nearPlane,
+      worldToTranslatedWorld(camera, position));
+    if (!fogFroxelContains(uvw)) continue;
+    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, uvw, volume);
+  }
+  return FogRadianceSample(SphericalHarmonic::create(), false);
+}

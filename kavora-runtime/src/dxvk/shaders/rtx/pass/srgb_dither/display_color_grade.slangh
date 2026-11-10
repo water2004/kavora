@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION. All rights reserved.
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/utility/color.slangh"
+
+// Receives linear post-tonemap RGB and returns linear graded RGB.
+// The pass owns transfer encoding, dithering and the output alpha.
+[ForceInline]
+float3 gradeDisplayColor(float3 color, float3 balance, float contrast, float saturation)
+{
+  color *= balance;
+  color = saturate(contrast * (color - 0.18f) + 0.18f);
+  return lerp(calcBt709Luminance(color).xxx, color, saturation);
+}
