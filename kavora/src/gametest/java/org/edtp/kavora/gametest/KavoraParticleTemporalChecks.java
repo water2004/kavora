@@ -17,9 +17,46 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.SingleQuadParticle;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.world.item.Items;
 
 /** Normal-sized foreground motion, including stops, reversals, and camera acceleration. */
 final class KavoraParticleTemporalChecks {
+    static void runHeldTorch(ClientGameTestContext context, TestSingleplayerContext world) {
+        world.getServer().runOnServer(server -> {
+            KavoraSceneFixtures.commands(server, "fill -3 -61 5 3 -54 5 minecraft:air",
+                    "fill -12 -61 12 12 -50 12 minecraft:blue_concrete",
+                    "item replace entity @a weapon.mainhand with minecraft:torch");
+            for (int x = -12; x <= 12; x += 2) {
+                KavoraSceneFixtures.commands(server, "fill " + x + " -61 12 " + x + " -50 12 minecraft:cyan_concrete");
+            }
+        });
+        context.waitFor(client -> client.player.getMainHandItem().is(Items.TORCH), 200);
+        context.runOnClient(client -> { if (client.gui.hud.isHidden()) client.gui.hud.toggle(); });
+        var capabilities = new FrameGenerationCapabilities();
+        context.runOnClient(client -> KavoraMod.renderer.getRemixApi().getFrameGenerationCapabilities(capabilities));
+        KavoraWorldGameTest.require(capabilities.initializationComplete && capabilities.supported, "FG capability unavailable");
+        try (var upscaler = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "1");
+             var quality = RuntimeOptionScope.acquire(context, "rtx.qualityDLSS", "0");
+             var reconstruction = RuntimeOptionScope.acquire(context, "rtx.enableRayReconstruction", "true");
+             var multiplier = RuntimeOptionScope.acquire(context, "rtx.dlfg.maxInterpolatedFrames", "1");
+             var enabled = RuntimeOptionScope.acquire(context, "rtx.dlfg.enable", "true")) {
+            long first = context.computeOnClient(client -> KavoraFrameProbe.presents);
+            context.runOnClient(client -> KavoraFrameProbe.frameAction = frame -> {
+                float yaw = (float) (12 * Math.sin((frame - first) * .12));
+                client.player.setYRot(yaw);
+                client.player.yRotO = yaw;
+            });
+            context.waitFor(client -> KavoraFrameProbe.presents >= first + 80, 20 * 50);
+            KavoraWorldGameTest.captureCompletedFrame(context, "held-torch-frame-generation");
+        } finally {
+            context.runOnClient(client -> {
+                KavoraFrameProbe.frameAction = null;
+                client.player.setYRot(0);
+                client.player.yRotO = 0;
+            });
+        }
+    }
+
     static void run(ClientGameTestContext context, TestSingleplayerContext world) {
         world.getServer().runOnServer(server -> {
             KavoraSceneFixtures.commands(server, "fill -3 -61 5 3 -54 5 minecraft:air",

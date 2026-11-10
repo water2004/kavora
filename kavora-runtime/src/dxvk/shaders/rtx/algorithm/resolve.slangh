@@ -823,6 +823,10 @@ float resolveVertexUnorderedParticles<
 #endif
 
   uint step = 0;
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+  float foregroundDistance = floatMax;
+  uint2 foregroundGuide = uint2(0, FG_FOREGROUND_INVALID_DEPTH);
+#endif
   for (; step < kMaxUnorderedResolveSteps && rayQuery.Proceed(); step++)
   {
     RayHitInfo rayHitInfo;
@@ -1010,6 +1014,26 @@ float resolveVertexUnorderedParticles<
     opacityTransmittance *= currentRadianceAttenuation;
     currentEmissiveRadiance = mix(vec3(0.0f), currentEmissiveRadiance, blendFactor);
 
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+    // A pixel has one FG motion/depth pair. Weak coverage keeps the background guide.
+    if (push.writeFgForegroundGuide && rayInteraction.isViewModel && surface.isParticle &&
+        portalSpace == PORTAL_SPACE_NONE && currentRadianceAttenuation <= 0.5f &&
+        rayHitInfo.hitDistance < foregroundDistance)
+    {
+      const vec3 pos = surfaceInteraction.position;
+      const vec4 clip = mul(cb.camera.worldToProjectionJittered, vec4(pos, 1.0f));
+      const vec2 previousNDC = cameraWorldPosToPrevNDC(cb.camera, pos + surfaceInteraction.motion);
+      const vec2 ndc = cameraPixelCoordinateToNDC(cb.camera, pixelCoordinate);
+      const vec2 motion = cameraCalcMotionVectorPixel(cb.camera, ndc, previousNDC);
+      const float depth = clip.z / clip.w;
+      if (all(isfinite(motion)) && depth >= 0.0f && depth <= 1.0f)
+      {
+        foregroundDistance = rayHitInfo.hitDistance;
+        foregroundGuide = uint2(f32tof16(motion.x) | (f32tof16(motion.y) << 16), asuint(depth));
+      }
+    }
+#endif
+
     if (any(currentEmissiveRadiance > 0.0f))
     {
       surfaceIndex = rayInteraction.surfaceIndex;
@@ -1073,6 +1097,17 @@ float resolveVertexUnorderedParticles<
   {
     return 1.0f;
   }
+
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+  if (foregroundGuide.y != FG_FOREGROUND_INVALID_DEPTH
+#ifdef GBUFFER_PRIMARY_CONTINUATION
+      && FgForegroundGuide[pixelCoordinate].y == FG_FOREGROUND_INVALID_DEPTH
+#endif
+     )
+  {
+    FgForegroundGuide[pixelCoordinate] = foregroundGuide;
+  }
+#endif
 
 #ifdef UNORDERED_RESOLVE_WBOIT
   if (alphaWeightSum > 0.f)

@@ -263,6 +263,11 @@ RWTexture2D<uint2> SharedSubsurfaceDiffusionProfileData;
 layout(push_constant)
 ConstantBuffer<GbufferPushConstants> push;
 
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+#include "rtx/pass/frame_generation/foreground_guide.h"
+[[vk::binding(GBUFFER_BINDING_FG_FOREGROUND_GUIDE)]] RWTexture2D<uint2> FgForegroundGuide;
+#endif
+
 layout(rgba32f, binding = GBUFFER_BINDING_ALIASED_DATA_0)
 uniform struct AliasedData0
 {

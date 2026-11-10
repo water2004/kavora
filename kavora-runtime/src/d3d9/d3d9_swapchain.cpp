@@ -35,6 +35,7 @@
 
 // NV-DXVK start: DLFG integration
 #include "../dxvk/rtx_render/rtx_dlfg.h"
+#include "../dxvk/rtx_render/rtx_context.h"
 // NV-DXVK end
 
 namespace dxvk {
@@ -1375,7 +1376,7 @@ namespace dxvk {
   // NV-DXVK start: Snapshot FG inputs into the acquired virtual backbuffer's lifetime.
   DxvkFrameInterpolationInfo D3D9SwapChainEx::PrepareClientInterpolation(uint32_t imageIndex, DxvkFrameInterpolationInfo info) {
     auto& slot = m_clientInterpolationSlots.at(imageIndex);
-    auto copyInput = [this](const Rc<DxvkImageView>& source, Rc<DxvkImageView>& destination, const char* name) {
+    auto prepareInput = [this](const Rc<DxvkImageView>& source, Rc<DxvkImageView>& destination, const char* name) {
       const auto& sourceInfo = source->imageInfo();
       if (!destination.ptr() || destination->imageInfo().extent != sourceInfo.extent ||
           destination->imageInfo().format != sourceInfo.format) {
@@ -1386,12 +1387,12 @@ namespace dxvk {
         image.extent = sourceInfo.extent;
         image.numLayers = 1;
         image.mipLevels = 1;
-        image.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        image.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
         if (!env::getEnvVar("RTX_DLFG_CAPTURE_PATH").empty()) {
           image.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         }
         image.stages = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-        image.access = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        image.access = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
         image.tiling = VK_IMAGE_TILING_OPTIMAL;
         image.layout = VK_IMAGE_LAYOUT_GENERAL;
         auto resource = m_device->createImage(image, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1399,19 +1400,28 @@ namespace dxvk {
         DxvkImageViewCreateInfo view {};
         view.type = VK_IMAGE_VIEW_TYPE_2D;
         view.format = image.format;
-        view.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+        view.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
         view.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
         view.numLevels = 1;
         view.numLayers = 1;
         destination = m_device->createImageView(resource, view);
         m_clientInterpolationHistory = false;
       }
-      const VkImageSubresourceLayers subresource { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-      // SubmitPresent waits for this slot's previous FG reads before executing the copies.
-      m_context->copyImage(destination->image(), subresource, {}, source->image(), subresource, {}, sourceInfo.extent);
     };
-    copyInput(info.motionVectors, slot.motionVectors, "ClientFrame::motionVectors");
-    copyInput(info.depth, slot.depth, "ClientFrame::depth");
+    prepareInput(info.motionVectors, slot.motionVectors, "ClientFrame::motionVectors");
+    prepareInput(info.depth, slot.depth, "ClientFrame::depth");
+
+    // The same virtual backbuffer acquire protects both the transfer and compute writes.
+    if (info.foregroundGuide != nullptr) {
+      RtxContext::mergeFrameGenerationGuides(m_context, info, slot.motionVectors, slot.depth);
+      info.foregroundGuide = nullptr;
+    } else {
+      const VkImageSubresourceLayers subresource { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+      m_context->copyImage(slot.motionVectors->image(), subresource, {}, info.motionVectors->image(),
+        subresource, {}, info.motionVectors->imageInfo().extent);
+      m_context->copyImage(slot.depth->image(), subresource, {}, info.depth->image(),
+        subresource, {}, info.depth->imageInfo().extent);
+    }
     info.motionVectors = slot.motionVectors;
     info.depth = slot.depth;
     info.motionVectorsLayout = VK_IMAGE_LAYOUT_GENERAL;

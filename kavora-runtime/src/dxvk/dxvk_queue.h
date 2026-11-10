@@ -82,6 +82,7 @@ namespace dxvk {
     bool              resetHistory;
     // number of requested interpolated frames; must be at least 1, actual count may be lower depending on hardware support for MFG
     uint32_t          interpolatedFrameCount = 0;
+    Rc<DxvkImageView> foregroundGuide;
     
     bool valid() const {
       return motionVectors.ptr() &&
@@ -92,6 +93,7 @@ namespace dxvk {
     void reset() {
       motionVectors = nullptr;
       depth = nullptr;
+      foregroundGuide = nullptr;
       resetHistory = false;
       interpolatedFrameCount = 0;
     }

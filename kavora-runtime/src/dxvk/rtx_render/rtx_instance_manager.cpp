@@ -1541,7 +1541,13 @@ namespace dxvk {
     if (RtxOptions::ViewModel::perspectiveCorrection()) {
       // A transform that looks "correct" only from a main camera's point of view
       const auto corrected = perspectiveCorrection * reference.getTransform();
-      const auto prevCorrected = prevPerspectiveCorrection * reference.getPrevTransform();
+      // A sprite change can replace a particle mesh. Until it has a prior pose, keep
+      // its current camera-relative placement instead of inheriting world camera motion.
+      auto prevCorrected = prevPerspectiveCorrection * reference.getPrevTransform();
+      if (reference.surface.alphaState.isParticle && reference.isCreatedThisFrame(frameId)) {
+        const auto& camera = ctx->getCommonObjects()->getSceneManager().getCamera();
+        prevCorrected = camera.getPreviousViewToWorld(false) * camera.getWorldToView(false) * corrected;
+      }
 
       auto isOrdinary = [](const Matrix4d& m) {
         auto isCloseTo = [](auto a, auto b) {
@@ -1599,6 +1605,7 @@ namespace dxvk {
                                                  const RayPortalManager& rayPortalManager) {
     ScopedGpuProfileZone(ctx, "ViewModel");
     m_hasViewModelEyeCorrection = false;
+    m_hasViewModelParticles = false;
 
     auto cleanupAllPersistentViewModelInstances = [this]() {
       for (auto& [ref, inst] : m_persistentViewModelInstances) {
@@ -1677,6 +1684,7 @@ namespace dxvk {
 
       activeViewModelReferences.insert(candidateInstance);
       viewModelInstances.push_back(createViewModelInstance(ctx, *candidateInstance, perspectiveCorrection, prevPerspectiveCorrection));
+      m_hasViewModelParticles |= candidateInstance->surface.alphaState.isParticle;
     }
 
     // Mark persistent view model instances whose references have disappeared for GC.

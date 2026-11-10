@@ -90,6 +90,8 @@ namespace dxvk {
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PATH_STORAGE)
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_INPUT)
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_OUTPUT)
+        { GBUFFER_BINDING_FG_FOREGROUND_GUIDE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_VIEW_TYPE_2D,
+          VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
         TEXTURE2D(GBUFFER_BINDING_WATER_SIMULATION)
         TEXTURE2DARRAY(GBUFFER_BINDING_WATER_WIND)
@@ -875,6 +877,7 @@ namespace dxvk {
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_BASE_REFLECTIVITY_OUTPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::Write), nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_MVEC_OUTPUT, rtOutput.m_primaryVirtualMotionVector.view(Resources::AccessType::Write), nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_OUTPUT, rtOutput.m_primaryScreenSpaceMotionVector.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_FG_FOREGROUND_GUIDE, rtOutput.m_fgForegroundGuide.view, nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_OUTPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_DENOISING_OUTPUT,
       rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.empty()
@@ -1086,6 +1089,7 @@ namespace dxvk {
     GbufferPushConstants pushArgs = {};
     pushArgs.usePSRPrepare = usePSRPrepare;
     pushArgs.skipSERReorder = skipSERReorder();
+    pushArgs.writeFgForegroundGuide = rtOutput.m_fgForegroundGuide.isValid();
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
 

@@ -50,6 +50,10 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
             });
             context.waitTicks(30);
             Path baseline = KavoraWorldGameTest.assertWorldRenders(context, world, "particle-baseline");
+            if (Boolean.getBoolean("kavora.gametest.heldTorchTemporal")) {
+                KavoraParticleTemporalChecks.runHeldTorch(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.heldTorch")) {
                 checkHeldTorch(context, world);
                 return;

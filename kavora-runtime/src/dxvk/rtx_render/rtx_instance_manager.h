@@ -418,6 +418,7 @@ public:
 
   // Creates view model instances and their virtual counterparts
   void createViewModelInstances(Rc<DxvkContext> ctx, const CameraManager& cameraManager, const RayPortalManager& rayPortalManager);
+  bool hasViewModelParticles() const { return m_hasViewModelParticles; }
 
   const std::array<Matrix3, 2>& getEyeShadingToWorld() const { return m_eyeShadingToWorld; }
   const std::array<Matrix3, 2>& getEyeWorldToShading() const { return m_eyeWorldToShading; }
@@ -449,6 +450,7 @@ private:
   std::array<Matrix3, 2> m_eyeShadingToWorld;
   std::array<Matrix3, 2> m_eyeWorldToShading;
   bool m_hasViewModelEyeCorrection = false;
+  bool m_hasViewModelParticles = false;
   std::vector<RtInstance*> m_playerModelInstances;
   uint32_t m_playerModelInstancesFrameId = kInvalidFrameIndex;
   std::vector<IntersectionBillboard> m_billboards;

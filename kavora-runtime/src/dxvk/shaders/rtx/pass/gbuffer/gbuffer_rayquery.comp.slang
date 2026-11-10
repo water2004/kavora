@@ -59,6 +59,7 @@
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 #define WATER_SIM_SAMPLE 1
+#define GBUFFER_FG_FOREGROUND_GUIDE 1
 #include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
@@ -112,6 +113,9 @@ void main(uint2 invocation : SV_DispatchThreadID)
     return;
   }
   pixel = invocation;
+  if (push.writeFgForegroundGuide) {
+    FgForegroundGuide[pixel] = uint2(0, FG_FOREGROUND_INVALID_DEPTH);
+  }
   state = geometryResolverBegin(ivec2(pixel));
   Ray primaryRay;
   preprocessPrimaryRayState(primaryRay, state);

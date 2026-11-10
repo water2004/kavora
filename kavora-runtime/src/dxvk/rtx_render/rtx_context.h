@@ -76,6 +76,8 @@ namespace dxvk {
     };
     InteropFrameState getInteropFrameState() const { return m_interopFrameState; }
     const DxvkFrameInterpolationInfo& getFrameInterpolationInfo() const { return m_frameInterpolation; }
+    static void mergeFrameGenerationGuides(const Rc<DxvkContext>& ctx, const DxvkFrameInterpolationInfo& source,
+      const Rc<DxvkImageView>& motion, const Rc<DxvkImageView>& depth);
 
     float getGpuIdleTimeSinceLastCall();
 

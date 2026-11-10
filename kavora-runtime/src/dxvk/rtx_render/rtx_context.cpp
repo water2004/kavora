@@ -49,6 +49,8 @@
 #include "rtx/pass/sparse_rendering/sparse_rendering.h"
 
 #include "rtx/pass/common_binding_indices.h"
+#include "rtx/pass/frame_generation/foreground_guide.h"
+#include <rtx_shaders/fg_foreground_merge.h>
 #include "rtx/pass/raytrace_args.h"
 #include "raytrace_layout_asserts.h"
 #include "rtx/pass/volume_args.h"
@@ -83,6 +85,19 @@
 #include "rtx_sky.h"
 
 namespace dxvk {
+
+  namespace {
+    class FgForegroundMerge : public ManagedShader {
+      SHADER_SOURCE(FgForegroundMerge, VK_SHADER_STAGE_COMPUTE_BIT, fg_foreground_merge)
+      BEGIN_PARAMETER()
+        TEXTURE2D(FG_FOREGROUND_INPUT)
+        TEXTURE2D(FG_SCENE_MOTION_INPUT)
+        TEXTURE2D(FG_SCENE_DEPTH_INPUT)
+        RW_TEXTURE2D(FG_MOTION_OUTPUT)
+        RW_TEXTURE2D(FG_DEPTH_OUTPUT)
+      END_PARAMETER()
+    };
+  }
 
   Metrics Metrics::s_instance;
 
@@ -533,6 +548,16 @@ namespace dxvk {
 
     rtOutput.m_primaryDepth = rtOutput.m_primaryDepthQueue.get();
     rtOutput.m_primaryScreenSpaceMotionVector = rtOutput.m_primaryScreenSpaceMotionVectorQueue.get();
+
+    const bool needsForegroundGuide = !m_device->vkd()->ownsDevice() && isDLFGEnabled() &&
+      RtxOptions::renderPassGBufferRaytraceMode() == DxvkPathtracerGbuffer::RaytraceMode::RayQuery &&
+      RtxOptions::enableSeparateUnorderedApproximations() && getSceneManager().getInstanceManager().hasViewModelParticles();
+    if (!needsForegroundGuide) {
+      rtOutput.m_fgForegroundGuide = {};
+    } else if (!rtOutput.m_fgForegroundGuide.isValid() || rtOutput.m_fgForegroundGuide.image->info().extent != downscaledExtent) {
+      Rc<DxvkContext> ctx(this);
+      rtOutput.m_fgForegroundGuide = Resources::createImageResource(ctx, "FG foreground guide", downscaledExtent, VK_FORMAT_R32G32_UINT);
+    }
 
     getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
 
@@ -2556,6 +2581,19 @@ namespace dxvk {
       color);
   }
 
+  void RtxContext::mergeFrameGenerationGuides(const Rc<DxvkContext>& ctx, const DxvkFrameInterpolationInfo& source,
+      const Rc<DxvkImageView>& motion, const Rc<DxvkImageView>& depth) {
+    ScopedGpuProfileZone(ctx, "FG foreground guide merge");
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, FgForegroundMerge::getShader());
+    ctx->bindResourceView(FG_FOREGROUND_INPUT, source.foregroundGuide, nullptr);
+    ctx->bindResourceView(FG_SCENE_MOTION_INPUT, source.motionVectors, nullptr);
+    ctx->bindResourceView(FG_SCENE_DEPTH_INPUT, source.depth, nullptr);
+    ctx->bindResourceView(FG_MOTION_OUTPUT, motion, nullptr);
+    ctx->bindResourceView(FG_DEPTH_OUTPUT, depth, nullptr);
+    const auto& extent = source.foregroundGuide->imageInfo().extent;
+    ctx->dispatch((extent.width + 15) / 16, (extent.height + 7) / 8, 1);
+  }
+
   void RtxContext::dispatchDLFG() {
     if (!isDLFGEnabled()) {
       return;
@@ -2578,6 +2616,7 @@ namespace dxvk {
       rtOutput.m_primaryDepth.image->info().layout,
       getSceneManager().getCamera().isCameraCut(),
       m_common->metaDLFG().getInterpolatedFrameCount(),
+      rtOutput.m_fgForegroundGuide.view,
     };
     // Host presentation binds frame metadata after composing the client's GUI.
     if (m_device->vkd()->ownsDevice()) {

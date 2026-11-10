@@ -410,6 +410,7 @@ namespace dxvk
       AliasedResource m_primaryDepthDLSSRR;
       AliasedResource m_primaryWorldShadingNormalDLSSRR;
       Resource m_primaryScreenSpaceMotionVectorDLSSRR;
+      Resource m_fgForegroundGuide;
 
       // DLSSNR Data
       AliasedResource m_neuralRenderingOutput;
