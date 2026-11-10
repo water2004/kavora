@@ -62,6 +62,14 @@ GpuParticle respawn(uint particleIdx, uint spawnCtxIdx, const GpuParticleSystem 
   
   // Get spawn context
   GpuSpawnContext spawnCtx = SpawnContexts[spawnCtxIdx];
+
+  if (spawnCtx.numTriangles == 0) {
+    // Retire rejected slots at the normal age to keep the ring contiguous.
+    const float seed = randomFloat(uint2(particleIdx, particleCb.frameIdx));
+    newParticle.reset(particleSystem, float3(0.0f), float3(0.0f), f16vec4(0.0h), float4(0.0f), seed);
+    newParticle.flags = GpuParticle::kRejectedSpawnFlag;
+    return newParticle;
+  }
   
   // Get random triangle
   

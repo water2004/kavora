@@ -136,6 +136,10 @@ float3 attractorAcceleration(const GpuParticleSystem particleSystem, float3 part
 // Updates a particles state for one time step
 void evolve(inout GpuParticle particle, const GpuParticleSystem particleSystem)
 {
+  if (particle.isRejectedSpawn()) {
+    return;
+  }
+
   const float3 initialVelocity = particle.velocity;
   float3 acceleration = particleCb.upDirection * particleSystem.desc.gravityForce * particleCb.sceneScale;
   if (particleSystem.desc.useTurbulence)

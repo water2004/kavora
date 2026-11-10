@@ -582,7 +582,6 @@ namespace dxvk {
     spawnCtx.particleOffset = particleSystem->context.particleHeadOffset;
     spawnCtx.instanceId = instance.getVectorIdx();
     spawnCtx.instanceIdentity = instance.getCacheIdentity();
-    spawnCtx.particleSystemHash = particleSystem->getHash();
 
     // Update material specific counters
     particleSystem->context.particleHeadOffset += numParticles;
@@ -835,15 +834,8 @@ namespace dxvk {
       }
 
       if (pTargetInstance == nullptr) {
-        // I dont see this case being hit, but in theory it could happen since we track the 
-        //   instance ID at draw time, and the instance list can change over the course of a frame.
-        //   In the event it does happen, handle gracefully...dw
+        // Keep the ring reservation and let the spawn shader reject this context.
         memset(&gpuCtx, 0, sizeof(GpuSpawnContext));
-        // zero out the spawn count, so we dont try to create any new particles here
-        auto particleSystemIt = m_particleSystems.find(spawnCtx.particleSystemHash);
-        if (particleSystemIt != m_particleSystems.end()) {
-          particleSystemIt->second->context.spawnParticleCount = 0;
-        }
         continue;
       }
 

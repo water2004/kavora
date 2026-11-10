@@ -37,10 +37,11 @@ struct GpuParticle {
   f16vec4 uvMinMax;
   half rotation;
   half timeToLive;
-  half pad0;
+  uint16_t flags;
   half pad1;
 
   const static uint16_t kDeadTimeToLiveSentinel = 0x7C00;
+  const static uint16_t kRejectedSpawnFlag = 1;
 
 #ifdef __cplusplus
   // This ensures that `timeToLive` is initialized with the correct value.
@@ -48,6 +49,7 @@ struct GpuParticle {
 #else
   [mutating]
   void reset(GpuParticleSystem system, float3 worldPosition, float3 worldVelocity, f16vec4 _uvMinMax, vec4 color, float seed) {
+    flags = 0;
     randSeed = seed;
     rotation = half((seed * 2.0f - 1.0f) * radians(system.desc.initialRotationDeviationDegrees));
     timeToLive = initialTimeToLive(system);
@@ -68,6 +70,10 @@ struct GpuParticle {
 
   bool isSleeping() {
     return timeToLive <= 0;
+  }
+
+  bool isRejectedSpawn() {
+    return (flags & kRejectedSpawnFlag) != 0;
   }
 
   float16_t initialTimeToLive(GpuParticleSystem system) {

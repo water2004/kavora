@@ -50,7 +50,6 @@ namespace dxvk {
       uint32_t numberOfParticles;
       uint32_t instanceId;
       uint64_t instanceIdentity;
-      XXH64_hash_t particleSystemHash;
       uint32_t particleOffset;
     };
 
