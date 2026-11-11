@@ -56,6 +56,7 @@
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 #define WATER_SIM_SAMPLE 1
+#define GBUFFER_FG_GUIDE 1
 #include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
 // Note: Needed for declaration of g-buffer ray payload structure
 #include "rtx/algorithm/geometry_resolver_state.slangh"

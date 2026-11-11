@@ -24,6 +24,7 @@
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 #include "rtx/algorithm/render_target_motion.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi_temporal_history.h"
+#include "rtx/pass/ray_reconstruction/specular_motion.slangh"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
 #include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
 #include "rtx/utility/noise.slangh"
@@ -89,6 +90,16 @@ static const uint8_t psrTypeTransmission = uint8_t(1);
 
 static const uint psrBufferReflection = 0;
 static const uint psrBufferTransmission = 1;
+
+// A split optical path owns the specular guide until the reflection is resolved.
+void resolveRRSpecularMotion(uvec2 pixel, bool primarySurface, vec2 motion)
+{
+  if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && !primarySurface &&
+      RayReconstructionSpecularMotion[pixel].x == kRRSpecularMotionPending && validRRSpecularMotion(motion))
+  {
+    RayReconstructionSpecularMotion[pixel] = motion;
+  }
+}
 
 // Geometry Resolver Helper Functions
 
@@ -252,6 +263,12 @@ void geometryResolverStorePSRContinuation(
   }
 }
 
+// The primary PSR lobe replaces this seed with the resolved screen-space guide.
+void geometryResolverStorePSRProjectionSeed(uvec2 pixel, float refractionScale, bool viewModel)
+{
+  PrimaryScreenSpaceMotionVector[pixel] = vec2(refractionScale, float(viewModel));
+}
+
 float geometryResolverLoadPSRConeRadius(uvec2 pixelCoordinate)
 {
   if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
@@ -356,7 +373,6 @@ void geometryResolverOutputMiss<
     {
       PrimaryPerceptualRoughness[pixelCoordinate] = 0.f;
       PrimaryDepthDLSSRR[pixelCoordinate] = cb.clearColorDepth;
-      PrimaryScreenSpaceMotionVectorDLSSRR[pixelCoordinate] = PrimaryScreenSpaceMotionVector[pixelCoordinate];
       PrimaryWorldShadingNormalDLSSRR[pixelCoordinate] = vec4(0.0f);
     }
 
@@ -504,7 +520,6 @@ void geometryResolverOutputSurface<
     if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
     {
       PrimaryDepthDLSSRR[pixelCoordinate] = projection.depth;
-      PrimaryScreenSpaceMotionVectorDLSSRR[pixelCoordinate] = projection.screenSpaceMotion;
       const GBufferMemoryPolymorphicSurfaceMaterialInteraction rrMaterial =
         gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
       const vec3 rrNormal = rrVirtualNormal(vec3(rrMaterial.worldShadingNormal), accumulatedRotation,
@@ -727,14 +742,43 @@ void geometryResolverOutputSurface<
   geometryResolverOutputSurfaceDebugView<PRIMARY_SURFACE>(pixelCoordinate, compactedCoordinate, virtualMotion, polymorphicSurfaceMaterialInteraction);
 }
 
+vec3 projectViewModelOpticalMotion(uvec2 pixel, float apparentHitDistance, vec4 accumulatedRotation,
+  SurfaceInteraction surfaceInteraction)
+{
+  // Unfold motion within the hand rig before applying the previous camera pose.
+  const vec3 eye = cameraGetWorldPosition(cb.camera);
+  const vec3 previousEye = cameraGetPreviousWorldPosition(cb.camera);
+  const vec3 currentPoint = surfaceInteraction.position - eye;
+  const vec3 previousPoint = surfaceInteraction.position - previousEye + surfaceInteraction.motion;
+  const vec3 previousPointInView = mul(mat3(cb.camera.prevWorldToView), previousPoint);
+  const vec3 localMotion = mul(mat3(cb.camera.viewToWorld), previousPointInView) - currentPoint;
+  const vec3 virtualOffset = cameraPixelCoordinateToDirection(cb.camera, ivec2(pixel), false).worldDirection * apparentHitDistance;
+  const vec3 virtualMotion = quaternionTransformVector(accumulatedRotation, localMotion, true);
+  const vec3 previousVirtualOffset = mul(mat3(cb.camera.prevViewToWorld),
+    mul(mat3(cb.camera.worldToView), virtualOffset + virtualMotion));
+  return previousEye - eye + previousVirtualOffset - virtualOffset;
+}
+
+vec2 projectViewModelOpticalMiss(uvec2 pixel, vec3 finalDirection, vec4 accumulatedRotation)
+{
+  const vec3 incident = cameraPixelCoordinateToDirection(cb.camera, ivec2(pixel), false).worldDirection;
+  const vec3 directionInPreviousView = mul(mat3(cb.camera.prevWorldToView), finalDirection);
+  const vec3 localMotion = mul(mat3(cb.camera.viewToWorld), directionInPreviousView) - finalDirection;
+  const vec3 previousLocalDirection = incident + quaternionTransformVector(accumulatedRotation, localMotion, true);
+  const vec3 previousDirection = mul(mat3(cb.camera.prevViewToWorld), mul(mat3(cb.camera.worldToView), previousLocalDirection));
+  const vec4 clip = mul(cb.camera.prevWorldToProjection, vec4(previousDirection, 0.0f));
+  return clip.w > 0.0f ? cameraCalcMotionVectorPixel(cb.camera, cameraPixelCoordinateToNDC(cb.camera, pixel), clip.xy / clip.w)
+    : calcMotionVectorForRayMiss(pixel);
+}
+
 void geometryResolverOutputSurfaceDynamic(
   bool primarySurface, bool selectedIntegrationSurface, uvec2 pixelCoordinate, uvec2 compactedCoordinate,
   Ray ray, RayInteraction rayInteraction,
   Surface surface, SurfaceInteraction surfaceInteraction,
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   vec3 radiance, vec3 attenuation, vec4 accumulatedRotation,
-  uint mediumState, float virtualHitDistance, bool directionAltered,
-  bool useAlternateDisocclusionThreshold, bool isViewModel,
+  uint mediumState, float virtualHitDistance, float apparentHitDistance, bool directionAltered,
+  bool useAlternateDisocclusionThreshold, bool isViewModel, bool viewModelOpticalPath,
   bool renderTargetPath, bool cameraHistoryValid, vec3 previousScreenPoint)
 {
   // Note: Virtual hit distance and motion account for the ray traversing ray portals and PSR interactions.
@@ -747,7 +791,17 @@ void geometryResolverOutputSurfaceDynamic(
     }
     virtualMotion = previousScreenPoint - rayEvaluate(cameraRay, virtualHitDistance);
   }
-  VirtualHitProjection projection = projectVirtualHit(pixelCoordinate, virtualHitDistance, virtualMotion);
+  else if (viewModelOpticalPath)
+  {
+    virtualMotion = projectViewModelOpticalMotion(pixelCoordinate, apparentHitDistance, accumulatedRotation, surfaceInteraction);
+  }
+  VirtualHitProjection projection = projectVirtualHit(pixelCoordinate, apparentHitDistance, virtualMotion);
+  if (apparentHitDistance != virtualHitDistance)
+  {
+    // Lighting and atmosphere use the traced path length.
+    const Ray cameraRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate, false);
+    projection.linearViewZ = cameraWorldPosToLinearViewZ(cb.camera, rayEvaluate(cameraRay, virtualHitDistance));
+  }
   if (renderTargetPath) {
     projection.cameraHistory = cameraHistoryValid
       ? (surface.isStatic ? kTemporalHistoryStaticCamera : kTemporalHistoryMovingCamera)
@@ -756,6 +810,8 @@ void geometryResolverOutputSurfaceDynamic(
       projection.screenSpaceMotion = vec2(-2.0f * float(cb.camera.resolution.x), 0.0f);
     }
   }
+
+  resolveRRSpecularMotion(pixelCoordinate, primarySurface, projection.screenSpaceMotion);
 
   if (primarySurface)
   {
@@ -2502,6 +2558,22 @@ void geometryResolverVertex(
   const VirtualHitProjection projection =
     projectVirtualHit(geometryResolverState.pixelCoordinate, geometryResolverState.accumulatedHitDistance, virtualMotion);
 
+#ifdef GBUFFER_FG_GUIDE
+  // FG uses the visible interface's geometry for a composite of optical paths.
+  // PSR can replace the scene's primary guides after this point.
+  if (push.writeFgForegroundGuide && geometryResolverState.performedAnyPSR() &&
+      rayInteraction.materialType == surfaceMaterialTypeTranslucent &&
+      projection.depth >= 0.0f && projection.depth <= 1.0f &&
+      all(abs(projection.screenSpaceMotion) <= 65504.0f))
+  {
+    const uvec2 pixel = geometryResolverState.pixelCoordinate;
+    if (FgForegroundGuide[pixel].y == FG_FOREGROUND_INVALID_DEPTH)
+    {
+      FgForegroundGuide[pixel] = uint2(packFloat2x16(projection.screenSpaceMotion), asuint(projection.depth));
+    }
+  }
+#endif
+
   const bool writeFirstHitForPSRPrepare =
 #if GBUFFER_FEATURE_INLINE_PSR_SAMPLING
     push.usePSRPrepare &&
@@ -2567,6 +2639,7 @@ void geometryResolverVertex(
       psrData.mediumStateAndGeometryFlags |= kPSRRenderTargetPath;
         
       storeTransmissionPSRData(psrData, geometryResolverState.pixelCoordinate);
+      geometryResolverStorePSRProjectionSeed(geometryResolverState.pixelCoordinate, 1.0f, false);
       geometryResolverStorePSRContinuation(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate,
         geometryResolverState.accumulatedHitDistance, newRay.coneRadius);
     }
@@ -2601,6 +2674,10 @@ void geometryResolverVertex(
 
     if (geometryResolverState.performPSRR)
     {
+      if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && geometryResolverState.performPSTR)
+      {
+        RayReconstructionSpecularMotion[geometryResolverState.pixelCoordinate] = kRRSpecularMotionPending.xx;
+      }
       // Todo: Put this direction sampling and state logic into a function similar to how the integrator does it
 
       // Create a ray from the Reflection PSR material sample
@@ -2663,6 +2740,9 @@ void geometryResolverVertex(
       }
     }
 
+    geometryResolverStorePSRProjectionSeed(geometryResolverState.pixelCoordinate,
+      geometryResolverState.performPSTR ? surfaceMaterialInteractionTransmissionPSRSample.relativeRefractiveIndex : 1.0f,
+      geometryResolverState.isViewModelSurface);
     geometryResolverStorePSRContinuation(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate,
       geometryResolverState.accumulatedHitDistance, rayInteraction.coneRadius);
 
@@ -2975,6 +3055,9 @@ void geometryPSRResolverVertex(
   if (rayInteractionHasHit(rayInteraction))
   {
     geometryPSRResolverState.accumulatedHitDistance += geometryPSRResolverState.segmentHitDistance;
+    // Snell's law scales ray divergence perpendicular to the plane of incidence by n_in / n_out.
+    geometryPSRResolverState.apparentHitDistance +=
+      geometryPSRResolverState.segmentHitDistance * geometryPSRResolverState.refractionScale;
   }
   else
   {
@@ -3006,13 +3089,30 @@ void geometryPSRResolverVertex(
     SharedRadianceRG[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.rg;
     SharedRadianceB[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.b;
 
+    const uvec2 pixel = geometryPSRResolverState.pixelCoordinate;
     geometryResolverOutputMissDynamic(
       geometryPSRResolverState.primarySurface, geometryPSRResolverState.selectedIntegrationSurface,
       geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate);
 
+    if (geometryPSRResolverState.viewModelOpticalPath)
+    {
+      const vec2 motion = projectViewModelOpticalMiss(pixel, ray.direction, geometryPSRResolverState.accumulatedRotation);
+      if (geometryPSRResolverState.primarySurface)
+      {
+        PrimaryScreenSpaceMotionVector[pixel] = motion;
+      }
+      else
+      {
+        resolveRRSpecularMotion(pixel, false, motion);
+      }
+    }
+    else if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && !geometryPSRResolverState.primarySurface)
+    {
+      resolveRRSpecularMotion(pixel, false, calcMotionVectorForRayMiss(pixel));
+    }
+
     if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && geometryPSRResolverState.renderTargetPath &&
         geometryPSRResolverState.primarySurface) {
-      const uvec2 pixel = geometryPSRResolverState.pixelCoordinate;
       const float distance = geometryPSRResolverState.renderTargetScreenDistance;
       vec3 previousScreenPoint;
       const bool valid = projectCameraScreenPoint(geometryPSRResolverState.renderTargetTriangle,
@@ -3026,7 +3126,6 @@ void geometryPSRResolverVertex(
       PrimaryScreenSpaceMotionVector[pixel] = screenMotion;
       if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR) {
         PrimaryDepthDLSSRR[pixel] = projection.depth;
-        PrimaryScreenSpaceMotionVectorDLSSRR[pixel] = screenMotion;
         if (!valid) {
           PrimaryDisocclusionThresholdMix[pixel] = cb.setLogValueForDisocclusionMaskForDLSSRR ? 9.21034037f : 10000.0f;
         }
@@ -3061,6 +3160,7 @@ void geometryPSRResolverVertex(
     geometryPSRResolverState.direction = continuation.direction;
     geometryPSRResolverState.coneRadius = continuation.coneRadius;
     geometryPSRResolverState.continuePSRResolving = true;
+    geometryPSRResolverState.viewModelOpticalPath = false;
     if (throughCamera) {
       const OpaqueSurfaceMaterial material = opaqueSurfaceMaterialCreate(surfaceMaterials[surface.surfaceMaterialIndex]);
       const float gain = material.emissiveIntensity > 0.0h ? float(material.emissiveIntensity) : 1.0f;
@@ -3148,6 +3248,7 @@ void geometryPSRResolverVertex(
 
   if (useReflectionPSRSample)
   {
+    geometryPSRResolverState.viewModelOpticalPath = geometryPSRResolverState.viewModelOpticalPath && rayInteraction.isViewModel;
     // Set PSR resolver state information from the reflection sample for the next iteration
 
     // Note: Penetrate surface flag always known to be false for reflection events.
@@ -3170,6 +3271,7 @@ void geometryPSRResolverVertex(
   }
   else if (useTransmissionPSRSample)
   {
+    geometryPSRResolverState.viewModelOpticalPath = geometryPSRResolverState.viewModelOpticalPath && rayInteraction.isViewModel;
     // Set PSR resolver state information from the transmission sample for the next iteration
 
     Ray sampledRay = rayCreateDirection(
@@ -3186,6 +3288,10 @@ void geometryPSRResolverVertex(
     geometryPSRResolverState.direction = sampledRay.direction;
     geometryPSRResolverState.attenuation *= surfaceMaterialInteractionTransmissionPSRSample.attenuation;
     geometryPSRResolverState.continuePSRResolving = true;
+    if (geometryPSRResolverState.isTransmissionPSR)
+    {
+      geometryPSRResolverState.refractionScale *= surfaceMaterialInteractionTransmissionPSRSample.relativeRefractiveIndex;
+    }
     geometryPSRResolverState.accumulatedRotation =
       quaternionMultiply(geometryPSRResolverState.accumulatedRotation, surfaceMaterialInteractionTransmissionPSRSample.vectorTransform, true);
 
@@ -3214,9 +3320,11 @@ void geometryPSRResolverVertex(
       polymorphicSurfaceMaterialInteraction,
       geometryPSRResolverState.radiance, geometryPSRResolverState.attenuation,
       geometryPSRResolverState.accumulatedRotation, geometryPSRResolverState.mediumState,
-      renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.accumulatedHitDistance, true,
+      renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.accumulatedHitDistance,
+      renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.apparentHitDistance, true,
       geometryPSRResolverState.useAlternateDisocclusionThreshold,
-      geometryPSRResolverState.isViewModelSurface, renderTargetPath, cameraHistoryValid, previousScreenPoint);
+      geometryPSRResolverState.isViewModelSurface || rayInteraction.isViewModel,
+      geometryPSRResolverState.viewModelOpticalPath, renderTargetPath, cameraHistoryValid, previousScreenPoint);
 
     // Output Emissive Radiance
 
@@ -3271,7 +3379,17 @@ uint8_t primaryRayMaskToObjectMask(uint8_t rayMask, bool isViewModel)
 // Geometry Resolver Functions
 
 GeometryResolverState geometryResolverBegin(ivec2 pixelCoordinate) {
+#ifdef GBUFFER_FG_GUIDE
+  if (push.writeFgForegroundGuide)
+  {
+    FgForegroundGuide[pixelCoordinate] = uint2(0, FG_FOREGROUND_INVALID_DEPTH);
+  }
+#endif
   const uvec2 compactedCoordinate = loadGBufferStoreCoordinate(uvec2(pixelCoordinate));
+  if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
+  {
+    RayReconstructionSpecularMotion[pixelCoordinate] = kRRSpecularMotionUnset.xx;
+  }
 
   // Initialize Geometry Resolver State
 
@@ -4117,6 +4235,10 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
 
   if (performPSRR)
   {
+    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && performPSTR)
+    {
+      RayReconstructionSpecularMotion[pixelCoordinate] = kRRSpecularMotionPending.xx;
+    }
     const Ray sampledRay = rayCreateDirection(
       minimalRayInteraction, minimalSurfaceInteraction, primaryRay,
       reflectionPSRSample.inputDirection, false);
@@ -4158,6 +4280,8 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
       useAlternateDisocclusionThreshold || transmissionPSRSample.useAlternateDisocclusionThreshold;
   }
 
+  geometryResolverStorePSRProjectionSeed(pixelCoordinate,
+    performPSTR ? transmissionPSRSample.relativeRefractiveIndex : 1.0f, geometryFlags.isViewModel);
   SecondaryHitDistance[pixelCoordinate] = PrimaryHitDistance[pixelCoordinate];
   PrimaryDisocclusionThresholdMix[pixelCoordinate] = useAlternateDisocclusionThreshold ? 1.0f : 0.0f;
 
@@ -4280,6 +4404,10 @@ GeometryPSRResolverState geometryPSRResolverBegin(ivec2 pixelCoordinate, bool is
 
   geometryPSRResolverState.accumulatedHitDistance = geometryResolverLoadPSRHitDistance(
     uvec2(pixelCoordinate), !geometryPSRResolverState.primarySurface);
+  geometryPSRResolverState.apparentHitDistance = geometryPSRResolverState.accumulatedHitDistance;
+  const vec2 projectionSeed = PrimaryScreenSpaceMotionVector[pixelCoordinate];
+  geometryPSRResolverState.refractionScale = isTransmissionPSR ? projectionSeed.x : 1.0f;
+  geometryPSRResolverState.viewModelOpticalPath = projectionSeed.y != 0.0f;
   geometryPSRResolverState.renderTargetScreenDistance = geometryPSRResolverState.accumulatedHitDistance;
 
   if (geometryPSRResolverState.primarySurface)

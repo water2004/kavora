@@ -162,7 +162,7 @@ namespace dxvk {
     VkExtent3D workgroups = util::computeBlockCount(rtOutput.m_compositeOutputExtent, VkExtent3D { 16, 16, 1 });
 
     // Geometry and material guides describe the same resolved primary PSR surface.
-    auto motionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR;
+    const auto* motionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVector;
     auto depthInput = &rtOutput.m_primaryDepthDLSSRR.resource(Resources::AccessType::Read);
     
     // The compacted GBuffer's albedo sources are compacted, so DLSS-RR reads the dense copies instead.
@@ -263,7 +263,7 @@ namespace dxvk {
       buffers.pSpecularAlbedo = &specularAlbedoGuide;
       buffers.pNormals = &rtOutput.m_primaryWorldShadingNormalDLSSRR.resource(Resources::AccessType::Read);
       buffers.pRoughness = &rtOutput.m_primaryPerceptualRoughness;
-      buffers.pHitDistance = useSpecularHitDistance() ? &rtOutput.m_rayReconstructionHitDistance.resource(Resources::AccessType::Read) : nullptr;
+      buffers.pSpecularMotion = &rtOutput.m_rayReconstructionSpecularMotion;
       buffers.pDisocclusionMask = enableDisocclusionMaskBlur()
         ? &rtOutput.m_primaryDisocclusionMaskForRR.resource(Resources::AccessType::Read)
         : &rtOutput.m_primaryDisocclusionThresholdMix;
@@ -277,7 +277,7 @@ namespace dxvk {
         buffers.pNormals,
         buffers.pSpecularAlbedo,
         buffers.pRoughness,
-        buffers.pHitDistance,
+        buffers.pSpecularMotion,
         buffers.pDisocclusionMask
       };
 
@@ -372,7 +372,7 @@ namespace dxvk {
 
       constexpr ImGuiSliderFlags sliderFlags = ImGuiSliderFlags_AlwaysClamp;
 
-      RemixGui::Checkbox("Use Specular Hit Distance", &useSpecularHitDistanceObject());
+      RemixGui::Checkbox("Estimate Specular Motion From Hit Distance", &useSpecularHitDistanceObject());
       RemixGui::Checkbox("Preserve Settings in Native Mode", &preserveSettingsInNativeModeObject());
       RemixGui::Checkbox("DLSS-RR Detail Enhancement", &enableDetailEnhancementObject());
       RemixGui::Checkbox("DLSS-RR Demodulate Roughness", &demodulateRoughnessObject());

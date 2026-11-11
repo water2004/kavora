@@ -23,6 +23,7 @@
 
 #include "rtx/pass/composite/composite_args.h"
 #include "rtx/pass/composite/composite.slangh"
+#include "rtx/pass/ray_reconstruction/specular_motion.slangh"
 
 #include "rtx/utility/common.slangh"
 #include "rtx/utility/packing.slangh"
@@ -140,10 +141,10 @@ void postCompositeDebugView(
   case DEBUG_VIEW_GEOMETRY_FLAGS_FIRST_SAMPLED_LOBE_IS_SPECULAR:
     storeInDebugView(pixelCoordinate, geometryFlags.firstSampledLobeIsSpecular);
     break;
-  case DEBUG_VIEW_RAY_RECONSTRUCTION_HIT_DISTANCE:
-    if (cb.writeRayReconstructionHitDistance)
+  case DEBUG_VIEW_RAY_RECONSTRUCTION_SPECULAR_MOTION:
+    if (cb.useRayReconstruction)
     {
-      storeInDebugView(pixelCoordinate, RayReconstructionHitDistanceOutput[pixelCoordinate] / 1000.0);
+      storeInDebugView(pixelCoordinate, float3(abs(RayReconstructionSpecularMotion[pixelCoordinate]) / 32.0f, 0.0f));
     }
     break;
   case DEBUG_VIEW_SPARSE_RENDERING_ACTIVE_THREADS:
@@ -158,10 +159,9 @@ void postCompositeDebugView(
     bool isValid = true;
     // DEBUG_VIEW_GEOMETRY_FLAGS_FIRST_SAMPLED_LOBE_IS_SPECULAR
     isValid &= isValidValue(float(geometryFlags.firstSampledLobeIsSpecular));
-    // DEBUG_VIEW_RAY_RECONSTRUCTION_HIT_DISTANCE
-    if (cb.writeRayReconstructionHitDistance)
+    if (cb.useRayReconstruction)
     {
-      isValid &= isValidValue(RayReconstructionHitDistanceOutput[pixelCoordinate]);
+      isValid &= validRRSpecularMotion(RayReconstructionSpecularMotion[pixelCoordinate]);
     }
 
     accumulateInDebugViewAnd(pixelCoordinate, isValid);
@@ -672,16 +672,21 @@ void main(uint2 threadIndex : SV_DispatchThreadID, uint2 localIndex : SV_GroupTh
     primaryMiss = packedFlagGet(PrimarySurfaceFlags[pixelCoordinate], kPrimarySurfaceFlagPrimaryRayMiss);
   }
 
-  // Written from composite (rather than the prepare RR pass) so the value is gated by sparse activity
-  if (cb.writeRayReconstructionHitDistance)
+  // Sparse lighting hit distances are only available at pixels with an integration slot.
+  if (cb.useRayReconstruction && !validRRSpecularMotion(RayReconstructionSpecularMotion[pixelCoordinate]))
   {
-    float hitDistance = 0;
-    if (pixelIsActive && !primaryMiss &&
+    const float2 primaryMotion = RayReconstructionPrimaryMotion[pixelCoordinate];
+    float2 specularMotion = primaryMotion;
+    if (cb.estimateRRSpecularMotionFromHitDistance && pixelIsActive && !primaryMiss &&
         (cb.enableReSTIRGI || !geometryFlags.firstSampledLobeUsesDiffuseSignal))
     {
-      hitDistance = PrimaryIndirectSpecularRadianceHitDistance[compactedCoordinate].a;
+      const float hitDistance = PrimaryIndirectSpecularRadianceHitDistance[compactedCoordinate].a;
+      if (hitDistance > 0.0f && isfinite(hitDistance))
+      {
+        specularMotion = estimateRRSpecularMotion(cb.camera, pixelCoordinate, primaryLinearViewZ, hitDistance, primaryMotion);
+      }
     }
-    RayReconstructionHitDistanceOutput[pixelCoordinate] = hitDistance;
+    RayReconstructionSpecularMotion[pixelCoordinate] = specularMotion;
   }
 
   float controlMaskTransmittance;

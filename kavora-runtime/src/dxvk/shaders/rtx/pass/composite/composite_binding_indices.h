@@ -73,6 +73,7 @@
 #define COMPOSITE_CLOUD_DETAIL_SAMPLER                               35
 #define COMPOSITE_CLOUD_WEATHER_SAMPLER                              37
 #define COMPOSITE_CLOUD_SKY_SAMPLER                                  38
+#define COMPOSITE_RR_PRIMARY_MOTION_INPUT                            39
 
 // Inputs/Outputs
 
@@ -86,6 +87,6 @@
 #define COMPOSITE_ALPHA_BLEND_RADIANCE_OUTPUT                       53
 
 #define COMPOSITE_DEBUG_VIEW_OUTPUT                                 54
-#define COMPOSITE_RAY_RECONSTRUCTION_HIT_DISTANCE_OUTPUT            55
+#define COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT                   55
 #define COMPOSITE_PRIMARY_COVERAGE_OUTPUT                           56
 #define COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT                       59

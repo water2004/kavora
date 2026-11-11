@@ -255,6 +255,7 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
       diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
       insideMedium, penetrateSurface);
+    surfaceMaterialInteractionTransmissionPSRSample.relativeRefractiveIndex = 1.0f;
 
     break;
   case uint(surfaceMaterialTypeTranslucent):
@@ -276,6 +277,7 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
       diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
       insideMedium, penetrateSurface);
+    surfaceMaterialInteractionTransmissionPSRSample.relativeRefractiveIndex = 1.0f;
 
     break;
   }

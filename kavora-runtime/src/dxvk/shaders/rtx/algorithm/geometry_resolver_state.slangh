@@ -259,6 +259,8 @@ struct GeometryPSRResolverState : IBasePayloadState
   
   f16vec4 _accumulatedRotation;
   float accumulatedHitDistance;
+  float apparentHitDistance;
+  float refractionScale;
   uint mediumState;
   
   f16vec3 _direction;
@@ -381,6 +383,12 @@ struct GeometryPSRResolverState : IBasePayloadState
   {
     get { return packedFlagGet(_encodedFlags, 1 << 7); }
     set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 7, newValue); }
+  }
+
+  property bool viewModelOpticalPath
+  {
+    get { return packedFlagGet(_encodedFlags, 1 << 8); }
+    set { _encodedFlags = packedFlagAssign(_encodedFlags, 1 << 8, newValue); }
   }
 
   // Note: Used as an input and output to indicate when the PSR resolving should finish. Set to true either

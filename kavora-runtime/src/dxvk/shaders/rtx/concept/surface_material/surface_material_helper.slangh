@@ -75,6 +75,7 @@ struct SurfaceMaterialInteractionPSRSample
   vec3 inputDirection;
   vec3 attenuation;
   vec4 vectorTransform;
+  float relativeRefractiveIndex;
 };
 
 // Surface Material Interaction Helper Functions

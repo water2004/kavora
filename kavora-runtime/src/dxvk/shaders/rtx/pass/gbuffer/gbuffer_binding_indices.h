@@ -112,7 +112,7 @@
 // DLSSRR outputs
 #define GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT                             120
 #define GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT                            121
-#define GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_DLSSRR_OUTPUT               122
+#define GBUFFER_BINDING_RR_SPECULAR_MOTION                                     122
 #define GBUFFER_BINDING_DLSS_NR_CONTROL_MASK_OUTPUT                             124
 
 // Raw AOV writes are gated by g_constants.rawAovMask.

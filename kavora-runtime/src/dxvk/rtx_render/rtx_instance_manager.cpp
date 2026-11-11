@@ -1541,10 +1541,9 @@ namespace dxvk {
     if (RtxOptions::ViewModel::perspectiveCorrection()) {
       // A transform that looks "correct" only from a main camera's point of view
       const auto corrected = perspectiveCorrection * reference.getTransform();
-      // A sprite change can replace a particle mesh. Until it has a prior pose, keep
-      // its current camera-relative placement instead of inheriting world camera motion.
+      // A new view-model mesh starts with its current camera-relative placement.
       auto prevCorrected = prevPerspectiveCorrection * reference.getPrevTransform();
-      if (reference.surface.alphaState.isParticle && reference.isCreatedThisFrame(frameId)) {
+      if (reference.isCreatedThisFrame(frameId)) {
         const auto& camera = ctx->getCommonObjects()->getSceneManager().getCamera();
         prevCorrected = camera.getPreviousViewToWorld(false) * camera.getWorldToView(false) * corrected;
       }

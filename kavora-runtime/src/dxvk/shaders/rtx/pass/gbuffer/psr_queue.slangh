@@ -75,7 +75,7 @@ void storePSRState(uint pixel, GeometryPSRResolverState state, uint seed)
   PathStorage[b + 4] = asuint(state.radiance.x);
   PathStorage[b + 5] = asuint(state.radiance.y);
   PathStorage[b + 6] = asuint(state.radiance.z);
-  PathStorage[b + 7] = asuint(state.renderTargetPath ? state.renderTargetScreenDistance : state._segmentHitDistance);
+  PathStorage[b + 7] = asuint(state.renderTargetPath ? state.renderTargetScreenDistance : state.apparentHitDistance);
   PathStorage[b + 8] = psrPackHalf2(state._accumulatedRotation.xy);
   PathStorage[b + 9] = psrPackHalf2(state._accumulatedRotation.zw);
   PathStorage[b + 10] = asuint(state.accumulatedHitDistance);
@@ -84,7 +84,7 @@ void storePSRState(uint pixel, GeometryPSRResolverState state, uint seed)
   PathStorage[b + 13] = f32tof16(state._direction.z) | (uint(state._rayMask) << 16) | (uint(state.bounceIteration) << 24);
   PathStorage[b + 14] = psrPackHalf2(state.attenuation.xy);
   PathStorage[b + 15] = f32tof16(state.attenuation.z) | (uint(state._compactedCoordinate.x) << 16);
-  PathStorage[b + 16] = state._compactedCoordinate.y;
+  PathStorage[b + 16] = uint(state._compactedCoordinate.y) | (f32tof16(state.refractionScale) << 16);
   PathStorage[b + 17] = seed;
 }
 
@@ -96,7 +96,7 @@ GeometryPSRResolverState loadPSRState(uint pixel)
   state._coneRadius = float16_t(f16tof32(PathStorage[b + 3] & 0xffff));
   state._encodedFlags = uint16_t(PathStorage[b + 3] >> 16);
   state.radiance = asfloat(uint3(PathStorage[b + 4], PathStorage[b + 5], PathStorage[b + 6]));
-  state._segmentHitDistance = asfloat(PathStorage[b + 7]);
+  state._segmentHitDistance = 0.0f;
   state._accumulatedRotation = f16vec4(psrUnpackHalf2(PathStorage[b + 8]), psrUnpackHalf2(PathStorage[b + 9]));
   state.accumulatedHitDistance = asfloat(PathStorage[b + 10]);
   state.mediumState = PathStorage[b + 11];
@@ -104,8 +104,12 @@ GeometryPSRResolverState loadPSRState(uint pixel)
   state._rayMask = uint8_t(PathStorage[b + 13] >> 16);
   state.bounceIteration = uint8_t(PathStorage[b + 13] >> 24);
   state.attenuation = f16vec3(psrUnpackHalf2(PathStorage[b + 14]), f16tof32(PathStorage[b + 15] & 0xffff));
-  state._compactedCoordinate = u16vec2(PathStorage[b + 15] >> 16, PathStorage[b + 16]);
-  state.renderTargetScreenDistance = state._segmentHitDistance;
+  const uint refractionAndCoordinate = PathStorage[b + 16];
+  state._compactedCoordinate = u16vec2(PathStorage[b + 15] >> 16, uint16_t(refractionAndCoordinate));
+  state.refractionScale = f16tof32(refractionAndCoordinate >> 16);
+  const float projectionDistance = asfloat(PathStorage[b + 7]);
+  state.renderTargetScreenDistance = projectionDistance;
+  state.apparentHitDistance = projectionDistance;
   state.renderTargetTriangle = uint2(SURFACE_INDEX_INVALID, 0);
   state.renderTargetTile = vec2(0.0f);
   return state;

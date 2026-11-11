@@ -175,7 +175,7 @@ namespace dxvk {
 
         RW_TEXTURE2D(GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT)
         RW_TEXTURE2D(GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT)
-        RW_TEXTURE2D(GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_DLSSRR_OUTPUT)
+        RW_TEXTURE2D(GBUFFER_BINDING_RR_SPECULAR_MOTION)
         RW_TEXTURE2D(GBUFFER_BINDING_DLSS_NR_CONTROL_MASK_OUTPUT)
 
         RW_TEXTURE2D(GBUFFER_BINDING_SHARED_FLAGS_DENSE_OUTPUT)
@@ -940,8 +940,8 @@ namespace dxvk {
     // Bind necessary buffers for DLSS-RR. 
     // Note: RR uses different PSR rules compared to other uses, and its resolves are resolved in an another shader.
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT, rtOutput.m_primaryDepthDLSSRR.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_RR_SPECULAR_MOTION, rtOutput.m_rayReconstructionSpecularMotion.view, nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT, rtOutput.m_primaryWorldShadingNormalDLSSRR.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_DLSSRR_OUTPUT, rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR.view, nullptr);
 
     // With sparse rendering, the GBuffer also writes the flags densely for the passes that read them by pixel.
     ctx->bindResourceView(GBUFFER_BINDING_SHARED_FLAGS_DENSE_OUTPUT,

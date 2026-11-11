@@ -103,9 +103,7 @@ namespace dxvk {
       return false;
     }
 
-    const Resources::Resource* pMotionVectorInput = useRayReconstructionGuides
-      ? &rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR
-      : &rtOutput.m_primaryScreenSpaceMotionVector;
+    const Resources::Resource* pMotionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVector;
     const Resources::Resource* pDepthInput = useRayReconstructionGuides
       ? &rtOutput.m_primaryDepthDLSSRR.resource(Resources::AccessType::Read)
       : &rtOutput.m_primaryDepth;

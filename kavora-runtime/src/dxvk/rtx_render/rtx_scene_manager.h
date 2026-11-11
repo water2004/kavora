@@ -209,6 +209,7 @@ public:
   
   uint32_t getActivePOMCount() {return m_activePOMCount;}
   bool hasSimulatedWater() const { return m_simulatedWaterCount != 0; }
+  bool hasTranslucentSurfaces() const { return m_translucentSurfaceCount != 0; }
   uint32_t getSludgeWaterMaterialIndex() const { return m_sludgeWaterMaterialIndex; }
 
   float getTotalMipBias();
@@ -426,6 +427,7 @@ private:
 
   uint32_t m_activePOMCount = 0;
   uint32_t m_simulatedWaterCount = 0;
+  uint32_t m_translucentSurfaceCount = 0;
   
   float m_uniqueObjectSearchDistance = 1.f;
 

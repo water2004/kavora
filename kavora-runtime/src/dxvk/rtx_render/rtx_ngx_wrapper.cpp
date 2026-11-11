@@ -868,7 +868,7 @@ namespace dxvk
     NVSDK_NGX_Resource_VK resolvedColorResource = TextureToResourceVK(buffers.pResolvedColor, true);
     NVSDK_NGX_Resource_VK motionVectorsResource = TextureToResourceVK(buffers.pMotionVectors, false);
     NVSDK_NGX_Resource_VK depthResource = TextureToResourceVK(buffers.pDepth, false);
-    NVSDK_NGX_Resource_VK hitDistanceResource = TextureToResourceVK(buffers.pHitDistance, false);
+    NVSDK_NGX_Resource_VK specularMotionResource = TextureToResourceVK(buffers.pSpecularMotion, false);
 
     NVSDK_NGX_Resource_VK diffuseAlbedoResource = TextureToResourceVK(buffers.pDiffuseAlbedo, false);
     NVSDK_NGX_Resource_VK specularAlbedoResource = TextureToResourceVK(buffers.pSpecularAlbedo, false);
@@ -898,7 +898,7 @@ namespace dxvk
     evalParams_DLDN.InFrameTimeDeltaInMsec = settings.frameTimeMilliseconds;
     evalParams_DLDN.pInWorldToViewMatrix = (float*) m_worldToViewMatrix.data;
     evalParams_DLDN.pInViewToClipMatrix = (float*) m_viewToProjectionMatrix.data;
-    evalParams_DLDN.pInSpecularHitDistance = buffers.pHitDistance ? &hitDistanceResource : nullptr;
+    evalParams_DLDN.pInMotionVectorsReflections = &specularMotionResource;
     evalParams_DLDN.pInDisocclusionMask = &disocclusionMask;
 
     NVSDK_NGX_Result result = NGX_CALL(

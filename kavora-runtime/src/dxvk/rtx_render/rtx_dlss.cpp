@@ -228,11 +228,6 @@ namespace dxvk {
     SceneManager& sceneManager = device()->getCommon()->getSceneManager();
 
     {
-      // Hack to bypass ownership check for aliased resources
-      rtOutput.m_rayReconstructionHitDistance.view(Resources::AccessType::Write);
-    }
-
-    {
       // The DLSS y coordinate is pointing down
       float jitterOffset[2];
       RtCamera& camera = sceneManager.getCamera();

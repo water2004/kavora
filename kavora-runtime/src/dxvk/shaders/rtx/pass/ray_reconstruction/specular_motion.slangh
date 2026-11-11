@@ -1,0 +1,37 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/concept/camera/camera.slangh"
+
+// The dense RG16F guide is initialized by Primary Rays and resolved before NGX.
+static const float kRRSpecularMotionUnset = -65504.0f;
+static const float kRRSpecularMotionPending = 65504.0f;
+
+bool validRRSpecularMotion(float2 motion)
+{
+  return all(abs(motion) < kRRSpecularMotionPending);
+}
+
+// Extend the primary camera ray by the specular hit distance for a locally planar reflector.
+float2 estimateRRSpecularMotion(Camera camera, uint2 pixel, float viewZ, float hitDistance, float2 primaryMotion)
+{
+  const float2 ndc = cameraPixelCoordinateToNDC(camera, pixel);
+  const float3 viewRay = cameraPixelCoordinateToDirection(camera, ivec2(pixel), false).viewDirection;
+  const float3 primaryViewPos = cameraReconstructViewPosition(camera, viewRay, viewZ);
+  const float4 primaryClip = mul(camera.viewToProjection, float4(primaryViewPos, 1.0f));
+  const float4 reflectionClip = primaryClip + mul(camera.viewToProjection, float4(viewRay * hitDistance, 0.0f));
+  const float4 previousPrimary = mul(camera.projectionToPrevProjection, primaryClip);
+  const float4 previousReflection = mul(camera.projectionToPrevProjection, reflectionClip);
+  if (previousPrimary.w <= 0.0f || previousReflection.w <= 0.0f)
+  {
+    return primaryMotion;
+  }
+
+  // Preserve the primary guide's in-plane object motion when moving it to the virtual depth.
+  const float2 previousPrimaryNdc = ndc + primaryMotion * float2(2.0f, -2.0f) / float2(camera.resolution);
+  const float2 objectOffset = previousPrimaryNdc * previousPrimary.w - previousPrimary.xy;
+  const float2 previousReflectionNdc = (previousReflection.xy + objectOffset) / previousReflection.w;
+  const float2 motion = cameraCalcMotionVectorPixel(camera, ndc, previousReflectionNdc);
+  return validRRSpecularMotion(motion) ? motion : primaryMotion;
+}

@@ -275,7 +275,7 @@ namespace dxvk {
       const Resources::Resource* pSpecularAlbedo;
       const Resources::Resource* pNormals;
       const Resources::Resource* pRoughness;
-      const Resources::Resource* pHitDistance;
+      const Resources::Resource* pSpecularMotion;
       const Resources::Resource* pDisocclusionMask;
     };
 

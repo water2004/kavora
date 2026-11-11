@@ -549,20 +549,23 @@ namespace dxvk {
     rtOutput.m_primaryDepth = rtOutput.m_primaryDepthQueue.get();
     rtOutput.m_primaryScreenSpaceMotionVector = rtOutput.m_primaryScreenSpaceMotionVectorQueue.get();
 
-    const bool needsForegroundGuide = !m_device->vkd()->ownsDevice() && isDLFGEnabled() &&
-      RtxOptions::renderPassGBufferRaytraceMode() == DxvkPathtracerGbuffer::RaytraceMode::RayQuery &&
-      RtxOptions::enableSeparateUnorderedApproximations() && getSceneManager().getInstanceManager().hasViewModelParticles();
-    if (!needsForegroundGuide) {
+    const auto& scene = getSceneManager();
+    const bool hasSludge = scene.getSludgeWaterMaterialIndex() != SURFACE_INDEX_INVALID;
+    const bool clientFrameGeneration = !m_device->vkd()->ownsDevice() && isDLFGEnabled();
+    const bool needsInterfaceGuide = (scene.hasTranslucentSurfaces() || hasSludge) &&
+      (RtxOptions::enablePSRR() || RtxOptions::enablePSTR());
+    const bool needsParticleGuide = RtxOptions::renderPassGBufferRaytraceMode() == DxvkPathtracerGbuffer::RaytraceMode::RayQuery &&
+      RtxOptions::enableSeparateUnorderedApproximations() && scene.getInstanceManager().hasViewModelParticles();
+    if (!clientFrameGeneration || (!needsParticleGuide && !needsInterfaceGuide)) {
       rtOutput.m_fgForegroundGuide = {};
     } else if (!rtOutput.m_fgForegroundGuide.isValid() || rtOutput.m_fgForegroundGuide.image->info().extent != downscaledExtent) {
       Rc<DxvkContext> ctx(this);
-      rtOutput.m_fgForegroundGuide = Resources::createImageResource(ctx, "FG foreground guide", downscaledExtent, VK_FORMAT_R32G32_UINT);
+      rtOutput.m_fgForegroundGuide = Resources::createImageResource(ctx, "FG guide overrides", downscaledExtent, VK_FORMAT_R32G32_UINT);
     }
 
     getCommonObjects()->getTextureManager().prepareSamplerFeedback(this);
 
-    m_common->waterSimulation().prepare(this, getSceneManager().hasSimulatedWater(),
-      getSceneManager().getSludgeWaterMaterialIndex() != SURFACE_INDEX_INVALID);
+    m_common->waterSimulation().prepare(this, scene.hasSimulatedWater(), hasSludge);
 
     // Generate ray tracing constant buffer
     updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
@@ -734,7 +737,8 @@ namespace dxvk {
         takeScreenshot("rrSpecularGuide", compacted ? rtOutput.m_primarySpecularAlbedoDLSSRR.image : rtOutput.m_primarySpecularAlbedo.image(Resources::AccessType::Read));
         takeScreenshot("rrNormalGuide", rtOutput.m_primaryWorldShadingNormalDLSSRR.image(Resources::AccessType::Read));
         takeScreenshot("rrDepthGuide", rtOutput.m_primaryDepthDLSSRR.image(Resources::AccessType::Read));
-        takeScreenshot("rrMotionGuide", rtOutput.m_primaryScreenSpaceMotionVectorDLSSRR.image);
+        takeScreenshot("rrMotionGuide", rtOutput.m_primaryScreenSpaceMotionVector.image);
+        takeScreenshot("rrSpecularMotionGuide", rtOutput.m_rayReconstructionSpecularMotion.image);
         takeScreenshot("rrRoughnessGuide", rtOutput.m_primaryPerceptualRoughness.image);
         takeScreenshot("primaryResolvedDepth", rtOutput.m_primaryDepth.image);
         takeScreenshot("primaryResolvedMotion", rtOutput.m_primaryScreenSpaceMotionVector.image);

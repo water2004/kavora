@@ -699,12 +699,11 @@ namespace dxvk {
     }
     // Indirect integration still reads the surface PDF after direct integration writes RTXDI illuminance.
     keepOrCreate(m_raytracingOutput.m_sharedIntegrationSurfacePdf, compactedExtent, VK_FORMAT_R16_SFLOAT, "Shared Integration Surface PDF");
-    // Shares the confidence texture, which is idle by the time RR runs, unless it was never allocated.
-    // Its host must have the same format, because NGX reads the format of the image rather than of the view.
-    if (m_rtxdiGradientResourcesAllocated) {
-      m_raytracingOutput.m_rayReconstructionHitDistance = AliasedResource(m_raytracingOutput.getCurrentRtxdiConfidence(), ctx, m_downscaledExtent, VK_FORMAT_R16_SFLOAT, "DLSS-RR Hit Distance");
-    } else {
-      keepOrCreate(m_raytracingOutput.m_rayReconstructionHitDistance, m_downscaledExtent, VK_FORMAT_R16_SFLOAT, "DLSS-RR Hit Distance");
+    auto& specularMotion = m_raytracingOutput.m_rayReconstructionSpecularMotion;
+    if (!device()->getCommon()->metaRayReconstruction().useRayReconstruction()) {
+      specularMotion = {};
+    } else if (!specularMotion.isValid() || specularMotion.image->info().extent != m_downscaledExtent) {
+      specularMotion = createImageResource(ctx, "DLSS-RR Specular Motion", m_downscaledExtent, VK_FORMAT_R16G16_SFLOAT);
     }
     // Shares a primary world position the GBuffer writes once the PSR passes have read this scratch back.
     m_raytracingOutput.m_gbufferPSRData[0] = AliasedResource(m_raytracingOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal(), ctx, m_downscaledExtent, VK_FORMAT_R32G32B32A32_SFLOAT, "GBuffer PSR Data 0");
@@ -747,8 +746,7 @@ namespace dxvk {
 
     assert(
       (!m_rtxdiGradientResourcesAllocated ||
-       (m_raytracingOutput.m_secondaryConeRadius.sharesTheSameView(m_raytracingOutput.getCurrentRtxdiConfidence()) &&
-        m_raytracingOutput.m_rayReconstructionHitDistance.sharesTheSameView(m_raytracingOutput.getCurrentRtxdiConfidence()))) &&
+       m_raytracingOutput.m_secondaryConeRadius.sharesTheSameView(m_raytracingOutput.getCurrentRtxdiConfidence())) &&
       m_raytracingOutput.m_gbufferPSRData[0].sharesTheSameView(m_raytracingOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal()) &&
       isConditionalAliasingsShareSameView &&
       "New view for an aliased resource was created on the fly. Avoid doing that or ensure it has no negative side effects.");
@@ -1465,7 +1463,6 @@ namespace dxvk {
     m_raytracingOutput.m_primaryRtxdiTemporalPosition.reset();
     m_raytracingOutput.m_secondaryConeRadius.reset();
     m_raytracingOutput.m_sharedIntegrationSurfacePdf.reset();
-    m_raytracingOutput.m_rayReconstructionHitDistance.reset();
     if (m_rtxdiIlluminanceResourcesAllocated) {
       m_raytracingOutput.m_primaryRtxdiIlluminance[0] = AliasedResource(ctx, m_downscaledExtent, VK_FORMAT_R16_SFLOAT, "Primary RTXDI Illuminance 0");
       m_raytracingOutput.m_primaryRtxdiIlluminance[1] = AliasedResource(ctx, m_downscaledExtent, VK_FORMAT_R16_SFLOAT, "Primary RTXDI Illuminance 1");
@@ -1490,7 +1487,6 @@ namespace dxvk {
     // DLSSRR outputs (TODO: allocate only if used)
     m_raytracingOutput.m_primaryDepthDLSSRR = AliasedResource(ctx, m_downscaledExtent, VK_FORMAT_R32_SFLOAT, "Primary Depth DLSSRR", allowCompatibleFormatAliasing);
     m_raytracingOutput.m_primaryWorldShadingNormalDLSSRR = AliasedResource(ctx, m_downscaledExtent, VK_FORMAT_R16G16B16A16_SFLOAT, "Primary Shading Normal DLSSRR", allowCompatibleFormatAliasing);
-    m_raytracingOutput.m_primaryScreenSpaceMotionVectorDLSSRR = createImageResource(ctx, "Primary Screen Space Motion Vector DLSSRR", m_downscaledExtent, VK_FORMAT_R16G16_SFLOAT);
 
     m_raytracingOutput.m_secondaryAttenuation = createImageResource(ctx, "secondary attenuation", compactedExtent, VK_FORMAT_R32_UINT);
     m_raytracingOutput.m_secondaryWorldShadingNormal = createImageResource(ctx, "secondary world shading normal", compactedExtent, VK_FORMAT_R32_UINT);

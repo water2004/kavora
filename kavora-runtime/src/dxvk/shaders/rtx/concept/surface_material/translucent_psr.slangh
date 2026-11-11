@@ -252,8 +252,6 @@ SurfaceMaterialInteractionPSRSample translucentSurfaceMaterialInteractionCalcPSR
 
   vec3 inputDirection;
   vec3 attenuation;
-  vec4 vectorTransform;
-
   const bool oldInsideMedium = insideMedium;
   const bool isThinWalled = translucentSurfaceMaterialInteractionIsThinWalled(translucentSurfaceMaterialInteraction);
 
@@ -294,10 +292,6 @@ SurfaceMaterialInteractionPSRSample translucentSurfaceMaterialInteractionCalcPSR
 
       attenuation = float(1.0f - outsideFresnel).xxx;
 
-      // Calculate the vector transform matrix for the refraction event
-
-      vectorTransform = getRefractionQuaternion(microfacetNormal);
-
       // Flip the inside medium flag as transmission occured
 
       insideMedium = !insideMedium;
@@ -331,8 +325,7 @@ SurfaceMaterialInteractionPSRSample translucentSurfaceMaterialInteractionCalcPSR
 
     attenuation = evalThinTransmissionGeometricSeriesThroughput(outsideFresnel, insideFresnel, volumeAttenuation);
 
-    // ray direction never changes for thin-walled materials
-    vectorTransform = getIdentityQuaternion();
+    // Thin-walled transmission preserves the incident direction.
     inputDirection = -outputDirection;
     penetrateSurface = true;
   }
@@ -382,7 +375,8 @@ SurfaceMaterialInteractionPSRSample translucentSurfaceMaterialInteractionCalcPSR
     : (translucentSurfaceMaterialInteraction.normalDetail > float(cb.pstrNormalDetailThreshold));
   materialPSRSample.inputDirection = inputDirection;
   materialPSRSample.attenuation = attenuation;
-  materialPSRSample.vectorTransform = vectorTransform;
+  materialPSRSample.vectorTransform = getIdentityQuaternion();
+  materialPSRSample.relativeRefractiveIndex = isThinWalled ? 1.0f : outsideRelativeRefractiveIndex;
 
   return materialPSRSample;
 }

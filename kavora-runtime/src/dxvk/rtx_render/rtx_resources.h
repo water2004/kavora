@@ -368,7 +368,7 @@ namespace dxvk
 
       // Resource containing 1spp radiance from indirect pass - with each pixel containing {diffuse | specular} for a {primary | secondary} surface
       AliasedResource m_indirectRadianceHitDistance;
-      AliasedResource m_rayReconstructionHitDistance;
+      Resource m_rayReconstructionSpecularMotion;
       Resource m_sparseRenderingActivePixelMask;
       Resource m_sparseRenderingPixelSamplingRate;
       Resource m_sparseRenderingActiveLocalPixelCoords;
@@ -409,7 +409,6 @@ namespace dxvk
       // DLSSRR data
       AliasedResource m_primaryDepthDLSSRR;
       AliasedResource m_primaryWorldShadingNormalDLSSRR;
-      Resource m_primaryScreenSpaceMotionVectorDLSSRR;
       Resource m_fgForegroundGuide;
 
       // DLSSNR Data

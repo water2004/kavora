@@ -127,6 +127,7 @@ namespace dxvk {
         TEXTURE2D(COMPOSITE_ACTIVE_LOCAL_PIXEL_COORDS_INPUT)
         TEXTURE2D(COMPOSITE_TILE_ACTIVE_COUNTS_INPUT)
         TEXTURE2D(COMPOSITE_PRIMARY_SURFACE_FLAGS_INPUT)
+        TEXTURE2D(COMPOSITE_RR_PRIMARY_MOTION_INPUT)
         TEXTURE2DARRAY(COMPOSITE_BLUE_NOISE_TEXTURE)
         SAMPLER3D(COMPOSITE_VALUE_NOISE_SAMPLER)
         SAMPLER3D(COMPOSITE_CLOUD_BASE_SAMPLER)
@@ -143,7 +144,7 @@ namespace dxvk {
         RW_TEXTURE2D(COMPOSITE_LAST_FINAL_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ALPHA_BLEND_RADIANCE_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_DEBUG_VIEW_OUTPUT)
-        RW_TEXTURE2D(COMPOSITE_RAY_RECONSTRUCTION_HIT_DISTANCE_OUTPUT)
+        RW_TEXTURE2D(COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_PRIMARY_COVERAGE_OUTPUT)
       END_PARAMETER()
@@ -404,8 +405,9 @@ namespace dxvk {
 
     DebugView& debugView = ctx->getDevice()->getCommon()->metaDebugView();
     ctx->bindResourceView(COMPOSITE_DEBUG_VIEW_OUTPUT, debugView.getDebugOutput(), nullptr);
-    ctx->bindResourceView(COMPOSITE_RAY_RECONSTRUCTION_HIT_DISTANCE_OUTPUT,
-      ctx->useRayReconstruction() ? rtOutput.m_rayReconstructionHitDistance.view(Resources::AccessType::Write) : nullptr, nullptr);
+    ctx->bindResourceView(COMPOSITE_RR_PRIMARY_MOTION_INPUT,
+      ctx->useRayReconstruction() ? rtOutput.m_primaryScreenSpaceMotionVector.view : nullptr, nullptr);
+    ctx->bindResourceView(COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT, rtOutput.m_rayReconstructionSpecularMotion.view, nullptr);
     ctx->bindResourceView(COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT, rtOutput.m_controlMask.view, nullptr);
     const DomeLightArgs& domeLightArgs = sceneManager.getLightManager().getDomeLightArgs();
     ctx->bindResourceSampler(COMPOSITE_SKY_LIGHT_TEXTURE, linearSampler);
@@ -463,7 +465,7 @@ namespace dxvk {
     compositeArgs.useRayReconstruction = ctx->useRayReconstruction();
     compositeArgs.enableCoverageAov = rtOutput.m_primaryCoverage.isValid() ? 1u : 0u;
     compositeArgs.enhanceAlbedo = ctx->useRayReconstruction() && rayReconstruction.enableDetailEnhancement();
-    compositeArgs.writeRayReconstructionHitDistance = ctx->useRayReconstruction() ? 1u : 0u;
+    compositeArgs.estimateRRSpecularMotionFromHitDistance = rayReconstruction.useSpecularHitDistance();
     compositeArgs.enableDlssNrVolumetricControlMask = rtOutput.m_raytraceArgs.enableDlssNrVolumetricControlMask;
 
     NrdArgs primaryDirectNrdArgs;

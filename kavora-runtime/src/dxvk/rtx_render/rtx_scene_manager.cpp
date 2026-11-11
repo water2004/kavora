@@ -310,6 +310,8 @@ namespace dxvk {
     m_instanceManager.clear();
     assert(m_simulatedWaterCount == 0);
     m_simulatedWaterCount = 0;
+    assert(m_translucentSurfaceCount == 0);
+    m_translucentSurfaceCount = 0;
     m_sludgeWaterMaterialIndex = SURFACE_INDEX_INVALID;
     m_checkedSludgeScene = false;
     m_device->getCommon()->waterSimulation().addImpulses(nullptr, 0, true);
@@ -1465,8 +1467,11 @@ namespace dxvk {
     }
     auto& textureManager = m_device->getCommon()->getTextureManager();
     const RtSurfaceMaterial& mat = m_surfaceMaterialCache.getObjectTable()[matIdx];
-    if (mat.getType() == RtSurfaceMaterialType::Translucent && mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
-      ++m_simulatedWaterCount;
+    if (mat.getType() == RtSurfaceMaterialType::Translucent) {
+      ++m_translucentSurfaceCount;
+      if (mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
+        ++m_simulatedWaterCount;
+      }
     }
     mat.forEachTextureIndex([&](uint32_t texIdx) {
       textureManager.retainTexture(texIdx);
@@ -1501,10 +1506,16 @@ namespace dxvk {
     }
     auto& textureManager = m_device->getCommon()->getTextureManager();
     const RtSurfaceMaterial& mat = m_surfaceMaterialCache.getObjectTable()[matIdx];
-    if (mat.getType() == RtSurfaceMaterialType::Translucent && mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
-      assert(m_simulatedWaterCount != 0);
-      if (m_simulatedWaterCount != 0) {
-        --m_simulatedWaterCount;
+    if (mat.getType() == RtSurfaceMaterialType::Translucent) {
+      assert(m_translucentSurfaceCount != 0);
+      if (m_translucentSurfaceCount != 0) {
+        --m_translucentSurfaceCount;
+      }
+      if (mat.getTranslucentSurfaceMaterial().isSimulatedWater()) {
+        assert(m_simulatedWaterCount != 0);
+        if (m_simulatedWaterCount != 0) {
+          --m_simulatedWaterCount;
+        }
       }
     }
     mat.forEachTextureIndex([&](uint32_t texIdx) {

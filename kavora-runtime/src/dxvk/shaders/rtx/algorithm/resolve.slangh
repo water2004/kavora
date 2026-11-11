@@ -1015,9 +1015,9 @@ float resolveVertexUnorderedParticles<
     currentEmissiveRadiance = mix(vec3(0.0f), currentEmissiveRadiance, blendFactor);
 
 #ifdef GBUFFER_FG_FOREGROUND_GUIDE
-    // A pixel has one FG motion/depth pair. Weak coverage keeps the background guide.
+    // A particle can own the guide when it hides the surface behind it.
     if (push.writeFgForegroundGuide && rayInteraction.isViewModel && surface.isParticle &&
-        portalSpace == PORTAL_SPACE_NONE && currentRadianceAttenuation <= 0.5f &&
+        portalSpace == PORTAL_SPACE_NONE && currentRadianceAttenuation <= 1.0f / 255.0f &&
         rayHitInfo.hitDistance < foregroundDistance)
     {
       const vec3 pos = surfaceInteraction.position;

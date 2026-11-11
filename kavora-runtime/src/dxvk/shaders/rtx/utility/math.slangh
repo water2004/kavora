@@ -634,12 +634,6 @@ vec4 getReflectionQuaternion(vec3 normal)
   return -normalize(q);
 }
 
-vec4 getRefractionQuaternion(vec3 normal)
-{
-  // Todo
-  return vec4(0.0f, 0.0f, 0.0f, 1.0f);
-}
-
 f16mat3 getIdentityMatrix()
 {
   return f16mat3(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
