@@ -1654,6 +1654,7 @@ namespace dxvk {
 
   void AccelManager::uploadSurfaceData(Rc<DxvkContext> ctx) {
     ScopedCpuProfileZone();
+    m_hasDecalSurfaces = false;
     if (m_reorderedSurfaces.empty()) {
       return;
     }
@@ -1688,6 +1689,7 @@ namespace dxvk {
     for (uint32_t i = 0; i < m_reorderedSurfaces.size(); ++i) {
       const auto& currentInstance = *m_reorderedSurfaces[i];
       RtSurface& currentSurface = m_reorderedSurfaces[i]->surface;
+      m_hasDecalSurfaces |= currentSurface.alphaState.isDecal;
 
       // For PointInstancer entries beyond the first, do nothing.  The GPU culling shader will 
       // patch per-instance transforms and set per-instance customInstanceIndex later.

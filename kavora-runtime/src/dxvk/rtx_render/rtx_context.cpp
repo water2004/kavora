@@ -1428,7 +1428,6 @@ namespace dxvk {
     constants.enableProbabilisticUnorderedResolveInIndirectRays = RtxOptions::enableProbabilisticUnorderedResolveInIndirectRays();
     constants.enableTransmissionApproximationInIndirectRays = RtxOptions::enableTransmissionApproximationInIndirectRays();
     constants.enableUnorderedEmissiveParticlesInIndirectRays = RtxOptions::enableUnorderedEmissiveParticlesInIndirectRays();
-    constants.enableDecalMaterialBlending = RtxOptions::enableDecalMaterialBlending();
     constants.enableLegacyRectLightConeShaping = LightManager::enableLegacyRectLightConeShaping();
     constants.enableRectLightConeShapingRatioScaling = LightManager::enableRectLightConeShapingRatioScaling();
     constants.enableBillboardOrientationCorrection = RtxOptions::enableBillboardOrientationCorrection() && RtxOptions::enableSeparateUnorderedApproximations();
@@ -1587,6 +1586,8 @@ namespace dxvk {
     {
       const DebugView& debugView = m_common->metaDebugView();
       constants.debugView = debugView.debugViewIdx();
+      constants.enableDecalMaterialBlending = RtxOptions::enableDecalMaterialBlending() &&
+        (constants.debugView != 0 || constants.enableObjectPicking || getSceneManager().getAccelManager().hasDecalSurfaces());
       constants.debugKnob = debugView.debugKnob();
       constants.forceFirstHitInGBufferPass = debugView.showFirstGBufferHit();
       constants.enableDlssNrControlMask =

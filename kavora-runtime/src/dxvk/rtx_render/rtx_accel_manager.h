@@ -165,6 +165,7 @@ public:
   static uint32_t getBlasCount();
 
   uint32_t getSurfaceCount() const { return m_reorderedSurfaces.size(); }
+  bool hasDecalSurfaces() const { return m_hasDecalSurfaces; }
   const std::vector<RtInstance*>& getOrderedInstances() const { return m_reorderedSurfaces; }
   const std::vector<PointInstancerBatch>& getPointInstancerBatches() const { return m_pointInstancerBatches; }
 
@@ -222,6 +223,7 @@ private:
   bool validateUpdateMode(const VkAccelerationStructureBuildGeometryInfoKHR& oldInfo, const VkAccelerationStructureBuildGeometryInfoKHR& newInfo);
 
   std::vector<RtInstance*> m_reorderedSurfaces;
+  bool m_hasDecalSurfaces = false;
   std::vector<uint32_t> m_reorderedSurfacesFirstIndexOffset;
   std::vector<uint32_t> m_reorderedSurfacesPrimitiveIDPrefixSum;              // Exclusive prefix sum for this frame's surface primitive count array
   std::vector<uint32_t> m_reorderedSurfacesPrimitiveIDPrefixSumLastFrame;     // Exclusive prefix sum for last frame's surface primitive count array

@@ -91,19 +91,25 @@ void main()
   const uint pixelIndex = psrPixelIndex(invocation);
   resolverPixel = uint3(invocation, 0);
   const uint seedOffset = pixelIndex * GBUFFER_PSR_STATE_WORDS + 17;
-  if (!push.psrTransmission)
-  {
-    // Transmission also needs the initial seed when reflection has no path.
-    PathStorage[seedOffset] = createRNG(invocation, cb.frameIdx, 555).seed;
-  }
+  const bool transmission = push.psrTransmission != 0;
   InitialPSRData initial;
-  if (!loadInitialPSRData(ivec2(invocation), push.psrTransmission != 0, initial)) return;
+  if (!loadInitialPSRData(ivec2(invocation), transmission, initial))
+  {
+    // An invalid reflection payload can still have its PSR flag set.
+    if (!transmission && initial.geometryFlags.performPSRR && initial.geometryFlags.performPSTR)
+    {
+      PathStorage[seedOffset] = createRNG(invocation, cb.frameIdx, 555).seed;
+    }
+    return;
+  }
   RayHitInfo firstHit;
   {
-    const GeometryPSRResolverState rayState = decodeInitialPSRState(initial, push.psrTransmission != 0);
+    const GeometryPSRResolverState rayState = decodeInitialPSRState(initial, transmission);
     firstHit = traceQueuedPSRState(rayState);
   }
-  GeometryPSRResolverState state = geometryPSRResolverBegin(ivec2(invocation), push.psrTransmission != 0, initial);
+  GeometryPSRResolverState state = geometryPSRResolverBegin(ivec2(invocation), transmission, initial);
+  const uint seed = transmission && initial.geometryFlags.performPSRR
+    ? PathStorage[seedOffset] : createRNG(invocation, cb.frameIdx, 555).seed;
 #else
   const uint index = psrQueueIndex(invocation);
   if (index >= PSRQueueInput[0]) return;
@@ -115,11 +121,12 @@ void main()
     firstHit = traceQueuedPSRState(rayState);
   }
   GeometryPSRResolverState state = loadPSRState(pixelIndex);
+  const uint seed = PathStorage[pixelIndex * GBUFFER_PSR_STATE_WORDS + 17];
 #endif
   const uint2 pixel = psrPixelCoordinate(pixelIndex);
   resolverPixel = uint3(pixel, 0);
   resolveVertexUnorderedRng = createRNG(pixel, cb.frameIdx);
-  resolveVertexUnorderedRng.seed = PathStorage[pixelIndex * GBUFFER_PSR_STATE_WORDS + 17];
+  resolveVertexUnorderedRng.seed = seed;
   ++state.bounceIteration;
   state.continuePSRResolving = false;
   Ray ray;
@@ -133,7 +140,6 @@ void main()
     extraArgs, ray, flags, geometryPSRResolverVertex,
     cb.psrRayMaxInteractions, state, state.segmentHitDistance,
     DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS, GBUFFER_FEATURE_DEBUG_VIEW);
-  PathStorage[pixelIndex * GBUFFER_PSR_STATE_WORDS + 17] = resolveVertexUnorderedRng.seed;
   if (state.continuePSRResolving)
   {
     storePSRState(pixelIndex, state, resolveVertexUnorderedRng.seed);
@@ -141,6 +147,7 @@ void main()
   }
   else
   {
+    PathStorage[pixelIndex * GBUFFER_PSR_STATE_WORDS + 17] = resolveVertexUnorderedRng.seed;
     if (GBUFFER_FEATURE_DEBUG_VIEW && cb.debugView == DEBUG_VIEW_PRIMARY_RAY_BOUNCES)
     {
       accumulateInDebugViewAdd(pixel, state.bounceIteration);
