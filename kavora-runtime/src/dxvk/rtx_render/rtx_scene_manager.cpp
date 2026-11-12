@@ -2699,11 +2699,17 @@ namespace dxvk {
       state.drawCall.modifyMaterialData().samplers[1] = externalSampler;
     }
     {
-      const RtCamera& rtCamera = ctx->getCommonObjects()->getSceneManager().getCameraManager()
-        .getCamera(state.cameraType);
-      state.drawCall.modifyTransformData().worldToView = rtCamera.getWorldToViewf();
-      state.drawCall.modifyTransformData().viewToProjection = rtCamera.getViewToProjectionf();
-      state.drawCall.modifyTransformData().objectToView = state.drawCall.getTransformData().worldToView * state.drawCall.getTransformData().objectToWorld;
+      const RtCamera& rtCamera = m_cameraManager.getCamera(state.cameraType);
+      auto& transforms = state.drawCall.modifyTransformData();
+      transforms.worldToView = rtCamera.getWorldToViewf();
+      transforms.viewToProjection = rtCamera.getViewToProjectionf();
+      if (transforms.viewModelEyeOffset) {
+        const auto& camera = m_cameraManager.getMainCamera();
+        transforms.objectToView = camera.getTranslatedWorldToView() * Matrix4d(transforms.objectToWorld);
+        transforms.objectToWorld[3] = Vector4(camera.getPosition() + *transforms.viewModelEyeOffset, 1.f);
+      } else {
+        transforms.objectToView = transforms.worldToView * transforms.objectToWorld;
+      }
     }
 
     if (!state.gpuInstancingTransforms.empty()) {

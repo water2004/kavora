@@ -166,7 +166,13 @@ namespace dxvk {
     return uint32_t(std::max(g_blasCount, 0));
   }
 
-  bool AccelManager::BlasBucket::tryAddInstance(RtInstance* instance) {
+  VkTransformMatrixKHR AccelManager::BlasBucket::instanceTransform() const {
+    return { { { 1.f, 0.f, 0.f, origin.x },
+               { 0.f, 1.f, 0.f, origin.y },
+               { 0.f, 0.f, 1.f, origin.z } } };
+  }
+
+  bool AccelManager::BlasBucket::tryAddInstance(RtInstance* instance, VkDeviceAddress transformAddress) {
     const uint8_t geometryInstanceMask = instance->getVkInstance().mask;
     const uint32_t geometryCustomIndexFlags = instance->getVkInstance().instanceCustomIndex & ~uint32_t(CUSTOM_INDEX_SURFACE_MASK);
     const bool geometryUsesUnorderedApproximations = instance->usesUnorderedApproximations();
@@ -196,7 +202,10 @@ namespace dxvk {
 
     BlasEntry* blasEntry = instance->getBlas();
 
-    geometries.insert(geometries.end(), blasEntry->buildGeometries.begin(), blasEntry->buildGeometries.end());
+    for (auto geometry : blasEntry->buildGeometries) {
+      geometry.geometry.triangles.transformData.deviceAddress = transformAddress;
+      geometries.push_back(geometry);
+    }
     ranges.insert(ranges.end(), blasEntry->buildRanges.begin(), blasEntry->buildRanges.end());
 
     for (auto& range : blasEntry->buildRanges) {
@@ -759,6 +768,8 @@ namespace dxvk {
       const uint32_t minPrimsInDynamicBLAS = std::max(RtxOptions::minPrimsInDynamicBLAS(), 100u);
       const uint32_t maxPrimsForMergedBLAS = RtxOptions::maxPrimsInMergedBLAS();
       const uint32_t blasPrims = blasEntry->modifiedGeometryData.calculatePrimitiveCount();
+      const Vector3* eyeOffset = instance->isViewModel()
+        ? instanceManager.getViewModelEyeOffset(instance) : nullptr;
 
       // Figure out if this blas should be a dynamic one
       const bool requestDynamicBlas = instance->surface.instancesToObject != nullptr ||    // Point instancer geometry is replicated many times in a scene, we want to reuse the BLAS memory for these objects
@@ -773,7 +784,7 @@ namespace dxvk {
                                     RtxOptions::forceMergeAllMeshes()) &&                                          // Setting to force all meshes into the merged BLAS
                                       instance->surface.instancesToObject == nullptr;                              // Never merge point instancer geometry
 
-      if (requestDynamicBlas && !forceMergedBlas) {
+      if (requestDynamicBlas && !forceMergedBlas && !eyeOffset) {
         // Since this loop is iterating over instances, and instances can share BLAS, we will build these later after identifying unique ones.
         if (blasEntry->dynamicBlasGroupIndex >= m_uniqueDynamicBlasCount ||
             m_uniqueDynamicBlas[blasEntry->dynamicBlasGroupIndex].blasEntry != blasEntry) {
@@ -791,10 +802,10 @@ namespace dxvk {
       } else {
         // Make sure we don't double up on blas entries, this should only happen if theres a bug
         // TODO (REMIX-3996) will break the assumptions we make here about all instances in a BlasEntry having the same instancesToObject array
-        assert(blasEntry->dynamicBlasGroupIndex >= m_uniqueDynamicBlasCount ||
+        assert(eyeOffset || blasEntry->dynamicBlasGroupIndex >= m_uniqueDynamicBlasCount ||
                m_uniqueDynamicBlas[blasEntry->dynamicBlasGroupIndex].blasEntry != blasEntry);
 
-        if (blasEntry->dynamicBlas != nullptr) {
+        if (!eyeOffset && blasEntry->dynamicBlas != nullptr) {
           // Move the BLAS used by this geometry to the common pool.
           // This also ensures the dynamic blas resource that's still being used by previous TLAS is properly tracked for the next frame
           m_blasPool.push_back(std::move(blasEntry->dynamicBlas));
@@ -804,10 +815,12 @@ namespace dxvk {
         // Calculate the device address for the current instance's transform and write the transform data
         // TODO: only do this for non-identity transforms
         VkDeviceAddress transformDeviceAddress = m_transformBuffer->getDeviceAddress() + instanceTransforms.size() * sizeof(VkTransformMatrixKHR);
-        instanceTransforms.push_back(instance->getVkInstance().transform);
-
-        for (auto& geometry : blasEntry->buildGeometries) {
-          geometry.geometry.triangles.transformData.deviceAddress = transformDeviceAddress;
+        auto& transform = instanceTransforms.emplace_back(instance->getVkInstance().transform);
+        if (eyeOffset) {
+          // Keep the vertices in eye-relative space until traversal transforms the ray into this BLAS.
+          transform.matrix[0][3] = eyeOffset->x;
+          transform.matrix[1][3] = eyeOffset->y;
+          transform.matrix[2][3] = eyeOffset->z;
         }
 
         // Try to merge the instance into a compatible bucket using O(1) hash lookup
@@ -818,17 +831,21 @@ namespace dxvk {
         bucketKey.instanceFlags = instance->getVkInstance().flags;
         bucketKey.usesUnorderedApproximations = instance->usesUnorderedApproximations();
         bucketKey.isSubsurface = instance->isSubsurface();
+        bucketKey.cameraRelative = eyeOffset != nullptr;
 
         bool merged = false;
         auto bucketIt = bucketMap.find(bucketKey);
         if (bucketIt != bucketMap.end()) {
-          merged = bucketIt->second->tryAddInstance(instance);
+          merged = bucketIt->second->tryAddInstance(instance, transformDeviceAddress);
         }
 
         // The instance couldn't be merged into any bucket - make a new one
         if (!merged) {
           auto newBucket = std::make_unique<BlasBucket>();
-          merged = newBucket->tryAddInstance(instance);
+          if (eyeOffset) {
+            newBucket->origin = cameraManager.getMainCamera().getPosition();
+          }
+          merged = newBucket->tryAddInstance(instance, transformDeviceAddress);
           assert(merged);
 
           bucketMap[bucketKey] = newBucket.get();
@@ -1153,12 +1170,7 @@ namespace dxvk {
         cached.tlasInstance.instanceShaderBindingTableRecordOffset = bucket->instanceShaderBindingTableRecordOffset;
         cached.tlasInstance.mask = bucket->instanceMask;
         cached.tlasInstance.instanceCustomIndex = bucket->customIndexFlags;
-        static float identityTransform[3][4] = {
-          { 1.f, 0.f, 0.f, 0.f },
-          { 0.f, 1.f, 0.f, 0.f },
-          { 0.f, 0.f, 1.f, 0.f }
-        };
-        memcpy(&cached.tlasInstance.transform, identityTransform, sizeof(VkTransformMatrixKHR));
+        cached.tlasInstance.transform = bucket->instanceTransform();
 
         const uint32_t newIdx = static_cast<uint32_t>(newCachedBuckets.size());
         for (RtInstance* inst : cached.instances) {
@@ -1211,6 +1223,7 @@ namespace dxvk {
                                                    const std::vector<std::unique_ptr<BlasBucket>>& blasBuckets,
                                                    std::vector<VkAccelerationStructureBuildGeometryInfoKHR>& blasToBuild,
                                                    std::vector<VkAccelerationStructureBuildRangeInfoKHR*>& blasRangesToBuild,
+                                                   const std::vector<VkTransformMatrixKHR>& instanceTransforms,
                                                    size_t& totalScratchMemory) {
 
     const uint32_t currentFrame = m_device->getCurrentFrameId();
@@ -1224,6 +1237,7 @@ namespace dxvk {
       uint32_t pad;
     };
     std::vector<BucketGeometryContentHashData> contentHashData;
+    const VkDeviceAddress transformBase = m_transformBuffer->getDeviceAddress();
 
     // Create or find a matching BLAS for each bucket, then build it
     for (const auto& bucket : blasBuckets) {
@@ -1322,7 +1336,8 @@ namespace dxvk {
           hashData.vertexHash = geoHashes[HashComponents::VertexPosition];
           hashData.indexHash = geoHashes[HashComponents::Indices];
           hashData.boneHash = blasEntry->modifiedGeometryData.lastBoneHash;
-          hashData.transform = inst->getVkInstance().transform;
+          const auto address = bucket->geometries[gi].geometry.triangles.transformData.deviceAddress;
+          hashData.transform = instanceTransforms[(address - transformBase) / sizeof(VkTransformMatrixKHR)];
           hashData.primitiveCount = bucket->primitiveCounts[gi];
         }
 
@@ -1376,12 +1391,6 @@ namespace dxvk {
         ctx->getCommandList()->trackResource<DxvkAccess::Read>(selectedBlas->accelStructure);
       }
 
-      static float identityTransform[3][4] = {
-        { 1.f, 0.f, 0.f, 0.f },
-        { 0.f, 1.f, 0.f, 0.f },
-        { 0.f, 0.f, 1.f, 0.f }
-      };
-
       // Append an instance of this merged BLAS to the merged instance list
       VkAccelerationStructureInstanceKHR instance {};
       instance.accelerationStructureReference = selectedBlas->accelerationStructureReference;
@@ -1391,7 +1400,7 @@ namespace dxvk {
       instance.instanceCustomIndex =
         (bucket->customIndexFlags & ~uint32_t(CUSTOM_INDEX_SURFACE_MASK)) |
         (bucket->reorderedSurfacesOffset & uint32_t(CUSTOM_INDEX_SURFACE_MASK));
-      memcpy(static_cast<void*>(&instance.transform.matrix[0][0]), &identityTransform[0][0], sizeof(VkTransformMatrixKHR));
+      instance.transform = bucket->instanceTransform();
 
       if (bucket->usesUnorderedApproximations && RtxOptions::enableSeparateUnorderedApproximations()) {
         m_mergedInstances[Tlas::Unordered].push_back(instance);
@@ -1841,7 +1850,7 @@ namespace dxvk {
     }
 
     // Blas buffers must be created after opacity micromaps were generated to calculate correct acceleration structure sizes
-    createBlasBuffersAndInstances(ctx, blasBuckets, blasToBuild, blasRangesToBuild, totalScratchMemory);
+    createBlasBuffersAndInstances(ctx, blasBuckets, blasToBuild, blasRangesToBuild, instanceTransforms, totalScratchMemory);
 
     // Make sure we have enough scratch memory for this build job
     if (totalScratchMemory > 0) {

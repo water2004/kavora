@@ -861,6 +861,10 @@ std::unique_ptr<dxvk::ExternalDrawState> dxvk::RemixAPIPrivateAccessor::toRtDraw
   {
     prototype.cameraType = cameraType;
     prototype.transformData.objectToWorld = convert::tomat4(info.transform);
+    if (cameraType == CameraType::ViewModel &&
+        (info.categoryFlags & REMIXAPI_INSTANCE_CATEGORY_BIT_CAMERA_RELATIVE_VIEW_MODEL)) {
+      prototype.transformData.viewModelEyeOffset = prototype.transformData.objectToWorld[3].xyz();
+    }
     prototype.transformData.texgenMode = TexGenMode::None;
     prototype.categories = convert::toRtCategories(info.categoryFlags);
     if (info.categoryFlags & REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA) {

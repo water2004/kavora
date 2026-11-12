@@ -755,6 +755,9 @@ extern "C" {
     REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE           = 1 << 28,
     // Adds local appearance lighting to visible opaque-material surfaces.
     REMIXAPI_INSTANCE_CATEGORY_BIT_SELF_LIT                 = 1 << 29,
+    // With VIEW_MODEL, the transform's translation is relative to the world camera eye.
+    // The client has already applied the hand projection and scale to the transform.
+    REMIXAPI_INSTANCE_CATEGORY_BIT_CAMERA_RELATIVE_VIEW_MODEL = 1 << 30,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;

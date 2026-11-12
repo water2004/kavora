@@ -38,6 +38,8 @@ public final class InstanceCategoryBit {
     public static final int LIVE_CAMERA = 1 << 27;
     public static final int FLOATING_SLUDGE = 1 << 28;
     public static final int SELF_LIT = 1 << 29;
+    /** VIEW_MODEL transform already projected and scaled, with a translation relative to the camera eye. */
+    public static final int CAMERA_RELATIVE_VIEW_MODEL = 1 << 30;
 
     private InstanceCategoryBit() {}
 }

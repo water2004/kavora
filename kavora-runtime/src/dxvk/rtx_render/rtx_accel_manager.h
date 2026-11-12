@@ -62,6 +62,7 @@ class AccelManager : public CommonDeviceObject {
     uint32_t reorderedSurfacesOffset = UINT32_MAX;
     bool hasOmmInstances = false;
     bool hasSssInstances = false;
+    Vector3 origin { 0.f };
 
     // The PooledBlas assigned to this bucket by createBlasBuffersAndInstances.
     // Stored here so the per-bucket cache can capture it after buildBlases.
@@ -70,7 +71,8 @@ class AccelManager : public CommonDeviceObject {
     // Tries to add a geometry instance to the bucket. The addition is successful if either:
     //   a) the bucket is empty,
     //   b) the instance has the same mask etc. as all other instances in the bucket.
-    bool tryAddInstance(RtInstance* instance);
+    bool tryAddInstance(RtInstance* instance, VkDeviceAddress transformAddress);
+    VkTransformMatrixKHR instanceTransform() const;
   };
 
   // Key for O(1) bucket lookup in the merged-BLAS path.
@@ -82,7 +84,7 @@ class AccelManager : public CommonDeviceObject {
     uint8_t instanceMask = 0;
     bool usesUnorderedApproximations = false;
     bool isSubsurface = false;
-    uint8_t pad = 0;
+    bool cameraRelative = false;
 
     bool operator==(const BlasBucketKey& other) const {
       return instanceMask == other.instanceMask &&
@@ -90,7 +92,8 @@ class AccelManager : public CommonDeviceObject {
              customIndexFlags == other.customIndexFlags &&
              instanceFlags == other.instanceFlags &&
              usesUnorderedApproximations == other.usesUnorderedApproximations &&
-             isSubsurface == other.isSubsurface;
+             isSubsurface == other.isSubsurface &&
+             cameraRelative == other.cameraRelative;
     }
   };
 
@@ -103,7 +106,7 @@ class AccelManager : public CommonDeviceObject {
           &BlasBucketKey::instanceMask,
           &BlasBucketKey::usesUnorderedApproximations,
           &BlasBucketKey::isSubsurface,
-          &BlasBucketKey::pad>(k));
+          &BlasBucketKey::cameraRelative>(k));
     }
   };
 
@@ -214,6 +217,7 @@ private:
                                      const std::vector<std::unique_ptr<BlasBucket>>& blasBuckets,
                                      std::vector<VkAccelerationStructureBuildGeometryInfoKHR>& blasToBuild,
                                      std::vector<VkAccelerationStructureBuildRangeInfoKHR*>& blasRangesToBuild,
+                                     const std::vector<VkTransformMatrixKHR>& instanceTransforms,
                                      size_t& currentScratchOffset);
   template<Tlas::Type type>
   void internalBuildTlas(Rc<DxvkContext> ctx, size_t& totalScratchSize);

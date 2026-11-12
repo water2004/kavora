@@ -1421,14 +1421,14 @@ namespace dxvk {
                      hasTransformChanged, hasPreviousPositions, isFirstUpdateThisFrame, fireEvents);
   }
 
-  void InstanceManager::registerViewModelCandidate(RtInstance& instance) {
+  void InstanceManager::registerViewModelCandidate(RtInstance& instance, const std::optional<Vector3>& eyeOffset) {
     // Lazy-clear stale candidates if onFrameEnd() was skipped last frame (e.g. device loss on alt+tab).
     const uint32_t currentFrameId = m_device->getCurrentFrameId();
     if (m_viewModelCandidatesFrameId != currentFrameId) {
       m_viewModelCandidates.clear();
       m_viewModelCandidatesFrameId = currentFrameId;
     }
-    m_viewModelCandidates.push_back(&instance);
+    m_viewModelCandidates.push_back({ &instance, eyeOffset });
   }
 
   void InstanceManager::registerPlayerModelInstance(RtInstance& instance) {
@@ -1457,7 +1457,7 @@ namespace dxvk {
     // Re-register view-model candidates every frame; m_viewModelCandidates is cleared in
     // onFrameEnd, and createViewModelInstances() iterates the list later in the frame.
     if (drawCall.cameraType == CameraType::ViewModel && !instance.isHidden() && isNewCameraTypeThisFrame) {
-      registerViewModelCandidate(instance);
+      registerViewModelCandidate(instance, drawCall.getTransformData().viewModelEyeOffset);
     }
 
     // Re-register player-model instances every frame. m_playerModelInstances is cleared
@@ -1490,7 +1490,9 @@ namespace dxvk {
     auto removeCandidate = [instance](std::vector<RtInstance*>& candidates) {
       candidates.erase(std::remove(candidates.begin(), candidates.end(), instance), candidates.end());
     };
-    removeCandidate(m_viewModelCandidates);
+    m_viewModelCandidates.erase(std::remove_if(m_viewModelCandidates.begin(), m_viewModelCandidates.end(),
+      [instance](const ViewModelCandidate& candidate) { return candidate.reference == instance; }),
+      m_viewModelCandidates.end());
     removeCandidate(m_playerModelInstances);
 
     // Always clean up replacement instance references, even for renderer-created instances
@@ -1513,9 +1515,11 @@ namespace dxvk {
   RtInstance* InstanceManager::createViewModelInstance(Rc<DxvkContext> ctx,
                                                        const RtInstance& reference,
                                                        const Matrix4d& perspectiveCorrection,
-                                                       const Matrix4d& prevPerspectiveCorrection) {
+                                                       const Matrix4d& prevPerspectiveCorrection,
+                                                       bool cameraRelative) {
 
     const uint32_t frameId = m_device->getCurrentFrameId();
+    const bool applyPerspectiveCorrection = RtxOptions::ViewModel::perspectiveCorrection() && !cameraRelative;
 
     // Try to reuse a persistent view model instance for this reference.
     RtInstance* viewModelInstance = nullptr;
@@ -1524,7 +1528,7 @@ namespace dxvk {
       // Existing persistent instance — sync surface/material data from the
       // reference while preserving the corrected transform for change detection.
       viewModelInstance = it->second;
-      viewModelInstance->updateFromReference(reference);
+      viewModelInstance->updateFromReference(reference, applyPerspectiveCorrection);
       notifySceneChanged();
     } else {
       // First time seeing this reference — create a new persistent instance.
@@ -1540,7 +1544,7 @@ namespace dxvk {
     viewModelInstance->m_vkInstance.mask = OBJECT_MASK_VIEWMODEL;
     viewModelInstance->setCustomIndexBit(CUSTOM_INDEX_IS_VIEW_MODEL, true);
 
-    if (RtxOptions::ViewModel::perspectiveCorrection()) {
+    if (applyPerspectiveCorrection) {
       // A transform that looks "correct" only from a main camera's point of view
       const auto corrected = perspectiveCorrection * reference.getTransform();
       // A new view-model mesh starts with its current camera-relative placement.
@@ -1607,6 +1611,7 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "ViewModel");
     m_hasViewModelEyeCorrection = false;
     m_hasViewModelParticles = false;
+    m_viewModelEyeOffsets.clear();
 
     auto cleanupAllPersistentViewModelInstances = [this]() {
       for (auto& [ref, inst] : m_persistentViewModelInstances) {
@@ -1627,8 +1632,8 @@ namespace dxvk {
 
     // If the first person player model is enabled, hide the view model.
     if (RtxOptions::PlayerModel::enableInPrimarySpace()) {
-      for (auto* candidateInstance : m_viewModelCandidates) {
-        candidateInstance->m_vkInstance.mask = 0;
+      for (const auto& candidate : m_viewModelCandidates) {
+        candidate.reference->m_vkInstance.mask = 0;
       }
       cleanupAllPersistentViewModelInstances();
       return;
@@ -1669,7 +1674,8 @@ namespace dxvk {
     // Create any valid view model instances from the list of candidates
     std::vector<RtInstance*> viewModelInstances;
     std::unordered_set<RtInstance*> activeViewModelReferences;
-    for (auto* candidateInstance : m_viewModelCandidates) {
+    for (const auto& candidate : m_viewModelCandidates) {
+      auto* candidateInstance = candidate.reference;
 
       // A valid view-model reference must have been drawn with the view-model camera this
       // frame.
@@ -1684,7 +1690,12 @@ namespace dxvk {
       candidateInstance->setCustomIndexBit(CUSTOM_INDEX_IS_VIEW_MODEL, true);
 
       activeViewModelReferences.insert(candidateInstance);
-      viewModelInstances.push_back(createViewModelInstance(ctx, *candidateInstance, perspectiveCorrection, prevPerspectiveCorrection));
+      auto* viewModel = createViewModelInstance(ctx, *candidateInstance, perspectiveCorrection,
+        prevPerspectiveCorrection, candidate.eyeOffset.has_value());
+      viewModelInstances.push_back(viewModel);
+      if (candidate.eyeOffset) {
+        m_viewModelEyeOffsets.emplace_back(viewModel, *candidate.eyeOffset);
+      }
       m_hasViewModelParticles |= candidateInstance->surface.alphaState.isParticle;
     }
 
@@ -1693,6 +1704,15 @@ namespace dxvk {
 
     // Create virtual instances for the view model instances
     createRayPortalVirtualViewModelInstances(viewModelInstances, cameraManager, rayPortalManager);
+  }
+
+  const Vector3* InstanceManager::getViewModelEyeOffset(const RtInstance* instance) const {
+    for (const auto& entry : m_viewModelEyeOffsets) {
+      if (entry.first == instance) {
+        return &entry.second;
+      }
+    }
+    return nullptr;
   }
 
   static bool isInsidePlayerModel(const Vector3& playerModelPosition, const Vector3& instancePosition) {

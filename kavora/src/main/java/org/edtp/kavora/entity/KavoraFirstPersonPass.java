@@ -32,12 +32,9 @@ import net.minecraft.world.phys.Vec3;
  * Remix view-model geometry.
  *
  * <p>Minecraft remains responsible for hand selection, swing/equip/use
- * animations, maps, and item-specific transforms. The captured model is
- * attached to the camera in world space and submitted through Remix's
- * view-model camera for scene isolation. The hand-to-world FOV adjustment and
- * camera-relative view-model scale are folded into the captured rigid-part
- * transforms so Remix's view-model correction can remain an identity transform
- * and preserve precise motion history.
+ * animations, maps, and item-specific transforms. The captured rigid-part
+ * transforms include the hand FOV and scale. They use world axes with the
+ * camera eye as the origin so Remix can trace the same pose at any world position.
  */
 public final class KavoraFirstPersonPass implements AutoCloseable {
 
@@ -47,15 +44,13 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
 
     /**
      * Camera-relative scale used to pull first-person geometry in front of
-     * nearby world surfaces. This is baked into captured pivots instead of
-     * {@code rtx.viewModel.scale}, keeping Remix's current/previous perspective
-     * correction at identity for stable motion vectors.
+     * nearby world surfaces. This is baked into the captured pivots.
      */
     public static final float VIEW_MODEL_SCALE = 0.1f;
 
     private final KavoraVertexConsumerProvider provider = new KavoraVertexConsumerProvider();
     private final KavoraSubmitNodeCollector collector = new KavoraSubmitNodeCollector(provider);
-    private final Transform cameraToWorld = new Transform();
+    private final Transform eyeToWorldAxes = new Transform();
     private final Transform heldLightTransform = new Transform();
     private final Matrix4f correctedBone = new Matrix4f();
     private final Matrix4f viewCorrection = new Matrix4f();
@@ -112,11 +107,12 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
 
             int boneCount = context.getBoneCount();
             reusableBoneData = snapshotCorrectedBones(context, boneCount, reusableBoneData);
-            setCameraToWorld(camera, cameraToWorld);
+            setWorldAxes(camera, eyeToWorldAxes);
+            Vec3 cameraPosition = camera.position();
             pendingMainHandLightPosition = findHeldBlockLightPosition(
-                    layers, context, reusableBoneData, boneCount, InteractionHand.MAIN_HAND);
+                    layers, context, reusableBoneData, boneCount, InteractionHand.MAIN_HAND, cameraPosition);
             pendingOffHandLightPosition = findHeldBlockLightPosition(
-                    layers, context, reusableBoneData, boneCount, InteractionHand.OFF_HAND);
+                    layers, context, reusableBoneData, boneCount, InteractionHand.OFF_HAND, cameraPosition);
 
             pendingResult = new KavoraEntityPass.EntityCaptureResult(
                     player,
@@ -162,7 +158,8 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
         if (result == null) {
             return;
         }
-        submitter.submitEntity(result, cameraToWorld, InstanceCategoryBit.VIEW_MODEL,
+        submitter.submitEntity(result, eyeToWorldAxes,
+                InstanceCategoryBit.VIEW_MODEL | InstanceCategoryBit.CAMERA_RELATIVE_VIEW_MODEL,
                 KavoraEntitySubmitter.NO_EXTRA_CATEGORIES);
     }
 
@@ -177,7 +174,8 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
             EntityRenderContext context,
             float[] transformData,
             int transformCount,
-            InteractionHand hand) {
+            InteractionHand hand,
+            Vec3 cameraPosition) {
         KavoraCapturingConsumer bestConsumer = null;
         int bestTransform = -1;
         int bestVertexCount = 0;
@@ -216,12 +214,12 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
             minZ = Math.min(minZ, pz[i]); maxZ = Math.max(maxZ, pz[i]);
         }
 
-        KavoraEntitySubmitter.composeRigidTransform(cameraToWorld, transformData,
+        KavoraEntitySubmitter.composeRigidTransform(eyeToWorldAxes, transformData,
                 transformCount, bestTransform, heldLightTransform);
         return transformPoint(heldLightTransform,
                 (minX + maxX) * 0.5f,
                 (minY + maxY) * 0.5f,
-                (minZ + maxZ) * 0.5f);
+                (minZ + maxZ) * 0.5f).add(cameraPosition);
     }
 
     static Vec3 transformPoint(Transform transform, float x, float y, float z) {
@@ -283,11 +281,9 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
     }
 
     /**
-     * Builds an object-to-world transform whose local axes match Minecraft's
-     * camera space: +X right, +Y up, and -Z forward.
+     * Expresses the hand axes in world space with translation left relative to the eye.
      */
-    private static void setCameraToWorld(Camera camera, Transform transform) {
-        Vec3 pos = camera.position();
+    private static void setWorldAxes(Camera camera, Transform transform) {
         float yawRad = (float) Math.toRadians(-camera.yRot());
         float pitchRad = (float) Math.toRadians(camera.xRot());
 
@@ -306,15 +302,12 @@ public final class KavoraFirstPersonPass implements AutoCloseable {
         transform.set(0, 0, rightX);
         transform.set(0, 1, upX);
         transform.set(0, 2, -forwardX);
-        transform.set(0, 3, (float) pos.x);
         transform.set(1, 0, rightY);
         transform.set(1, 1, upY);
         transform.set(1, 2, -forwardY);
-        transform.set(1, 3, (float) pos.y);
         transform.set(2, 0, rightZ);
         transform.set(2, 1, upZ);
         transform.set(2, 2, -forwardZ);
-        transform.set(2, 3, (float) pos.z);
     }
 
     @Override

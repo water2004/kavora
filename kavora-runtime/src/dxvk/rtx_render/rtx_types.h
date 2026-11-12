@@ -634,6 +634,7 @@ struct DrawCallTransforms {
   Vector4 clipPlane{ 0.f };
   TexGenMode texgenMode = TexGenMode::None;
   std::shared_ptr<const std::vector<Matrix4>> instancesToObject;
+  std::optional<Vector3> viewModelEyeOffset;
 
   void sanitize() {
     if (objectToWorld[3][3] == 0.f) objectToWorld[3][3] = 1.f;

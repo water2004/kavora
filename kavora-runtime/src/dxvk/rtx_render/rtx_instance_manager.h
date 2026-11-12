@@ -414,11 +414,13 @@ public:
   RtInstance* createInstanceCopy(const RtInstance& reference, bool generateValidID = true);
 
   // Creates a view model instance from the reference and adds it to the instance pool
-  RtInstance* createViewModelInstance(Rc<DxvkContext> ctx, const RtInstance& reference, const Matrix4d& perspectiveCorrection, const Matrix4d& prevPerspectiveCorrection);
+  RtInstance* createViewModelInstance(Rc<DxvkContext> ctx, const RtInstance& reference,
+    const Matrix4d& perspectiveCorrection, const Matrix4d& prevPerspectiveCorrection, bool cameraRelative);
 
   // Creates view model instances and their virtual counterparts
   void createViewModelInstances(Rc<DxvkContext> ctx, const CameraManager& cameraManager, const RayPortalManager& rayPortalManager);
   bool hasViewModelParticles() const { return m_hasViewModelParticles; }
+  const Vector3* getViewModelEyeOffset(const RtInstance* instance) const;
 
   const std::array<Matrix3, 2>& getEyeShadingToWorld() const { return m_eyeShadingToWorld; }
   const std::array<Matrix3, 2>& getEyeWorldToShading() const { return m_eyeWorldToShading; }
@@ -444,7 +446,12 @@ private:
 
   std::vector<RtInstance*> m_instances; 
   uint64_t m_sceneGeneration = 0;
-  std::vector<RtInstance*> m_viewModelCandidates;
+  struct ViewModelCandidate {
+    RtInstance* reference;
+    std::optional<Vector3> eyeOffset;
+  };
+  std::vector<ViewModelCandidate> m_viewModelCandidates;
+  std::vector<std::pair<const RtInstance*, Vector3>> m_viewModelEyeOffsets;
   uint32_t m_viewModelCandidatesFrameId = kInvalidFrameIndex;
   // Shared per-frame corrective transforms for viewmodel and portal cases
   std::array<Matrix3, 2> m_eyeShadingToWorld;
@@ -492,7 +499,7 @@ private:
   // Handles the case of when two (or more) identical geometries+textures draw calls have been submitted in a single frame (typically used for two-pass rendering in FF)
   void mergeInstanceHeuristics(RtInstance& instanceToModify, const DrawCallState& drawCall, const RtSurface::AlphaState& alphaState) const;
 
-  void registerViewModelCandidate(RtInstance& instance);
+  void registerViewModelCandidate(RtInstance& instance, const std::optional<Vector3>& eyeOffset);
 
   // Adds an instance to the per-frame player-model worklist consumed by
   // filterPlayerModelInstances() / createPlayerModelVirtualInstances().
