@@ -45,6 +45,7 @@ import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -185,9 +186,9 @@ public class LightManager {
     /**
      * Updates sky light and draws entity + sky lights.
      */
-    public void updateLights(ClientLevel world) {
+    public void updateLights(ClientLevel world, Camera camera, float tickDelta) {
         if (world == null || api == null) return;
-        updateSkyLight(world);
+        updateSkyLight(world, camera, tickDelta);
         drawActiveLights();
     }
 
@@ -1039,21 +1040,18 @@ public class LightManager {
     //  Sky light
     // ================================================================
 
-    private void updateSkyLight(ClientLevel world) {
+    private void updateSkyLight(ClientLevel world, Camera camera, float tickDelta) {
+        var attributes = camera.attributeProbe();
         // Only a NORMAL sky has a sun and a moon. The End and the Nether pin their time, so
         // evaluating them would light a permanent noon or midnight that vanilla never draws.
         skyLightState = world.dimensionType().skybox() == DimensionType.Skybox.OVERWORLD
                 ? evaluateSkyLightState(
-                        Minecraft.getInstance().gameRenderer.mainCamera().attributeProbe()
-                                .getValue(net.minecraft.world.attribute.EnvironmentAttributes.SUN_ANGLE, 0f) / 360.0f,
-                        Minecraft.getInstance().gameRenderer.mainCamera().attributeProbe()
-                                .getValue(net.minecraft.world.attribute.EnvironmentAttributes.MOON_ANGLE, 0f) / 360.0f,
-                        Minecraft.getInstance().gameRenderer.mainCamera().attributeProbe()
-                                .getValue(net.minecraft.world.attribute.EnvironmentAttributes.MOON_PHASE, 0f).index(),
-                        world.getRainLevel(0.0f),
-                        world.getThunderLevel(0.0f),
-                        SkyAtmosphere.observerHeight(Minecraft.getInstance().gameRenderer.mainCamera().position().y
-                                - world.getSeaLevel()))
+                        attributes.getValue(EnvironmentAttributes.SUN_ANGLE, tickDelta) / 360.0f,
+                        attributes.getValue(EnvironmentAttributes.MOON_ANGLE, tickDelta) / 360.0f,
+                        attributes.getValue(EnvironmentAttributes.MOON_PHASE, tickDelta).index(),
+                        world.getRainLevel(tickDelta),
+                        world.getThunderLevel(tickDelta),
+                        SkyAtmosphere.observerHeight(camera.position().y - world.getSeaLevel()))
                 : SkyLightState.empty();
 
         try {

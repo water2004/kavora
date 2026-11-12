@@ -37,9 +37,14 @@ float3 cloudColumn(CloudArgs args, float2 position)
 float cumulusDensity(CloudArgs args, float3 position)
 {
   const float3 p = cloudCoordinates(args, position);
+  const float heightAboveBase = p.y * args.shapeScale - args.baseHeight;
+  if (heightAboveBase <= 0 || heightAboveBase >= args.thickness)
+  {
+    return 0;
+  }
   const float3 column = cloudColumn(args, p.xz);
-  const float height = (p.y * args.shapeScale - args.baseHeight) / column.z;
-  if (column.x <= 0 || height <= 0 || height >= 1)
+  const float height = heightAboveBase / column.z;
+  if (column.x <= 0 || height >= 1)
   {
     return 0;
   }

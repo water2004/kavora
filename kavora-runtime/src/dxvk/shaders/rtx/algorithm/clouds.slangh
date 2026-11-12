@@ -26,17 +26,27 @@ float2 cloudSphereRoots(CloudArgs args, float3 origin, float3 direction, float a
   return float2(min(q, other), max(q, other));
 }
 
-// All ray types intersect one curved cloud shell, without a proxy ground surface.
-float2 cloudInterval(CloudArgs args, float3 origin, float3 direction, float distance)
+float2 cloudOuterInterval(CloudArgs args, float3 origin, float3 direction, float distance)
 {
   if (!args.enable || args.extinction <= 0)
   {
     return 0;
   }
   const float2 outer = cloudSphereRoots(args, origin, direction, args.baseHeight + args.thickness);
+  return float2(max(0.0f, outer.x), min(min(distance, args.maxDistance), outer.y));
+}
+
+// View integration consumes the nearest continuous interval of the shell.
+float2 cloudInterval(CloudArgs args, float3 origin, float3 direction, float distance)
+{
+  const float2 outer = cloudOuterInterval(args, origin, direction, distance);
+  if (outer.y <= outer.x)
+  {
+    return 0;
+  }
   const float2 inner = cloudSphereRoots(args, origin, direction, args.baseHeight);
-  float begin = max(0.0f, outer.x);
-  float end = min(min(distance, args.maxDistance), outer.y);
+  float begin = outer.x;
+  float end = outer.y;
   if (inner.y > begin)
   {
     if (inner.x <= begin)
@@ -104,15 +114,25 @@ float cloudTransmittance(CloudArgs args, float3 origin, float3 direction, float 
 
 float cloudLightOpticalDepth(CloudArgs args, float3 origin, float3 direction, float distance)
 {
-  float opticalDepth = 0;
-  const float2 interval = cloudInterval(args, origin, direction, distance);
+  float2 interval = cloudOuterInterval(args, origin, direction, distance);
   if (interval.y <= interval.x)
   {
-    return opticalDepth;
+    return 0;
+  }
+  // Skip the clear air before entering the layer. Once in the shell, keep the
+  // sampling range intact even when the ray grazes the inner boundary.
+  if (cloudAltitude(args, origin) < args.baseHeight)
+  {
+    interval.x = max(interval.x, cloudSphereRoots(args, origin, direction, args.baseHeight).y);
+    if (interval.y <= interval.x)
+    {
+      return 0;
+    }
   }
   // Concentrate self-shadow samples near the receiver while covering the entire layer.
   const float spacing = cloudSampleSpacing(args, direction);
   const float stretch = log(1.0f + (interval.y - interval.x) / spacing);
+  float opticalDepth = 0;
   float previous = interval.x;
   for (uint i = 0; i < args.lightSteps; i++)
   {

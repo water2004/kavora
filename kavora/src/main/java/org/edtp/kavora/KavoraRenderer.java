@@ -551,7 +551,7 @@ public class KavoraRenderer {
                 // after it would submit last frame's positions. Visible as a
                 // one-frame lag between a spinning beacon and its beam.
                 lightManager.updateEntityLights(world, camera, tickDelta);
-                lightManager.updateLights(world);
+                lightManager.updateLights(world, camera, tickDelta);
             } finally {
                 perfTimer.end(perfTimer.perfLights);
             }
