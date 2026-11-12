@@ -589,7 +589,8 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
   if (ComputeMotionAndShadowTerminator && !surface.isStatic && !usePreviousPositions)
   {
-    vec3 prevObjectPosition = interpolateHitAttribute(positions, bary);
+    const vec3 objectPosition = interpolateHitAttribute(positions, bary);
+    vec3 prevObjectPosition = objectPosition;
 
     if (surface.previousPositionBufferIndex != BINDING_INDEX_INVALID)
     {
@@ -610,9 +611,12 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
       prevObjectPosition = interpolateHitAttribute(prevPositions, bary);
     }
 
-    const vec3 prevPosition = mul(surface.prevObjectToWorld, vec4(prevObjectPosition, 1.0f));
-
-    surfaceInteraction.motion = prevPosition - hitPosition;
+    // Subtract instance translations before adding local motion. Absolute positions lose detail on small surfaces.
+    const vec4 origin = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    const vec3 translationMotion = mul(surface.prevObjectToWorld, origin) - mul(surface.objectToWorld, origin);
+    const vec3 localMotion = mul(surface.prevObjectToWorld, vec4(prevObjectPosition, 0.0f))
+                          - mul(surface.objectToWorld, vec4(objectPosition, 0.0f));
+    surfaceInteraction.motion = translationMotion + localMotion;
   }
   else
   {

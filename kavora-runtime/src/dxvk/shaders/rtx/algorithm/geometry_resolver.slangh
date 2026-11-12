@@ -165,15 +165,14 @@ struct VirtualHitProjection
 // Projects the hit along the pixel's unjittered camera ray; depth is -infinity for a hit at the camera position.
 VirtualHitProjection projectVirtualHit(uvec2 pixelCoordinate, float virtualHitDistance, vec3 virtualMotion)
 {
-  const Ray originalCameraRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate, false);
-  const vec3 virtualHitPosition = rayEvaluate(originalCameraRay, virtualHitDistance);
-  const vec4 projectionSpacePosition = mul(cb.camera.worldToProjectionJittered, vec4(virtualHitPosition, 1.0f));
+  const CameraDirections rayDirections = cameraPixelCoordinateToDirection(cb.camera, pixelCoordinate, false);
+  const vec3 viewHitPosition = rayDirections.viewDirection * virtualHitDistance;
   const vec2 ndc = cameraPixelCoordinateToNDC(cb.camera, pixelCoordinate);
 
   VirtualHitProjection projection;
   projection.cameraHistory = kTemporalHistoryOrdinary;
-  projection.depth = projectionSpacePosition.z / projectionSpacePosition.w;
-  projection.linearViewZ = cameraWorldPosToLinearViewZ(cb.camera, virtualHitPosition);
+  projection.depth = cameraViewPosToDepth(cb.camera, viewHitPosition);
+  projection.linearViewZ = viewHitPosition.z;
 
   // Forced static-scene motion reprojects the precise NDC and depth rather than the imprecise world position.
   if (cb.forceStaticSceneMotionVectors)
@@ -182,7 +181,11 @@ VirtualHitProjection projectVirtualHit(uvec2 pixelCoordinate, float virtualHitDi
   }
   else
   {
-    const vec2 prevNDC = cameraWorldPosToPrevNDC(cb.camera, virtualHitPosition + virtualMotion);
+    // Keep the hit and motion relative to the eye to preserve sub-pixel precision near the camera.
+    const vec3 eyeMotion = cameraGetPreviousWorldPosition(cb.camera) - cameraGetWorldPosition(cb.camera);
+    const vec3 previousEyeToHit = rayDirections.worldDirection * virtualHitDistance + (virtualMotion - eyeMotion);
+    const vec4 prevClip = mul(cb.camera.prevWorldToProjection, vec4(previousEyeToHit, 0.0f));
+    const vec2 prevNDC = prevClip.w == 0.0f ? vec2(0.0f) : prevClip.xy / prevClip.w;
     projection.screenSpaceMotion = cameraCalcMotionVectorPixel(cb.camera, ndc, prevNDC);
   }
 
