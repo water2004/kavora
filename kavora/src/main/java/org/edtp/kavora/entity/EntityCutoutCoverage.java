@@ -5,6 +5,7 @@
 package org.edtp.kavora.entity;
 
 import java.util.BitSet;
+import java.util.function.IntBinaryOperator;
 
 /** Base-level alpha coverage of a resource-backed entity texture. */
 record EntityCutoutCoverage(int width, int height, BitSet occupied) {
@@ -13,9 +14,15 @@ record EntityCutoutCoverage(int width, int height, BitSet occupied) {
     private static final int MAX_FACE_RECTS = 32;
 
     static EntityCutoutCoverage fromRgba(byte[] pixels, int width, int height) {
+        return fromAlpha(width, height, (x, y) -> pixels[(y * width + x) * 4 + 3]);
+    }
+
+    static EntityCutoutCoverage fromAlpha(int width, int height, IntBinaryOperator alphaAt) {
         BitSet occupied = new BitSet(width * height);
-        for (int i = 0; i < width * height; i++) {
-            if (pixels[i * 4 + 3] != 0) occupied.set(i);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                if (alphaAt.applyAsInt(x, y) != 0) occupied.set(y * width + x);
+            }
         }
         return occupied.cardinality() == width * height ? null : new EntityCutoutCoverage(width, height, occupied);
     }

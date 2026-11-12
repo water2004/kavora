@@ -32,6 +32,7 @@ final class KavoraSceneFixtures {
     static void captureEntityMaterials(ClientGameTestContext context, TestSingleplayerContext world) {
         captureEntityMaterials(context, world, 0);
         captureEntityMaterials(context, world, 8192);
+        captureShulkerBoxes(context, world, 8192);
     }
 
     private static void captureEntityMaterials(ClientGameTestContext context, TestSingleplayerContext world, int x) {
@@ -64,29 +65,62 @@ final class KavoraSceneFixtures {
             player.getAbilities().flying = true;
             player.onUpdateAbilities();
         });
-        moveEntityFixtureCamera(context, world, x, -0.8, 0);
+        moveEntityFixtureCamera(context, world, x, -59.65, -0.8, 0);
         context.waitTicks(40);
         KavoraWorldGameTest.captureCompletedFrame(context, "entity-materials-" + x);
         try (var debug = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "32")) {
             context.waitTicks(10);
             Path albedo = KavoraWorldGameTest.captureCompletedFrame(context, "entity-materials-albedo-" + x);
             assertVillagerMaterials(readImage(albedo), albedo);
-            moveEntityFixtureCamera(context, world, x + 3.75, -0.8, 0);
+            moveEntityFixtureCamera(context, world, x + 3.75, -59.65, -0.8, 0);
             context.waitTicks(12);
             Path mobs = KavoraWorldGameTest.captureCompletedFrame(context, "layered-mobs-albedo-" + x);
             assertSheepFace(readImage(mobs), mobs);
-            moveEntityFixtureCamera(context, world, x + 1.5, 1.5, -23);
+            moveEntityFixtureCamera(context, world, x + 1.5, -59.65, 1.5, -23);
             context.waitTicks(12);
             Path sign = KavoraWorldGameTest.captureCompletedFrame(context, "sign-albedo-" + x);
             assertSignMaterials(readImage(sign), sign);
         }
     }
 
+    private static void captureShulkerBoxes(ClientGameTestContext context, TestSingleplayerContext world, int x) {
+        world.getServer().runOnServer(server -> {
+            String at = "execute positioned " + (x + 0.0) + " 0 0 run ";
+            commands(server,
+                    at + "setblock ~ -56 1 minecraft:red_shulker_box[facing=up]",
+                    at + "setblock ~1 -56 1 minecraft:blue_shulker_box[facing=up]");
+        });
+        moveEntityFixtureCamera(context, world, x + 1, -57.245, -2, 0);
+        context.waitTicks(12);
+        boolean hudWasHidden = context.computeOnClient(client -> client.gui.hud.isHidden());
+        if (!hudWasHidden) context.runOnClient(client -> client.gui.hud.toggle());
+        try (var debug = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "32")) {
+            Path albedo = KavoraWorldGameTest.captureCompletedFrame(context, "shulker-box-albedo");
+            BufferedImage image = readImage(albedo);
+            assertShulkerBoxSeam(image, albedo, 335, 413, false);
+            assertShulkerBoxSeam(image, albedo, 441, 519, true);
+        } finally {
+            if (!hudWasHidden) context.runOnClient(client -> client.gui.hud.toggle());
+        }
+    }
+
+    private static void assertShulkerBoxSeam(BufferedImage image, Path albedo, int left, int right, boolean red) {
+        // The camera centres the coplanar part of the lid and base. Quartz behind
+        // the boxes is visible in this band if traversal misses either face.
+        int top = 236, bottom = 247;
+        double painted = countPixels(image, left, top, right, bottom, rgb -> {
+            int r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
+            return red ? r > 1.35 * Math.max(g, b) : b > 1.35 * Math.max(r, g);
+        }) / ((right - left) * (bottom - top));
+        KavoraWorldGameTest.require(painted > 0.95,
+                "Shulker box is missing part of its lid/base seam: " + painted + " coverage in " + albedo);
+    }
+
     private static void moveEntityFixtureCamera(ClientGameTestContext context, TestSingleplayerContext world,
-            double x, double z, float pitch) {
+            double x, double y, double z, float pitch) {
         world.getServer().runOnServer(server -> {
             var player = server.getPlayerList().getPlayers().getFirst();
-            KavoraWorldGameTest.require(player.teleportTo(server.overworld(), x, -59.65, z, Set.of(), 0, pitch, true),
+            KavoraWorldGameTest.require(player.teleportTo(server.overworld(), x, y, z, Set.of(), 0, pitch, true),
                     "Entity materials fixture teleport failed");
         });
         context.waitFor(client -> Math.abs(client.player.getZ() - z) < 0.01 && Math.abs(client.player.getX() - x) < 0.01, 200);

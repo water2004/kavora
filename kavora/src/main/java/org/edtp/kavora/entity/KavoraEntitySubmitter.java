@@ -12,6 +12,7 @@ import org.edtp.kavora.texture.DynamicTextureCache;
 import org.edtp.kavora.texture.BlockTextureManager;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.mixin.SpriteAtlasAccessor;
+import org.edtp.kavora.mixin.SpriteContentsAccessor;
 import org.edtp.kavora.block.CopperBeaconBlockEntity;
 import org.edtp.kavora.asset.KavoraTextureStore;
 import org.edtp.kavora.asset.KavoraTexture;
@@ -604,6 +605,7 @@ public class KavoraEntitySubmitter {
     private static final class EntityTextureSet {
         KavoraTexture albedo;
         EntityCutoutCoverage cutoutCoverage;
+        private IdentityHashMap<TextureAtlasSprite, Optional<EntityCutoutCoverage>> spriteCutoutCoverage;
         boolean resourceBacked;
         KavoraTexture normal;
         KavoraTexture height;
@@ -614,6 +616,24 @@ public class KavoraEntitySubmitter {
         KavoraTexture sssAlbedo;
         boolean hasPBR;
         final List<KavoraTexture> ownedTextures = new ArrayList<>();
+
+        EntityCutoutCoverage cutoutCoverage(TextureAtlasSprite sprite) {
+            if (sprite == null) return cutoutCoverage;
+            if (height != null) return null;
+            if (spriteCutoutCoverage == null) spriteCutoutCoverage = new IdentityHashMap<>();
+            return spriteCutoutCoverage.computeIfAbsent(sprite, EntityTextureSet::readSpriteCoverage).orElse(null);
+        }
+
+        private static Optional<EntityCutoutCoverage> readSpriteCoverage(TextureAtlasSprite sprite) {
+            var contents = sprite.contents();
+            var source = (SpriteContentsAccessor) contents;
+            // A frame-dependent mask cannot be baked into a retained mesh.
+            if (source.getAnimation() != null) return Optional.empty();
+            NativeImage image = source.getImage();
+            if (image == null || image.isClosed()) return Optional.empty();
+            return Optional.ofNullable(EntityCutoutCoverage.fromAlpha(contents.width(), contents.height(),
+                    (x, y) -> image.getPixel(x, y) >>> 24));
+        }
 
         void own(KavoraTexture texture) {
             if (texture != null) ownedTextures.add(texture);
@@ -1463,10 +1483,11 @@ public class KavoraEntitySubmitter {
         KavoraMaterial material = entityMaterial(texId, surfaceMode);
         if (material == null) return null;
         CuboidCutout cutout = null;
-        if (sprite == null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
+        if (surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
             EntityTextureSet textures = textureSets.get(texId);
-            if (textures != null && textures.cutoutCoverage != null) {
-                cutout = buildCuboidCutout(sides, textures.cutoutCoverage, shellLayer > 0);
+            EntityCutoutCoverage coverage = textures == null ? null : textures.cutoutCoverage(sprite);
+            if (coverage != null) {
+                cutout = buildCuboidCutout(sides, coverage, sprite, shellLayer > 0 || sprite != null);
             }
         }
         if (cutout != null && cutout.quadCount() == 0) {
@@ -1489,10 +1510,21 @@ public class KavoraEntitySubmitter {
         return mesh;
     }
 
-    private record CuboidCutout(int[][] faces, int quadCount, int textureWidth, int textureHeight) {}
+    private record CuboidCutout(int[][] faces, int quadCount, int textureWidth, int textureHeight,
+                               TextureAtlasSprite sprite) {
+        float u(int texel) {
+            float u = (float) texel / textureWidth;
+            return sprite == null ? u : sprite.getU(u);
+        }
+
+        float v(int texel) {
+            float v = (float) texel / textureHeight;
+            return sprite == null ? v : sprite.getV(v);
+        }
+    }
 
     private static CuboidCutout buildCuboidCutout(ModelPart.Polygon[] sides, EntityCutoutCoverage coverage,
-                                                 boolean split) {
+                                                 TextureAtlasSprite sprite, boolean split) {
         int[][] faces = null;
         int quadCount = sides.length;
         for (int i = 0; i < sides.length; i++) {
@@ -1504,8 +1536,7 @@ public class KavoraEntitySubmitter {
                 maxU = Math.max(maxU, vertex.u());
                 maxV = Math.max(maxV, vertex.v());
             }
-            // Exclude transparent texels from thin overlays before traversal can step
-            // through both the overlay and the skin behind it at large world coordinates.
+            // Empty texels must leave nearby or coplanar surfaces reachable by traversal.
             int[] rects = coverage.faceRectangles(minU, minV, maxU, maxV, split);
             if (rects != null) {
                 if (faces == null) faces = new int[sides.length][];
@@ -1513,7 +1544,7 @@ public class KavoraEntitySubmitter {
                 quadCount += rects.length / 4 - 1;
             }
         }
-        return faces == null ? null : new CuboidCutout(faces, quadCount, coverage.width(), coverage.height());
+        return faces == null ? null : new CuboidCutout(faces, quadCount, coverage.width(), coverage.height(), sprite);
     }
 
     private RetainedEntityPart createPendingRetainedPart() {
@@ -1970,8 +2001,8 @@ public class KavoraEntitySubmitter {
         float minU = Math.min(u0, u[start + 2]), minV = Math.min(v0, v[start + 2]);
         for (int r = 0; r < rects.length; r += 4) {
             for (int corner = start; corner < start + 4; corner++) {
-                float tu = (float) rects[r + (u[corner] == minU ? 0 : 2)] / cutout.textureWidth();
-                float tv = (float) rects[r + (v[corner] == minV ? 1 : 3)] / cutout.textureHeight();
+                float tu = cutout.u(rects[r + (u[corner] == minU ? 0 : 2)]);
+                float tv = cutout.v(rects[r + (v[corner] == minV ? 1 : 3)]);
                 float s = u[next] != u0 ? (tu - u0) / (u[next] - u0) : (tv - v0) / (v[next] - v0);
                 float t = u[prev] != u0 ? (tu - u0) / (u[prev] - u0) : (tv - v0) / (v[prev] - v0);
                 KavoraMeshSurface.putVertex(target,
