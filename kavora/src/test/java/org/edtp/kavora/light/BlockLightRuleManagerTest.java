@@ -28,8 +28,12 @@ import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import net.minecraft.SharedConstants;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.server.packs.PackLocationInfo;
 import net.minecraft.server.packs.PackResources;
 import net.minecraft.server.packs.PackType;
@@ -39,6 +43,8 @@ import net.minecraft.server.packs.repository.PackSource;
 import net.minecraft.server.packs.resources.IoSupplier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.MultifaceBlock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -48,6 +54,35 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BlockLightRuleManagerTest {
+
+    @Test
+    void glowLichenFillsItsSupportWithMergeableRectangles() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        var rule = BlockLightDefaults.create().get(BlockLightRuleIds.builtIn("surface_emitters"));
+        var sampler = BlockLightRuleManager.fixedCentroid(new float[]{0.5f, 0.5f, 0.5f});
+        var wall = Blocks.GLOW_LICHEN.defaultBlockState()
+                .setValue(MultifaceBlock.getFaceProperty(Direction.SOUTH), true);
+        assertTrue(rule.matches(wall));
+        var light = rule.resolve(wall, BlockPos.ZERO, sampler).getFirst();
+        assertEquals(LightShape.RECT, light.shape());
+        assertEquals(1.0f, light.xSize());
+        assertEquals(1.0f, light.ySize());
+        assertEquals(1.0f, light.directionZ());
+        assertEquals(0.0f, light.volumetricRadianceScale());
+        assertTrue(light.z() > 0.5f && light.z() < 1.0f);
+
+        var neighbor = rule.resolve(wall, new BlockPos(1, 0, 0), sampler).getFirst();
+        var merged = new AreaLightMerger().merge(List.of(light, neighbor), 0, 0, 0);
+        assertEquals(1, merged.size());
+        assertEquals(2.0f, merged.getFirst().xSize());
+        assertEquals(light.intensity(), merged.getFirst().intensity());
+
+        var corner = wall.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true);
+        var cornerLights = rule.resolve(corner, BlockPos.ZERO, sampler);
+        assertEquals(2, cornerLights.size());
+        assertEquals(light.intensity(), cornerLights.stream().mapToDouble(LightEntry::intensity).sum(), 1e-5);
+    }
 
     @Test
     void parseJsonRulePreservesTheAuthoredRectSpec() throws Exception {

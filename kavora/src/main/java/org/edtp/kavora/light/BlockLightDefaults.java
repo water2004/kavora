@@ -20,6 +20,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CandleBlock;
 import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.RedstoneTorchBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.WallTorchBlock;
@@ -41,6 +42,8 @@ final class BlockLightDefaults {
     private static final float AMETHYST_INTENSITY_SCALE = 2.0f;
     private static final Direction[] FACES = Direction.values();
     private static final float FACE_LIGHT_OFFSET = 1.0f / 1024.0f;
+    private static final float LICHEN_FILL_POWER = 0.09f;
+    private static final float LICHEN_FILL_STANDOFF = 0.4375f;
     private static final float LANTERN_RADIUS = .12f;
     static final LightEntry.ColorOverride TORCH_COLOR = LightEntry.ColorOverride.of(1.0f, 0.35f, 0.1f);
     private static final LightEntry.ColorOverride CAMPFIRE_COLOR = LightEntry.ColorOverride.of(1.0f, 0.1f, 0.05f);
@@ -214,6 +217,8 @@ final class BlockLightDefaults {
 
     private static List<LightEntry> surfaceEmitter(Identifier id, BlockState state, BlockPos pos,
                                                   BlockLightRuleManager.ModelSampler sampler) {
+        if (state.is(Blocks.GLOW_LICHEN)) return lichenFill(id, state, pos);
+
         Direction only = (state.is(Blocks.JACK_O_LANTERN)
                 || state.getBlock() instanceof net.minecraft.world.level.block.AbstractFurnaceBlock)
                 ? state.getValue(BlockStateProperties.HORIZONTAL_FACING) : null;
@@ -240,16 +245,41 @@ final class BlockLightDefaults {
             float v = axis == Direction.Axis.Y ? depth : height;
             if (u <= 0 || v <= 0) continue;
             float nx = face.getStepX(), ny = face.getStepY(), nz = face.getStepZ();
-            lights.add(LightEntry.rect(BlockLightRuleManager.key(pos, id, face.ordinal()),
-                    state.getLightEmission(), state.getBlock(),
+            lights.add(faceRectangle(id, state, pos, face,
                     cx + nx * (width * .5f + FACE_LIGHT_OFFSET),
                     cy + ny * (height * .5f + FACE_LIGHT_OFFSET),
-                    cz + nz * (depth * .5f + FACE_LIGHT_OFFSET),
-                    axis == Direction.Axis.X ? 0 : 1, 0, axis == Direction.Axis.X ? 1 : 0, u,
-                    0, axis == Direction.Axis.Y ? 0 : 1, axis == Direction.Axis.Y ? 1 : 0, v,
-                    nx, ny, nz, null, intensity, LightEntry.defaultVolumetricRadianceScale()));
+                    cz + nz * (depth * .5f + FACE_LIGHT_OFFSET), u, v, intensity,
+                    LightEntry.defaultVolumetricRadianceScale()));
         }
         return lights;
+    }
+
+    private static List<LightEntry> lichenFill(Identifier id, BlockState state, BlockPos pos) {
+        Set<Direction> faces = MultifaceBlock.availableFaces(state);
+        if (faces.isEmpty()) return List.of();
+
+        // A weak unit rectangle fills the support plane behind the cutout. Adjacent faces can merge.
+        float intensity = LICHEN_FILL_POWER * torchMatchedIntensity(state.getLightEmission(), faces.size());
+        float offset = 0.5f - LICHEN_FILL_STANDOFF;
+        var lights = new ArrayList<LightEntry>(faces.size());
+        for (Direction face : faces) {
+            lights.add(faceRectangle(id, state, pos, face,
+                    pos.getX() + 0.5f + face.getStepX() * offset,
+                    pos.getY() + 0.5f + face.getStepY() * offset,
+                    pos.getZ() + 0.5f + face.getStepZ() * offset, 1.0f, 1.0f, intensity, 0.0f));
+        }
+        return lights;
+    }
+
+    private static LightEntry faceRectangle(Identifier id, BlockState state, BlockPos pos, Direction face,
+                                            float x, float y, float z, float u, float v, float intensity,
+                                            float volumetricRadianceScale) {
+        var axis = face.getAxis();
+        return LightEntry.rect(BlockLightRuleManager.key(pos, id, face.ordinal()),
+                state.getLightEmission(), state.getBlock(), x, y, z,
+                axis == Direction.Axis.X ? 0 : 1, 0, axis == Direction.Axis.X ? 1 : 0, u,
+                0, axis == Direction.Axis.Y ? 0 : 1, axis == Direction.Axis.Y ? 1 : 0, v,
+                face.getStepX(), face.getStepY(), face.getStepZ(), null, intensity, volumetricRadianceScale);
     }
 
     private static List<LightEntry> lantern(Identifier id, BlockState state, BlockPos pos,
