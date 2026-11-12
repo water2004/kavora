@@ -312,7 +312,8 @@ namespace pnext_test_app {
   }
 
   void test_forkAbi() {
-    static_assert(REMIXAPI_VERSION_MAJOR == 1 && REMIXAPI_VERSION_MINOR == 0 && REMIXAPI_VERSION_PATCH == 0);
+    static_assert(REMIXAPI_VERSION_MAJOR == 1 && REMIXAPI_VERSION_MINOR == 5 && REMIXAPI_VERSION_PATCH == 0);
+    static_assert(sizeof(remixapi_Interface) == 44 * sizeof(void*));
     static_assert(sizeof(remixapi_HardcodedVertex) == 64);
     static_assert(offsetof(remixapi_HardcodedVertex, texcoordBounds) == 36);
     static_assert(std::is_same_v<decltype(remixapi_MaterialInfo::albedoTexture), remixapi_TextureHandle>);

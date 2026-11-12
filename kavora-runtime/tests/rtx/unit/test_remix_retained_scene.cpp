@@ -20,7 +20,8 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-
+// Exercise command submission and its assertions in Release test builds.
+#undef NDEBUG
 #include <cassert>
 #include <cstdint>
 #include <limits>
@@ -32,6 +33,8 @@
 #include <vector>
 
 #include <remix/remix_c.h>
+
+#include "../../../src/dxvk/dxvk_scoped_annotation.h"
 
 // Exercise the API command queue with a consuming submission target. This keeps
 // lifetime and command-order tests independent of a GPU and a D3D9 device.
@@ -81,7 +84,8 @@ namespace dxvk {
     }
   };
 
-  struct DxvkContext {
+  class DxvkContext {
+  public:
     CommonObjects common;
 
     CommonObjects* getCommonObjects() {
