@@ -45,15 +45,14 @@ public final class DirectQuadWriter {
     private static final float DECAL_PLANE_DISTANCE_EPSILON = 1.0E-3f;
     private static final float DECAL_OVERLAP_EPSILON = 1.0E-4f;
 
-    /**
-     * Worst-case quads per 16x16x16 section.  4096 blocks x 6 faces = 24576.
-     * Used as the growth ceiling for bucket buffers, not for initial sizing.
-     */
-    private static final int MAX_SECTION_QUADS = 24576;
-    private static final int MAX_VERT_BUF_SIZE = MAX_SECTION_QUADS * 4 * STRIDE;
+    private static final int BYTES_PER_QUAD = 4 * STRIDE;
+    // Keep the intermediate capacity used for dense cube sections. Models with
+    // more faces can grow past it to the next power-of-two quad capacity.
+    private static final int DENSE_BUCKET_BYTES = 24_576 * BYTES_PER_QUAD;
+    private static final int MAX_VERTEX_BUFFER_BYTES = Integer.MAX_VALUE / BYTES_PER_QUAD * BYTES_PER_QUAD;
     /** Initial bucket capacity: 128 quads keeps small section buckets compact. */
     private static final int INITIAL_QUADS    = 128;
-    private static final int INITIAL_VERT_SIZE = INITIAL_QUADS * 4 * STRIDE;
+    private static final int INITIAL_VERT_SIZE = INITIAL_QUADS * BYTES_PER_QUAD;
 
     /** Total bytes allocated across all DirectQuadWriter bucket buffers, all threads. */
     private static final AtomicLong totalAllocatedBytes = new AtomicLong();
@@ -107,10 +106,13 @@ public final class DirectQuadWriter {
         void writeQuad(float[] pos, int posOff, float[] uvs, int uvOff,
                 float nx, float ny, float nz, int color, int[] colors, int colorOffset,
                 int boundsMin, int boundsMax) {
-            ensureVertexCapacity((vertexCount + 4) * STRIDE);
+            int usedBytes = vertexCount * STRIDE;
+            if (vertices.capacity() - usedBytes < BYTES_PER_QUAD) {
+                growVertices(usedBytes);
+            }
 
             for (int v = 0; v < 4; v++) {
-                int wo = (vertexCount + v) * STRIDE;
+                int wo = usedBytes + v * STRIDE;
                 float x = pos[posOff + v * 3];
                 float y = pos[posOff + v * 3 + 1];
                 float z = pos[posOff + v * 3 + 2];
@@ -136,20 +138,22 @@ public final class DirectQuadWriter {
             indexCount += INDICES_PER_QUAD;
         }
 
-        private void ensureVertexCapacity(int requiredBytes) {
-            if (requiredBytes <= vertices.capacity()) return;
+        private void growVertices(int usedBytes) {
+            if ((long) usedBytes + BYTES_PER_QUAD > MAX_VERTEX_BUFFER_BYTES) {
+                throw new IllegalStateException("Terrain vertex buffer exceeds ByteBuffer capacity for " + key);
+            }
             int oldCap = vertices.capacity();
-            int newCap = oldCap;
-            while (newCap < requiredBytes) newCap *= 2;
-            if (newCap > MAX_VERT_BUF_SIZE) newCap = MAX_VERT_BUF_SIZE;
+            long nextCap = 2L * Integer.highestOneBit(oldCap / BYTES_PER_QUAD) * BYTES_PER_QUAD;
+            if (oldCap < DENSE_BUCKET_BYTES) nextCap = Math.min(nextCap, DENSE_BUCKET_BYTES);
+            int newCap = (int) Math.min(nextCap, MAX_VERTEX_BUFFER_BYTES);
             ByteBuffer grown = ByteBuffer.allocate(newCap).order(ByteOrder.LITTLE_ENDIAN);
             ByteBuffer src = vertices.duplicate().order(ByteOrder.LITTLE_ENDIAN);
-            src.position(0).limit(vertexCount * STRIDE);
+            src.position(0).limit(usedBytes);
             grown.put(src);
             vertices = grown;
             totalAllocatedBytes.addAndGet(newCap - oldCap);
             totalGrowthEvents.incrementAndGet();
-            totalGrowthCopiedBytes.addAndGet((long) vertexCount * STRIDE);
+            totalGrowthCopiedBytes.addAndGet(usedBytes);
         }
 
         void reset() {

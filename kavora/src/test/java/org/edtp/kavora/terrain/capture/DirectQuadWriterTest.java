@@ -143,6 +143,35 @@ class DirectQuadWriterTest {
     }
 
     @Test
+    void denseSectionRetainsQuadsPastTheCubeFaceCount() {
+        int quadCount = 16 * 16 * 16 * 6 + 1;
+        DirectQuadWriter writer = new DirectQuadWriter();
+        writer.beginSection();
+        try {
+            for (int quad = 0; quad < quadCount; quad++) {
+                writeQuad(writer, quad, 0xff00aa55);
+            }
+
+            SectionMeshData data = writer.buildMeshData();
+            try {
+                assertEquals(1, data.surfaces().size());
+                SectionMeshData.Surface surface = data.surfaces().getFirst();
+                assertEquals(quadCount * 4, surface.vertexCount());
+                assertEquals(quadCount * 6, surface.indexCount());
+                ByteBuffer vertices = surface.vertexBuffer();
+                assertEquals(quadCount * 4 * SectionMeshData.VERTEX_STRIDE, vertices.remaining());
+                for (int quad = 0; quad < quadCount; quad++) {
+                    assertEquals((float) quad, vertices.getFloat(quad * 4 * SectionMeshData.VERTEX_STRIDE));
+                }
+            } finally {
+                data.release();
+            }
+        } finally {
+            writer.releaseBuffers();
+        }
+    }
+
+    @Test
     void oppositeCutoutFacesCollapseToFirstPlaneAndUvs() {
         DirectQuadWriter writer = new DirectQuadWriter();
         writer.beginSection();
