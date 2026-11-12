@@ -14,6 +14,7 @@ import java.util.WeakHashMap;
 
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.resources.Identifier;
+import org.edtp.kavora.sdk.MaterialInfo.GlintMode;
 
 /**
  * Reads the layer-level facts the capture path needs from a {@link RenderType}.
@@ -42,7 +43,46 @@ final class RenderLayerUtils {
         GLASS,
         STAINED_GLASS_BLOCK,
         END_PORTAL,
-        END_GATEWAY;
+        END_GATEWAY,
+        ITEM_GLINT_CUTOUT(CUTOUT, GlintMode.ITEM),
+        ITEM_GLINT_TRANSLUCENT(TRANSLUCENT, GlintMode.ITEM),
+        ENTITY_GLINT_CUTOUT(CUTOUT, GlintMode.ENTITY),
+        ENTITY_GLINT_OPAQUE(OPAQUE, GlintMode.ENTITY),
+        ENTITY_GLINT_TRANSLUCENT(TRANSLUCENT, GlintMode.ENTITY),
+        ARMOR_GLINT_CUTOUT(CUTOUT, GlintMode.ARMOR),
+        ARMOR_GLINT_TRIM(ARMOR_TRIM, GlintMode.ARMOR);
+
+        private final SurfaceMode base;
+        private final GlintMode glint;
+
+        SurfaceMode() { this.base = this; this.glint = null; }
+
+        SurfaceMode(SurfaceMode base, GlintMode glint) {
+            this.base = base;
+            this.glint = glint;
+        }
+
+        SurfaceMode base() { return base; }
+        GlintMode glint() { return glint; }
+
+        SurfaceMode withGlint(GlintMode mode) {
+            if (mode == null || glint == mode) return this;
+            return switch (base) {
+                case OPAQUE -> mode == GlintMode.ENTITY ? ENTITY_GLINT_OPAQUE : this;
+                case CUTOUT -> switch (mode) {
+                    case ITEM -> ITEM_GLINT_CUTOUT;
+                    case ENTITY -> ENTITY_GLINT_CUTOUT;
+                    case ARMOR -> ARMOR_GLINT_CUTOUT;
+                };
+                case TRANSLUCENT -> switch (mode) {
+                    case ITEM -> ITEM_GLINT_TRANSLUCENT;
+                    case ENTITY -> ENTITY_GLINT_TRANSLUCENT;
+                    case ARMOR -> this;
+                };
+                case ARMOR_TRIM -> mode == GlintMode.ARMOR ? ARMOR_GLINT_TRIM : this;
+                default -> this;
+            };
+        }
 
         boolean isEmissive() { return this == EMISSIVE || this == EMISSIVE_CUTOUT; }
 
@@ -104,6 +144,8 @@ final class RenderLayerUtils {
     }
 
     private static Optional<Identifier> capturableTextureUncached(RenderType layer) {
+        // Equipment and shield capture transfer these depth-equal overlays to the shaded surface.
+        if (layer.pipeline() == RenderPipelines.GLINT) return Optional.empty();
         if (layer.pipeline().getDepthStencilState() == null
                 || layer.pipeline().getDepthStencilState().depthTest() == CompareOp.ALWAYS_PASS) {
             return Optional.empty();
@@ -194,6 +236,12 @@ final class RenderLayerUtils {
         var pipeline = layer.pipeline();
         if (pipeline == RenderPipelines.END_PORTAL) return SurfaceMode.END_PORTAL;
         if (pipeline == RenderPipelines.END_GATEWAY) return SurfaceMode.END_GATEWAY;
+        if (pipeline == RenderPipelines.ARMOR_CUTOUT_NO_CULL_GLINT) return SurfaceMode.ARMOR_GLINT_CUTOUT;
+        if (pipeline == RenderPipelines.ENTITY_SOLID_GLINT) return SurfaceMode.ENTITY_GLINT_OPAQUE;
+        if (pipeline == RenderPipelines.ITEM_CUTOUT_GLINT
+                || pipeline == RenderPipelines.ITEM_CUTOUT_GLINT_SPECIAL) return SurfaceMode.ITEM_GLINT_CUTOUT;
+        if (pipeline == RenderPipelines.ITEM_TRANSLUCENT_GLINT
+                || pipeline == RenderPipelines.ITEM_TRANSLUCENT_GLINT_SPECIAL) return SurfaceMode.ITEM_GLINT_TRANSLUCENT;
         // The trim and the armor base can share a pipeline. The trim layer alone
         // binds the palette-resolved pattern, including equipment overrides.
         if (layer.name.equals("armor_trim") || layer.name.equals("armor_trim_decal")) return SurfaceMode.ARMOR_TRIM;

@@ -13,6 +13,14 @@ public class MaterialInfo {
     public static final byte WRAP_MODE_REPEAT = 1;
     public static final byte WRAP_MODE_MIRRORED_REPEAT = 2;
 
+    public enum GlintMode {
+        ITEM(1), ENTITY(2), ARMOR(3);
+
+        final int abiValue;
+
+        GlintMode(int abiValue) { this.abiValue = abiValue; }
+    }
+
     public long hash;
     public long albedoTexture;
     public long normalTexture;
@@ -20,6 +28,8 @@ public class MaterialInfo {
     public long emissiveTexture;
     /** Optional opaque-material R8 mask: zero neutralizes vertex RGB; one keeps it. */
     public long vertexColorMaskTexture;
+    public long glintTexture;
+    public GlintMode glintMode;
     public float emissiveIntensity = 0.0f;
     public Float3D emissiveColorConstant = new Float3D(0, 0, 0);
     public byte spriteSheetRow = 1;
@@ -45,6 +55,8 @@ public class MaterialInfo {
         private long tangentTexture;
         private long emissiveTexture;
         private long vertexColorMaskTexture;
+        private long glintTexture;
+        private GlintMode glintMode;
         private float emissiveIntensity = 0.0f;
         private Float3D emissiveColorConstant = new Float3D(0, 0, 0);
         private byte filterMode = 1;
@@ -73,6 +85,16 @@ public class MaterialInfo {
         /** Sets the optional opaque-material R8 vertex RGB mask. */
         public Builder vertexColorMaskTexture(long textureHandle) {
             this.vertexColorMaskTexture = textureHandle;
+            return this;
+        }
+
+        /** Adds an animated glint texture to an opaque material. */
+        public Builder glint(long textureHandle, GlintMode mode) {
+            if (textureHandle == 0 || mode == null) {
+                throw new IllegalArgumentException("Glint needs a texture and UV mode");
+            }
+            glintTexture = textureHandle;
+            glintMode = mode;
             return this;
         }
 
@@ -158,6 +180,8 @@ public class MaterialInfo {
             info.tangentTexture = this.tangentTexture;
             info.emissiveTexture = this.emissiveTexture;
             info.vertexColorMaskTexture = this.vertexColorMaskTexture;
+            info.glintTexture = this.glintTexture;
+            info.glintMode = this.glintMode;
             info.emissiveIntensity = this.emissiveIntensity;
             info.emissiveColorConstant = this.emissiveColorConstant;
             info.filterMode = this.filterMode;

@@ -254,13 +254,25 @@ public class RemixAPI {
     }
 
     private long allocMaterialPNext(MaterialInfo info) {
-        if (info.vertexColorMaskTexture != 0 && info.opaqueExt == null) {
-            throw new IllegalArgumentException("Vertex color masks require an opaque material");
+        if ((info.vertexColorMaskTexture != 0 || info.glintTexture != 0) && info.opaqueExt == null) {
+            throw new IllegalArgumentException("Vertex color masks and glint require an opaque material");
+        }
+        if ((info.glintTexture != 0) != (info.glintMode != null)) {
+            throw new IllegalArgumentException("Glint needs a texture and UV mode");
         }
         long next = allocMaterialTypePNext(info);
-        if (info.vertexColorMaskTexture == 0) return next;
-        try { return RemixBridge.allocVertexColorMaskExt(info.vertexColorMaskTexture, next); }
-        catch (RuntimeException | Error failure) { RemixBridge.freeExtChain(next); throw failure; }
+        try {
+            if (info.vertexColorMaskTexture != 0) {
+                next = RemixBridge.allocVertexColorMaskExt(info.vertexColorMaskTexture, next);
+            }
+            if (info.glintMode != null) {
+                next = RemixBridge.allocGlintExt(info.glintTexture, info.glintMode.abiValue, next);
+            }
+            return next;
+        } catch (RuntimeException | Error failure) {
+            RemixBridge.freeExtChain(next);
+            throw failure;
+        }
     }
 
     private long allocMaterialTypePNext(MaterialInfo info) {

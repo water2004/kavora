@@ -15,6 +15,7 @@ import net.minecraft.client.renderer.feature.phase.TranslucentFeatureRenderPhase
 import net.minecraft.client.renderer.feature.submit.SubmitNode;
 import org.edtp.kavora.mixin.RenderTypeFeatureRendererAccessor;
 import org.edtp.kavora.mixin.FeatureRenderDispatcherAccessor;
+import org.edtp.kavora.sdk.MaterialInfo.GlintMode;
 
 /** Replays vanilla's CPU feature builders into the retained Remix capture stream. */
 public final class KavoraSubmitNodeCollector extends SubmitNodeStorage implements FeatureRenderPhase.Output {
@@ -31,6 +32,16 @@ public final class KavoraSubmitNodeCollector extends SubmitNodeStorage implement
     }
 
     public KavoraVertexConsumerProvider provider() { return provider; }
+
+    /** Applies the equipment overlay to its synchronous surface submissions. */
+    public void withEquipmentGlint(GlintMode mode, Runnable submit) {
+        GlintMode previous = provider.setEquipmentGlint(mode);
+        try {
+            submit.run();
+        } finally {
+            provider.setEquipmentGlint(previous);
+        }
+    }
 
     /** Only consulted by the feature-builder mixin on the render thread. */
     public static KavoraVertexConsumerProvider activeProvider() { return activeProvider; }

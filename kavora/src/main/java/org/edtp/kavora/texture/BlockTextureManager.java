@@ -1069,6 +1069,20 @@ public class BlockTextureManager {
         return true;
     }
 
+    /** Creates an entity-owned cutout material that shares the existing atlas textures. */
+    public KavoraMaterial createGlintItemMaterial(KavoraTexture glint, MaterialInfo.GlintMode mode) {
+        MaterialInfo info = buildAtlasOpaqueMaterialInfo(L_CUTOUT, atlasNormalTex, atlasHeightTex,
+                atlasRoughnessTex, atlasMetallicTex, atlasEmissive, null, null, terrainEmissionIntensity());
+        if (glint != null) {
+            info.glintTexture = glint.getHandle();
+            info.glintMode = mode;
+        }
+        KavoraMaterial material = new KavoraMaterial(info,
+                glint == null ? List.of(atlasAlbedo) : List.of(atlasAlbedo, glint), null);
+        KavoraMaterialStore.get().create(material);
+        return material;
+    }
+
     /** Returns the atlas-based material (no SSS) for the given layer type. */
     public KavoraMaterial getAtlasMaterial(int layerType) {
         return atlasMaterials[layerType];

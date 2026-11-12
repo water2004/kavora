@@ -1176,6 +1176,21 @@ public final class RemixBridge {
         }
     }
 
+    static long allocGlintExt(long texture, int mode, long next) {
+        Arena arena = Arena.ofShared();
+        try {
+            String type = "MaterialInfoGlintEXT";
+            MemorySegment ext = info(arena, type, StructType.MATERIAL_INFO_GLINT_EXT, next);
+            put(ext, type, "texture", texture);
+            put(ext, type, "mode", mode);
+            extensions.put(ext.address(), arena);
+            return ext.address();
+        } catch (Throwable error) {
+            arena.close();
+            throw failure(error);
+        }
+    }
+
     /** Caller owns the extension until freeExt; the next pointer remains caller-owned. */
     public static long allocVertexColorMaskExt(long texture, long chainNext) {
         if (texture == 0) throw new IllegalArgumentException("Missing vertex color mask texture");

@@ -25,6 +25,7 @@
 
 #include "opaque_surface_material_blending.slangh"
 #include "end_portal_material.slangh"
+#include "surface_glint.slangh"
 
 // Opaque Surface Material Interaction Constants
 
@@ -998,6 +999,10 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
     }
   }
 
+  if (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_GLINT_MODE_MASK)
+  {
+    emissiveRadiance += surfaceGlint(opaqueSurfaceMaterial, surfaceInteraction, albedo, materialLodBias);
+  }
   opaqueSurfaceMaterialInteraction.emissiveRadiance = emissiveRadiance;
 
   opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction =

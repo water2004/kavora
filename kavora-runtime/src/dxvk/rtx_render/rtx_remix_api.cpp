@@ -47,7 +47,7 @@
 #include "rtx_ngx_wrapper.h"
 
 #include <remix/remix_c.h>
-#include "rtx_remix_pnext.h"
+#include "rtx_remix_material_extensions.h"
 
 #include "../dxvk_image.h"
 
@@ -247,6 +247,7 @@ namespace {
       std::shared_ptr<ApiTexture> subsurfaceSingleScatteringAlbedoTexture;
       std::shared_ptr<ApiTexture> subsurfaceRadiusTexture;
       std::shared_ptr<ApiTexture> vertexColorMaskTexture;
+      std::shared_ptr<ApiTexture> glintTexture;
     };
 
     PreloadSource makePreloadSource(const remixapi_MaterialInfo& info) {
@@ -254,6 +255,7 @@ namespace {
       if (auto extOpaque = pnext::find<remixapi_MaterialInfoOpaqueEXT>(&info)) {
         auto extSubsurface = pnext::find<remixapi_MaterialInfoOpaqueSubsurfaceEXT>(&info);
         auto vertexMask = pnext::find<remixapi_MaterialInfoVertexColorMaskEXT>(&info);
+        auto glint = pnext::find<remixapi_MaterialInfoGlintEXT>(&info);
         return PreloadSource {
           lookupApiTexture(info.albedoTexture),   // albedoTexture;
           lookupApiTexture(info.normalTexture),   // normalTexture;
@@ -268,6 +270,7 @@ namespace {
           lookupApiTexture(extSubsurface ? extSubsurface->subsurfaceSingleScatteringAlbedoTexture : nullptr), // subsurfaceSingleScatteringAlbedoTexture;
           lookupApiTexture(s_apiVersion >= REMIXAPI_VERSION_MAKE(0, 5, 1) && extSubsurface ? extSubsurface->subsurfaceRadiusTexture : nullptr), // subsurfaceRadiusTexture;
           lookupApiTexture(vertexMask ? vertexMask->texture : nullptr),
+          lookupApiTexture(glint ? glint->texture : nullptr),
         };
       }
       if (auto extTranslucent = pnext::find<remixapi_MaterialInfoTranslucentEXT>(&info)) {
@@ -326,7 +329,7 @@ namespace {
           preloadTexture(preload.subsurfaceThicknessTexture),
           preloadTexture(preload.subsurfaceSingleScatteringAlbedoTexture),
           preloadTexture(preload.subsurfaceRadiusTexture),
-          TextureRef(),
+          preloadTexture(preload.glintTexture),
           preloadTexture(preload.vertexColorMaskTexture),
           src.getAnisotropyConstant(),
           src.getEmissiveIntensity(),
@@ -370,7 +373,8 @@ namespace {
           src.getTextureScale(),
           src.getTextureOffset(),
           src.getTextureRotation(),
-          src.getEndPortalLayers()
+          src.getEndPortalLayers(),
+          src.getGlintMode()
         } };
       }
       case MaterialDataType::Translucent: 
@@ -429,6 +433,7 @@ namespace {
       if (auto extOpaque = pnext::find<remixapi_MaterialInfoOpaqueEXT>(&info)) {
         auto extSubsurface = pnext::find<remixapi_MaterialInfoOpaqueSubsurfaceEXT>(&info);
         auto endPortal = pnext::find<remixapi_MaterialInfoEndPortalEXT>(&info);
+        auto glint = pnext::find<remixapi_MaterialInfoGlintEXT>(&info);
         const bool hasDlssControlMask = s_apiVersion >= REMIXAPI_VERSION_MAKE(0, 6, 5);
         return MaterialData { OpaqueMaterialData {
           {},
@@ -487,6 +492,7 @@ namespace {
           Vector2(0.f),
           0.f,
           endPortal ? static_cast<uint8_t>(endPortal->starLayers) : uint8_t(0),
+          glint ? static_cast<uint8_t>(glint->mode) : uint8_t(0),
         } };
       }
       if (auto extTranslucent = pnext::find<remixapi_MaterialInfoTranslucentEXT>(&info)) {
@@ -1013,7 +1019,7 @@ namespace {
     if (!remixDevice) {
       return REMIXAPI_ERROR_CODE_REMIX_DEVICE_WAS_NOT_REGISTERED;
     }
-    if (!out_handle || !info || info->sType != REMIXAPI_STRUCT_TYPE_MATERIAL_INFO) {
+    if (!out_handle || !info || info->sType != REMIXAPI_STRUCT_TYPE_MATERIAL_INFO || !dxvk::validGlintMaterial(info)) {
       return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
     }
     if (const auto* endPortal = pnext::find<remixapi_MaterialInfoEndPortalEXT>(info)) {

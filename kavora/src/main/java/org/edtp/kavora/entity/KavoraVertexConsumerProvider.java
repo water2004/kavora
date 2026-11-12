@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.resources.Identifier;
+import org.edtp.kavora.sdk.MaterialInfo.GlintMode;
 
 /**
  * The {@code SubmitNodeCollector} every Remix capture pass renders into.
@@ -40,6 +41,8 @@ public class KavoraVertexConsumerProvider  {
      * layer per entity was a steady allocation on the render thread.
      */
     private RenderType[] activeLayers = new RenderType[8];
+    private GlintMode[] activeGlintModes = new GlintMode[activeLayers.length];
+    private GlintMode equipmentGlint;
     private KavoraCapturingConsumer[] activeConsumers = new KavoraCapturingConsumer[8];
     private int activeCount;
     private boolean stableGeometry;
@@ -67,6 +70,7 @@ public class KavoraVertexConsumerProvider  {
             consumerPool.add(consumer);
             activeConsumers[i] = null;
             activeLayers[i] = null;
+            activeGlintModes[i] = null;
         }
         activeCount = 0;
     }
@@ -86,7 +90,7 @@ public class KavoraVertexConsumerProvider  {
             // an empty layer here cannot shift the others.
             if (consumer.getVertexCount() > 0 || consumer.getPartCount() > 0) {
                 CapturedLayer layer = consumer.capturedLayer();
-                layer.bind(activeLayers[i]);
+                layer.bind(activeLayers[i], activeGlintModes[i]);
                 resultBuffer.add(layer);
             }
         }
@@ -96,10 +100,16 @@ public class KavoraVertexConsumerProvider  {
 
     // ---- VertexConsumerProvider ----
 
+    GlintMode setEquipmentGlint(GlintMode mode) {
+        GlintMode previous = equipmentGlint;
+        equipmentGlint = mode;
+        return previous;
+    }
+
     public VertexConsumer getBuffer(RenderType layer) {
         // Reuse consumer for same layer within one entity (e.g. left arm + right arm)
         for (int i = 0; i < activeCount; i++) {
-            if (activeLayers[i].equals(layer)) {
+            if (activeLayers[i].equals(layer) && activeGlintModes[i] == equipmentGlint) {
                 return activeConsumers[i];
             }
         }
@@ -132,9 +142,11 @@ public class KavoraVertexConsumerProvider  {
         consumer.setLayerIndex(activeCount);
         if (activeCount == activeLayers.length) {
             activeLayers = Arrays.copyOf(activeLayers, activeCount * 2);
+            activeGlintModes = Arrays.copyOf(activeGlintModes, activeCount * 2);
             activeConsumers = Arrays.copyOf(activeConsumers, activeCount * 2);
         }
         activeLayers[activeCount] = layer;
+        activeGlintModes[activeCount] = equipmentGlint;
         activeConsumers[activeCount] = consumer;
         activeCount++;
         return consumer;
@@ -152,17 +164,20 @@ public class KavoraVertexConsumerProvider  {
     public static final class CapturedLayer {
         private final KavoraCapturingConsumer consumer;
         private RenderType renderLayer;
+        private RenderLayerUtils.SurfaceMode surfaceMode;
 
         CapturedLayer(KavoraCapturingConsumer consumer) {
             this.consumer = consumer;
         }
 
-        void bind(RenderType renderLayer) {
+        void bind(RenderType renderLayer, GlintMode equipmentGlint) {
             this.renderLayer = renderLayer;
+            surfaceMode = RenderLayerUtils.surfaceMode(renderLayer).withGlint(equipmentGlint);
         }
 
         public Identifier textureId() { return consumer.getTextureId(); }
         public RenderType renderLayer() { return renderLayer; }
+        RenderLayerUtils.SurfaceMode surfaceMode() { return surfaceMode; }
         public KavoraCapturingConsumer consumer() { return consumer; }
         public int vertexCount() { return consumer.getVertexCount(); }
         /** Order in which the entity first requested this layer; scales the shell offset. */

@@ -695,7 +695,8 @@ namespace dxvk {
       Vector2(1.f), // TextureScale
       Vector2(0.f), // TextureOffset
       0.f,         // TextureRotation
-      0            // EndPortalLayers
+      0,           // EndPortalLayers
+      0            // GlintMode
     ));
 
     m_hasInitializedMaterialDataThisFrame = true;

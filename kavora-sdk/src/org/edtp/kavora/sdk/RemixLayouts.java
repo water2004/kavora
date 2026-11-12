@@ -76,6 +76,11 @@ final class RemixLayouts {
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 JAVA_INT.withName("starLayers"));
+        define("MaterialInfoGlintEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                ADDRESS.withName("texture"),
+                JAVA_INT.withName("mode"));
         define("MaterialInfoOpaqueSubsurfaceEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

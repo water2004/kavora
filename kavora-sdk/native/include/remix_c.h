@@ -169,6 +169,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT            = 50,
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT          = 51,
     REMIXAPI_STRUCT_TYPE_CAMERA_INFO_SCENE_ORIGIN_EXT           = 52,
+    REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_GLINT_EXT               = 53,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -315,6 +316,20 @@ extern "C" {
   } remixapi_MaterialInfoEndPortalEXT;
 
   // Valid only if remixapi_MaterialInfo contains remixapi_MaterialInfoOpaqueEXT in pNext chain
+  typedef enum remixapi_GlintMode {
+    REMIXAPI_GLINT_MODE_ITEM = 1,
+    REMIXAPI_GLINT_MODE_ENTITY = 2,
+    REMIXAPI_GLINT_MODE_ARMOR = 3,
+  } remixapi_GlintMode;
+
+  // Animated additive texture on an opaque material, including alpha-tested materials.
+  typedef struct remixapi_MaterialInfoGlintEXT {
+    remixapi_StructType    sType;
+    void*                  pNext;
+    remixapi_TextureHandle texture;
+    uint32_t               mode; // remixapi_GlintMode
+  } remixapi_MaterialInfoGlintEXT;
+
   typedef struct remixapi_MaterialInfoOpaqueSubsurfaceEXT {
     remixapi_StructType     sType;
     void*                   pNext;

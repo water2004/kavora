@@ -1862,6 +1862,11 @@ namespace dxvk {
 
       const auto& opaqueMaterialData = renderMaterialData.getOpaqueMaterialData();
       const uint8_t endPortalLayers = opaqueMaterialData.getEndPortalLayers();
+      const uint8_t glintMode = opaqueMaterialData.getGlintMode();
+      uint32_t glintTextureIndex = BINDING_INDEX_INVALID;
+      if (glintMode) {
+        trackTexture(opaqueMaterialData.getSecondaryTexture(), glintTextureIndex, hasTexcoords, false);
+      }
       if (endPortalLayers) {
         // Projected portal textures are independent of the mesh's vertex UVs.
         trackTexture(opaqueMaterialData.getAlbedoOpacityTexture(), secondaryTextureIndex, true, false);
@@ -1874,7 +1879,9 @@ namespace dxvk {
       } else {
         if (!endPortalLayers) {
           trackTexture(opaqueMaterialData.getAlbedoOpacityTexture(), albedoOpacityTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
-          trackTexture(opaqueMaterialData.getSecondaryTexture(), secondaryTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+          if (!glintMode) {
+            trackTexture(opaqueMaterialData.getSecondaryTexture(), secondaryTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+          }
         }
         trackTexture(opaqueMaterialData.getRoughnessTexture(), roughnessTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
         trackTexture(opaqueMaterialData.getMetallicTexture(), metallicTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
@@ -1977,7 +1984,9 @@ namespace dxvk {
         secondaryTextureIndex,
         reliefSamplerIndex,
         vertexColorMaskTextureIndex,
-        endPortalLayers
+        endPortalLayers,
+        glintMode,
+        glintTextureIndex
       };
 
       surfaceMaterial.emplace(opaqueSurfaceMaterial);

@@ -105,9 +105,9 @@ struct OpaqueSurfaceMaterial
 
   // Todo: Fixed function blend state info here in the future (Actually this should go on a Legacy Material, or some sort of non-PBR Legacy Surface)
 
-  // padding (to keep size matching with MemoryPolymorphicSurfaceMaterial)
+  // 30-31
   uint16_t vertexColorMaskTextureIndex;
-  uint16_t data[1];
+  uint16_t glintTextureIndex;
 
   bool hasValidDisplacement() {
     return flags & OPAQUE_SURFACE_MATERIAL_FLAG_HAS_DISPLACEMENT;

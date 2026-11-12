@@ -875,7 +875,7 @@ public class KavoraEntitySubmitter {
         Identifier texId = layer.textureId();
         if (texId == null) return;
         RenderType renderLayer = layer.renderLayer();
-        RenderLayerUtils.SurfaceMode layerMode = RenderLayerUtils.surfaceMode(renderLayer);
+        RenderLayerUtils.SurfaceMode layerMode = layer.surfaceMode();
         RenderLayerUtils.SurfaceMode surfaceMode = playerSkinSurfaceMode(layerMode,
                 result.owner() instanceof Player
                         && renderLayer == net.minecraft.client.renderer.rendertype.RenderTypes.entityTranslucent(texId));
@@ -898,7 +898,7 @@ public class KavoraEntitySubmitter {
         // ends its run and is dropped there. Each part narrows its own surface
         // mode, so the material is resolved per part where the mesh is built
         // rather than once for the layer.
-        canvasReader.beginLayer(texId, layerMode);
+        canvasReader.beginLayer(texId, layerMode.base());
         // A canvas's patterns are consecutive parts of one run and become one mesh, so
         // they are held back until the run ends; see submitCanvasPatterns.
         int canvasFirstPart = 0;
@@ -968,11 +968,9 @@ public class KavoraEntitySubmitter {
         if (blockItemLayer == BlockTextureManager.L_STAINED_GLASS_BLOCK) {
             return RenderLayerUtils.SurfaceMode.STAINED_GLASS_BLOCK;
         }
-        if (surfaceMode != RenderLayerUtils.SurfaceMode.TRANSLUCENT
-                || blockItemLayer == BlockTextureManager.L_TRANS) {
-            return surfaceMode;
-        }
-        return RenderLayerUtils.SurfaceMode.CUTOUT;
+        if (surfaceMode.base() != RenderLayerUtils.SurfaceMode.TRANSLUCENT) return surfaceMode;
+        if (blockItemLayer == BlockTextureManager.L_TRANS) return surfaceMode.base();
+        return RenderLayerUtils.SurfaceMode.CUTOUT.withGlint(surfaceMode.glint());
     }
 
     /**
@@ -1171,7 +1169,7 @@ public class KavoraEntitySubmitter {
             Identifier texId = layer.textureId();
             if (texId == null) continue;
             canvasReader.collectBases(texId,
-                    RenderLayerUtils.surfaceMode(layer.renderLayer()), layer.consumer());
+                    layer.surfaceMode().base(), layer.consumer());
         }
     }
 
@@ -1262,8 +1260,8 @@ public class KavoraEntitySubmitter {
                                 texId, surfaceMode, topology, shellLayer, sides, sprite);
         if (mesh == null) return;
 
-        if (surfaceMode == RenderLayerUtils.SurfaceMode.ARMOR_TRIM
-                || (sides != null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT && (shellLayer > 0 || sprite != null))) {
+        if (surfaceMode.base() == RenderLayerUtils.SurfaceMode.ARMOR_TRIM
+                || (sides != null && surfaceMode.base() == RenderLayerUtils.SurfaceMode.CUTOUT && (shellLayer > 0 || sprite != null))) {
             categoryFlags |= InstanceCategoryBit.ALPHA_COVERAGE;
         }
         drawRetainedPart(result, consumer.getPartBone(partIndex), layerIndex, partIndex,
@@ -1519,7 +1517,7 @@ public class KavoraEntitySubmitter {
         KavoraMaterial material = entityMaterial(texId, surfaceMode);
         if (material == null) return null;
         int omittedFaces = 0;
-        if (surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
+        if (surfaceMode.base() == RenderLayerUtils.SurfaceMode.CUTOUT) {
             EntityTextureSet textures = textureSets.get(texId);
             EntityCutoutCoverage coverage = textures == null ? null : textures.cutoutCoverage(sprite);
             if (coverage != null) {
@@ -2207,7 +2205,11 @@ public class KavoraEntitySubmitter {
             // items through its translucent item layer too, so a captured atlas
             // TRANSLUCENT only reaches a material key after atlasSurfaceMode has
             // narrowed it per part.
-            KavoraMaterial material = btm.getAtlasMaterial(atlasLayerType(materialKey.surfaceMode()));
+            RenderLayerUtils.SurfaceMode mode = materialKey.surfaceMode();
+            var glintMode = mode.glint();
+            KavoraMaterial material = glintMode == null
+                    ? btm.getAtlasMaterial(atlasLayerType(mode.base()))
+                    : btm.createGlintItemMaterial(glintTexture(glintMode), glintMode);
             cacheMaterial(materialKey, material);
             return;
         }
@@ -2244,6 +2246,25 @@ public class KavoraEntitySubmitter {
         } catch (Exception e) {
             LOGGER.error("Failed to create material for {}: {}", textureId, e.getMessage(), e);
         }
+    }
+
+    private KavoraTexture glintTexture(MaterialInfo.GlintMode mode) {
+        if (mode == null) return null;
+        Identifier id = mode == MaterialInfo.GlintMode.ARMOR
+                ? net.minecraft.client.renderer.feature.ItemFeatureRenderer.ENCHANTED_GLINT_ARMOR
+                : net.minecraft.client.renderer.feature.ItemFeatureRenderer.ENCHANTED_GLINT_ITEM;
+        EntityTextureSet textures = textureSets.get(id);
+        if (textures != null) return textures.albedo;
+        try {
+            textures = tryCreateTextureSet(id);
+            if (textures != null) {
+                textureSets.put(id, textures);
+                return textures.albedo;
+            }
+        } catch (Exception failure) {
+            LOGGER.warn("Failed to load enchantment glint {}", id, failure);
+        }
+        return null;
     }
 
     private KavoraMaterial createEndPortalMaterial(KavoraTexture sky, int layers) throws Exception {
@@ -2402,6 +2423,10 @@ public class KavoraEntitySubmitter {
      * the block atlas by {@code BlockTextureManager}, the particle atlas by
      * {@code ParticleAtlasManager}. This submitter never destroys them.
      */
+    private static boolean isBorrowedAtlasMaterial(EntityMaterialKey key) {
+        return key.surfaceMode().glint() == null && isBorrowedAtlasMaterial(key.textureId());
+    }
+
     private static boolean isBorrowedAtlasMaterial(Identifier textureId) {
         return BlockTextureManager.BLOCK_ATLAS_ID.equals(textureId)
                 || PARTICLE_ATLAS_ID.equals(textureId);
@@ -2614,7 +2639,7 @@ public class KavoraEntitySubmitter {
             if (!textureId.equals(entry.getKey().textureId())) continue;
             KavoraMaterial material = entry.getValue();
             materials.remove();
-            if (!isBorrowedAtlasMaterial(textureId) && material != null && !material.isDeleted()) {
+            if (!isBorrowedAtlasMaterial(entry.getKey()) && material != null && !material.isDeleted()) {
                 material.destroy();
             }
         }
@@ -2716,7 +2741,8 @@ public class KavoraEntitySubmitter {
                 .roughnessConstant(textures.roughness != null ? 1f : 0.7f)
                 .metallicConstant(textures.metallic != null ? 1f : 0f);
 
-        switch (key.surfaceMode()) {
+        RenderLayerUtils.SurfaceMode baseMode = key.surfaceMode().base();
+        switch (baseMode) {
             case OPAQUE -> { }
             case CUTOUT, ARMOR_TRIM, EMISSIVE_CUTOUT -> opaque.alphaTestType(4)
                     .alphaReferenceValue(cutoutAlphaReferenceValue(key.textureId()));
@@ -2726,7 +2752,7 @@ public class KavoraEntitySubmitter {
                     .blendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA_EMISSIVE);
         }
         if (MAP_DECORATIONS_ATLAS_TEXTURE.equals(key.textureId())
-                && key.surfaceMode() == RenderLayerUtils.SurfaceMode.CUTOUT) {
+                && baseMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
             // Remix recognizes decal categories only for blend-enabled materials. The
             // half-coverage alpha test above still rejects the empty atlas texels.
             opaque.blendEnabled(true).blendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA);
@@ -2742,7 +2768,7 @@ public class KavoraEntitySubmitter {
             opaque.heightTexture(textures.height.getHandle()).displaceIn(POM_DISPLACE_IN);
         }
         boolean hasSubsurface = shouldAttachSubsurface(
-                textures.hasSssMask, key.surfaceMode());
+                textures.hasSssMask, baseMode);
         if (hasSubsurface) {
             opaque.subsurfaceExt(buildSubsurface(textures));
         }
@@ -2750,10 +2776,10 @@ public class KavoraEntitySubmitter {
         MaterialInfo.Builder materialBuilder = MaterialInfo.builder()
                 .albedoTexture(textures.albedo.getHandle()).filterMode(0);
         if (textures.normal != null) materialBuilder.normalTexture(textures.normal.getHandle());
-        KavoraTexture emissive = key.surfaceMode().isEmissive()
+        KavoraTexture emissive = baseMode.isEmissive()
                 ? textures.albedo : textures.emissive;
         float emissiveIntensity = EMISSIVE_INTENSITY;
-        if (emissive == null && key.surfaceMode() == RenderLayerUtils.SurfaceMode.ARMOR_TRIM) {
+        if (emissive == null && baseMode == RenderLayerUtils.SurfaceMode.ARMOR_TRIM) {
             emissive = textures.albedo;
             emissiveIntensity = ARMOR_TRIM_EMISSIVE_INTENSITY;
         }
@@ -2762,8 +2788,16 @@ public class KavoraEntitySubmitter {
                     .emissiveIntensity(emissiveIntensity);
         }
 
+        List<KavoraTexture> materialTextures = textures.ownedTextures;
+        var glintMode = key.surfaceMode().glint();
+        KavoraTexture glint = glintTexture(glintMode);
+        if (glint != null) {
+            materialBuilder.glint(glint.getHandle(), glintMode);
+            materialTextures = new ArrayList<>(materialTextures);
+            materialTextures.add(glint);
+        }
         MaterialInfo info = materialBuilder.opaqueExt(opaque.build()).build();
-        KavoraMaterial material = new KavoraMaterial(info, textures.ownedTextures, null);
+        KavoraMaterial material = new KavoraMaterial(info, materialTextures, null);
         KavoraMaterialStore.get().create(material);
         LOGGER.info("Created entity material {} (mode={}, LabPBR={}, normal={}, height={}, "
                         + "specular={}, emissive={}, sss={}, sssProfile={})",
@@ -2917,7 +2951,7 @@ public class KavoraEntitySubmitter {
         destroyMeshes(transientMeshes);
 
         for (Map.Entry<EntityMaterialKey, KavoraMaterial> e : materialCache.entrySet()) {
-            if (!isBorrowedAtlasMaterial(e.getKey().textureId())) {
+            if (!isBorrowedAtlasMaterial(e.getKey())) {
                 KavoraMaterial mat = e.getValue();
                 if (!mat.isDeleted()) mat.destroy();
             }

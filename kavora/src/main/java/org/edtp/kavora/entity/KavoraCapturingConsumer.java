@@ -648,7 +648,7 @@ public class KavoraCapturingConsumer implements VertexConsumer {
     @Override
     public void putBakedQuadWithGlint(PoseStack.Pose pose, BakedQuad quad,
             com.mojang.blaze3d.vertex.QuadInstance instance, PoseStack.Pose glintPose) {
-        // Glint UVs are a raster shader input; the scene mesh retains the item's own UVs and pose.
+        // The retained mesh uses its material UVs for the animated overlay.
         putBakedQuad(pose, quad, instance);
     }
     @Override

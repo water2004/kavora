@@ -34,6 +34,7 @@ OpaqueSurfaceMaterial opaqueSurfaceMaterialCreate(MemoryPolymorphicSurfaceMateri
     opaqueSurfaceMaterial.metallicTextureIndex = BINDING_INDEX_INVALID;
     opaqueSurfaceMaterial.normalTextureIndex = BINDING_INDEX_INVALID;
     opaqueSurfaceMaterial.vertexColorMaskTextureIndex = BINDING_INDEX_INVALID;
+    opaqueSurfaceMaterial.flags &= ~uint16_t(OPAQUE_SURFACE_MATERIAL_GLINT_MODE_MASK);
     opaqueSurfaceMaterial.tangentTextureIndex = BINDING_INDEX_INVALID;
     opaqueSurfaceMaterial.roughnessConstant = 1.h;
     opaqueSurfaceMaterial.metallicConstant = 0.h;

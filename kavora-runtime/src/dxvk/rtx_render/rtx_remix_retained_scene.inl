@@ -169,7 +169,7 @@ remixapi_ErrorCode REMIXAPI_CALL remixapi_UpdateMaterial(
   if (!device) {
     return REMIXAPI_ERROR_CODE_REMIX_DEVICE_WAS_NOT_REGISTERED;
   }
-  if (!handle || !info || info->sType != REMIXAPI_STRUCT_TYPE_MATERIAL_INFO) {
+  if (!handle || !info || info->sType != REMIXAPI_STRUCT_TYPE_MATERIAL_INFO || !dxvk::validGlintMaterial(info)) {
     return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
   }
   std::lock_guard lock { s_mutex };

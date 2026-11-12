@@ -42,8 +42,8 @@ struct OpaqueMaterialArgs {
   uint enableThinFilmOverride = 0;
   // Note: This thickness value is normalized on 0-1, predivided by the thinFilmMaxThickness on the CPU.
   float thinFilmNormalizedThicknessOverride = 0.0;
-  uint pad0 = 0;
-  uint pad1 = 0;
+  float glintSpeed = 0.5f;
+  float glintStrength = 0.75f;
 };
 
 struct TranslucentMaterialArgs {
@@ -100,6 +100,11 @@ struct OpaqueMaterialOptions {
 
   // Overrides
 
+  RTX_OPTION_FLAG("rtx.opaqueMaterial", float, glintSpeed, 0.5f, RtxOptionFlags::NoSave,
+                  "Animation speed from Minecraft accessibility settings.");
+  RTX_OPTION_FLAG("rtx.opaqueMaterial", float, glintStrength, 0.75f, RtxOptionFlags::NoSave,
+                  "Glint strength from Minecraft accessibility settings.");
+
   RTX_OPTION("rtx.opaqueMaterial", bool, ignoreAlphaChannelOverride, false, "A flag to ignore the alpha channel of the colormap on the opaque material. Should only be used for debugging or development.");
   RTX_OPTION("rtx.opaqueMaterial", bool, enableThinFilmOverride, false, "A flag to force the thin-film layer on the opaque material to be enabled. Should only be used for debugging or development.");
   RTX_OPTION("rtx.opaqueMaterial", float, thinFilmThicknessOverride, 0.0f,
@@ -122,6 +127,8 @@ public:
     args.layeredWaterNormalLodBias = layeredWaterNormalLodBias();
     args.layeredWaterNormalEnable = layeredWaterNormalEnable();
     args.enableThinFilmOverride = enableThinFilmOverride();
+    args.glintSpeed = glintSpeed();
+    args.glintStrength = glintStrength();
     // Note: GPU expects the thin film thickness override to be normalized on the maximum range.
     args.thinFilmNormalizedThicknessOverride = std::clamp(thinFilmThicknessOverride() / OPAQUE_SURFACE_MATERIAL_THIN_FILM_MAX_THICKNESS, 0.0f, 1.0f);
   }

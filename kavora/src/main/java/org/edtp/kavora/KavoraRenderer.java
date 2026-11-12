@@ -117,6 +117,8 @@ public class KavoraRenderer {
     private KavoraEntityPass entityPass;
     private KavoraEntitySubmitter entitySubmitter;
     private KavoraFirstPersonPass firstPersonPass;
+    private double glintSpeed = Double.NaN;
+    private double glintStrength = Double.NaN;
 
     // Block entity rendering: captured in place from vanilla's dispatcher and
     // submitted through the entity submitter with the block entity as owner
@@ -269,6 +271,19 @@ public class KavoraRenderer {
         return gameDir.resolve("kavora-runtime").resolve("d3d9.dll");
     }
     
+    private void updateGlintOptions(Minecraft client) {
+        double speed = client.options.glintSpeed().get();
+        if (speed != glintSpeed) {
+            remixApi.setConfigVariable("rtx.opaqueMaterial.glintSpeed", Double.toString(speed));
+            glintSpeed = speed;
+        }
+        double strength = client.options.glintStrength().get();
+        if (strength != glintStrength) {
+            remixApi.setConfigVariable("rtx.opaqueMaterial.glintStrength", Double.toString(strength));
+            glintStrength = strength;
+        }
+    }
+
     /**
      * Applies pending world/resource invalidation and preloads the large
      * block-entity atlases. Call before vanilla's world render, which is where
@@ -280,6 +295,7 @@ public class KavoraRenderer {
         applyPendingWorldResourceChanges();
         if (KavoraMod.isRtxEnabled()) {
             Minecraft client = Minecraft.getInstance();
+            updateGlintOptions(client);
             long start = System.nanoTime();
             try (ProfileScope scope = ProfileScope.begin("Camera")) {
                 updateCamera(client.gameRenderer.mainCamera(),

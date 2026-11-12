@@ -691,7 +691,9 @@ struct RtOpaqueSurfaceMaterial {
     uint32_t secondaryTextureIndex = 0,
     uint32_t reliefSamplerIndex = BINDING_INDEX_INVALID,
     uint32_t vertexColorMaskTextureIndex = BINDING_INDEX_INVALID,
-    uint8_t endPortalLayers = 0
+    uint8_t endPortalLayers = 0,
+    uint8_t glintMode = 0,
+    uint32_t glintTextureIndex = BINDING_INDEX_INVALID
   ) :
     m_albedoOpacityTextureIndex{ albedoOpacityTextureIndex }, m_secondaryTextureIndex{secondaryTextureIndex}, m_normalTextureIndex{ normalTextureIndex },
     m_tangentTextureIndex { tangentTextureIndex }, m_heightTextureIndex { heightTextureIndex }, m_roughnessTextureIndex{ roughnessTextureIndex },
@@ -703,14 +705,15 @@ struct RtOpaqueSurfaceMaterial {
     m_ignoreAlphaChannel { ignoreAlphaChannel }, m_enableThinFilm { enableThinFilm }, m_alphaIsThinFilmThickness { alphaIsThinFilmThickness },
     m_thinFilmThicknessConstant { thinFilmThicknessConstant }, m_samplerIndex{ samplerIndex }, m_displaceIn{ displaceIn },
     m_displaceOut{ displaceOut },
-    m_enableDlssControlMask{ enableDlssControlMask }, m_endPortalLayers{ endPortalLayers },
+    m_enableDlssControlMask{ enableDlssControlMask }, m_endPortalLayers{ endPortalLayers }, m_glintMode{ glintMode },
     m_dlssControlMaskIntensity{ dlssControlMaskIntensity },
     m_dlssControlMaskToneStrength{ dlssControlMaskToneStrength },
     m_dlssControlMaskStructuralStrength{ dlssControlMaskStructuralStrength },
     m_subsurfaceMaterialIndex(subsurfaceMaterialIndex), m_isRaytracedRenderTarget(isRaytracedRenderTarget),
     m_isHairCard(isHairCard), m_samplerFeedbackStamp{ samplerFeedbackStamp },
     m_reliefSamplerIndex{ reliefSamplerIndex == BINDING_INDEX_INVALID ? samplerIndex : reliefSamplerIndex },
-    m_vertexColorMaskTextureIndex{ vertexColorMaskTextureIndex }
+    m_vertexColorMaskTextureIndex{ vertexColorMaskTextureIndex },
+    m_glintTextureIndex{ glintTextureIndex }
   {
     updateCachedData();
     updateCachedHash();
@@ -719,6 +722,9 @@ struct RtOpaqueSurfaceMaterial {
   void writeGPUData(unsigned char* data, std::size_t& offset) const {
     [[maybe_unused]] const std::size_t oldOffset = offset;
     uint16_t flags = surfaceMaterialTypeOpaque;
+    if (m_glintTextureIndex != BINDING_INDEX_INVALID) {
+      flags |= uint16_t(m_glintMode) << OPAQUE_SURFACE_MATERIAL_GLINT_MODE_SHIFT;
+    }
 
     // For decode process, see surface_material.h
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
@@ -817,7 +823,7 @@ struct RtOpaqueSurfaceMaterial {
     writeGPUHelper(data, offset, m_cachedDLSSControlMask);
 
     writeGPUHelperExplicit<2>(data, offset, m_vertexColorMaskTextureIndex);
-    writeGPUPadding<2>(data, offset);
+    writeGPUHelperExplicit<2>(data, offset, m_glintTextureIndex);
     assert(offset - oldOffset == kSurfaceMaterialGPUSize);
   }
 
@@ -921,6 +927,7 @@ struct RtOpaqueSurfaceMaterial {
   template<typename Fn>
   void forEachTextureIndex(Fn&& fn) const {
     fn(m_vertexColorMaskTextureIndex);
+    fn(m_glintTextureIndex);
     fn(m_albedoOpacityTextureIndex);
     fn(m_secondaryTextureIndex);
     fn(m_normalTextureIndex);
@@ -1033,6 +1040,10 @@ private:
     if (m_endPortalLayers) {
       m_cachedHash = XXH64(&m_endPortalLayers, sizeof(m_endPortalLayers), m_cachedHash);
     }
+    if (m_glintTextureIndex != BINDING_INDEX_INVALID) {
+      const uint32_t glint = (m_glintTextureIndex << 2) | m_glintMode;
+      m_cachedHash = XXH64(&glint, sizeof(glint), m_cachedHash);
+    }
   }
 
   void updateCachedData() {
@@ -1082,6 +1093,7 @@ private:
   float m_displaceOut;
   bool m_enableDlssControlMask;
   uint8_t m_endPortalLayers;
+  uint8_t m_glintMode;
   float m_dlssControlMaskIntensity;
   float m_dlssControlMaskToneStrength;
   float m_dlssControlMaskStructuralStrength;
@@ -1102,6 +1114,8 @@ private:
   float m_cachedEmissiveIntensity;
   float m_cachedThinFilmNormalizedThicknessConstant;
   uint32_t m_cachedDLSSControlMask;
+
+  uint32_t m_glintTextureIndex;
 };
 
 struct RtTranslucentSurfaceMaterial {

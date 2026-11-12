@@ -102,7 +102,8 @@
   X(DLSSControlMaskToneStrength,      dlss_control_mask_tone_strength,        float,          0.f,                        1.f,                        0.3f) \
   X(DLSSControlMaskStructuralStrength, dlss_control_mask_structural_strength, float,          0.f,                        1.f,                        0.7f) \
   LIST_TEXTURE_TRANSFORM_CONSTANTS(X) \
-  X(EndPortalLayers,                  end_portal_layers,                    uint8_t,        0,                          16,                         0)
+  X(EndPortalLayers,                  end_portal_layers,                    uint8_t,        0,                          16,                         0) \
+  X(GlintMode,                       glint_mode,                           uint8_t,        0,                          3,                          0)
 
 #define LIST_OPAQUE_MATERIAL_PARAMS(X)\
   LIST_OPAQUE_MATERIAL_TEXTURES(X) \

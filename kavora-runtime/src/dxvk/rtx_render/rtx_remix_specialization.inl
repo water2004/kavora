@@ -115,7 +115,8 @@ namespace pnext::detail {
     remixapi_TextureImmutableEXT,
     remixapi_InstanceInfoVoxelCoverageEXT,
     remixapi_VoxelCoverageInfo,
-    remixapi_MaterialInfoVertexColorMaskEXT
+    remixapi_MaterialInfoVertexColorMaskEXT,
+    remixapi_MaterialInfoGlintEXT
   >;
 
   template< typename T > constexpr remixapi_StructType ToEnum                 = REMIXAPI_STRUCT_TYPE_NONE;
@@ -200,6 +201,8 @@ namespace pnext::detail {
 
   template<> constexpr auto ToEnum<remixapi_MaterialInfoEndPortalEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT;
   template<> struct Root<remixapi_MaterialInfoEndPortalEXT> { using Type = remixapi_MaterialInfo; };
+  template<> constexpr auto ToEnum<remixapi_MaterialInfoGlintEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_GLINT_EXT;
+  template<> struct Root<remixapi_MaterialInfoGlintEXT> { using Type = remixapi_MaterialInfo; };
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterSimEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT;
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterRainEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT;
   template<> struct Root<remixapi_SubmitInfoWaterSimEXT> { using Type = remixapi_SubmitInfo; };

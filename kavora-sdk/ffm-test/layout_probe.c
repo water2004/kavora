@@ -73,6 +73,12 @@ printf("MaterialInfoEndPortalEXT alignof %zu\n", __alignof(remixapi_MaterialInfo
 printf("MaterialInfoEndPortalEXT sType %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, sType));
 printf("MaterialInfoEndPortalEXT pNext %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, pNext));
 printf("MaterialInfoEndPortalEXT starLayers %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, starLayers));
+printf("MaterialInfoGlintEXT sizeof %zu\n", sizeof(remixapi_MaterialInfoGlintEXT));
+printf("MaterialInfoGlintEXT alignof %zu\n", __alignof(remixapi_MaterialInfoGlintEXT));
+printf("MaterialInfoGlintEXT sType %zu\n", offsetof(remixapi_MaterialInfoGlintEXT, sType));
+printf("MaterialInfoGlintEXT pNext %zu\n", offsetof(remixapi_MaterialInfoGlintEXT, pNext));
+printf("MaterialInfoGlintEXT texture %zu\n", offsetof(remixapi_MaterialInfoGlintEXT, texture));
+printf("MaterialInfoGlintEXT mode %zu\n", offsetof(remixapi_MaterialInfoGlintEXT, mode));
 printf("MaterialInfoOpaqueSubsurfaceEXT sizeof %zu\n", sizeof(remixapi_MaterialInfoOpaqueSubsurfaceEXT));
 printf("MaterialInfoOpaqueSubsurfaceEXT alignof %zu\n", __alignof(remixapi_MaterialInfoOpaqueSubsurfaceEXT));
 printf("MaterialInfoOpaqueSubsurfaceEXT sType %zu\n", offsetof(remixapi_MaterialInfoOpaqueSubsurfaceEXT, sType));

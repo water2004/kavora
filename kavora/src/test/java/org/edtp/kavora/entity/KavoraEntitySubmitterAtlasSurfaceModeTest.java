@@ -36,6 +36,13 @@ class KavoraEntitySubmitterAtlasSurfaceModeTest {
     }
 
     @Test
+    void anEnchantedItemKeepsItsGlintWhenNarrowedToCutout() {
+        assertEquals(RenderLayerUtils.SurfaceMode.ITEM_GLINT_CUTOUT,
+                KavoraEntitySubmitter.atlasSurfaceMode(BlockTextureManager.BLOCK_ATLAS_ID,
+                        RenderLayerUtils.SurfaceMode.ITEM_GLINT_TRANSLUCENT, EntityRenderContext.NO_BLOCK_ITEM));
+    }
+
+    @Test
     void aHeldClearGlassBlockTakesTheGlassSurfaceWhateverItWasCapturedAs() {
         // Vanilla draws clear glass through its cutout item layer, while terrain
         // gives the placed block a refracting layer of its own.
@@ -50,7 +57,7 @@ class KavoraEntitySubmitterAtlasSurfaceModeTest {
     @Test
     void otherAtlasSurfaceModesAreLeftAlone() {
         for (RenderLayerUtils.SurfaceMode mode : RenderLayerUtils.SurfaceMode.values()) {
-            if (mode == RenderLayerUtils.SurfaceMode.TRANSLUCENT) {
+            if (mode.base() == RenderLayerUtils.SurfaceMode.TRANSLUCENT) {
                 continue;
             }
             assertEquals(mode, KavoraEntitySubmitter.atlasSurfaceMode(
