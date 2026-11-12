@@ -358,6 +358,7 @@
   "kavora.setting.blockLights.candles": "Candles",
   "kavora.setting.blockLights.candleCakes": "Candle Cakes",
   "kavora.setting.blockLights.glowingBlocks": "Luminous blocks",
+  "kavora.setting.blockLights.coral": "Coral",
   "kavora.setting.blockLights.surfaceEmitters": "Other luminous surfaces",
   "kavora.setting.blockLights.multiplier.tip": "Multiplies this block light's normal brightness. Off disables it; 1.00× keeps the intended brightness. Changes apply when you leave this screen and rebuild loaded terrain once.",
   "kavora.setting.materials.terrainEmission": "Block Glow Intensity",

@@ -135,9 +135,11 @@ final class AnimatedTextureReference {
             int sRow = y * srcRowPitch;
             int dRow = y * dstRowPitch;
             for (int x = 0; x < w; x++) {
-                float factor = mask.factor((x + 0.5f) / w, (y + 0.5f) / h);
                 int si = sRow + x * 4;
                 int di = dRow + x * 4;
+                int rgba = (src.get(si) & 255) | (src.get(si + 1) & 255) << 8
+                        | (src.get(si + 2) & 255) << 16 | (src.get(si + 3) & 255) << 24;
+                float factor = mask.factor((x + 0.5f) / w, (y + 0.5f) / h, rgba);
                 dst[di]     = (byte) clamp255((int) ((src.get(si)     & 0xFF) * factor));
                 dst[di + 1] = (byte) clamp255((int) ((src.get(si + 1) & 0xFF) * factor));
                 dst[di + 2] = (byte) clamp255((int) ((src.get(si + 2) & 0xFF) * factor));

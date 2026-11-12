@@ -64,7 +64,7 @@ class AnimatedTexturePatchesTest {
         byte[] raw = bytes(new Random(542), pitch * h);
         ByteBuffer source = ByteBuffer.wrap(raw);
         TexturePatch a = patch(w, h, 2, 3, 4), e = patch(w, h, 2, 3, 4);
-        BuiltinEmission.Mask mask = (u, v) -> u < .3f ? 0f : v * 2f;
+        BuiltinEmission.Mask mask = (u, v, rgba) -> u < .3f ? 0f : v * 2f * ((rgba & 255) / 255f);
         AnimatedTexturePatches.compose(source, pitch, w, h, null, 0, 0, 4, 3, .5f,
                 mask, 2, 3, a, e, null, null, null);
         assertPixels(raw, w, h, 4, 2, 3, a);

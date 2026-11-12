@@ -162,7 +162,7 @@ class LabPBRConverterTest {
         putPixel(src, 1, 200, 50, 20, 255);
         byte[] dst = new byte[8];
 
-        AnimatedTextureReference.buildEmissiveMaskPatch(dst, 8, src, 8, 2, 1, (u, v) -> u > 0.5f ? 0.5f : 0f);
+        AnimatedTextureReference.buildEmissiveMaskPatch(dst, 8, src, 8, 2, 1, (u, v, rgba) -> u > 0.5f ? 0.5f : 0f);
 
         assertEquals(0, unsigned(dst[0]));
         assertEquals(0, unsigned(dst[3]));

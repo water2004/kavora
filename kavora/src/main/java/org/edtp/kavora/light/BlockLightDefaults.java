@@ -19,6 +19,9 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CandleBlock;
+import net.minecraft.world.level.block.CoralFanBlock;
+import net.minecraft.world.level.block.CoralPlantBlock;
+import net.minecraft.world.level.block.CoralWallFanBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.RedstoneTorchBlock;
@@ -45,6 +48,8 @@ final class BlockLightDefaults {
     private static final float LICHEN_FILL_POWER = 0.09f;
     private static final float LICHEN_FILL_STANDOFF = 0.4375f;
     private static final float LANTERN_RADIUS = .12f;
+    private static final float CORAL_LIGHT_RADIUS = .43f;
+    private static final float CORAL_DIFFUSE_INTENSITY = 6f;
     static final LightEntry.ColorOverride TORCH_COLOR = LightEntry.ColorOverride.of(1.0f, 0.35f, 0.1f);
     private static final LightEntry.ColorOverride CAMPFIRE_COLOR = LightEntry.ColorOverride.of(1.0f, 0.1f, 0.05f);
     private static final LightEntry.ColorOverride SOUL_COLOR = LightEntry.ColorOverride.of(0.05f, 0.2f, 1.0f);
@@ -128,6 +133,9 @@ final class BlockLightDefaults {
                 (id, state, pos, sampler) -> List.of(sphere(id, 0, state, pos, .5f, .35f, .5f,
                         .1f, LightEntry.ColorOverride.of(.65f, 1, .4f),
                         torchMatchedIntensity(state.getLightEmission(), 4 * (float) Math.PI * .01f))), 1.0f);
+        add(rules, "coral", state -> state.getBlock() instanceof CoralPlantBlock
+                        || state.getBlock() instanceof CoralFanBlock || state.getBlock() instanceof CoralWallFanBlock,
+                BlockLightDefaults::coral, 1.0f);
         Set<BlockState> surfaceEmitters = new java.util.HashSet<>();
         for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
             // Fluid surfaces emit through the material on their captured geometry.
@@ -288,6 +296,24 @@ final class BlockLightDefaults {
         return List.of(sphere(id, 0, state, pos, .5f, hanging ? .375f : .3125f, .5f,
                 LANTERN_RADIUS, null,
                 torchMatchedIntensity(state.getLightEmission(), 4 * (float) Math.PI * LANTERN_RADIUS * LANTERN_RADIUS)));
+    }
+
+    private static List<LightEntry> coral(Identifier id, BlockState state, BlockPos pos,
+                                          BlockLightRuleManager.ModelSampler sampler) {
+        var emission = sampler.diffuseEmission();
+        if (emission == null) return List.of();
+        float[] center = sampler.centroid();
+        var offset = state.getOffset(pos);
+        float radius = CORAL_LIGHT_RADIUS;
+        // Keep the center above the fronds so the finite emitter spreads light
+        // onto the seabed without concentrating it at the coral's center.
+        float height = Math.max(.82f, center[1] + (float) offset.y + radius);
+        return List.of(LightEntry.sphere(BlockLightRuleManager.key(pos, id, 0), 0, state.getBlock(),
+                pos.getX() + Math.clamp(center[0] + offset.x, radius, 1 - radius),
+                pos.getY() + height,
+                pos.getZ() + Math.clamp(center[2] + offset.z, radius, 1 - radius),
+                radius, LightEntry.ColorOverride.of(emission.r(), emission.g(), emission.b()),
+                CORAL_DIFFUSE_INTENSITY, 0f));
     }
 
     private static Set<Block> panelBlocks() {

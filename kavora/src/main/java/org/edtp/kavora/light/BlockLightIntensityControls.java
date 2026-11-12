@@ -40,6 +40,7 @@ public final class BlockLightIntensityControls {
             control("end_rod", "block.minecraft.end_rod"),
             control("glow_berries", "item.minecraft.glow_berries"),
             control("sea_pickles", "block.minecraft.sea_pickle"),
+            control("coral", "kavora.setting.blockLights.coral"),
             control("surface_emitters", "kavora.setting.blockLights.surfaceEmitters"));
     private static final Map<Identifier, Control> BY_RULE_ID = indexByRuleId();
 

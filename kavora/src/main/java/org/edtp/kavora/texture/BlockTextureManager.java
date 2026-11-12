@@ -98,6 +98,7 @@ public class BlockTextureManager {
     private int atlasW, atlasH;
     private final List<SpriteEntry> sprites = new ArrayList<>();
     private final Map<Identifier, SpriteEntry> spriteById = new HashMap<>();
+    private volatile Map<Identifier, SpriteEmission> diffuseSpriteEmission = Map.of();
     private final KavoraMaterial[] atlasMaterials = new KavoraMaterial[LAYER_COUNT];
     private final KavoraMaterial[] atlasMaterialsSSS = new KavoraMaterial[LAYER_COUNT];
     private final List<KavoraTexture> managedTextures = new ArrayList<>();
@@ -496,6 +497,7 @@ public class BlockTextureManager {
         }
 
         boolean hasAnyNormal = false, hasAnyHeight = false, hasAnyEmissive = false, hasAnySSS = false;
+        var diffuseEmission = new HashMap<Identifier, SpriteEmission>();
 
         for (SpriteEntry se : sprites) {
             NativeImage nI = labPBRVariants.loadVariant(se.id, "_n");
@@ -545,10 +547,17 @@ public class BlockTextureManager {
                     LabPBRConverter.blitEmissive(emissiveAtlas, atlasW, albedoRGBA, sI,
                             se.pixX, se.pixY, se.pixW, se.pixH, 0f);
                     hasAnyEmissive = true;
-                } else if (BuiltinEmission.mask(se.id) != null) {
-                    LabPBRConverter.blitEmissiveMask(emissiveAtlas, atlasW, albedoRGBA,
-                            se.pixX, se.pixY, se.pixW, se.pixH, BuiltinEmission.mask(se.id));
-                    hasAnyEmissive = true;
+                } else {
+                    var mask = BuiltinEmission.mask(se.id);
+                    if (mask != null) {
+                        LabPBRConverter.blitEmissiveMask(emissiveAtlas, atlasW, albedoRGBA,
+                                se.pixX, se.pixY, se.pixW, se.pixH, mask);
+                        hasAnyEmissive = true;
+                        if (mask == BuiltinEmission.CORAL) {
+                            var emission = averageSpriteEmission(emissiveAtlas, se);
+                            if (emission != null) diffuseEmission.put(se.id, emission);
+                        }
+                    }
                 }
             } finally {
                 if (nI != null) nI.close();
@@ -556,6 +565,7 @@ public class BlockTextureManager {
                 if (sssI != null) sssI.close();
             }
         }
+        diffuseSpriteEmission = Map.copyOf(diffuseEmission);
 
         stainedGlassEdges.forEach((stained, clear) -> copyGlassEdgeNormals(normalAtlas, stained, clear));
         SpriteAtlasContent.extrudePadding(atlas, albedoRGBA, 4);
@@ -1134,6 +1144,29 @@ public class BlockTextureManager {
         return spriteById.get(id);
     }
 
+    /** Linear emitted radiance averaged over the sprite area, including cutout holes. */
+    public record SpriteEmission(float r, float g, float b) {}
+
+    public SpriteEmission diffuseEmission(Identifier id) {
+        return diffuseSpriteEmission.get(id);
+    }
+
+    private SpriteEmission averageSpriteEmission(byte[] emission, SpriteEntry sprite) {
+        double r = 0, g = 0, b = 0;
+        for (int row = 0; row < sprite.pixH; row++) {
+            int index = ((sprite.pixY + row) * atlasW + sprite.pixX) * 4;
+            for (int x = 0; x < sprite.pixW; x++, index += 4) {
+                r += Math.pow((emission[index] & 255) / 255.0, 2.2);
+                g += Math.pow((emission[index + 1] & 255) / 255.0, 2.2);
+                b += Math.pow((emission[index + 2] & 255) / 255.0, 2.2);
+            }
+        }
+        float scale = terrainEmissionIntensity() / (sprite.pixW * sprite.pixH);
+        return scale > 0 && r + g + b > 0
+                ? new SpriteEmission((float) (r * scale), (float) (g * scale), (float) (b * scale))
+                : null;
+    }
+
     public static int layerType(String name) {
         return switch (name) {
             case "cutout" -> L_CUTOUT;
@@ -1307,6 +1340,7 @@ public class BlockTextureManager {
         managedTextures.clear();
         lavaEmission.clearAtlas();
         sprites.clear(); spriteById.clear(); spriteLightColors.clear();
+        diffuseSpriteEmission = Map.of();
         Arrays.fill(atlasMaterials, null);
         Arrays.fill(atlasMaterialsSSS, null);
         atlasAlbedo = null;

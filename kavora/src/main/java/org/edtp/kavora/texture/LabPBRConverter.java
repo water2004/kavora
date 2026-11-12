@@ -206,13 +206,22 @@ public final class LabPBRConverter {
                                          int ox, int oy, int w, int h, BuiltinEmission.Mask mask) {
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
-                float factor = mask.factor((x + 0.5f) / w, (y + 0.5f) / h);
                 int ai = ((oy + y) * atlasW + (ox + x)) * 4;
-                dst[ai]     = (byte) clamp255((int) ((albedoRGBA[ai] & 0xFF) * factor));
-                dst[ai + 1] = (byte) clamp255((int) ((albedoRGBA[ai + 1] & 0xFF) * factor));
-                dst[ai + 2] = (byte) clamp255((int) ((albedoRGBA[ai + 2] & 0xFF) * factor));
-                dst[ai + 3] = (byte) (factor > 0 ? 255 : 0);
+                int rgba = (albedoRGBA[ai] & 255) | (albedoRGBA[ai + 1] & 255) << 8
+                        | (albedoRGBA[ai + 2] & 255) << 16 | (albedoRGBA[ai + 3] & 255) << 24;
+                int emission = emissivePixel(rgba, mask.factor((x + 0.5f) / w, (y + 0.5f) / h, rgba));
+                dst[ai]     = (byte) emission;
+                dst[ai + 1] = (byte) (emission >>> 8);
+                dst[ai + 2] = (byte) (emission >>> 16);
+                dst[ai + 3] = (byte) (emission >>> 24);
             }
+    }
+
+    static int emissivePixel(int rgba, float factor) {
+        return clamp255((int) ((rgba & 255) * factor))
+                | clamp255((int) (((rgba >>> 8) & 255) * factor)) << 8
+                | clamp255((int) (((rgba >>> 16) & 255) * factor)) << 16
+                | (factor > 0f ? 0xff000000 : 0);
     }
 
     public static byte[] buildSRoughnessTable(NativeImage s) {

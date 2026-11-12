@@ -5,6 +5,8 @@
 package org.edtp.kavora.terrain.capture;
 
 import org.edtp.kavora.light.BlockLightRuleManager;
+import org.edtp.kavora.texture.BlockTextureManager;
+import org.edtp.kavora.texture.BlockTextureManager.SpriteEmission;
 import net.minecraft.client.renderer.block.BlockStateModelSet;
 import net.minecraft.client.resources.model.geometry.BakedQuad;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
@@ -134,6 +136,24 @@ public final class ModelSampling implements BlockLightRuleManager.ModelSampler {
         centroid[1] = (float) (sy / vertexCount);
         centroid[2] = (float) (sz / vertexCount);
         return centroid;
+    }
+
+    @Override
+    public SpriteEmission diffuseEmission() {
+        collect();
+        var textures = BlockTextureManager.get();
+        if (model == null || textures == null) return null;
+        for (var part : parts) {
+            for (Direction direction : DIRECTIONS) {
+                for (BakedQuad quad : part.getQuads(direction)) {
+                    var sprite = quad.materialInfo().sprite();
+                    if (sprite == null) continue;
+                    var emission = textures.diffuseEmission(sprite.contents().name());
+                    if (emission != null) return emission;
+                }
+            }
+        }
+        return null;
     }
 
     private void collect() {

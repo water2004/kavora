@@ -15,10 +15,10 @@ import net.minecraft.resources.Identifier;
  * {@code _s} with emission always wins over it, so a pack can replace these at any time.
  */
 public final class BuiltinEmission {
-    /** Emission factor at a point of a sprite, {@code u} and {@code v} in [0, 1) across the sprite. */
+    /** Emission factor at sprite-local UVs, with the source texel packed red in the low byte. */
     @FunctionalInterface
     public interface Mask {
-        float factor(float u, float v);
+        float factor(float u, float v, int rgba);
     }
 
     /**
@@ -36,7 +36,7 @@ public final class BuiltinEmission {
     static final float SEA_PICKLE_TIP_PEAK = 1.0f;
     static final float SEA_PICKLE_FADE_ROWS = 4.0f;
 
-    static final Mask SEA_PICKLE = (u, v) -> {
+    static final Mask SEA_PICKLE = (u, v, rgba) -> {
         float col = u * 16f, row = v * 16f;
         boolean sprout = (col >= 1f && col < 3f) || (col >= 13f && col < 15f);
         if (!sprout || row >= SEA_PICKLE_FADE_ROWS) {
@@ -47,16 +47,27 @@ public final class BuiltinEmission {
     };
 
     /** The beacon sprite paints a bright circular core inside a reflective border. */
-    static final Mask BEACON = (u, v) -> {
+    static final Mask BEACON = (u, v, rgba) -> {
         float x = u - 0.5f, y = v - 0.5f;
         return 0.12f * Math.clamp(1.5f - 12f * (x * x + y * y), 0f, 1f);
     };
 
-    private static final Map<Identifier, Mask> MASK = Map.of(
-            Identifier.withDefaultNamespace("block/sea_pickle"), SEA_PICKLE,
-            Identifier.withDefaultNamespace("block/beacon"), BEACON);
+    /** Let the coral's own color and coverage define the emitting surface. */
+    static final Mask CORAL = (u, v, rgba) -> (rgba >>> 24) != 0 ? 0.14f : 0f;
+
+    private static final Map<Identifier, Mask> MASK = Map.ofEntries(
+            block("sea_pickle", SEA_PICKLE), block("beacon", BEACON),
+            block("brain_coral", CORAL), block("brain_coral_fan", CORAL),
+            block("bubble_coral", CORAL), block("bubble_coral_fan", CORAL),
+            block("fire_coral", CORAL), block("fire_coral_fan", CORAL),
+            block("horn_coral", CORAL), block("horn_coral_fan", CORAL),
+            block("tube_coral", CORAL), block("tube_coral_fan", CORAL));
 
     private BuiltinEmission() {
+    }
+
+    private static Map.Entry<Identifier, Mask> block(String name, Mask mask) {
+        return Map.entry(Identifier.withDefaultNamespace("block/" + name), mask);
     }
 
     /** Emission for a sprite the pack leaves unauthored, or null when the mod adds none. */

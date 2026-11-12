@@ -59,13 +59,10 @@ final class AnimatedTexturePatches {
                         factor = emissionFactor(emission[current] & 255);
                         if (b > 0f) factor = factor * a + emissionFactor(emission[next] & 255) * b;
                     } else {
-                        factor = mask.factor((x + .5f) / width, (y + .5f) / height);
+                        factor = mask.factor((x + .5f) / width, (y + .5f) / height, rgba);
                     }
                     // Emission uses the unoccluded albedo, including Minecraft's frame interpolation.
-                    int emissiveRgba = Math.clamp((int) (r * factor), 0, 255)
-                            | Math.clamp((int) (g * factor), 0, 255) << 8
-                            | Math.clamp((int) (blue * factor), 0, 255) << 16
-                            | (factor > 0f ? 0xff000000 : 0);
+                    int emissiveRgba = LabPBRConverter.emissivePixel(rgba, factor);
                     emissive.pixelData.putInt(ei, emissiveLittleEndian ? emissiveRgba : Integer.reverseBytes(emissiveRgba));
                 }
                 if (++ax == aw) ax = 0;

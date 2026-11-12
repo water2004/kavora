@@ -9,6 +9,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import org.edtp.kavora.texture.BlockTextureManager.SpriteEmission;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -399,6 +400,10 @@ public final class BlockLightRuleManager {
 
         default ModelBounds bounds() {
             return ModelBounds.UNIT;
+        }
+
+        default SpriteEmission diffuseEmission() {
+            return null;
         }
 
         /** World-backed samplers omit faces sealed by an opaque neighbour. */

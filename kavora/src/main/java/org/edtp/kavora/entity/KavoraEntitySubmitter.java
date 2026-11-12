@@ -128,6 +128,7 @@ public class KavoraEntitySubmitter {
             TEXT_QUAD_STEP * (KavoraCapturingConsumer.MAX_VERTICES / 4);
     private static final float POM_DISPLACE_IN = 0.25f;
     private static final float EMISSIVE_INTENSITY = 100.0f;
+    private static final float ARMOR_TRIM_EMISSIVE_INTENSITY = 1.25f;
     private static final float COPPER_BEACON_LENS_EMISSION_SCALE = 100.0f;
     private static final int DEFAULT_CUTOUT_ALPHA_REFERENCE = 1;
     private static final int COVERAGE_ALPHA_REFERENCE = 128;
@@ -1261,7 +1262,8 @@ public class KavoraEntitySubmitter {
                                 texId, surfaceMode, topology, shellLayer, sides, sprite);
         if (mesh == null) return;
 
-        if (sides != null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT && (shellLayer > 0 || sprite != null)) {
+        if (surfaceMode == RenderLayerUtils.SurfaceMode.ARMOR_TRIM
+                || (sides != null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT && (shellLayer > 0 || sprite != null))) {
             categoryFlags |= InstanceCategoryBit.ALPHA_COVERAGE;
         }
         drawRetainedPart(result, consumer.getPartBone(partIndex), layerIndex, partIndex,
@@ -2716,7 +2718,7 @@ public class KavoraEntitySubmitter {
 
         switch (key.surfaceMode()) {
             case OPAQUE -> { }
-            case CUTOUT, EMISSIVE_CUTOUT -> opaque.alphaTestType(4)
+            case CUTOUT, ARMOR_TRIM, EMISSIVE_CUTOUT -> opaque.alphaTestType(4)
                     .alphaReferenceValue(cutoutAlphaReferenceValue(key.textureId()));
             case TRANSLUCENT -> opaque.blendEnabled(true)
                     .blendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA);
@@ -2750,9 +2752,14 @@ public class KavoraEntitySubmitter {
         if (textures.normal != null) materialBuilder.normalTexture(textures.normal.getHandle());
         KavoraTexture emissive = key.surfaceMode().isEmissive()
                 ? textures.albedo : textures.emissive;
+        float emissiveIntensity = EMISSIVE_INTENSITY;
+        if (emissive == null && key.surfaceMode() == RenderLayerUtils.SurfaceMode.ARMOR_TRIM) {
+            emissive = textures.albedo;
+            emissiveIntensity = ARMOR_TRIM_EMISSIVE_INTENSITY;
+        }
         if (emissive != null) {
             materialBuilder.emissiveTexture(emissive.getHandle())
-                    .emissiveIntensity(EMISSIVE_INTENSITY);
+                    .emissiveIntensity(emissiveIntensity);
         }
 
         MaterialInfo info = materialBuilder.opaqueExt(opaque.build()).build();

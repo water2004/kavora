@@ -33,6 +33,7 @@ final class RenderLayerUtils {
     enum SurfaceMode {
         OPAQUE,
         CUTOUT,
+        ARMOR_TRIM,
         TRANSLUCENT,
         EMISSIVE,
         /** Full-bright alpha-tested coverage, retaining the opaque core of a beam. */
@@ -193,6 +194,9 @@ final class RenderLayerUtils {
         var pipeline = layer.pipeline();
         if (pipeline == RenderPipelines.END_PORTAL) return SurfaceMode.END_PORTAL;
         if (pipeline == RenderPipelines.END_GATEWAY) return SurfaceMode.END_GATEWAY;
+        // The trim and the armor base can share a pipeline. The trim layer alone
+        // binds the palette-resolved pattern, including equipment overrides.
+        if (layer.name.equals("armor_trim") || layer.name.equals("armor_trim_decal")) return SurfaceMode.ARMOR_TRIM;
         // The core and halo share an unlit shader but have different coverage states.
         if (isBeaconBeam(layer)) return layer.hasBlending() ? SurfaceMode.EMISSIVE : SurfaceMode.EMISSIVE_CUTOUT;
         boolean emissive = pipeline == RenderPipelines.EYES
