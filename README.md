@@ -28,10 +28,10 @@ Use **Fabric Loader 0.20.1 or newer**, and place these JARs in your instance's `
 
 | File | Purpose |
 | --- | --- |
-| `Kavora-1.0.2+mc26.3.jar` | Main mod; the release JAR includes the matching native runtime |
+| `Kavora-1.1.0+mc26.3.jar` | Main mod with the matching native runtime |
 | Sodium 0.9.2 | Required, installed separately |
 | Fabric API 0.165.0+26.3 or newer for 26.3 | Required, installed separately |
-| `Kavora-horizon-1.0.2+mc26.3.jar` | Optional distant-terrain add-on |
+| `Kavora-horizon-1.1.0+mc26.3.jar` | Optional distant-terrain add-on |
 
 The runtime is extracted automatically; the first launch and shader compilation can take some time. Large resource packs and long view distances increase RAM and VRAM requirements.
 
