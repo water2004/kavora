@@ -504,7 +504,7 @@ namespace dxvk {
     // Note: Fall back to usual default in cases such as the "none" D3D fog mode, no fog remapping specified, or invalid values in the fog mode derivation
     // (such as dividing by zero).
     float transmittanceMeasurementDistance = transmittanceMeasurementDistanceMeters() * RtxOptions::getMeterToWorldUnitScale();
-    Vector3 multiScatteringEstimate = Vector3();
+    Vector3 multiScatteringEstimate = fogAmbientRadiance();
 
     // Check if fog density is below the configurable threshold to determine if physical volumetrics should be used.
     // This threshold was created specifically for Portal RTX's underwater fixed function fog.
@@ -577,7 +577,7 @@ namespace dxvk {
       }
 
       // Add some "ambient" from the original fog as a constant term applied to fog during preintegration
-      multiScatteringEstimate = sRGBGammaToLinear(fogState.color) * fogRemapColorMultiscatteringScale();
+      multiScatteringEstimate += sRGBGammaToLinear(fogState.color) * fogRemapColorMultiscatteringScale();
     }
 
     // Calculate scattering and attenuation coefficients for the volume

@@ -86,10 +86,9 @@ A sidecar for an animated texture takes one of two shapes:
 
 - A strip that matches the base colour strip frame for frame, at the base
   colour's own frame resolution. `lava_still_s.png` is 16 by 320 beside a 16 by
-  320 base colour, twenty frames of 16 by 16 each. A frame is stepped in base
-  colour pixels, so a 16-wide strip beside `lava_flow.png`, which is 32 by 512,
-  is read at the wrong offsets. Frame timing comes from the base colour's
-  `.mcmeta`; the sidecar needs none, and interpolation blends the sidecar too.
+  320 base colour, twenty frames of 16 by 16 each. `lava_flow_s.png` is 32 by 512
+  beside its sixteen 32 by 32 frames. The base colour's `.mcmeta` controls
+  frame timing for both textures, including interpolation.
 - A single frame, which is tiled across every frame of the animation. Use this
   when the material does not change as the animation plays. The resolution
   freedom above applies to this shape only.
@@ -119,6 +118,8 @@ rather than analytic lights: hundreds of small lights across a map dilute the
 light sampling. The mod turns the pack's authored lantern emission up 2.5x and
 gives a waterlogged sea pickle a glowing sprout tip when the pack authors none;
 an `_s` with emission for the pickle replaces that (`BuiltinEmission`).
+Fluid blocks such as lava use their surface material for emission. Resource
+packs can still author an explicit block light rule for a fluid.
 
 **A block light** is an analytic light placed in the world by a rule, with a
 shape, a position, a colour, and an intensity. The player can scale each kind

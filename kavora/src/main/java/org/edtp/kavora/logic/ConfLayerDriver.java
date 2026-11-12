@@ -146,7 +146,7 @@ public final class ConfLayerDriver {
 
     /**
      * The fixed layer catalog: water, automatic view distance, volumetric
-     * settling, weather, local mist, Nether grading, and four fixed time-of-day profiles (12 rows, one per
+     * settling, weather, local mist, Nether grading and lighting, and four fixed time-of-day profiles (13 rows, one per
      * shipped conf; ConfLayerDriverTest cross-checks them against the shipped
      * confs). Biome and zone layers are NOT listed here: they are discovered
      * from their conf file names at acquire and reload time, so a new authored
@@ -186,6 +186,9 @@ public final class ConfLayerDriver {
                 "confs/weather/mist.conf", 3500f, 0.01f, true, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.DIMENSION_NETHER,
                 "confs/dimensions/nether.conf", 3900f, 0.01f, false, LayerSource.MOD));
+        // Existing installs preserve their nether.conf. Use a new lower-priority file for the lighting defaults.
+        table.add(new LayerSpec(LogicChannels.DIMENSION_NETHER_LIGHTING,
+                "confs/dimensions/nether-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_THUNDER, "confs/weather/thunder.conf", 5500f, 0.01f, false,
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_RAIN, "confs/weather/rain.conf", 5000f, 0.01f, false,
@@ -735,7 +738,9 @@ public final class ConfLayerDriver {
         float dtSeconds = frameDtSeconds();
 
         setTarget(LogicChannels.UNDERWATER, underwater ? 1.0f : 0.0f);
-        setTarget(LogicChannels.DIMENSION_NETHER, Level.NETHER.equals(world.dimension()) ? 1.0f : 0.0f);
+        float nether = Level.NETHER.equals(world.dimension()) ? 1.0f : 0.0f;
+        setTarget(LogicChannels.DIMENSION_NETHER, nether);
+        setTarget(LogicChannels.DIMENSION_NETHER_LIGHTING, nether);
         setTarget(LogicChannels.VIEW_DISTANCE, Math.clamp(viewDistanceStrength, 0.0f, 1.0f));
         // Time layers follow the shared Overworld clock only; other dimensions
         // contribute no time-of-day strength.

@@ -252,6 +252,7 @@ from several places with a shared channel.
 | `confs/time/day.conf` | Fixed Overworld schedule | 4001 | 0.50 | The clock curve below |
 | `confs/time/dawn.conf` | Fixed Overworld schedule | 4000 | 0.50 | The clock curve below |
 | `confs/dimensions/nether.conf` | Camera is in the Nether: 0 or 1 | 3900 | 0.01 | Immediate on dimension change |
+| `confs/dimensions/nether-lighting.conf` | Camera is in the Nether: 0 or 1 | 3899 | 0.01 | Immediate on dimension change |
 | `confs/weather/mist.conf` | Automatic dawn, weather and biome mist | 3500 | 0.01 | Half-second half-life |
 | `confs/volumetrics/settling.conf` | A weather gradient or active profile changing: 0 or 1 | 3100 | 0.01 | Immediate, held 0.75 s after the last movement |
 | `confs/view_distance.conf` | Render distance, 2 to 32 chunks | 3000 | 0.01 | Immediate on each change |

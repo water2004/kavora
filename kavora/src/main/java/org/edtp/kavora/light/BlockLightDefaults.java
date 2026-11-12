@@ -19,6 +19,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.CandleBlock;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.RedstoneTorchBlock;
 import net.minecraft.world.level.block.RedstoneWallTorchBlock;
 import net.minecraft.world.level.block.WallTorchBlock;
@@ -126,7 +127,9 @@ final class BlockLightDefaults {
                         torchMatchedIntensity(state.getLightEmission(), 4 * (float) Math.PI * .01f))), 1.0f);
         Set<BlockState> surfaceEmitters = new java.util.HashSet<>();
         for (BlockState state : Block.BLOCK_STATE_REGISTRY) {
-            if (state.getLightEmission() <= 0 || state.getBlock() instanceof SpotLightBlock) continue;
+            // Fluid surfaces emit through the material on their captured geometry.
+            Block block = state.getBlock();
+            if (state.getLightEmission() <= 0 || block instanceof SpotLightBlock || block instanceof LiquidBlock) continue;
             if (rules.values().stream().noneMatch(rule -> rule.matches(state))) surfaceEmitters.add(state);
         }
         add(rules, "surface_emitters", surfaceEmitters::contains, BlockLightDefaults::surfaceEmitter, 1.0f);

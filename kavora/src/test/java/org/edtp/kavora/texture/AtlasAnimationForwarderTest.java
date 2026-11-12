@@ -7,10 +7,11 @@ package org.edtp.kavora.texture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
-import java.util.List;
+import java.io.IOException;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import net.minecraft.resources.Identifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +21,20 @@ class AtlasAnimationForwarderTest {
     @AfterEach
     void clearForwarder() {
         AtlasAnimationForwarder.clear();
+    }
+
+    @Test
+    void lavaMaterialStripsMatchTheBaseAnimationFrames() throws IOException {
+        String directory = "/assets/minecraft/textures/block/";
+        for (String sprite : new String[] {"lava_still", "lava_flow"}) {
+            try (var baseStream = Objects.requireNonNull(getClass().getResourceAsStream(directory + sprite + ".png"));
+                 var materialStream = Objects.requireNonNull(getClass().getResourceAsStream(directory + sprite + "_s.png"))) {
+                var base = ImageIO.read(baseStream);
+                var material = ImageIO.read(materialStream);
+                assertEquals(base.getWidth(), material.getWidth(), sprite + " material frame width");
+                assertEquals(base.getHeight(), material.getHeight(), sprite + " material frame count");
+            }
+        }
     }
 
     @Test

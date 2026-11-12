@@ -197,6 +197,9 @@ namespace dxvk {
                "The single scattering albedo (otherwise known as the particle albedo) representing the ratio of scattering to absorption.\n"
                "While color-like in many ways this value is assumed to be more of a mathematical albedo (unlike material albedo which is treated more as a color), and is therefore treated as linearly encoded data (not gamma).",
                args.minValue = Vector3(0.0f, 0.0f, 0.0f), args.maxValue = Vector3(1.0f, 1.0f, 1.0f));
+    RTX_OPTION_ARGS("rtx.volumetrics", Vector3, fogAmbientRadiance, Vector3(),
+               "Scene-linear ambient light scattered by the fog.",
+               args.minValue = Vector3());
     RTX_OPTION_ARGS("rtx.volumetrics", float, anisotropy, 0.0f, "The anisotropy of the scattering phase function (-1 being backscattering, 0 being isotropic, 1 being forward scattering).",
                     args.minValue = -1.0f, args.maxValue = 1.0f);
     RTX_OPTION("rtx.volumetrics", bool, enableInPortals, false,

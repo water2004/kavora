@@ -312,11 +312,11 @@ class ConfLayerDriverTest {
     @Test
     void staticTableHasThirteenUniqueRows() {
         // 1 water + 2 view-distance endpoints + 1 volumetric settling
-        // controller + 3 weather + 2 dimensions + 4 time profiles. Optional biome and zone
+        // controller + 3 weather + 2 Nether + 4 time profiles. Optional biome and zone
         // rows are discovered from disk.
         assertEquals(67, ConfLayerDriver.vanillaBiomeNames().size(),
                 "vanilla 26.3 biome count (Biomes)");
-        assertEquals(12, ConfLayerDriver.STATIC_LAYER_TABLE.size());
+        assertEquals(13, ConfLayerDriver.STATIC_LAYER_TABLE.size());
         Set<String> names = new HashSet<>();
         Set<String> paths = new HashSet<>();
         for (var spec : ConfLayerDriver.STATIC_LAYER_TABLE) {
@@ -389,6 +389,8 @@ class ConfLayerDriverTest {
                 expected = 3500f;
             } else if (spec.name().equals(LogicChannels.DIMENSION_NETHER)) {
                 expected = 3900f;
+            } else if (spec.name().equals(LogicChannels.DIMENSION_NETHER_LIGHTING)) {
+                expected = 3899f;
             } else if (spec.name().startsWith(LogicChannels.ZONE_PREFIX)) {
                 expected = 11000f;
             } else if (spec.name().startsWith(LogicChannels.BIOME_PREFIX)) {
@@ -767,6 +769,10 @@ class ConfLayerDriverTest {
                     String stem = fileName.substring(0, fileName.length() - ".conf".length());
                     assertTrue(ConfLayerDriver.vanillaBiomeNames().contains(stem),
                             "shipped biome conf is not an exact vanilla-biome stem: " + relative);
+                    if (!stem.equals("plains")) {
+                        assertTrue(ConfLayerDriver.confSetsOptions(Files.readString(conf)),
+                                "shipped biome profiles must set at least one option: " + relative);
+                    }
                     shippedBiomeStems.add(stem);
                 } else {
                     assertTrue(tablePaths.contains(relative),
@@ -774,8 +780,8 @@ class ConfLayerDriverTest {
                 }
             }
         }
-        assertEquals(Set.of("plains"), shippedBiomeStems,
-                "ship one reusable biome sample instead of a full stub catalog");
+        assertEquals(Set.of("plains", "basalt_deltas", "crimson_forest", "soul_sand_valley", "warped_forest"),
+                shippedBiomeStems, "ship the reusable biome sample and the Nether fog overrides");
         assertFalse(ConfLayerDriver.confSetsOptions(
                         Files.readString(confsDir.resolve("biomes").resolve("plains.conf"))),
                 "the shipped plains sample must remain a no-op until an author edits it");
