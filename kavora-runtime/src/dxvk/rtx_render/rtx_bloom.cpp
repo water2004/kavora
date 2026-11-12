@@ -125,7 +125,7 @@ namespace dxvk {
       dispatchUpsampleStep(ctx, linearSampler, *res[i], *res[i - 1]);
     }
 
-    dispatchComposite(ctx, linearSampler, inOutColorBuffer, m_bloomBuffer[0]);
+    dispatchComposite(ctx, linearSampler, inOutColorBuffer, m_bloomBuffer[0], bloomDepth);
   }
 
   void DxvkBloom::dispatchDownsampleStep(
@@ -187,7 +187,8 @@ namespace dxvk {
     Rc<DxvkContext> ctx,
     const Rc<DxvkSampler> &linearSampler,
     const Resources::Resource& inOutColorBuffer,
-    const Resources::Resource& bloomBuffer)
+    const Resources::Resource& bloomBuffer,
+    int bloomDepth)
   {
     ScopedGpuProfileZone(ctx, "Composite");
 
@@ -197,7 +198,10 @@ namespace dxvk {
     BloomCompositeArgs pushArgs = {};
     pushArgs.imageSize = { outputSize.width, outputSize.height };
     pushArgs.imageSizeInverse = { 1.f / float(outputSize.width), 1.f / float(outputSize.height) };
-    pushArgs.intensity = 0.01f * std::max(burnIntensity(), 0.0f);
+    pushArgs.scatterFraction = std::clamp(0.025f * burnIntensity(), 0.0f, 1.0f);
+    // The upsample pass sums one normalized blur per level.
+    pushArgs.scatterPerLevel = pushArgs.scatterFraction / float(bloomDepth);
+    pushArgs.threshold = std::max(0.01f, luminanceThreshold());
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
 
     VkExtent3D workgroups = util::computeBlockCount(outputSize, VkExtent3D{ 16 , 16, 1 });

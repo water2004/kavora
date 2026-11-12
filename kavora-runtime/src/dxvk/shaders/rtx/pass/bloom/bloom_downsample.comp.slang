@@ -20,7 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/bloom/bloom.h"
-#include "rtx/utility/color.slangh"
+#include "rtx/pass/bloom/bloom.slangh"
 
 layout(binding = BLOOM_DOWNSAMPLE_INPUT)
 Sampler2D<float4> InColorBuffer;
@@ -85,7 +85,7 @@ void main(uint2 ipos : SV_DispatchThreadID)
   if (cb.threshold > 0)
   {
     // smoothly suppress values under threshold
-    result *= smoothstep(0.0, cb.threshold, calcBt709Luminance(result));
+    result *= bloomSourceWeight(result, cb.threshold);
   }
 
   OutColorBuffer[ipos] = float4(result, 0);

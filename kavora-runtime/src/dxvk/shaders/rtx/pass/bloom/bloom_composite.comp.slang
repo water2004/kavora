@@ -20,6 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/bloom/bloom.h"
+#include "rtx/pass/bloom/bloom.slangh"
 
 layout(binding = BLOOM_COMPOSITE_COLOR_INPUT_OUTPUT)
 RWTexture2D<float4> InOutColorBuffer; 
@@ -49,5 +50,6 @@ void main(uint2 ipos : SV_DispatchThreadID)
     return;
   }
 
-  InOutColorBuffer[ipos] = dst + src * cb.intensity;
+  const float retained = 1.0f - cb.scatterFraction * bloomSourceWeight(dst.rgb, cb.threshold);
+  InOutColorBuffer[ipos] = float4(dst.rgb * retained + src.rgb * cb.scatterPerLevel, dst.a);
 }

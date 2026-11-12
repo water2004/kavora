@@ -22,5 +22,24 @@
 #pragma once
 
 #include "rtx/pass/local_tonemap/local_tonemapping.h"
-#include "rtx/utility/common.slangh"
-#include "rtx/utility/color.slangh"
+#include "rtx/pass/tonemap/tonemapping.slangh"
+
+// The fusion pyramid stores perceptually encoded display luminance along the neutral ACES axis.
+float encodeExposureLuminance(float sceneLuminance, bool useLegacyACES)
+{
+  const float3 numerator = useLegacyACES ? kLegacyAcesNumerator : kAcesFitNumerator;
+  const float3 denominator = useLegacyACES ? kLegacyAcesDenominator : kAcesFitDenominator;
+  const float n = sceneLuminance * (numerator.x * sceneLuminance + numerator.y) + numerator.z;
+  const float d = sceneLuminance * (denominator.x * sceneLuminance + denominator.y) + denominator.z;
+  return pow(saturate(n / d), 1.0f / kSRGBGamma);
+}
+
+float decodeExposureLuminance(float encodedLuminance, bool useLegacyACES)
+{
+  const float3 numerator = useLegacyACES ? kLegacyAcesNumerator : kAcesFitNumerator;
+  const float3 denominator = useLegacyACES ? kLegacyAcesDenominator : kAcesFitDenominator;
+  const float3 polynomial = numerator - pow(saturate(encodedLuminance), kSRGBGamma) * denominator;
+  // Invert the neutral curve by taking the nonnegative root.
+  const float discriminant = square(polynomial.y) - 4.0f * polynomial.x * polynomial.z;
+  return (sqrt(max(discriminant, 0.0f)) - polynomial.y) / (2.0f * polynomial.x);
+}

@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/utility/color.slangh"
+
+float bloomSourceWeight(float3 color, float threshold)
+{
+  return smoothstep(0.0f, threshold, calcBt709Luminance(color));
+}

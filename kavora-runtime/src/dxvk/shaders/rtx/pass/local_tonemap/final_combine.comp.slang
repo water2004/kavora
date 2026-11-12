@@ -20,7 +20,6 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/local_tonemap/local_tonemapping.slangh"
-#include "rtx/pass/tonemap/tonemapping.slangh"
 
 [[vk::binding(FINAL_COMBINE_MIP_ASSEMBLE)]]
 Sampler2D MipAssembleTexture;
@@ -90,15 +89,13 @@ void main(uint2 threadId : SV_DispatchThreadID)
   float B = momentY - A * momentX;
 
 
-  // Apply local exposure adjustment as a crude multiplier on all RGB channels.
-  // This is... generally pretty wrong, but enough for the demo purpose.
-  vec3 texelOriginal = linearToGamma(ACESFilm(originalColor.xyz, cb.useLegacyACES, true));
-  float luminance = calcBt709Luminance(texelOriginal) + 0.00001;
-  float finalMultiplier = max(A * luminance + B, 0.0) / luminance;
-  // This is a hack to prevent super dark pixels getting boosted by a lot and showing compression artifacts.
-  float lerpToUnityThreshold = 0.007;
-  finalMultiplier = luminance > lerpToUnityThreshold ? finalMultiplier :
-    mix(1.0, finalMultiplier, (luminance / lerpToUnityThreshold) * (luminance / lerpToUnityThreshold));
+  const float sceneLuminance = calcBt709Luminance(max(originalColor.xyz, 0.0f));
+  const float guideLuminance = encodeExposureLuminance(sceneLuminance, cb.useLegacyACES);
+  const float fusedLuminance = A * guideLuminance + B;
+  // Reconstruct an exposure in scene-linear space before tone mapping the original color.
+  const float adjustedLuminance = decodeExposureLuminance(fusedLuminance, cb.useLegacyACES);
+  const float nearBlackWeight = saturate(guideLuminance / 0.007f);
+  const float finalMultiplier = mix(1.0f, adjustedLuminance / max(sceneLuminance, 0.00001f), square(nearBlackWeight));
 
   vec3 texelFinal = originalColor.xyz * finalMultiplier;
   if (cb.finalizeWithACES)

@@ -65,7 +65,8 @@ namespace dxvk {
       Rc<DxvkContext> ctx,
       const Rc<DxvkSampler> &linearSampler,
       const Resources::Resource& inOutColorBuffer,
-      const Resources::Resource& bloomBuffer);
+      const Resources::Resource& bloomBuffer,
+      int bloomDepth);
 
     virtual void createTargetResource(Rc<DxvkContext>& ctx, const VkExtent3D& targetExtent) override;
     virtual void releaseTargetResource() override;
@@ -79,7 +80,7 @@ namespace dxvk {
     Resources::Resource m_bloomBuffer[MaxBloomSteps] = {};
 
     RTX_OPTION_ENV("rtx.bloom", bool, enable, true, "RTX_BLOOM_ENABLE", "Enable bloom - glowing halos around intense, bright areas.");
-    RTX_OPTION("rtx.bloom", float, burnIntensity, 1.0f, "Amount of bloom to add to the final image.");
+    RTX_OPTION("rtx.bloom", float, burnIntensity, 1.0f, "Amount of bright light scattered by bloom. A value of 1.0 scatters 2.5%.");
     RTX_OPTION("rtx.bloom", float, luminanceThreshold, 0.25f,
                "Adjust the bloom threshold to suppress blooming of the dim areas. "
                "Pixels with luminance lower than the threshold are multiplied by "

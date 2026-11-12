@@ -52,7 +52,10 @@ struct BloomUpsampleArgs {
 struct BloomCompositeArgs {
   uint2  imageSize;
   float2 imageSizeInverse;
-  float  intensity;
+  float  scatterFraction;
+  float  scatterPerLevel;
+  float  threshold;
+  float  padding;
 };
 
 #endif  // BLOOM_H

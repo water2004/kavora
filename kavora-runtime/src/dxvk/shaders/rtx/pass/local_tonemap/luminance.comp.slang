@@ -20,7 +20,6 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #include "rtx/pass/local_tonemap/local_tonemapping.slangh"
-#include "rtx/pass/tonemap/tonemapping.slangh"
 
 layout(binding = LUMINANCE_ORIGINAL)
 Texture2D<vec4> OriginalTexture;
@@ -45,11 +44,10 @@ void main(uint2 threadId : SV_DispatchThreadID)
 {
   float avgExposure = getExposure(AutoExposureTexture, cb.enableAutoExposure, cb.exposure);
 
-  // Tonemap three syntetic exposures and produce their luminances.
-  vec3 inpColor = OriginalTexture[threadId].xyz * avgExposure;
-  float highlights = calcBt709Luminance(linearToGamma(ACESFilm(inpColor * cb.highlights, cb.useLegacyACES)));
-  float midtones   = calcBt709Luminance(linearToGamma(ACESFilm(inpColor                , cb.useLegacyACES)));
-  float shadows    = calcBt709Luminance(linearToGamma(ACESFilm(inpColor * cb.shadows   , cb.useLegacyACES)));
+  const float luminance = calcBt709Luminance(max(OriginalTexture[threadId].xyz, 0.0f)) * avgExposure;
+  float highlights = encodeExposureLuminance(luminance * cb.highlights, cb.useLegacyACES);
+  float midtones   = encodeExposureLuminance(luminance, cb.useLegacyACES);
+  float shadows    = encodeExposureLuminance(luminance * cb.shadows, cb.useLegacyACES);
   vec3 cols = vec3(highlights, midtones, shadows);
 
   OutLuminanceTexture[threadId] = vec4(cols, 1.0);
