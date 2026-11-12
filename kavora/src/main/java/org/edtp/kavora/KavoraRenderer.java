@@ -880,6 +880,18 @@ public class KavoraRenderer {
         presentation.compositeMenu();
     }
     
+    public void beginWindowRender() {
+        presentation.beginWindowRender();
+    }
+
+    public void endWindowRender() {
+        presentation.endWindowRender();
+    }
+
+    public void finishDirectRender() {
+        presentation.finishDirectRender();
+    }
+
     /** Records the shared-image release in Minecraft's frame submission. */
     public void preparePresentFrame() {
         try (ProfileScope ignored = ProfileScope.begin("Interop.ClientToRemix")) {

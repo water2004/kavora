@@ -9,7 +9,9 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.KavoraRenderer;
+import org.edtp.kavora.vulkan.NativeVulkanSurface;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GameRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -18,6 +20,22 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** Completes the shared-image frame before Minecraft presents its selected graphics surface. */
 @Mixin(Minecraft.class)
 public abstract class RenderSystemMixin {
+    @WrapOperation(method = "renderFrame", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/renderer/GameRenderer;render()V"))
+    private void kavora$renderWindowFrame(GameRenderer gameRenderer, Operation<Void> original) {
+        KavoraRenderer renderer = KavoraMod.renderer;
+        if (renderer == null || !renderer.isInitialized()) {
+            original.call(gameRenderer);
+            return;
+        }
+        renderer.beginWindowRender();
+        try {
+            original.call(gameRenderer);
+        } finally {
+            renderer.endWindowRender();
+        }
+    }
+
     @Inject(method = "renderFrame", at = @At(value = "INVOKE",
             target = "Lcom/mojang/renderpearl/api/device/GpuSurface;blitFromTexture(Lcom/mojang/renderpearl/api/commands/CommandEncoder;Lcom/mojang/renderpearl/api/textures/GpuTextureView;)V"))
     private void kavora$compositeNativeMenus(boolean tick, CallbackInfo ci) {
@@ -34,7 +52,7 @@ public abstract class RenderSystemMixin {
         if (renderer != null && renderer.isInitialized()) {
             renderer.preparePresentFrame();
             original.call(encoder);
-            org.edtp.kavora.vulkan.NativeVulkanSurface.completeUnpresentedFrame();
+            if (!NativeVulkanSurface.hasPendingPresent()) renderer.presentFrame(null);
         } else {
             original.call(encoder);
         }

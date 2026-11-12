@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.render;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.sdk.PresentInfo;
 import org.edtp.kavora.sdk.RemixAPI;
@@ -17,8 +18,9 @@ import org.edtp.kavora.sdk.VulkanClientFrameInfo;
  *
  * <p>Release records Minecraft's image release and timeline signal. The host
  * submits that encoder before calling {@link #present(VulkanClientFrameInfo)}.
- * A null window frame still completes the shared-image handoff. The Vulkan
- * surface owns the window swapchain and its independent source-image lifetime.
+ * A direct GameRenderer call closes its frame at render return. It can finish
+ * the handoff without a window image, including when a caller renders several
+ * views consecutively. The Vulkan surface owns the window image separately.
  */
 public final class KavoraFramePresentation implements AutoCloseable {
     private final RemixAPI api;
@@ -28,6 +30,7 @@ public final class KavoraFramePresentation implements AutoCloseable {
     private final PresentInfo present = new PresentInfo();
     private final NativeMenuOverlay menu = new NativeMenuOverlay();
     private boolean submitted;
+    private boolean renderingWindowFrame;
 
     public KavoraFramePresentation(RemixAPI api, KavoraInterop images, long window) {
         this.api = api;
@@ -62,9 +65,26 @@ public final class KavoraFramePresentation implements AutoCloseable {
         images.releaseImages();
     }
 
+    public void beginWindowRender() {
+        renderingWindowFrame = true;
+    }
+
+    public void endWindowRender() {
+        renderingWindowFrame = false;
+    }
+
+    /** Completes a scene whose caller owns no outer window frame. */
+    public void finishDirectRender() {
+        if (renderingWindowFrame || !submitted) return;
+        releaseImages();
+        RenderSystem.getDevice().createCommandEncoder().submit();
+        present(null);
+    }
+
     public void present(VulkanClientFrameInfo frame) {
         present.hwndOverride = window;
         present.vulkanFrame = frame;
+        present.skipVulkanSwapchain = frame == null ? 1 : 0;
         present.clientDoneSemaphore_ValueToWait = images.clientDoneValue();
         try (ProfileScope ignored = ProfileScope.begin("Remix.Present")) {
             api.present(present);

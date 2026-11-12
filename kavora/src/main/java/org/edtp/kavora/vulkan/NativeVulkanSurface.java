@@ -141,13 +141,8 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
         if (surface != null && surface.frame.image == image) surface.releaseSource();
     }
 
-    /** Completes shared-image ownership even when the frontend did not acquire a window image. */
-    public static void completeUnpresentedFrame() {
-        NativeVulkanSurface surface = active;
-        var renderer = KavoraMod.renderer;
-        if (surface != null && !surface.presentPending && renderer != null && renderer.isInitialized()) {
-            renderer.presentFrame(null);
-        }
+    public static boolean hasPendingPresent() {
+        return active != null && active.presentPending;
     }
 
     private VulkanCommandEncoder encoder() { return (VulkanCommandEncoder) backend.createCommandEncoder(); }

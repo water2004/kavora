@@ -81,7 +81,9 @@ For a frozen frame, follow `KavoraFramePresentation` from Submit through image
 acquire and release to Present. Submit publishes the producer timeline signal
 from `D3D9SwapchainExternal::Present`, including when scene rendering is skipped.
 Present completes that handoff after the host encoder submits its release.
-Window source-image lifetime belongs to `NativeVulkanSurface`. Particle worker
+When a caller renders through `GameRenderer.render()` directly, the handoff
+finishes before it returns, with no window image. Window source-image lifetime
+belongs to `NativeVulkanSurface`. Particle worker
 lifetime and stale-world payloads belong to `ParticleFramePipeline`.
 The renderer marks phase boundaries. `KavoraFrameMetrics` owns the metric IDs,
 presentation deltas and reporting for those phases.

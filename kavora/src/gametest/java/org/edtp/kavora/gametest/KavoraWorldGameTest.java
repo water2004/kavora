@@ -7,7 +7,9 @@ package org.edtp.kavora.gametest;
 import org.edtp.kavora.KavoraRenderer;
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.render.RenderBackend;
+import org.edtp.kavora.vulkan.NativeVulkanSurface;
 import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
@@ -105,6 +107,7 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         try (TestSingleplayerContext world = worldBuilder.create()) {
             save = world.getWorldSave();
             assertWorldRenders(context, world, "created");
+            assertDirectRenderFrames(context);
             if (Boolean.getBoolean("kavora.gametest.entityMaterialsOnly")) {
                 KavoraSceneFixtures.captureEntityMaterials(context, world);
                 return;
@@ -174,6 +177,30 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
             }
         }
         assertDisconnected(context);
+    }
+
+    private static void assertDirectRenderFrames(ClientGameTestContext context) {
+        long[] windowResume = context.computeOnClient(client -> {
+            long submits = KavoraFrameProbe.submits;
+            long presents = KavoraFrameProbe.presents;
+            long failures = KavoraFrameProbe.failures;
+            long windowFrames = NativeVulkanSurface.renderedFrames();
+
+            for (int frame = 1; frame <= 2; frame++) {
+                client.level.update();
+                client.gameRenderer.update(client.getDeltaTracker());
+                client.gameRenderer.extract(client.getDeltaTracker(), true);
+                RenderSystem.executePendingTasks();
+                client.gameRenderer.render();
+                require(KavoraFrameProbe.submits == submits + frame && KavoraFrameProbe.presents == presents + frame,
+                        "Direct renderer call did not complete exactly one Remix frame");
+            }
+            require(NativeVulkanSurface.renderedFrames() == windowFrames, "Direct renderer call presented to the window");
+            return new long[] {windowFrames, failures};
+        });
+        context.waitFor(client -> NativeVulkanSurface.renderedFrames() >= windowResume[0] + 3, READY_TIMEOUT_TICKS);
+        require(KavoraFrameProbe.failures == windowResume[1], "Remix frame failed during direct render or window resume");
+        LOGGER.info("GameTest direct render: two consecutive Remix frames completed before window presentation resumed");
     }
 
     /** Uses an isolated copy of an observed world, independently of streaming-readiness assertions. */
@@ -453,9 +480,7 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         CompletableFuture<Path> result = context.computeOnClient(client -> {
             Path destination = client.gameDirectory.toPath().resolve("screenshots")
                     .resolve("remix-world-" + phase + ".png");
-            // Fabric's screenshot helper renders GameRenderer directly, bypassing the
-            // Minecraft.renderFrame hooks that pair Remix's frame start and present.
-            // Read the previous completed frame while ordinary frames keep advancing.
+            // Read the completed frame without advancing the scene and its temporal history.
             return captureTarget(client.gameRenderer.mainRenderTarget(), destination);
         });
         context.waitFor(client -> result.isDone(), READY_TIMEOUT_TICKS);

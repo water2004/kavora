@@ -4,6 +4,8 @@
  */
 package org.edtp.kavora.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import org.edtp.kavora.KavoraRenderer;
@@ -76,11 +78,18 @@ public abstract class GameRendererMixin {
         }
     }
 
-    @Inject(method = "render", at = @At("RETURN"))
-    private void kavora$endGuiScope(CallbackInfo ci) {
-        if (kavora$guiScope != null) {
-            kavora$guiScope.close();
-            kavora$guiScope = null;
+    // A caller can cancel the GUI phase before the original return instruction.
+    @WrapMethod(method = "render")
+    private void kavora$finishRender(Operation<Void> original) {
+        try {
+            original.call();
+        } finally {
+            if (kavora$guiScope != null) {
+                kavora$guiScope.close();
+                kavora$guiScope = null;
+            }
         }
+        KavoraRenderer renderer = KavoraMod.renderer;
+        if (renderer != null && renderer.isInitialized()) renderer.finishDirectRender();
     }
 }
