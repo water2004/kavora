@@ -9,6 +9,7 @@ import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.particle.KavoraParticleRenderer.PreparedFrame;
 import org.edtp.kavora.profiling.PerformanceTimer;
 import org.edtp.kavora.profiling.ProfileScope;
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.texture.ParticleAtlasManager;
 import org.slf4j.Logger;
@@ -86,12 +87,13 @@ public final class ParticleFramePipeline {
             return;
         }
 
+        RenderOrigin origin = RenderOrigin.current();
         particleRenderFuture = CompletableFuture.supplyAsync(
-                () -> renderParticlesOnWorker(tickDelta, frameIndex),
+                () -> renderParticlesOnWorker(tickDelta, frameIndex, origin),
                 particleExecutor);
     }
 
-    private ParticleRenderResult renderParticlesOnWorker(float tickDelta, long frameIndex) {
+    private ParticleRenderResult renderParticlesOnWorker(float tickDelta, long frameIndex, RenderOrigin origin) {
         RemixAPI.tracyThreadName("Particles");
         long previousFrameIndex = ProfileScope.setFrameIndexForCurrentThread(frameIndex);
         PreparedFrame preparedFrame = null;
@@ -99,7 +101,7 @@ public final class ParticleFramePipeline {
         // belongs. It is deliberately not returned to the render thread: it is off the critical
         // path, so charging it to a render-thread section overstates that section.
         try (ProfileScope particleScope = ProfileScope.begin("Particles")) {
-            preparedFrame = particleRenderer.prepare(tickDelta);
+            preparedFrame = particleRenderer.prepare(tickDelta, origin);
             particleScope
                     .captureCount(preparedFrame.particleCount())
                     .drawCalls(preparedFrame.plannedDrawCount())

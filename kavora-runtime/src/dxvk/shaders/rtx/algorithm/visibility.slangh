@@ -379,11 +379,9 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   {
     if (usePreviousTLAS)
     {
-      rayQuery.TraceRayInline(
-        previousTopLevelAS,
-        rayFlags, rayMask,
-        rayToRayDesc(visibilityRay)
-      );
+      RayDesc previousRay = rayToRayDesc(visibilityRay);
+      previousRay.Origin.xz -= cb.previousSceneOffset;
+      rayQuery.TraceRayInline(previousTopLevelAS, rayFlags, rayMask, previousRay);
     }
     else
     {

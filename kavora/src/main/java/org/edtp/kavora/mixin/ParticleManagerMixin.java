@@ -39,7 +39,7 @@ public abstract class ParticleManagerMixin {
                                     double vx, double vy, double vz, CallbackInfoReturnable<Particle> cir) {
         if (KavoraWaterRipples.isEnabled() && options.getType() == ParticleTypes.SPLASH
                 && cir.getReturnValue() != null && Minecraft.getInstance().isSameThread()) {
-            KavoraWaterRipples.splash((float) x, (float) y, (float) z);
+            KavoraWaterRipples.splash(x, y, z);
         }
     }
 

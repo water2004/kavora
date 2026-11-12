@@ -219,11 +219,11 @@ private:
   void prepareInstanceStage(const Rc<DxvkContext> ctx);
   void capture(const Rc<DxvkContext> ctx, const float frameTimeMilliseconds);
   void captureFrame(const Rc<DxvkContext> ctx);
-  void captureCamera();
-  void captureLights();
-  void captureSphereLight(const dxvk::RtSphereLight& rtLight);
+  void captureCamera(const Vector3d& sceneToWorld);
+  void captureLights(const Vector3d& sceneToWorld);
+  void captureSphereLight(const RtLight& rtLight, const Vector3d& sceneToWorld);
   void captureDistantLight(const RtDistantLight& rtLight);
-  void captureInstances(const Rc<DxvkContext> ctx);
+  void captureInstances(const Rc<DxvkContext> ctx, const Vector3d& sceneToWorld);
   void newInstance(const Rc<DxvkContext> ctx, const RtInstance& rtInstance);
   void captureMaterial(const Rc<DxvkContext> ctx, const LegacyMaterialData& materialData, const bool bEnableOpacity);
   void captureMesh(const Rc<DxvkContext> ctx,

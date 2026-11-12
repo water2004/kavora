@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.entity;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.texture.ParticleAtlasManager;
 import org.edtp.kavora.particle.KavoraParticleRenderer;
@@ -1260,6 +1261,9 @@ public class KavoraEntitySubmitter {
                                 texId, surfaceMode, topology, shellLayer, sides, sprite);
         if (mesh == null) return;
 
+        if (sides != null && surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT && (shellLayer > 0 || sprite != null)) {
+            categoryFlags |= InstanceCategoryBit.ALPHA_COVERAGE;
+        }
         drawRetainedPart(result, consumer.getPartBone(partIndex), layerIndex, partIndex,
                 categoryFlags, mesh,
                 blendExtForPart(
@@ -1327,7 +1331,7 @@ public class KavoraEntitySubmitter {
                     textureId,
                     RenderLayerUtils.Topology.QUADS,
                     shellLayer,
-                    material, null);
+                    material, 0);
             if (mesh == null) {
                 textures.destroyEmissionScaledAtlasMaterial(material);
                 return null;
@@ -1466,7 +1470,8 @@ public class KavoraEntitySubmitter {
     }
 
     private static boolean setPartTransform(RetainedEntityPart part, Transform transform) {
-        if (Arrays.equals(part.transform.matrix, transform.matrix)) return false;
+        if (part.instance.isTransformInCurrentOrigin()
+                && Arrays.equals(part.transform.matrix, transform.matrix)) return false;
         System.arraycopy(transform.matrix, 0, part.transform.matrix, 0, transform.matrix.length);
         part.instance.setTransform(part.transform);
         return true;
@@ -1511,15 +1516,15 @@ public class KavoraEntitySubmitter {
         }
         KavoraMaterial material = entityMaterial(texId, surfaceMode);
         if (material == null) return null;
-        CuboidCutout cutout = null;
+        int omittedFaces = 0;
         if (surfaceMode == RenderLayerUtils.SurfaceMode.CUTOUT) {
             EntityTextureSet textures = textureSets.get(texId);
             EntityCutoutCoverage coverage = textures == null ? null : textures.cutoutCoverage(sprite);
             if (coverage != null) {
-                cutout = buildCuboidCutout(sides, coverage, sprite, shellLayer > 0 || sprite != null);
+                omittedFaces = uncoveredCuboidFaces(sides, coverage);
             }
         }
-        if (cutout != null && cutout.quadCount() == 0) {
+        if (Integer.bitCount(omittedFaces) == sides.length) {
             rigidMeshPool.put(meshKey, new PooledMesh(null, frameIndex()));
             return null;
         }
@@ -1534,28 +1539,13 @@ public class KavoraEntitySubmitter {
         rebuildScratch.finishOpenVertex();
         // A cuboid is quads by construction, whatever topology its layer draws.
         KavoraMesh mesh = createMeshWithMaterial(rebuildScratch, 0, vertexCount, texId,
-                RenderLayerUtils.Topology.QUADS, shellLayer, material, cutout);
+                RenderLayerUtils.Topology.QUADS, shellLayer, material, omittedFaces);
         if (mesh != null) rigidMeshPool.put(meshKey, new PooledMesh(mesh, frameIndex()));
         return mesh;
     }
 
-    private record CuboidCutout(int[][] faces, int quadCount, int textureWidth, int textureHeight,
-                               TextureAtlasSprite sprite) {
-        float u(int texel) {
-            float u = (float) texel / textureWidth;
-            return sprite == null ? u : sprite.getU(u);
-        }
-
-        float v(int texel) {
-            float v = (float) texel / textureHeight;
-            return sprite == null ? v : sprite.getV(v);
-        }
-    }
-
-    private static CuboidCutout buildCuboidCutout(ModelPart.Polygon[] sides, EntityCutoutCoverage coverage,
-                                                 TextureAtlasSprite sprite, boolean split) {
-        int[][] faces = null;
-        int quadCount = sides.length;
+    private static int uncoveredCuboidFaces(ModelPart.Polygon[] sides, EntityCutoutCoverage coverage) {
+        int faces = 0;
         for (int i = 0; i < sides.length; i++) {
             float minU = Float.POSITIVE_INFINITY, minV = Float.POSITIVE_INFINITY;
             float maxU = Float.NEGATIVE_INFINITY, maxV = Float.NEGATIVE_INFINITY;
@@ -1565,15 +1555,9 @@ public class KavoraEntitySubmitter {
                 maxU = Math.max(maxU, vertex.u());
                 maxV = Math.max(maxV, vertex.v());
             }
-            // Empty texels must leave nearby or coplanar surfaces reachable by traversal.
-            int[] rects = coverage.faceRectangles(minU, minV, maxU, maxV, split);
-            if (rects != null) {
-                if (faces == null) faces = new int[sides.length][];
-                faces[i] = rects;
-                quadCount += rects.length / 4 - 1;
-            }
+            if (!coverage.hasCoverage(minU, minV, maxU, maxV)) faces |= 1 << i;
         }
-        return faces == null ? null : new CuboidCutout(faces, quadCount, coverage.width(), coverage.height(), sprite);
+        return faces;
     }
 
     private RetainedEntityPart createPendingRetainedPart() {
@@ -1961,7 +1945,7 @@ public class KavoraEntitySubmitter {
                                           boolean text,
                                           int shellLayer,
                                           KavoraMaterial mat,
-                                          CuboidCutout cutout) {
+                                          int omittedFaces) {
         float[] cpx = consumer.getPx(), cpy = consumer.getPy(), cpz = consumer.getPz();
         float[] cnx = consumer.getNx(), cny = consumer.getNy(), cnz = consumer.getNz();
         float[] ctu = consumer.getTu(), ctv = consumer.getTv();
@@ -1990,13 +1974,11 @@ public class KavoraEntitySubmitter {
 
         // Written straight into the pooled buffer in the native layout: a HardcodedVertex per
         // vertex (four objects each) was the entity path's largest remaining allocation.
-        int meshVertexCount = cutout == null ? vertCount : cutout.quadCount() * 4;
+        int meshVertexCount = vertCount - Integer.bitCount(omittedFaces) * 4;
         ByteBuffer vertices = DirectBufferPool.acquire(meshVertexCount * HardcodedVertex.STRIDE);
         for (int i = 0; i < vertCount; ) {
             int source = sourceStart + i;
-            int[] rects = cutout == null ? null : cutout.faces()[i / 4];
-            if (rects != null) {
-                putCutoutFace(vertices, consumer, i, rects, cutout, offset);
+            if ((omittedFaces & (1 << (i / 4))) != 0) {
                 i += 4;
                 continue;
             }
@@ -2017,41 +1999,6 @@ public class KavoraEntitySubmitter {
                 .setVertexData(vertices, meshVertexCount)
                 .setIndexDataFrom(indices, indices.length)
                 .setFlags(MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS);
-    }
-
-    /** Clip the already expanded face in UV space, preserving its winding and texture clamp. */
-    private void putCutoutFace(ByteBuffer target, KavoraCapturingConsumer source, int start,
-                               int[] rects, CuboidCutout cutout, boolean offset) {
-        if (rects.length == 0) return;
-        float[] u = source.getTu(), v = source.getTv();
-        float[] px = source.getPx(), py = source.getPy(), pz = source.getPz();
-        int next = start + 1, prev = start + 3;
-        float u0 = u[start], v0 = v[start];
-        float minU = Math.min(u0, u[start + 2]), minV = Math.min(v0, v[start + 2]);
-        for (int r = 0; r < rects.length; r += 4) {
-            for (int corner = start; corner < start + 4; corner++) {
-                float tu = cutout.u(rects[r + (u[corner] == minU ? 0 : 2)]);
-                float tv = cutout.v(rects[r + (v[corner] == minV ? 1 : 3)]);
-                float s = u[next] != u0 ? (tu - u0) / (u[next] - u0) : (tv - v0) / (v[next] - v0);
-                float t = u[prev] != u0 ? (tu - u0) / (u[prev] - u0) : (tv - v0) / (v[prev] - v0);
-                KavoraMeshSurface.putVertex(target,
-                        facePosition(px, shellOffsetX, start, offset, s, t),
-                        facePosition(py, shellOffsetY, start, offset, s, t),
-                        facePosition(pz, shellOffsetZ, start, offset, s, t),
-                        source.getNx()[start], source.getNy()[start], source.getNz()[start], tu, tv,
-                        source.getColors()[start], source.getTexcoordBoundsMin()[start], source.getTexcoordBoundsMax()[start]);
-            }
-        }
-    }
-
-    private static float facePosition(float[] values, float[] offsets, int start, boolean offset, float s, float t) {
-        float a = values[start], b = values[start + 1], d = values[start + 3];
-        if (offset) {
-            a += offsets[start];
-            b += offsets[start + 1];
-            d += offsets[start + 3];
-        }
-        return a + s * (b - a) + t * (d - a);
     }
 
     /**
@@ -2139,7 +2086,7 @@ public class KavoraEntitySubmitter {
                                  int shellLayer) {
         KavoraMaterial material = entityMaterial(textureId, surfaceMode);
         return material == null ? null : createMeshWithMaterial(
-                consumer, sourceStart, vertexCount, textureId, topology, shellLayer, material, null);
+                consumer, sourceStart, vertexCount, textureId, topology, shellLayer, material, 0);
     }
 
     private KavoraMaterial entityMaterial(Identifier textureId, RenderLayerUtils.SurfaceMode surfaceMode) {
@@ -2164,7 +2111,7 @@ public class KavoraEntitySubmitter {
             RenderLayerUtils.Topology topology,
             int shellLayer,
             KavoraMaterial material,
-            CuboidCutout cutout) {
+            int omittedFaces) {
         boolean strip = topology == RenderLayerUtils.Topology.TRIANGLE_STRIP;
         boolean valid = strip
                 ? vertexCount >= STRIP_MIN_VERTICES
@@ -2175,7 +2122,7 @@ public class KavoraEntitySubmitter {
             return null;
         }
         KavoraMeshSurface surface = buildSurface(consumer, sourceStart, vertexCount,
-                topology, DynamicTextureCache.isGlyphPage(textureId), shellLayer, material, cutout);
+                topology, DynamicTextureCache.isGlyphPage(textureId), shellLayer, material, omittedFaces);
         try {
             KavoraMesh mesh = new KavoraMesh(new KavoraMeshSurface[]{surface});
             try (ProfileScope createScope = ProfileScope.begin("Entity createRigidMesh")) {
@@ -2897,7 +2844,8 @@ public class KavoraEntitySubmitter {
     }
 
     private Transform buildWorldTransform(Vec3 pos) {
-        reusableWorldTransform.setTranslation((float) pos.x, (float) pos.y, (float) pos.z);
+        RenderOrigin origin = RenderOrigin.current();
+        reusableWorldTransform.setTranslation(origin.localX(pos.x), (float) pos.y, origin.localZ(pos.z));
         return reusableWorldTransform;
     }
 

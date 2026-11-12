@@ -148,8 +148,8 @@ void main(uint2 GlobalIndex : SV_DispatchThreadID)
       //   use the current position otherwise - all to avoid self-occlusion.
       if (usePrevSample && isStaticObject || !usePrevSample && cb.enablePreviousTLAS && !isStaticObject)
       {
-        minimalSurfaceInteraction = minimalSurfaceInteractionReadFromGBuffer(
-          selectedPrevPixelPos, PreviousWorldPosition_WorldTriangleNormal);
+        minimalSurfaceInteraction = minimalSurfaceInteractionReadPrevious(
+          selectedPrevPixelPos, PreviousWorldPosition_WorldTriangleNormal, cb.previousSceneOffset);
       }
       else
       {

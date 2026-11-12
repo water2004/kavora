@@ -12,9 +12,8 @@ bool hasVoxelCoverage()
 }
 
 // Reject overlapping LOD candidates without stepping past a coincident replacement.
-bool isVoxelCoverageCandidateClipped(Ray ray, RayHitInfo hit)
+bool isVoxelCoverageCandidateClipped(Ray ray, RayHitInfo hit, Surface surface)
 {
-  Surface surface = surfaces[calculateSurfaceIndex(hit)];
   if (surface.voxelCoverageLevel == 0)
   {
     return false;

@@ -137,10 +137,13 @@ bool isSurfaceClipped(Surface surface, SurfaceInteraction surfaceInteraction)
 {
   if (surface.voxelCoverageLevel != 0)
   {
-    const vec3 position = surfaceInteraction.coveragePosition;
+    // Coverage is indexed in persistent world blocks. Keep the local sub-block
+    // precision until rounding, then restore the world coordinates as integers.
+    const ivec3 position = ivec3(floor(surfaceInteraction.coveragePosition))
+      + ivec3(cb.sceneOriginX, 0, cb.sceneOriginZ);
     if ((voxelCoverage[7] & 1) != 0)
     {
-      const ivec3 cell = ivec3(floor(position / float(voxelCoverage[3])))
+      const ivec3 cell = (position >> firstbithigh(voxelCoverage[3]))
         - ivec3(voxelCoverage[0], voxelCoverage[1], voxelCoverage[2]);
       const uvec3 size = uvec3(voxelCoverage[4], voxelCoverage[5], voxelCoverage[6]);
       if (any(cell < 0) || any(uvec3(cell) >= size))
@@ -161,10 +164,10 @@ bool isSurfaceClipped(Surface surface, SurfaceInteraction surfaceInteraction)
     for (uint depth = 0; depth < 24 && nodeIndex != 0 && nodeIndex < voxelCoverage[9]; ++depth)
     {
       const uint offset = voxelCoverage[8] + nodeIndex * 16;
-      const vec3 origin = vec3(ivec3(voxelCoverage[offset], voxelCoverage[offset + 1], voxelCoverage[offset + 2]));
-      const float size = float(voxelCoverage[offset + 3]);
+      const ivec3 origin = ivec3(voxelCoverage[offset], voxelCoverage[offset + 1], voxelCoverage[offset + 2]);
+      const int size = int(voxelCoverage[offset + 3]);
       if (any(position < origin) || any(position >= origin + size)) break;
-      const bool3 high = position >= origin + size * 0.5;
+      const bool3 high = position >= origin + ((size + 1) >> 1);
       const uint octant = uint(high.x) | (uint(high.y) << 1) | (uint(high.z) << 2);
       if ((voxelCoverage[offset + 4] & (1u << (8 + octant))) != 0) return true;
       nodeIndex = voxelCoverage[offset + 5 + octant];
@@ -224,10 +227,9 @@ void convert1stCascadeTexCoordsToTargetCascadeLevel(uint targetCascadeLevel, ino
 }
 
 vec3 calcShadowTerminatorOffset(
-  const vec3 positions[3], // world space
+  const vec3 positions[3], // world axes, relative to the first vertex
   const vec3 normals[3],   // world space
-  const vec3 bary,
-  const vec3 viewDirection
+  const vec3 bary
 )
 {
   const vec3 hitPosition = interpolateHitAttribute(positions, bary);
@@ -413,28 +415,9 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
   SurfaceInteraction surfaceInteraction;
 
-  // Calculate vertex position in world space
-  // Note: World space positions needed to compute the texture gradients, a bit expensive but probably easier than transforming
-  // the ray direction into object space and worrying about how to transform its cone width appropriately (scales could affect it).
-  // Additionally, this allows us to calculate the triangle normal in world space without having to transform an object space normal
-  // into world space with a normal matrix which makes up for some of the work this does. Unfortunately the interpolated normal still
-  // requires usage of a normal matrix though. World position is now also needed for the position calculation in general as it is higher
-  // precision to calculate it this way on the Surface Interaction than on the Ray Interaction.
-
-  vec3 worldPositions[3];
-
-  if (usePreviousPositions && !surface.isStatic)
-  {
-    worldPositions[0] = mul(surface.prevObjectToWorld, vec4(positions[0], 1.0f));
-    worldPositions[1] = mul(surface.prevObjectToWorld, vec4(positions[1], 1.0f));
-    worldPositions[2] = mul(surface.prevObjectToWorld, vec4(positions[2], 1.0f));
-  }
-  else
-  {
-    worldPositions[0] = mul(surface.objectToWorld, vec4(positions[0], 1.0f));
-    worldPositions[1] = mul(surface.objectToWorld, vec4(positions[1], 1.0f));
-    worldPositions[2] = mul(surface.objectToWorld, vec4(positions[2], 1.0f));
-  }
+  const mat4x3 objectToWorld = usePreviousPositions && !surface.isStatic
+    ? surface.prevObjectToWorld : surface.objectToWorld;
+  const vec3 objectPosition = interpolateHitAttribute(positions, bary);
 
   // Calculate the approximate position error in object space
   surfaceInteraction.positionError = max(
@@ -442,12 +425,8 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
     max(calculatePositionError(positions[1]),
         calculatePositionError(positions[2])));
 
-  // Compute world position
-  // Note: This calculation is done with world space positions rather than model space positions and transforming it to world space
-  // as we have these world space positions available to begin with as they are needed for other calculations. Additionally this way
-  // is technically more precise as well.
-
-  const vec3 hitPosition = interpolateHitAttribute(worldPositions, bary);
+  // Apply translation once, after reconstructing the hit in the geometry's local space.
+  const vec3 hitPosition = mul(objectToWorld, vec4(objectPosition, 1.0f));
   // Note: Much like normals and texture coordinates hit positions may be invalid and could be sanitized here after interpolation, but there is not as much reason to.
   // Invalid positions will simply move a vertex far away or "delete" it entirely depending on how the hardware handles it which while will result in obvious visual
   // glitches is pretty much the same as would happen if the value was sanitized to 0. As such there's not much improvement to the overall correctness of Remix to do so
@@ -461,8 +440,9 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
   // Compute various normals
 
-  const vec3 ab = worldPositions[1] - worldPositions[0];
-  const vec3 ac = worldPositions[2] - worldPositions[0];
+  const vec3 ab = mul(objectToWorld, vec4(positions[1] - positions[0], 0.0f));
+  const vec3 ac = mul(objectToWorld, vec4(positions[2] - positions[0], 0.0f));
+  const vec3 trianglePositions[3] = { vec3(0.0f), ab, ac };
   const vec3 worldTriangleVector = cross(ab, ac);
 
   // Note: Fall back to an arbitrary vector for degenerate triangles where a triangle normal cannot be derived. Note this
@@ -576,7 +556,7 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
       // since 'surface.normalBufferIndex' is defined, the geometry normal is not flat across the triangle,
       // we need to apply the shadow terminator fix to prevent harsh shadow edges
-      vec3 terminatorOffset = calcShadowTerminatorOffset(worldPositions, normals, bary, rayInteraction.viewDirection);
+      vec3 terminatorOffset = calcShadowTerminatorOffset(trianglePositions, normals, bary);
       // project onto the normal: it's more coarse, but requires only vec1 storage instead of vec3
       surfaceInteraction.shadowTerminatorOffset = termScale * max(0, dot(terminatorOffset, geometryNormal));
     }
@@ -589,7 +569,6 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
   if (ComputeMotionAndShadowTerminator && !surface.isStatic && !usePreviousPositions)
   {
-    const vec3 objectPosition = interpolateHitAttribute(positions, bary);
     vec3 prevObjectPosition = objectPosition;
 
     if (surface.previousPositionBufferIndex != BINDING_INDEX_INVALID)
@@ -644,7 +623,7 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
           // For now, calculate texcoords for the first cascade. The texcoords for an appropriate cascade will get adjusted based on the interpolated texcoord later
           surface.texcoordGenerationMode == uint(TexGenMode::CascadedViewPositions))
       {
-        const float4 viewPos = mul(cb.camera.worldToView, float4(worldPositions[i], 1.f));
+        const float4 viewPos = mul(cb.camera.worldToView, float4(mul(objectToWorld, float4(positions[i], 1.f)), 1.f));
 
         rawTextureCoordinate = viewPos;
       }
@@ -708,12 +687,10 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
     if (GenerateTangents)
     {
-      // Note: World positions used here, the original PBRT usage uses model space vertex positions since it calculates the
-      // TBN  in local space, but since we generate the TBN frame in world space this is more applicable. Additionally
-      // it removes the need to keep the object space positions around which should ideally reduce register pressure.
+      // Use world-space edge vectors to account for instance scale and orientation.
       float rawTangentScale;
       genTangSpace(
-      texcoords, worldPositions, surfaceInteraction.geometryNormal,
+      texcoords, trianglePositions, surfaceInteraction.geometryNormal,
       surfaceInteraction.geometryTangent, surfaceInteraction.geometryBitangent, surfaceInteraction.rawTangent, surfaceInteraction.rawBitangent,
       rawTangentScale);
 #ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
@@ -777,8 +754,8 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
       const float coneRadius = footprintMode == kFootprintFromRayDirection ? rayInteraction.coneRadius : rayInteraction.coneRadius + length(positionOffset) * ray.spreadAngle;
 
       computeAnisotropicEllipseAxes(
-        hitPosition, triangleNormal, worldTwoTriangleArea, direction,
-        coneRadius, worldPositions, texcoords, surfaceInteraction.textureCoordinates,
+        interpolateHitAttribute(trianglePositions, bary), triangleNormal, worldTwoTriangleArea, direction,
+        coneRadius, trianglePositions, texcoords, surfaceInteraction.textureCoordinates,
         surfaceInteraction.textureGradientX, surfaceInteraction.textureGradientY);
 
       if (footprintMode == kFootprintFromRayOriginClamped)

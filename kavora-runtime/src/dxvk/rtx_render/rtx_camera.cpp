@@ -371,6 +371,28 @@ namespace dxvk
     m_previousArtificalWorldOffset = Vector3(0.f);
   }
 
+  void RtCamera::translateSceneOrigin(const Vector3& offset) {
+    if (m_frameLastTouched == kInvalidFrameIndex) {
+      return;
+    }
+
+    const Vector3d delta(offset);
+    for (const MatrixType type : { ViewToWorld, PreviousViewToWorld, PreviousPreviousViewToWorld,
+        UncorrectedPreviousViewToWorld, FreeCamViewToWorld, FreeCamPreviousViewToWorld, FreeCamPreviousPreviousViewToWorld }) {
+      m_matCache[type][3].xyz() += delta;
+      m_matCachef[type] = m_matCache[type];
+    }
+    for (const MatrixType type : { WorldToView, PreviousWorldToView, PreviousPreviousWorldToView,
+        FreeCamWorldToView, FreeCamPreviousWorldToView, FreeCamPreviousPreviousWorldToView }) {
+      m_matCache[type][3] -= m_matCache[type] * Vector4d(delta, 0.0);
+      m_matCachef[type] = m_matCache[type];
+    }
+    m_context.worldToView = m_matCachef[WorldToView];
+    if (!m_context.freeCameraViewRelative) {
+      m_context.freeCameraPosition += offset;
+    }
+  }
+
   void RtCamera::applyArtificialWorldOffset(const Vector3& worldOffset) {
     m_matCache[MatrixType::ViewToWorld][3].xyz() += Vector3d{ worldOffset };
     m_matCache[MatrixType::WorldToView] = inverse(m_matCache[MatrixType::ViewToWorld]);

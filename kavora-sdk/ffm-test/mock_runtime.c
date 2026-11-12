@@ -43,7 +43,18 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_CreateMesh(
 static remixapi_ErrorCode REMIXAPI_CALL mock_DestroyMesh(
     remixapi_MeshHandle       handle) {  return REMIXAPI_ERROR_CODE_SUCCESS; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_SetupCamera(
-    const remixapi_CameraInfo* info) { CHECK(info && info->sType == 16 && info->view[0][0] == 1.0f && info->projection[3][3] == 16.0f); return REMIXAPI_ERROR_CODE_SUCCESS; }
+    const remixapi_CameraInfo* info) {
+  CHECK(info && info->sType == 16 && info->view[0][0] == 1.0f && info->projection[3][3] == 16.0f);
+  if (info->pNext) {
+    const remixapi_CameraInfoParameterizedEXT* params = info->pNext;
+    CHECK(params->sType == REMIXAPI_STRUCT_TYPE_CAMERA_INFO_PARAMETERIZED_EXT);
+    CHECK(params->position.x == 0.25f);
+    const remixapi_CameraInfoSceneOriginEXT* origin = params->pNext;
+    CHECK(origin && origin->sType == REMIXAPI_STRUCT_TYPE_CAMERA_INFO_SCENE_ORIGIN_EXT);
+    CHECK(origin->x == 1048576 && origin->z == -8192 && !origin->pNext);
+  }
+  return REMIXAPI_ERROR_CODE_SUCCESS;
+}
 static remixapi_ErrorCode REMIXAPI_CALL mock_DrawInstance(
     const remixapi_InstanceInfo* info) { CHECK(info && info->sType == 13 && info->mesh == (void*)0x1234 && info->transform.matrix[0][0] == 1.0f); return REMIXAPI_ERROR_CODE_SUCCESS; }
 static unsigned light_creations, light_destructions;

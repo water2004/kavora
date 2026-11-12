@@ -939,8 +939,8 @@ void integratePathVertex(
     
       if (isWithinGbuffer)
       {
-        const MinimalSurfaceInteraction prevSurfaceInteraction = minimalSurfaceInteractionReadFromGBuffer(
-          pixelCoordinate, PreviousWorldPosition_WorldTriangleNormal);
+        const MinimalSurfaceInteraction prevSurfaceInteraction = minimalSurfaceInteractionReadPrevious(
+          pixelCoordinate, PreviousWorldPosition_WorldTriangleNormal, cb.previousSceneOffset);
     
         float prevHitDistance = length(prevSurfaceInteraction.position - cameraGetWorldPosition(cb.camera));
         float3 relativePosition = prevSurfaceInteraction.position - surfaceInteraction.position;
@@ -1349,7 +1349,7 @@ void initSharc(
       if (thickness > 0.f && diffusionRadius == 0 && integrationSurfacePdf > 0.f && all(isfinite(primaryGbuffer.position)))
       {
         SharcHitData hit;
-        hit.positionWorld = primarySurfacePosition;
+        hit.positionWorld = Sharc::worldPosition(primarySurfacePosition);
         hit.normalWorld = primaryGbuffer.geometryNormal;
         hit.emissive = 0.f;
         vec3 radiance;
@@ -1403,7 +1403,7 @@ void initSharc(
   {
     SharcParameters params = Sharc::createSharcParameters(cb.sharcArgs, primaryBackHemisphere);
     SharcHitData hitData;
-    hitData.positionWorld = primarySurfacePosition;
+    hitData.positionWorld = Sharc::worldPosition(primarySurfacePosition);
     hitData.normalWorld = primaryGbuffer.geometryNormal;
     hitData.emissive = vec3(0.0f);
 
@@ -1422,7 +1422,7 @@ void initSharc(
     gridParameters.sceneScale = cb.sharcArgs.sceneScale;
     gridParameters.levelBias = SHARC_GRID_LEVEL_BIAS + (primaryBackHemisphere ? Sharc::kHemisphereLevelOffset : 0);
 
-    vec3 debugColor = HashGridDebugColoredHash(primarySurfacePosition, primaryGbuffer.geometryNormal, gridParameters);
+    vec3 debugColor = HashGridDebugColoredHash(Sharc::worldPosition(primarySurfacePosition), primaryGbuffer.geometryNormal, gridParameters);
     storeInDebugView(pathState.pixelCoordinate, debugColor);
   }
 
@@ -1441,7 +1441,7 @@ void initSharc(
   {
     SharcParameters params = Sharc::createSharcParameters(cb.sharcArgs, primaryBackHemisphere);
     SharcHitData hitData;
-    hitData.positionWorld = primarySurfacePosition;
+    hitData.positionWorld = Sharc::worldPosition(primarySurfacePosition);
     hitData.normalWorld = primaryGbuffer.geometryNormal;
     hitData.emissive = vec3(0.0f);
 

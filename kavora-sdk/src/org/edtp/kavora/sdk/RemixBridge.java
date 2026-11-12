@@ -1476,8 +1476,19 @@ public final class RemixBridge {
             float rightX, float rightY, float rightZ,
             float fovY, float aspect, float nearPlane, float farPlane,
             long chainNext) {
+        return allocParameterizedCamera(posX, posY, posZ, fwdX, fwdY, fwdZ, upX, upY, upZ,
+                rightX, rightY, rightZ, fovY, aspect, nearPlane, farPlane, chainNext, null);
+    }
+
+    static long allocParameterizedCamera(float posX, float posY, float posZ,
+            float fwdX, float fwdY, float fwdZ,
+            float upX, float upY, float upZ,
+            float rightX, float rightY, float rightZ,
+            float fovY, float aspect, float nearPlane, float farPlane,
+            long chainNext, CameraInfo.SceneOrigin origin) {
         Arena arena = Arena.ofShared();
         try {
+            if (origin != null) chainNext = writeCameraSceneOrigin(arena, origin, chainNext).address();
             MemorySegment ext = arena.allocate(RemixLayouts.layout("CameraInfoParameterizedEXT"));
             put(ext, "CameraInfoParameterizedEXT", "sType", StructType.CAMERA_INFO_PARAMETERIZED_EXT);
             put(ext, "CameraInfoParameterizedEXT", "pNext", chainNext);
@@ -1496,6 +1507,28 @@ public final class RemixBridge {
             throw failure(error);
         }
     }
+    private static MemorySegment writeCameraSceneOrigin(Arena arena, CameraInfo.SceneOrigin origin, long next) {
+        String type = "CameraInfoSceneOriginEXT";
+        MemorySegment ext = arena.allocate(RemixLayouts.layout(type));
+        put(ext, type, "sType", StructType.CAMERA_INFO_SCENE_ORIGIN_EXT);
+        put(ext, type, "pNext", next);
+        put(ext, type, "x", origin.x());
+        put(ext, type, "z", origin.z());
+        return ext;
+    }
+
+    static long allocCameraSceneOrigin(CameraInfo.SceneOrigin origin) {
+        Arena arena = Arena.ofShared();
+        try {
+            MemorySegment ext = writeCameraSceneOrigin(arena, origin, 0);
+            extensions.put(ext.address(), arena);
+            return ext.address();
+        } catch (Throwable error) {
+            arena.close();
+            throw failure(error);
+        }
+    }
+
     /** Releases one extension and its owned transform copy; chain nodes retain independent ownership. */
     public static void freeExt(long extPtr) {
         if (extPtr == 0) return;

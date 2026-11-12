@@ -234,9 +234,9 @@ final class BlockLightDefaults {
         if (only != null) area = only.getAxis() == Direction.Axis.X ? depth * height : width * height;
         if (!(area > 0)) return List.of();
         float intensity = torchMatchedIntensity(state.getLightEmission(), area);
-        float cx = pos.getX() + (bounds.minX() + bounds.maxX()) * .5f;
+        double cx = pos.getX() + (bounds.minX() + bounds.maxX()) * .5;
         float cy = pos.getY() + (bounds.minY() + bounds.maxY()) * .5f;
-        float cz = pos.getZ() + (bounds.minZ() + bounds.maxZ()) * .5f;
+        double cz = pos.getZ() + (bounds.minZ() + bounds.maxZ()) * .5;
         var lights = new ArrayList<LightEntry>(6);
         for (Direction face : FACES) {
             if ((exposed & (1 << face.ordinal())) == 0) continue;
@@ -264,15 +264,15 @@ final class BlockLightDefaults {
         var lights = new ArrayList<LightEntry>(faces.size());
         for (Direction face : faces) {
             lights.add(faceRectangle(id, state, pos, face,
-                    pos.getX() + 0.5f + face.getStepX() * offset,
+                    pos.getX() + 0.5 + face.getStepX() * offset,
                     pos.getY() + 0.5f + face.getStepY() * offset,
-                    pos.getZ() + 0.5f + face.getStepZ() * offset, 1.0f, 1.0f, intensity, 0.0f));
+                    pos.getZ() + 0.5 + face.getStepZ() * offset, 1.0f, 1.0f, intensity, 0.0f));
         }
         return lights;
     }
 
     private static LightEntry faceRectangle(Identifier id, BlockState state, BlockPos pos, Direction face,
-                                            float x, float y, float z, float u, float v, float intensity,
+                                            double x, float y, double z, float u, float v, float intensity,
                                             float volumetricRadianceScale) {
         var axis = face.getAxis();
         return LightEntry.rect(BlockLightRuleManager.key(pos, id, face.ordinal()),

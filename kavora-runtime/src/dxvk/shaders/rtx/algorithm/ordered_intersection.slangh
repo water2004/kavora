@@ -22,11 +22,30 @@
 #pragma once
 
 #include "rtx/algorithm/voxel_coverage.slangh"
+#include "rtx/algorithm/alpha_coverage.slangh"
 
-RayHitInfo traceOrderedIntersection(RayDesc ray, uint flags, uint mask)
+bool shouldTestAlphaCoverage()
+{
+  return cb.hasAlphaCoverage && !cb.forceFirstHitInGBufferPass;
+}
+
+uint orderedRayFlags(uint flags)
+{
+  return hasVoxelCoverage() || shouldTestAlphaCoverage() ? (flags & ~RAY_FLAG_FORCE_OPAQUE) : flags;
+}
+
+bool isOrderedCandidateClipped(Ray ray, RayHitInfo hit, bool testAlphaCoverage)
+{
+  const Surface surface = surfaces[calculateSurfaceIndex(hit)];
+  return isVoxelCoverageCandidateClipped(ray, hit, surface) ||
+    (testAlphaCoverage && isAlphaCoverageCandidateClipped(ray, hit, surface));
+}
+
+RayHitInfo traceOrderedIntersection(RayDesc ray, uint flags, uint mask, float coneRadius, float spreadAngle)
 {
   RayQuery<0> query = RayQuery<0>();
-  query.TraceRayInline(topLevelAS, hasVoxelCoverage() ? (flags & ~RAY_FLAG_FORCE_OPAQUE) : flags, mask, ray);
+  const bool testAlphaCoverage = shouldTestAlphaCoverage();
+  query.TraceRayInline(topLevelAS, orderedRayFlags(flags), mask, ray);
   while (query.Proceed())
   {
     if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
@@ -37,7 +56,9 @@ RayHitInfo traceOrderedIntersection(RayDesc ray, uint flags, uint mask)
       candidateRay.origin = ray.Origin;
       candidateRay.direction = ray.Direction;
       candidateRay.tMax = ray.TMax;
-      if (!isVoxelCoverageCandidateClipped(candidateRay, candidate))
+      candidateRay.coneRadius = coneRadius;
+      candidateRay.spreadAngle = spreadAngle;
+      if (!isOrderedCandidateClipped(candidateRay, candidate, testAlphaCoverage))
       {
         query.CommitNonOpaqueTriangleHit();
       }

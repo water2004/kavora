@@ -562,6 +562,22 @@ namespace dxvk {
     }
   }
 
+  void DrawCallTracker::translateSceneOrigin(const Vector3& offset) {
+    m_assetSpatialMaps.clear();
+    m_identityHashMap.clear();
+    const float cellSize = RtxOptions::uniqueObjectDistance() * 2.f;
+    for (const auto& instance : m_replacementInstances) {
+      instance->objectToWorld[3].xyz() += offset;
+      instance->centroid += offset;
+      instance->prevCentroid += offset;
+      auto& map = m_assetSpatialMaps.try_emplace(instance->spatialMapHash, cellSize).first->second;
+      instance->spatialCacheTransformHash = map.insert(instance->centroid, instance->objectToWorld, instance.get());
+      if (instance->externalDrawRevision != 0) {
+        m_identityHashMap[instance->identityHash] = instance.get();
+      }
+    }
+  }
+
   void DrawCallTracker::repairCluster(std::vector<ReplacementInstance*>& cluster,
       uint32_t currentFrameId) {
     const uint32_t n = static_cast<uint32_t>(cluster.size());

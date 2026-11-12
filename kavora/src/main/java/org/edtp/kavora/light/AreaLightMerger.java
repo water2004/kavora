@@ -38,9 +38,9 @@ public final class AreaLightMerger {
                     output.add(light);
                     continue;
                 }
-                float pu = position(light, uAxis) - coordinate(originX, originY, originZ, uAxis) - .5f;
-                float pv = position(light, vAxis) - coordinate(originX, originY, originZ, vAxis) - .5f;
-                int u = Math.round(pu), v = Math.round(pv);
+                double pu = position(light, uAxis) - coordinate(originX, originY, originZ, uAxis) - .5f;
+                double pv = position(light, vAxis) - coordinate(originX, originY, originZ, vAxis) - .5f;
+                int u = (int) Math.round(pu), v = (int) Math.round(pv);
                 if (u < 0 || u >= 16 || v < 0 || v >= 16 || Math.abs(pu - u) > .0001f || Math.abs(pv - v) > .0001f) {
                     output.add(light);
                     continue;
@@ -81,9 +81,9 @@ public final class AreaLightMerger {
 
     private static LightEntry rectangle(Group group, int x, int y, int z, int u, int v, int width, int height) {
         LightEntry source = group.source;
-        float cx = source.x(), cy = source.y(), cz = source.z();
-        float cu = coordinate(x, y, z, group.uAxis) + u + width * .5f;
-        float cv = coordinate(x, y, z, group.vAxis) + v + height * .5f;
+        double cx = source.x(), cy = source.y(), cz = source.z();
+        double cu = coordinate(x, y, z, group.uAxis) + u + width * .5;
+        double cv = coordinate(x, y, z, group.vAxis) + v + height * .5;
         if (group.uAxis == 0) cx = cu; else if (group.uAxis == 1) cy = cu; else cz = cu;
         if (group.vAxis == 0) cx = cv; else if (group.vAxis == 1) cy = cv; else cz = cv;
         BlockPos old = source.key().pos();
@@ -91,14 +91,14 @@ public final class AreaLightMerger {
         int by = group.uAxis == 1 ? y + u : group.vAxis == 1 ? y + v : old.getY();
         int bz = group.uAxis == 2 ? z + u : group.vAxis == 2 ? z + v : old.getZ();
         return source.withRectangle(new BlockLightKey(new BlockPos(bx, by, bz), source.key().ruleId(), source.key().lightIndex()),
-                cx, cy, cz, width, height);
+                cx, (float) cy, cz, width, height);
     }
 
     private static int axis(float x, float y, float z) {
         return x == 1 && y == 0 && z == 0 ? 0 : x == 0 && y == 1 && z == 0 ? 1 : x == 0 && y == 0 && z == 1 ? 2 : -1;
     }
 
-    private static float position(LightEntry light, int axis) {
+    private static double position(LightEntry light, int axis) {
         return axis == 0 ? light.x() : axis == 1 ? light.y() : light.z();
     }
 
@@ -110,7 +110,7 @@ public final class AreaLightMerger {
         long hash = 31L * System.identityHashCode(light.block()) + light.key().ruleId().hashCode();
         hash = hash * 31 + light.key().lightIndex();
         hash = hash * 31 + u * 3 + v;
-        hash = hash * 31 + Float.floatToIntBits(position(light, normal));
+        hash = hash * 31 + Double.doubleToLongBits(position(light, normal));
         hash = hash * 31 + Float.floatToIntBits(light.intensity());
         return hash;
     }

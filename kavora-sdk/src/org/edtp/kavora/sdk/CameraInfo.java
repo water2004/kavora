@@ -12,6 +12,9 @@ public class CameraInfo {
     public float[] view = new float[16];
     public float[] projection = new float[16];
     public CameraInfoParameterizedEXT parameterizedExt;
+    public SceneOrigin sceneOrigin;
+
+    public record SceneOrigin(int x, int z) {}
 
     public CameraInfo() {
         setIdentityMatrix(view);

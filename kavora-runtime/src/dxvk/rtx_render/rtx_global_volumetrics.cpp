@@ -607,13 +607,21 @@ namespace dxvk {
     const Vector3 windOffset = RtxOptions::zUp()
       ? Vector3(4.8f * cloudTime, 1.4f * cloudTime, 0) * cloudWorldScale
       : Vector3(4.8f * cloudTime, 0, 1.4f * cloudTime) * cloudWorldScale;
-    clouds.windOffset = windOffset;
+
     clouds.previousWindDelta = m_cloudSky.isValid() && !mainCamera.isCameraCut()
       ? m_previousCloudWindOffset - windOffset : Vector3(0.f);
     m_previousCloudWindOffset = windOffset;
     clouds.baseHeight = (CloudOptions::worldBaseHeightMeters() + CloudOptions::altitudeOffsetMeters()) * cloudWorldScale;
     clouds.thickness = CloudOptions::thicknessMeters() * cloudWorldScale;
     clouds.shapeScale = CloudOptions::shapeScaleMeters() * cloudWorldScale;
+    // The weather, shape and erosion textures share this repeat period.
+    const auto sceneOrigin = m_device->getCommon()->getSceneManager().getSceneOrigin();
+    const double period = 16.0 * clouds.shapeScale;
+    clouds.windOffset = Vector3 {
+      float(std::remainder(double(windOffset.x) - sceneOrigin.x, period)),
+      windOffset.y,
+      float(std::remainder(double(windOffset.z) - sceneOrigin.y, period))
+    };
     clouds.extinction = CloudOptions::extinctionPerMeter() / cloudWorldScale;
     clouds.weather = std::clamp(CloudOptions::weather(), 0.0f, 1.0f);
     clouds.thunder = std::clamp(CloudOptions::thunder(), 0.0f, 1.0f);

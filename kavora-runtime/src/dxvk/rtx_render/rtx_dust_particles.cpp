@@ -256,7 +256,8 @@ namespace dxvk {
   static_assert(sizeof(GpuDustParticle) == 8 * 4, "Unexpected, please check perf");// be careful with performance when increasing this!
 
   void RtxDustParticles::simulateAndDraw(RtxContext* ctx, DxvkContextState& dxvkCtxState, const Resources::RaytracingOutput& rtOutput) {
-    if (!enable()) { 
+    if (!enable()) {
+      m_particles = nullptr;
       return;
     }
 

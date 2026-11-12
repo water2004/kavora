@@ -1,0 +1,41 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
+ * SPDX-License-Identifier: MIT
+ */
+#pragma once
+
+#include "rtx/concept/surface_material/surface_material.h"
+#include "rtx/concept/surface_material/opaque_surface_material_blending.slangh"
+#include "rtx/utility/texture.slangh"
+
+bool isAlphaCoverageCandidateClipped(Ray ray, RayHitInfo hit, Surface surface)
+{
+  if (!surface.alphaCoverage || surface.isFullyOpaque || !surface.isBlendingDisabled ||
+      surface.isDecal || surface.isEye)
+  {
+    return false;
+  }
+
+  const MemoryPolymorphicSurfaceMaterial packed = surfaceMaterials[surface.surfaceMaterialIndex];
+  if (!packed.isOpaque() || (cb.pomMode != DisplacementMode::Off && packed.hasValidDisplacement()))
+  {
+    return false;
+  }
+  const OpaqueSurfaceMaterial material = reinterpret<OpaqueSurfaceMaterial>(packed);
+  if (material.flags & (OPAQUE_SURFACE_MATERIAL_FLAG_ALPHA_IS_THIN_FILM_THICKNESS |
+      OPAQUE_SURFACE_MATERIAL_FLAG_IGNORE_ALPHA_CHANNEL | OPAQUE_SURFACE_MATERIAL_FLAG_IS_RAYTRACED_RENDER_TARGET |
+      OPAQUE_SURFACE_MATERIAL_FLAG_IS_HAIR_CARD))
+  {
+    return false;
+  }
+
+  surface.normalBufferIndex = BINDING_INDEX_INVALID;
+  const RayInteraction interaction = rayInteractionCreate(ray, hit);
+  const SurfaceInteraction point = surfaceInteractionCreateWithoutMotion<SurfaceIgnoreTangents>(surface, interaction, ray);
+  float alpha = material.albedoOpacityConstant.a;
+  if (material.albedoOpacityTextureIndex != BINDING_INDEX_INVALID)
+  {
+    alpha = textureRead(material.albedoOpacityTextureIndex, material.samplerIndex, point).a;
+  }
+  return !(surfaceAlphaTest(surface, surfaceTextureAlpha(surface, alpha, point.vertexColor.a)) > 0.0f);
+}

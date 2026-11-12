@@ -554,13 +554,16 @@ namespace {
       CameraType::Enum type {};
       Matrix4 worldToView {};
       Matrix4 viewToProjection {};
+      std::optional<ivec2> sceneOrigin;
     };
 
     ExternalCameraInfo toRtCamera(const remixapi_CameraInfo& info) {
+      ExternalCameraInfo result { toRtCameraType(info.type) };
+      if (result.type == CameraType::Main) {
+        if (auto origin = pnext::find<remixapi_CameraInfoSceneOriginEXT>(&info))
+          result.sceneOrigin = ivec2{ origin->x, origin->z };
+      }
       if (auto params = pnext::find<remixapi_CameraInfoParameterizedEXT>(&info)) {
-        auto result = ExternalCameraInfo {
-          toRtCameraType(info.type),
-        };
         {
           const auto newViewToWorld = Matrix4d {
            Vector4d{ normalize(tovec3d(params->right)), 0.0 },
@@ -584,11 +587,9 @@ namespace {
         }
         return result;
       }
-      return ExternalCameraInfo {
-        toRtCameraType(info.type),
-        Matrix4 { info.view },
-        Matrix4 { info.projection },
-      };
+      result.worldToView = Matrix4 { info.view };
+      result.viewToProjection = Matrix4 { info.projection };
+      return result;
     }
 
     // --
@@ -734,8 +735,9 @@ namespace {
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_HAIR_CARDS)                { result.set(InstanceCategories::HairCards); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE)           { result.set(InstanceCategories::FloatingSludge); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_SELF_LIT)                  { result.set(InstanceCategories::SelfLit); }
+      if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_ALPHA_COVERAGE)            { result.set(InstanceCategories::AlphaCoverage); }
       
-      static_assert((int)InstanceCategories::Count == 27, "Instance categories changed, please update Remix SDK");
+      static_assert((int)InstanceCategories::Count == 28, "Instance categories changed, please update Remix SDK");
       return result;
     }
 
@@ -1280,6 +1282,10 @@ namespace {
     return REMIXAPI_ERROR_CODE_SUCCESS;
   }
 
+  namespace {
+    void setExternalSceneOrigin(dxvk::DxvkContext* ctx, ivec2 origin);
+  }
+
   remixapi_ErrorCode REMIXAPI_CALL remixapi_SetupCamera(
     const remixapi_CameraInfo* info) {
     dxvk::D3D9DeviceEx* remixDevice = tryAsDxvk();
@@ -1299,6 +1305,8 @@ namespace {
       const_cast<bool&>(dxvk::RtxOptions::enableNearPlaneOverride()) = false;
     }
     remixDevice->EmitCs([cRtCamera = convert::toRtCamera(*info)](dxvk::DxvkContext* ctx) {
+      if (cRtCamera.sceneOrigin)
+        setExternalSceneOrigin(ctx, *cRtCamera.sceneOrigin);
       static_cast<dxvk::RtxContext*>(ctx)->prepareScreenResolution();
       ctx->getCommonObjects()->getSceneManager().getCameraManager()
         .processExternalCamera(cRtCamera.type, cRtCamera.worldToView, cRtCamera.viewToProjection);
@@ -1364,6 +1372,20 @@ namespace {
   }
 
   #include "rtx_remix_retained_scene.inl"
+
+  namespace {
+    void setExternalSceneOrigin(dxvk::DxvkContext* ctx, ivec2 origin) {
+      auto& scene = ctx->getCommonObjects()->getSceneManager();
+      if (scene.getSceneOrigin().x == origin.x && scene.getSceneOrigin().y == origin.y)
+        return;
+
+      const auto offset = scene.setSceneOrigin(origin);
+      for (const auto& [id, state] : s_retainedSceneInstances) {
+        if (!state->drawCall.getTransformData().viewModelEyeOffset)
+          state->drawCall.modifyTransformData().objectToWorld[3].xyz() += offset;
+      }
+    }
+  }
 
   remixapi_ErrorCode submitApiLight(
     const remixapi_LightInfo* info,

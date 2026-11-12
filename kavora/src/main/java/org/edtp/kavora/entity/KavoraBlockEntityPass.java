@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.entity;
 
+import org.edtp.kavora.render.RenderOrigin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
@@ -125,7 +126,8 @@ public final class KavoraBlockEntityPass {
         beaconRoot.set(0, 0, scale);
         beaconRoot.set(2, 2, scale);
         float offset = (1f - scale) * .5f;
-        beaconRoot.setTranslation(pos.getX() + offset, pos.getY(), pos.getZ() + offset);
+        RenderOrigin origin = RenderOrigin.current();
+        beaconRoot.setTranslation(origin.localX(pos.getX()) + offset, pos.getY(), origin.localZ(pos.getZ()) + offset);
         try {
             if (submitter.retainStaticOwner(beam, beaconRoot)) return;
         } catch (RuntimeException failure) {

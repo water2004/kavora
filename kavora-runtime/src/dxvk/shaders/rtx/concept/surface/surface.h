@@ -507,6 +507,11 @@ struct Surface
     get { return packedFlagGet(data13.z, 1 << 15); }
   }
 
+  property bool alphaCoverage
+  {
+    get { return packedFlagGet(data13.z, 1 << 16); }
+  }
+
   property uint tFactor
   {
     get { return data13.y; }

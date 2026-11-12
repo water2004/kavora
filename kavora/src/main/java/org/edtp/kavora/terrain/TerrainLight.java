@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.terrain;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.asset.KavoraLight;
 import org.edtp.kavora.light.LightEntry;
 import org.edtp.kavora.texture.BlockTextureManager;
@@ -39,7 +40,8 @@ public final class TerrainLight {
     private static final float HYSTERESIS = 1.5f;
 
     public final KavoraLight light;
-    private float x, y, z;
+    private double x, z;
+    private float y;
     private float power;
     private long lastDrawnFrame = Long.MIN_VALUE;
 
@@ -74,7 +76,7 @@ public final class TerrainLight {
     }
 
     /** Records where the light is and how much it emits; called at create and update. */
-    public void place(float x, float y, float z, float power) {
+    public void place(double x, float y, double z, float power) {
         this.x = x;
         this.y = y;
         this.z = z;
@@ -101,7 +103,7 @@ public final class TerrainLight {
         return draw;
     }
 
-    public static boolean withinReach(float x, float y, float z, float power,
+    public static boolean withinReach(double x, float y, double z, float power,
                                       double camX, double camY, double camZ, float threshold) {
         double dx = x - camX, dy = y - camY, dz = z - camZ;
         double distanceSq = Math.max(1.0, dx * dx + dy * dy + dz * dz);
@@ -138,12 +140,13 @@ public final class TerrainLight {
     }
 
     private static LightInfo buildBlockLightInfo(LightEntry entry, BlockLightRadiance radiance) {
+        RenderOrigin origin = RenderOrigin.current();
         LightInfo.Builder builder = LightInfo.builder()
                 .radiance(radiance.r(), radiance.g(), radiance.b());
         return switch (entry.shape()) {
             case SPHERE -> {
                 LightInfoSphereEXT.Builder sphere = LightInfoSphereEXT.builder()
-                        .position(entry.x(), entry.y(), entry.z())
+                        .position(origin.localX(entry.x()), entry.y(), origin.localZ(entry.z()))
                         .radius(entry.radius())
                         .volumetricRadianceScale(entry.volumetricRadianceScale());
                 // Spot lights: only sphere/rect/disk accept shaping in the Remix
@@ -155,7 +158,7 @@ public final class TerrainLight {
             }
             case CYLINDER -> builder
                     .cylinderExt(LightInfoCylinderEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
+                            .position(origin.localX(entry.x()), entry.y(), origin.localZ(entry.z()))
                             .radius(entry.radius())
                             .axis(entry.axisX(), entry.axisY(), entry.axisZ())
                             .axisLength(entry.axisLength())
@@ -164,7 +167,7 @@ public final class TerrainLight {
                     .build();
             case RECT -> builder
                     .rectExt(LightInfoRectEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
+                            .position(origin.localX(entry.x()), entry.y(), origin.localZ(entry.z()))
                             .xAxis(entry.xAxisX(), entry.xAxisY(), entry.xAxisZ())
                             .xSize(entry.xSize())
                             .yAxis(entry.yAxisX(), entry.yAxisY(), entry.yAxisZ())
@@ -175,7 +178,7 @@ public final class TerrainLight {
                     .build();
             case DISK -> builder
                     .diskExt(LightInfoDiskEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
+                            .position(origin.localX(entry.x()), entry.y(), origin.localZ(entry.z()))
                             .xAxis(entry.xAxisX(), entry.xAxisY(), entry.xAxisZ())
                             .xRadius(entry.xSize())
                             .yAxis(entry.yAxisX(), entry.yAxisY(), entry.yAxisZ())

@@ -701,8 +701,8 @@ RAB_Surface RAB_GetSurfaceForTemporalBiasCorrection(RAB_Surface currentSurface, 
     // being occluded by the same object, even though the light sample was actually visible on the past frame.
     // This mismatch unnecessarily reduces the piSum value and results in brightening of moving objects.
     if (cb.enablePreviousTLAS || all(virtualMotionVector == 0)) {
-      const MinimalSurfaceInteraction temporalSurfaceInteraction = minimalSurfaceInteractionReadFromGBuffer(
-        prevPixelID, PreviousWorldPosition_WorldTriangleNormal);
+      const MinimalSurfaceInteraction temporalSurfaceInteraction = minimalSurfaceInteractionReadPrevious(
+          prevPixelID, PreviousWorldPosition_WorldTriangleNormal, cb.previousSceneOffset);
       // Check the previous frames gbuffer data is valid.
       if (!temporalSurfaceInteraction.isValid)
       {
@@ -767,7 +767,14 @@ RTXDI_Reservoir RAB_LoadReservoir(int2 pixel, int page)
 ReSTIRGI_Reservoir RAB_LoadGIReservoir(int2 pixel, int page)
 {
 #ifdef RAB_HAS_RESTIR_GI_RESERVOIRS
-    return ReSTIRGI_Reservoir.createFromPacked(RestirGIReservoirBuffer[RTXDI_ReservoirPositionToPointer(ivec2(pixel), cb.camera.resolution, int(page))]);
+    ReSTIRGI_Reservoir reservoir = ReSTIRGI_Reservoir.createFromPacked(
+      RestirGIReservoirBuffer[RTXDI_ReservoirPositionToPointer(ivec2(pixel), cb.camera.resolution, int(page))]);
+#ifdef RAB_GI_TEMPORAL_REUSE
+    // Page 1 is the prior frame's spatial output in this pass.
+    if (page == ReSTIRGI_GetTemporalInputPage())
+      reservoir.position.xz += cb.previousSceneOffset;
+#endif
+    return reservoir;
 #else
     return ReSTIRGI_Reservoir.createEmpty();
 #endif
@@ -777,7 +784,13 @@ MemoryPolymorphicLight RAB_GetMemoryPolymorphicLight(uint lightID, bool usePrevi
 {
   MemoryPolymorphicLight memoryPolymorphicLight;
   if (usePreviousLights)
+  {
     memoryPolymorphicLight = previousLights[lightID];
+    const uint lightType = (memoryPolymorphicLight.data3.w >> 29) & lightTypeMask;
+    if (lightType != uint(lightTypeDistant))
+      memoryPolymorphicLight.data0.xz = floatBitsToUint(
+        uintBitsToFloat(memoryPolymorphicLight.data0.xz) + cb.previousSceneOffset);
+  }
   else
     memoryPolymorphicLight = lights[lightID];
 

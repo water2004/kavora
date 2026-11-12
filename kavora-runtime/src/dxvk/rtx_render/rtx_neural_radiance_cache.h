@@ -194,7 +194,7 @@ namespace dxvk {
 
     // Updates NRC constants in raytraceArgs. 
     // This must be called after onFrameBegin() in a frame
-    void setRaytraceArgs(RaytraceArgs& constants);
+    void setRaytraceArgs(RaytraceArgs& constants, ivec2 sceneOrigin);
 
     DxvkBufferSlice getBufferSlice(RtxContext& ctx, ResourceType resourceType);
 
@@ -296,6 +296,7 @@ namespace dxvk {
     bool                   m_enableDebugBuffers = false;
     bool                   m_delayedEnableCustomNetworkConfig;
 
+    ivec2                  m_boundsSceneOrigin {};
     Vector3                m_sceneBoundsMin = Vector3 { FLT_MAX, FLT_MAX, FLT_MAX };
     Vector3                m_sceneBoundsMax = Vector3 { -FLT_MAX, -FLT_MAX, -FLT_MAX };
 

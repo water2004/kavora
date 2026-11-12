@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.light;
 
+import org.edtp.kavora.render.RenderOrigin;
 import com.mojang.math.Transformation;
 import org.edtp.kavora.sdk.Float3D;
 import org.edtp.kavora.sdk.LightInfo;
@@ -337,9 +338,9 @@ public class LightManager {
                     .radiance(red * intensity, green * intensity, blue * intensity)
                     .diskExt(LightInfoDiskEXT.builder()
                             .position(
-                                    pos.getX() + emitter.x(),
+                                    RenderOrigin.current().localX(pos.getX()) + emitter.x(),
                                     pos.getY() + emitter.y(),
-                                    pos.getZ() + emitter.z())
+                                    RenderOrigin.current().localZ(pos.getZ()) + emitter.z())
                             .xAxis(xAxis.x(), xAxis.y(), xAxis.z())
                             .xRadius(BeaconBeam.RADIUS)
                             .yAxis(yAxis.x(), yAxis.y(), yAxis.z())
@@ -520,9 +521,9 @@ public class LightManager {
                 DiskBasis basis = light.diskBasis;
                 var diskBuilder = LightInfoDiskEXT.builder()
                         .position(
-                                (float) light.position.x,
+                                RenderOrigin.current().localX(light.position.x),
                                 (float) light.position.y,
-                                (float) light.position.z)
+                                RenderOrigin.current().localZ(light.position.z))
                         .xAxis(
                                 (float) basis.xAxis.x,
                                 (float) basis.xAxis.y,
@@ -547,9 +548,9 @@ public class LightManager {
 
             var sphereBuilder = LightInfoSphereEXT.builder()
                     .position(
-                            (float) light.position.x,
+                            RenderOrigin.current().localX(light.position.x),
                             (float) light.position.y,
-                            (float) light.position.z)
+                            RenderOrigin.current().localZ(light.position.z))
                     .radius(light.emitterRadius)
                     .volumetricRadianceScale(light.volumetricRadianceScale);
             if (light.shaping != null) {
@@ -703,9 +704,9 @@ public class LightManager {
                     .radiance(r * intensity, g * intensity, b * intensity)
                     .diskExt(LightInfoDiskEXT.builder()
                             .position(
-                                    (float) (origin.x + lens.x()),
+                                    RenderOrigin.current().localX(origin.x + lens.x()),
                                     (float) (origin.y + lens.y()),
-                                    (float) (origin.z + lens.z()))
+                                    RenderOrigin.current().localZ(origin.z + lens.z()))
                             .xAxis(diskX.x(), diskX.y(), diskX.z())
                             .xRadius(xRadius)
                             .yAxis(diskY.x(), diskY.y(), diskY.z())

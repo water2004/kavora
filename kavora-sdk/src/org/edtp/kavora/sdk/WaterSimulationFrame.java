@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 package org.edtp.kavora.sdk;
 
-/** Reusable batch of world-space water disturbances for a scene submission. */
+/** Reusable batch of scene-local water disturbances for a scene submission. */
 public final class WaterSimulationFrame {
     public static final int MAX_IMPULSES = 16;
     private static final int COMPONENTS = 5;
@@ -24,6 +24,11 @@ public final class WaterSimulationFrame {
         impulses[offset + 3] = radius;
         impulses[offset + 4] = strength;
         return true;
+    }
+
+    /** Discards disturbances while retaining the pending rain and reset flags. */
+    public void clearImpulses() {
+        count = 0;
     }
 
     public void resetWaves() {

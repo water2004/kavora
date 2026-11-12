@@ -269,16 +269,20 @@ namespace dxvk {
 
   void GameCapturer::captureFrame(const Rc<DxvkContext> ctx) {
     Logger::debug("[GameCapturer][" + m_pCap->idStr + "] Begin frame capture");
+    // USD stores absolute world transforms. Keep a single translation for
+    // all samples of this frame, including animated captures across a rebase.
+    const auto sceneOrigin = m_sceneManager.getSceneOrigin();
+    const Vector3d sceneToWorld { double(sceneOrigin.x), 0.0, double(sceneOrigin.y) };
     if (m_pCap->bCaptureInstances) {
-      captureCamera();
-      captureLights();
+      captureCamera(sceneToWorld);
+      captureLights(sceneToWorld);
     }
-    captureInstances(ctx);
+    captureInstances(ctx, sceneToWorld);
     ++m_pCap->numFramesCaptured;
     Logger::debug("[GameCapturer][" + m_pCap->idStr + "] End frame capture");
   }
 
-  void GameCapturer::captureCamera() {
+  void GameCapturer::captureCamera(const Vector3d& sceneToWorld) {
     auto& sceneCamera = m_sceneManager.getCamera();
     auto& capCamera = m_pCap->camera; // Convenience for captured camera
     if (isnan(capCamera.firstTime)) {
@@ -327,7 +331,8 @@ namespace dxvk {
     capCamera.finalTime = m_pCap->currentFrameNum;
 
     // Step 3: Construct capture Camera
-    pxr::GfVec3d position = pxr::GfVec3d(sceneCamera.getPosition().x, sceneCamera.getPosition().y, sceneCamera.getPosition().z);
+    const Vector3d worldPosition = sceneCamera.getViewToWorld()[3].xyz() + sceneToWorld;
+    pxr::GfVec3d position(worldPosition.x, worldPosition.y, worldPosition.z);
     pxr::GfVec3d direction = pxr::GfVec3d(sceneCamera.getDirection().x, sceneCamera.getDirection().y, sceneCamera.getDirection().z);
     pxr::GfVec3d up = pxr::GfVec3d(sceneCamera.getUp().x, sceneCamera.getUp().y, sceneCamera.getUp().z);
 
@@ -354,13 +359,13 @@ namespace dxvk {
     capCamera.xforms.push_back({ m_pCap->currentFrameNum, worldToView.GetInverse() });
   }
 
-  void GameCapturer::captureLights() {
+  void GameCapturer::captureLights(const Vector3d& sceneToWorld) {
     auto captureLight = [&](const RtLight& rtLight) {
       assert(rtLight.getInitialHash() != 0);
       switch (rtLight.getType()) {
       default:
       case RtLightType::Sphere:
-        captureSphereLight(rtLight.getSphereLight());
+        captureSphereLight(rtLight, sceneToWorld);
         break;
       case RtLightType::Rect:
         // Todo: Handle Rect lights
@@ -391,10 +396,17 @@ namespace dxvk {
     }
   }
 
-  void GameCapturer::captureSphereLight(const dxvk::RtSphereLight& rtLight) {
-    const auto hash = rtLight.getHash();
-    pxr::GfRotation  rotation;
-    rotation.SetIdentity();
+  void GameCapturer::captureSphereLight(const RtLight& light, const Vector3d& sceneToWorld) {
+    const uint32_t identity = light.getStableIdentity();
+    const XXH64_hash_t hash = identity != kInvalidLightIdentity ? identity : light.getInitialHash();
+    const auto& rtLight = light.getSphereLight();
+    const auto& shaping = rtLight.getShaping();
+    pxr::GfRotation rotation;
+    if (shaping.getEnabled()) {
+      rotation = pxr::GfRotation(-pxr::GfVec3d::ZAxis(), pxr::GfVec3f(&shaping.getDirection()[0]));
+    } else {
+      rotation.SetIdentity();
+    }
     if (m_pCap->sphereLights.count(hash) == 0) {
       const std::string name = dxvk::hashToString(hash);
       lss::SphereLight& sphereLight = m_pCap->sphereLights[hash];
@@ -407,20 +419,18 @@ namespace dxvk {
       sphereLight.radius = rtLight.getRadius();
       sphereLight.xforms.reserve(m_options.numFrames - m_pCap->numFramesCaptured);
       sphereLight.firstTime = m_pCap->currentFrameNum;
-      const dxvk::RtLightShaping& shaping = rtLight.getShaping();
       if (shaping.getEnabled()) {
         sphereLight.shapingEnabled = true;
         sphereLight.coneAngleDegrees = std::acos(shaping.getCosConeAngle()) * kRadiansToDegrees;
         sphereLight.coneSoftness = shaping.getConeSoftness();
         sphereLight.focusExponent = shaping.getFocusExponent();
-        rotation = pxr::GfRotation(-pxr::GfVec3d::ZAxis(), pxr::GfVec3f(&shaping.getDirection()[0]));
       }
       Logger::debug("[GameCapturer][" + m_pCap->idStr + "][SphereLight:" + name + "] New");
     }
 
     lss::SphereLight& sphereLight = m_pCap->sphereLights[hash];
-    const auto position = rtLight.getPosition();
-    pxr::GfMatrix4d usdXform(rotation, pxr::GfVec3f(&position[0]));
+    const Vector3d position = Vector3d(rtLight.getPosition()) + sceneToWorld;
+    pxr::GfMatrix4d usdXform(rotation, pxr::GfVec3d(position.x, position.y, position.z));
     sphereLight.xforms.push_back({ m_pCap->currentFrameNum, usdXform });
     sphereLight.finalTime = m_pCap->currentFrameNum;
   }
@@ -445,7 +455,7 @@ namespace dxvk {
     distantLight.finalTime = m_pCap->currentFrameNum;
   }
 
-  void GameCapturer::captureInstances(const Rc<DxvkContext> ctx) {
+  void GameCapturer::captureInstances(const Rc<DxvkContext> ctx, const Vector3d& sceneToWorld) {
     const bool excludeModDraws = ctx->getDevice()->vkd()->ownsDevice();
     for (const RtInstance* pRtInstance : m_sceneManager.getInstanceTable()) {
       assert(pRtInstance->getBlas() != nullptr);
@@ -502,7 +512,11 @@ namespace dxvk {
             xform[0][0] = -1.0;
           }
         }
-        instance.lssData.xforms.push_back({ m_pCap->currentFrameNum, matrix4ToGfMatrix4d(pRtInstance->getTransform()) * xform });
+        auto transform = matrix4ToGfMatrix4d(pRtInstance->getTransform());
+        transform[3][0] += sceneToWorld.x;
+        transform[3][1] += sceneToWorld.y;
+        transform[3][2] += sceneToWorld.z;
+        instance.lssData.xforms.push_back({ m_pCap->currentFrameNum, transform * xform });
         const SkinningData& skinData = pRtInstance->getBlas()->input.getSkinningState();
         if (skinData.numBones > 0) {
           instance.lssData.boneXForms.push_back({ m_pCap->currentFrameNum, matrix4VecToGfMatrix4dVec(skinData.pBoneMatrices) });

@@ -98,6 +98,7 @@ namespace pnext::detail {
     remixapi_InstanceInfoGpuInstancingEXT,
     remixapi_CameraInfo,
     remixapi_CameraInfoParameterizedEXT,
+    remixapi_CameraInfoSceneOriginEXT,
     remixapi_CameraMediumInfo,
     remixapi_TextureFromMemoryInfo,
     remixapi_TexturePatchInfo,
@@ -194,6 +195,9 @@ namespace pnext::detail {
   template<> struct Root<remixapi_MaterialInfoVertexColorMaskEXT> { using Type = remixapi_MaterialInfo; };
   template<> constexpr auto ToEnum<remixapi_MaterialInfoWaterSurfaceEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT;
   template<> struct Root<remixapi_MaterialInfoWaterSurfaceEXT> { using Type = remixapi_MaterialInfo; };
+  template<> constexpr auto ToEnum<remixapi_CameraInfoSceneOriginEXT> = REMIXAPI_STRUCT_TYPE_CAMERA_INFO_SCENE_ORIGIN_EXT;
+  template<> struct Root<remixapi_CameraInfoSceneOriginEXT> { using Type = remixapi_CameraInfo; };
+
   template<> constexpr auto ToEnum<remixapi_MaterialInfoEndPortalEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT;
   template<> struct Root<remixapi_MaterialInfoEndPortalEXT> { using Type = remixapi_MaterialInfo; };
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterSimEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT;

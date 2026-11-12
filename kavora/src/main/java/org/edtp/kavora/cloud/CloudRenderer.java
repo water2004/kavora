@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.cloud;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.asset.KavoraMeshSurface;
@@ -355,7 +356,8 @@ public final class CloudRenderer {
                     matrix[0] = 1.0f;
                     matrix[1] = 0.0f;
                     matrix[2] = 0.0f;
-                    matrix[3] = (float) placement.x;
+                    RenderOrigin origin = RenderOrigin.current();
+                    matrix[3] = origin.localX(placement.x);
                     matrix[4] = 0.0f;
                     matrix[5] = 1.0f;
                     matrix[6] = 0.0f;
@@ -363,7 +365,7 @@ public final class CloudRenderer {
                     matrix[8] = 0.0f;
                     matrix[9] = 0.0f;
                     matrix[10] = 1.0f;
-                    matrix[11] = (float) placement.z;
+                    matrix[11] = origin.localZ(placement.z);
                     api.drawInstance(
                             entry.mesh.getHandle(),
                             matrix,

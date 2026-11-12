@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.particle;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.InstanceInfoBlendEXT;
@@ -60,7 +61,8 @@ public class KavoraParticleRenderer {
     private static final int ALPHA_CUTOFF = (int)Math.ceil(.1 * 255);
     private static final int VERTEX_BYTES_PER_PARTICLE = VERTS_PER_PARTICLE * STRIDE;
 
-    private static final float[] IDENTITY_TRANSFORM = {
+
+    private final float[] drawTransform = {
             1f, 0f, 0f, 0f,
             0f, 1f, 0f, 0f,
             0f, 0f, 1f, 0f
@@ -93,6 +95,7 @@ public class KavoraParticleRenderer {
     private int lastMeshUpdateCount;
     private long frameCounter;
     private volatile long motionHistoryGeneration;
+    private RenderOrigin vertexOrigin;
 
     private int particlesThisFrame;
     private int newSlotsThisFrame;
@@ -131,7 +134,8 @@ public class KavoraParticleRenderer {
     }
 
     /** Captures particles and prepares immutable mesh payloads without calling Remix. */
-    public PreparedFrame prepare(float tickDelta) {
+    public PreparedFrame prepare(float tickDelta, RenderOrigin origin) {
+        rebaseVertexHistory(origin);
         long frame = ++frameCounter;
         long motionGeneration = motionHistoryGeneration;
         resetFrameStats();
@@ -209,7 +213,8 @@ public class KavoraParticleRenderer {
                 boolean hasHistory = particleSlot.writtenFrame == frame - 1
                         && particleSlot.motionGeneration == motionGeneration;
                 writeParticleQuad(bucket.vertexBuffer, slot, pa, billboard,
-                        tickDelta, billboardBasis, u0, v0, u1, v1, color, boundsMin, boundsMax, hasHistory);
+                        tickDelta, billboardBasis, origin,
+                        u0, v0, u1, v1, color, boundsMin, boundsMax, hasHistory);
                 particleSlot.writtenFrame = frame;
                 particleSlot.motionGeneration = motionGeneration;
                 bucket.dirty = true;
@@ -218,6 +223,24 @@ public class KavoraParticleRenderer {
         }
 
         return finishPreparation(frame);
+    }
+
+    private void rebaseVertexHistory(RenderOrigin origin) {
+        RenderOrigin previous = vertexOrigin;
+        vertexOrigin = origin;
+        if (previous == null || previous == origin) return;
+
+        int dx = previous.x() - origin.x();
+        int dz = previous.z() - origin.z();
+        for (DynamicBucket bucket : buckets.values()) {
+            // The mesh replaced this frame carries both positions in its new local space.
+            for (int vertex = 0; vertex < bucket.liveCount * VERTS_PER_PARTICLE; vertex++) {
+                int offset = vertex * STRIDE;
+                bucket.vertexBuffer.putFloat(offset, bucket.vertexBuffer.getFloat(offset) + dx);
+                bucket.vertexBuffer.putFloat(offset + 8, bucket.vertexBuffer.getFloat(offset + 8) + dz);
+            }
+            bucket.dirty |= bucket.liveCount != 0;
+        }
     }
 
     private PreparedFrame finishPreparation(long frame) {
@@ -250,7 +273,7 @@ public class KavoraParticleRenderer {
                 }
             }
 
-            return new PreparedFrame(preparedBuckets,
+            return new PreparedFrame(preparedBuckets, vertexOrigin,
                     particlesThisFrame, plannedDraws, plannedActiveQuads,
                     newSlotsThisFrame, removedSlotsThisFrame,
                     capacityGrowsThisFrame, capacity, meshUpdatesThisFrame);
@@ -271,6 +294,9 @@ public class KavoraParticleRenderer {
         try {
             if (api != null && preparedFrame.plannedDrawCount() > 0) {
                 ensureBlendExts();
+                RenderOrigin origin = RenderOrigin.current();
+                drawTransform[3] = preparedFrame.origin.x() - origin.x();
+                drawTransform[11] = preparedFrame.origin.z() - origin.z();
             }
 
             for (PreparedBucket preparedBucket : preparedFrame.buckets) {
@@ -281,7 +307,7 @@ public class KavoraParticleRenderer {
 
                 if (api != null && bucket.liveCount > 0
                         && bucket.mesh != null && !bucket.mesh.isDeleted()) {
-                    api.drawInstance(bucket.mesh.getHandle(), IDENTITY_TRANSFORM,
+                    api.drawInstance(bucket.mesh.getHandle(), drawTransform,
                             bucket.categoryFlags, 1, drawPNext(bucket.blendKind));
                     draws++;
                     activeQuads += bucket.liveCount;
@@ -411,11 +437,12 @@ public class KavoraParticleRenderer {
     private static void writeParticleQuad(ByteBuffer vertices, int slot,
                                           ParticleAccessor pa, BillboardParticleAccessor ba,
                                           float tickDelta, ParticleBillboardBasis basis,
+                                          RenderOrigin origin,
                                           float u0, float v0, float u1, float v1, int color,
                                           int boundsMin, int boundsMax, boolean hasHistory) {
-        double px = Mth.lerp(tickDelta, pa.getPrevPosX(), pa.getX());
+        double px = Mth.lerp(tickDelta, pa.getPrevPosX(), pa.getX()) - origin.x();
         double py = Mth.lerp(tickDelta, pa.getPrevPosY(), pa.getY());
-        double pz = Mth.lerp(tickDelta, pa.getPrevPosZ(), pa.getZ());
+        double pz = Mth.lerp(tickDelta, pa.getPrevPosZ(), pa.getZ()) - origin.z();
 
         float scale = ((SingleQuadParticle) ba).getQuadSize(tickDelta);
         float s00 = basis.r00 * scale;
@@ -563,6 +590,7 @@ public class KavoraParticleRenderer {
     /** CPU result handed from the particle worker to the render thread exactly once. */
     public static final class PreparedFrame implements AutoCloseable {
         private final List<PreparedBucket> buckets;
+        private final RenderOrigin origin;
         private final int particleCount;
         private final int plannedDrawCount;
         private final int plannedActiveQuadCount;
@@ -574,6 +602,7 @@ public class KavoraParticleRenderer {
         private boolean closed;
 
         private PreparedFrame(List<PreparedBucket> buckets,
+                              RenderOrigin origin,
                               int particleCount,
                               int plannedDrawCount,
                               int plannedActiveQuadCount,
@@ -583,6 +612,7 @@ public class KavoraParticleRenderer {
                               int capacity,
                               int meshUpdateCount) {
             this.buckets = List.copyOf(buckets);
+            this.origin = origin;
             this.particleCount = particleCount;
             this.plannedDrawCount = plannedDrawCount;
             this.plannedActiveQuadCount = plannedActiveQuadCount;

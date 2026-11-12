@@ -60,6 +60,8 @@ namespace dxvk {
     { "remix_category:sludge",                    "Floating Sludge",           "rtx.sludgeTextures" },
     { "remix_category:self_lit",                  "Self-Lit Appearance",       nullptr,
       "Adds local appearance lighting to visible opaque-material surfaces without lighting the scene." },
+    { "remix_category:alpha_coverage",            "Alpha Coverage",            nullptr,
+      "Rejects alpha-tested holes while tracing surface intersections." },
   };
   // NV-DXVK end
 }

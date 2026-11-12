@@ -40,6 +40,7 @@ public final class InstanceCategoryBit {
     public static final int SELF_LIT = 1 << 29;
     /** VIEW_MODEL transform already projected and scaled, with a translation relative to the camera eye. */
     public static final int CAMERA_RELATIVE_VIEW_MODEL = 1 << 30;
+    public static final int ALPHA_COVERAGE = 1 << 31;
 
     private InstanceCategoryBit() {}
 }

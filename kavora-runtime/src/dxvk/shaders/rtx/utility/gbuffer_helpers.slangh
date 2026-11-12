@@ -78,6 +78,14 @@ MinimalSurfaceInteraction minimalSurfaceInteractionReadFromGBuffer(
   return minimalSurfaceInteractionCreate(memory);
 }
 
+MinimalSurfaceInteraction minimalSurfaceInteractionReadPrevious(
+  ivec2 pixel, Texture2D<float4> history, vec2 previousSceneOffset)
+{
+  MinimalSurfaceInteraction result = minimalSurfaceInteractionReadFromGBuffer(pixel, history);
+  result.position.xz += previousSceneOffset;
+  return result;
+}
+
 MinimalSurfaceInteraction minimalSurfaceInteractionReadFromGBufferWithError(
   ivec2 position,
   Texture2D<float4> worldPositionWorldTriangleTBNTexture,

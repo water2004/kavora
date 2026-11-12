@@ -27,7 +27,8 @@ import net.minecraft.world.level.gamerules.GameRules;
 /** Real pixel readback distinguishes blended ordinary particles from terrain cutouts. */
 public final class KavoraParticleGameTest implements FabricClientGameTest {
     @Override public void runTest(ClientGameTestContext context) {
-        if (!Boolean.getBoolean("kavora.gametest.particleOnly")) return;
+        if (!Boolean.getBoolean("kavora.gametest.particleOnly")
+                && !Boolean.getBoolean("kavora.gametest.particlePrecision")) return;
         boolean hidden = context.computeOnClient(client -> client.gui.hud.isHidden());
         try (var world = context.worldBuilder().create()) {
             world.getServer().runOnServer(server -> {
@@ -50,6 +51,10 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
             });
             context.waitTicks(30);
             Path baseline = KavoraWorldGameTest.assertWorldRenders(context, world, "particle-baseline");
+            if (Boolean.getBoolean("kavora.gametest.particlePrecision")) {
+                checkParticlePrecision(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.heldTorchTemporal")) {
                 KavoraParticleTemporalChecks.runHeldTorch(context, world);
                 return;
@@ -105,6 +110,78 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
                     "Particle native alpha policies: ordinary delta={}, terrain delta={}", ordinaryDelta, terrainDelta);
         } finally {
             context.runOnClient(client -> { if (client.gui.hud.isHidden() != hidden) client.gui.hud.toggle(); });
+        }
+    }
+
+    private static void checkParticlePrecision(ClientGameTestContext context, TestSingleplayerContext world) {
+        int far = 1 << 20;
+        world.getServer().runOnServer(server -> {
+            var level = server.overworld();
+            level.getChunk((far - 3) >> 4, 0);
+            level.getChunk((far + 3) >> 4, 0);
+            KavoraSceneFixtures.commands(server, "fill " + (far - 3) + " -61 5 "
+                    + (far + 3) + " -54 5 minecraft:white_concrete");
+            var player = server.getPlayerList().getPlayers().getFirst();
+            player.setNoGravity(true);
+            KavoraWorldGameTest.require(player.teleportTo(level, far + .5, -58, .5, Set.of(), 0, 0, true),
+                    "Far particle camera setup failed");
+        });
+        context.waitFor(client -> client.player.getX() == far + .5, 200);
+        KavoraWorldGameTest.assertWorldRenders(context, world, "far-particle-ready");
+
+        try (var generation = RuntimeOptionScope.acquire(context, "rtx.dlfg.enable", "false");
+             var upscaling = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "0");
+             var jitter = RuntimeOptionScope.acquire(context, "rtx.cameraJitterSequenceLength", "1");
+             var albedo = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "32")) {
+            Probe particle = context.computeOnClient(client -> {
+                var atlas = (TextureAtlas) client.getTextureManager().getTexture(
+                        org.edtp.kavora.texture.BlockTextureManager.BLOCK_ATLAS_ID);
+                var sprite = atlas.getSprite(Identifier.withDefaultNamespace("block/blue_concrete"));
+                Probe probe = new Probe(client.level, far + .5, -56.4, 2.5, sprite, true, false);
+                probe.setPrecisionPose(far + .5);
+                client.particleEngine.add(probe);
+                return probe;
+            });
+            try {
+                double first = precisionParticleCenter(context, "start");
+                context.runOnClient(client -> particle.setPrecisionPose(far + .5 + 1.0 / 64));
+                double second = precisionParticleCenter(context, "next");
+                double displacement = Math.abs(first - second);
+                double imageHeight = context.computeOnClient(client -> client.getWindow().getHeight());
+                double displacementAt540p = displacement * 540.0 / imageHeight;
+                KavoraWorldGameTest.require(displacementAt540p >= 1.5 && displacementAt540p <= 6.0,
+                        "Far particle lost its 1/64 block movement: " + displacement + " pixels");
+                org.slf4j.LoggerFactory.getLogger(KavoraParticleGameTest.class)
+                        .info("Far particle at X={}: 1/64 block moved {} pixels", far, displacement);
+            } finally {
+                context.runOnClient(client -> particle.remove());
+            }
+        }
+    }
+
+    private static double precisionParticleCenter(ClientGameTestContext context, String name) {
+        long before = context.computeOnClient(client -> KavoraFrameProbe.presents);
+        context.waitFor(client -> KavoraFrameProbe.presents >= before + 6, 200);
+        Path capture = KavoraWorldGameTest.captureCompletedFrame(context, "far-particle-" + name);
+        try {
+            var image = ImageIO.read(capture.toFile());
+            int w = image.getWidth(), h = image.getHeight();
+            int count = 0;
+            long sum = 0;
+            for (int y = h / 3; y < h * 2 / 3; y++) {
+                for (int x = w / 3; x < w * 2 / 3; x++) {
+                    int rgb = image.getRGB(x, y);
+                    int r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
+                    if (b > 40 && b > 1.4 * Math.max(r, g)) {
+                        sum += x;
+                        count++;
+                    }
+                }
+            }
+            KavoraWorldGameTest.require(count > 40, "Far particle is absent from " + capture);
+            return (double) sum / count;
+        } catch (IOException e) {
+            throw new AssertionError("Cannot read far particle capture " + capture, e);
         }
     }
 
@@ -314,6 +391,14 @@ public final class KavoraParticleGameTest implements FabricClientGameTest {
             quadSize = .8f; alpha = .25f; rCol = emissive ? 1 : 0; gCol = emissive ? 1 : 0; bCol = 1;
         }
         void opacity(float value) { setAlpha(value); }
+        void setPrecisionPose(double x) {
+            quadSize = .125f;
+            setAlpha(1);
+            setPos(x, -56.4, 2.5);
+            xo = x;
+            yo = -56.4;
+            zo = 2.5;
+        }
         @Override public void tick() { if (++age > 400) remove(); }
         @Override protected Layer getLayer() { return terrain ? Layer.OPAQUE_TERRAIN : Layer.TRANSLUCENT; }
         @Override protected float getU0() { return (sprite.getU0() + sprite.getU1()) * .5f; }

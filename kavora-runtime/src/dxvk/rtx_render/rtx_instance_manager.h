@@ -220,6 +220,7 @@ private:
   }
   void copyInstanceDataFrom(const RtInstance& src);
   void onTransformChanged();
+  void translateSceneOrigin(const Vector3& offset);
   friend class InstanceManager;
 
   // Unique ID of the RtInstance.
@@ -369,6 +370,7 @@ public:
 
   // Clear all instances currently tracked by manager
   void clear();
+  void translateSceneOrigin(const Vector3& offset);
 
   // Clean up instances which are deemed as no longer required
   void garbageCollection();

@@ -138,6 +138,17 @@ namespace dxvk {
     }
   }
 
+  void RtxWaterSimulation::translateSceneOrigin(const Vector3& offset) {
+    const vec2 planar { offset.x, RtxOptions::zUp() ? 0.0f : offset.z };
+    const ivec2 cells { int32_t(planar.x / kCellSize), int32_t(planar.y / kCellSize) };
+    m_originX += cells.x;
+    m_originZ += cells.y;
+    m_impactOrigin.x += cells.x;
+    m_impactOrigin.y += cells.y;
+    for (uint32_t i = 0; i < m_count; ++i)
+      m_impulses[i].position = m_impulses[i].position + planar;
+  }
+
   void RtxWaterSimulation::prepare(RtxContext* ctx, bool hasWater, bool hasSludge) {
     m_shaderArgs = vec4(0.0f);
     m_impactArgs = vec4(0.0f);

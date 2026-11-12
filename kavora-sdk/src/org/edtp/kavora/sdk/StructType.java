@@ -60,6 +60,7 @@ public final class StructType {
     public static final int MESH_INFO_QUADS_EXT = 47;
     public static final int MATERIAL_INFO_WATER_SURFACE_EXT = 48;
     public static final int MATERIAL_INFO_END_PORTAL_EXT = 51;
+    public static final int CAMERA_INFO_SCENE_ORIGIN_EXT = 52;
     public static final int SUBMIT_INFO_WATER_SIM_EXT = 49;
     public static final int SUBMIT_INFO_WATER_RAIN_EXT = 50;
 

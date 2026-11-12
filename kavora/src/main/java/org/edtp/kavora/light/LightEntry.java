@@ -14,9 +14,9 @@ public record LightEntry(
         int lightLevel,
         Block block,
         LightShape shape,
-        float x,
+        float offsetX,
         float y,
-        float z,
+        float offsetZ,
         float colorR,
         float colorG,
         float colorB,
@@ -51,8 +51,16 @@ public record LightEntry(
 
     private static final float DEFAULT_VOL_RADIANCE_SCALE = 0.5f;
 
+    private static int anchorX(BlockLightKey key) { return key == null ? 0 : key.pos().getX(); }
+
+    private static int anchorZ(BlockLightKey key) { return key == null ? 0 : key.pos().getZ(); }
+
+    public double x() { return anchorX(key) + (double) offsetX; }
+
+    public double z() { return anchorZ(key) + (double) offsetZ; }
+
     public static LightEntry sphere(BlockLightKey key, int lightLevel, Block block,
-                                    float x, float y, float z,
+                                    double x, float y, double z,
                                     float radius,
                                     ColorOverride color,
                                     Float intensity,
@@ -72,7 +80,7 @@ public record LightEntry(
      * cylinders are always omnidirectional.
      */
     public static LightEntry shapedSphere(BlockLightKey key, int lightLevel, Block block,
-                                          float x, float y, float z,
+                                          double x, float y, double z,
                                           float radius,
                                           ColorOverride color,
                                           Float intensity,
@@ -91,7 +99,7 @@ public record LightEntry(
     }
 
     public static LightEntry cylinder(BlockLightKey key, int lightLevel, Block block,
-                                      float x, float y, float z,
+                                      double x, float y, double z,
                                       float radius,
                                       float axisX, float axisY, float axisZ,
                                       float axisLength,
@@ -106,7 +114,7 @@ public record LightEntry(
     }
 
     public static LightEntry rect(BlockLightKey key, int lightLevel, Block block,
-                                  float x, float y, float z,
+                                  double x, float y, double z,
                                   float xAxisX, float xAxisY, float xAxisZ, float xSize,
                                   float yAxisX, float yAxisY, float yAxisZ, float ySize,
                                   float directionX, float directionY, float directionZ,
@@ -121,7 +129,7 @@ public record LightEntry(
     }
 
     public static LightEntry disk(BlockLightKey key, int lightLevel, Block block,
-                                  float x, float y, float z,
+                                  double x, float y, double z,
                                   float xAxisX, float xAxisY, float xAxisZ, float xRadius,
                                   float yAxisX, float yAxisY, float yAxisZ, float yRadius,
                                   float directionX, float directionY, float directionZ,
@@ -141,7 +149,7 @@ public record LightEntry(
 
     private static LightEntry base(BlockLightKey key, int lightLevel, Block block,
                                    LightShape shape,
-                                   float x, float y, float z,
+                                   double x, float y, double z,
                                    ColorOverride color,
                                    Float intensity,
                                    float radius,
@@ -153,7 +161,7 @@ public record LightEntry(
                                    Shaping shaping) {
         ColorOverride c = color == null ? ColorOverride.NONE : color;
         Shaping s = shaping == null ? Shaping.NONE : shaping;
-        return new LightEntry(key, lightLevel, block, shape, x, y, z,
+        return new LightEntry(key, lightLevel, block, shape, (float) (x - anchorX(key)), y, (float) (z - anchorZ(key)),
                 c.r, c.g, c.b, c.hasColor,
                 intensity == null ? 0.0f : intensity, intensity != null,
                 radius,
@@ -174,7 +182,7 @@ public record LightEntry(
      */
     LightEntry withAuthoredIntensityMultiplier(float multiplier) {
         return new LightEntry(
-                key, lightLevel, block, shape, x, y, z,
+                key, lightLevel, block, shape, offsetX, y, offsetZ,
                 colorR, colorG, colorB, hasColor,
                 intensity, hasIntensity,
                 radius,
@@ -188,9 +196,10 @@ public record LightEntry(
                 volumetricRadianceScale, multiplier);
     }
 
-    LightEntry withRectangle(BlockLightKey rectangleKey, float centerX, float centerY, float centerZ,
+    LightEntry withRectangle(BlockLightKey rectangleKey, double centerX, float centerY, double centerZ,
                              float width, float height) {
-        return new LightEntry(rectangleKey, lightLevel, block, shape, centerX, centerY, centerZ,
+        return new LightEntry(rectangleKey, lightLevel, block, shape,
+                (float) (centerX - rectangleKey.pos().getX()), centerY, (float) (centerZ - rectangleKey.pos().getZ()),
                 colorR, colorG, colorB, hasColor, intensity, hasIntensity, radius,
                 axisX, axisY, axisZ, axisLength, xAxisX, xAxisY, xAxisZ, width,
                 yAxisX, yAxisY, yAxisZ, height, directionX, directionY, directionZ,

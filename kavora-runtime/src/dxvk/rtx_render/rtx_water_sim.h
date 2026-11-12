@@ -14,6 +14,7 @@ namespace dxvk {
   // Owns the water simulation resources on the runtime command thread.
   class RtxWaterSimulation {
   public:
+    void translateSceneOrigin(const Vector3& offset);
     explicit RtxWaterSimulation(DxvkDevice*) {}
 
     RTX_OPTION("rtx.waterSim", bool, enable, false, "Simulate water disturbances in a camera-centred clipmap.");

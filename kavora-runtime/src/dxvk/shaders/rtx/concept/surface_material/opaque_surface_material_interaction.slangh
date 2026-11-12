@@ -766,10 +766,7 @@ OpaqueMaterialSample opaqueSurfaceMaterialPrepare<let EnablePom : bool>(
     // Adjust opacity via texture operations.
     // Fixed function texture stage state for alpha channel
 
-    float textureAlphaArg1, textureAlphaArg2;
-    chooseTextureArgument(textureAlphaArg1, surface.textureAlphaArg1Source, opacity, surfaceInteraction.vertexColor.a, tFactor.a, opacity);
-    chooseTextureArgument(textureAlphaArg2, surface.textureAlphaArg2Source, opacity, surfaceInteraction.vertexColor.a, tFactor.a, float(1.0f));
-    chooseTextureOperationAlpha(opacity, surface.textureAlphaOperation, textureAlphaArg1, textureAlphaArg2);
+    opacity = surfaceTextureAlpha(surface, opacity, surfaceInteraction.vertexColor.a);
     
     // Ensure we perform these opacity calculations after the texture operations have been applied to abledo and alpha.
     calcOpaqueSurfaceMaterialOpacity(

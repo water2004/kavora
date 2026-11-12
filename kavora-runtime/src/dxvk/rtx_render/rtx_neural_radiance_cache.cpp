@@ -427,7 +427,7 @@ namespace dxvk {
     return NrcOptions::targetNumTrainingIterations() * kNumTrainingRecordsPerIteration;
   }
 
-  void NeuralRadianceCache::setRaytraceArgs(RaytraceArgs& constants) {
+  void NeuralRadianceCache::setRaytraceArgs(RaytraceArgs& constants, ivec2 sceneOrigin) {
     if (!isActive()) {
       return;
     }
@@ -465,8 +465,10 @@ namespace dxvk {
       m_numQueryPixelsPerTrainingPixel.x,
       m_numQueryPixelsPerTrainingPixel.y };
 
-    nrcArgs.sceneBoundsMin = m_sceneBoundsMin;
-    nrcArgs.sceneBoundsMax = m_sceneBoundsMax;
+    const Vector3 boundsOffset { float(int64_t(m_boundsSceneOrigin.x) - sceneOrigin.x), 0.f,
+                                 float(int64_t(m_boundsSceneOrigin.y) - sceneOrigin.y) };
+    nrcArgs.sceneBoundsMin = m_sceneBoundsMin + boundsOffset;
+    nrcArgs.sceneBoundsMax = m_sceneBoundsMax + boundsOffset;
     nrcArgs.wrapPositionsToSceneBounds = NrcOptions::wrapPositionsToSceneBounds();
 
     // Calculate half query pixel's offset in update pixel space
@@ -724,6 +726,7 @@ namespace dxvk {
         sceneAabb.minPos = cameraPos - halfRelativeBBOX;
         sceneAabb.maxPos = cameraPos + halfRelativeBBOX;
 
+        m_boundsSceneOrigin = ctx->getCommonObjects()->getSceneManager().getSceneOrigin();
         m_sceneBoundsMin = Vector3{ sceneAabb.minPos.x, sceneAabb.minPos.y, sceneAabb.minPos.z };
         m_sceneBoundsMax = Vector3{ sceneAabb.maxPos.x, sceneAabb.maxPos.y, sceneAabb.maxPos.z };
 

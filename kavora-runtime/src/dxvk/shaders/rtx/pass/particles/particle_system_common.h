@@ -256,5 +256,5 @@ struct ParticleSystemConstants {
   float dragVelocityScale;
   float dragVelocityIntegral;
   float dragAccelerationIntegral;
-  uvec2 dragPadding;
+  vec2 previousSceneOffset;
 };

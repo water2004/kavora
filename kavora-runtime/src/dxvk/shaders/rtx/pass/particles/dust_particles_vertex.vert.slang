@@ -132,6 +132,7 @@ VsOut main(uint vertexIdx : SV_VertexID)
   rng = createRNG(uvec2(vertexIdx & 0xFFFF, vertexIdx >> 16), cb.frameIdx, vertexIdx);
   
   GpuDustParticle particle = Particles[vertexIdx];
+  particle.position.xz += cb.previousSceneOffset;
   
   if(shouldRespawn(particle))
   {

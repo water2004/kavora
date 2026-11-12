@@ -59,6 +59,11 @@ namespace dxvk {
     // Calculates a camera type for the specified draw call.
     CameraType::Enum processCameraData(const DrawCallState& input);
     void processExternalCamera(CameraType::Enum type, const Matrix4& worldToView, const Matrix4& viewToProjection);
+    void translateSceneOrigin(const Vector3& offset) {
+      for (auto& camera : m_cameras) {
+        camera.translateSceneOrigin(offset);
+      }
+    }
 
     uint32_t getLastCameraCutFrameId() const { return m_lastCameraCutFrameId; }
     bool isCameraCutThisFrame() const;

@@ -691,6 +691,7 @@ enum class InstanceCategories : uint32_t {
   HairCards,
   FloatingSludge,
   SelfLit,
+  AlphaCoverage,
 
   Count,
 };

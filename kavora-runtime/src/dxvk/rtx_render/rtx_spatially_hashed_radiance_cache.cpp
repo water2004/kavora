@@ -132,8 +132,10 @@ namespace dxvk {
 
     SharcArgs& sharcArgs = constants.sharcArgs;
 
-    sharcArgs.cameraPosition = camera.getPosition();
-    sharcArgs.cameraPositionPrev = camera.getPreviousPosition();
+    const auto origin = sceneManager.getSceneOrigin();
+    const Vector3 worldOffset(float(origin.x), 0.f, float(origin.y));
+    sharcArgs.cameraPosition = camera.getPosition() + worldOffset;
+    sharcArgs.cameraPositionPrev = camera.getPreviousPosition() + worldOffset;
     sharcArgs.queryForThinOpaquePrimaryView = SharcOptions::queryForThinOpaquePrimaryView();
     sharcArgs.primaryQuerySpatialJitter = SharcOptions::primaryQuerySpatialJitter();
     sharcArgs.primaryQueryLodJitter = SharcOptions::primaryQueryLodJitter();

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: LGPL-3.0-only */
 package org.edtp.kavora.horizon;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.horizon.voxel.*;
 import org.edtp.kavora.sdk.*;
 import org.edtp.kavora.asset.*;
@@ -442,10 +443,11 @@ public final class KavoraHorizon implements FarTerrainExtension {
             page.transferOwnership();
             KavoraMeshStore.get().create(mesh);
             Transform transform = Transform.identity();
+            RenderOrigin origin = RenderOrigin.current();
             transform.setTranslation(
-                    VoxelKey.blockX(handle.key),
+                    VoxelKey.blockX(handle.key) - origin.x(),
                     VoxelKey.blockY(handle.key),
-                    VoxelKey.blockZ(handle.key));
+                    VoxelKey.blockZ(handle.key) - origin.z());
             boolean cutout =
                     key.layer() == BlockTextureManager.L_CUTOUT
                             || key.layer() == BlockTextureManager.L_CUTOUT_MIPPED;

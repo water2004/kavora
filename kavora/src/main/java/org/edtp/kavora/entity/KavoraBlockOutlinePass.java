@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.entity;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.MaterialInfo;
@@ -174,10 +175,11 @@ public final class KavoraBlockOutlinePass implements AutoCloseable {
         outlineMesh = new KavoraMesh(new KavoraMeshSurface[]{surface});
         KavoraMeshStore.get().create(outlineMesh);
 
+        RenderOrigin origin = RenderOrigin.current();
         instanceTransform.setTranslation(
-                (float) outline.cameraX(),
+                origin.localX(outline.cameraX()),
                 (float) outline.cameraY(),
-                (float) outline.cameraZ());
+                origin.localZ(outline.cameraZ()));
         api.drawInstance(
                 outlineMesh.getHandle(),
                 instanceTransform.matrix,

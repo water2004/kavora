@@ -819,6 +819,8 @@ namespace dxvk {
 
     assert(!(nrcEnabled && (sharcUpdateEnabled || sharcQueryEnabled)) && "NRC and SHaRC cannot be enabled at once");
 
+    const Rc<DxvkShader> coverageAnyHit = useRayQuery ? nullptr
+      : OrderedCoverageAnyHitShader::getPathShader(nrcEnabled, sharcUpdateEnabled, sharcQueryEnabled, useNeeCache);
     DxvkRaytracingPipelineShaders shaders;
     if (wboitEnabled) {
       if (useRayQuery) {
@@ -963,29 +965,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -993,29 +995,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1023,29 +1025,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1053,29 +1055,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1083,29 +1085,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit_wboit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1255,29 +1257,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1285,29 +1287,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1315,29 +1317,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1345,29 +1347,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           }
@@ -1375,29 +1377,29 @@ namespace dxvk {
           if (useNeeCache) {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           } else {
             if (pomEnabled) {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             } else {
               if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit), coverageAnyHit, nullptr);
               } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit), VoxelCoverageAnyHitShader::getShader(), nullptr);
+                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
               }
             }
           }

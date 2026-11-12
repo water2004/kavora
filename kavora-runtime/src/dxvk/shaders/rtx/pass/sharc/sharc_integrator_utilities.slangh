@@ -28,6 +28,11 @@
 
 namespace Sharc
 {
+
+float3 worldPosition(float3 localPosition)
+{
+  return localPosition + vec3(cb.sceneOriginX, 0, cb.sceneOriginZ);
+}
 // Separate the two primary thin-surface hemispheres without changing their physical voxel size.
 static const uint kHemisphereLevelOffset = 256;
 
@@ -226,11 +231,11 @@ bool onHitBeforeDirectLighting(
 
     // Construct SharcHitData structure needed for creating a query point at this hit location
     SharcHitData hitData;
-    hitData.positionWorld = surfaceInteraction.position;
+    hitData.positionWorld = worldPosition(surfaceInteraction.position);
     hitData.normalWorld = surfaceInteraction.geometryNormal;
     hitData.emissive = vec3(0.0f);
 
-    uint gridLevel = HashGridGetLevel(surfaceInteraction.position, params.hashGridParameters);
+    uint gridLevel = HashGridGetLevel(hitData.positionWorld, params.hashGridParameters);
     float voxelSize = HashGridGetVoxelSize(gridLevel, params.hashGridParameters);
     bool isValidHit = pathState.segmentHitDistance > voxelSize * sqrt(3.0f);
 
@@ -281,7 +286,7 @@ bool onHitAfterDirectLighting(
     SharcParameters params = createSharcParameters(args, backHemisphere);
 
     SharcHitData hitData;
-    hitData.positionWorld = position;
+    hitData.positionWorld = worldPosition(position);
     hitData.normalWorld = triangleNormal;
     hitData.emissive = vec3(0.0f);
 

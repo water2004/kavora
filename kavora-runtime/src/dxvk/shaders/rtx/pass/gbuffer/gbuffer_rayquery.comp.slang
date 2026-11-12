@@ -102,7 +102,8 @@ void main(uint2 invocation : SV_DispatchThreadID)
     state.continueResolving = iteration < cb.primaryRayMaxInteractions;
     ray.Origin = state.origin;
     ray.Direction = state.direction;
-    const RayHitInfo hit = traceOrderedIntersection(ray, flags, uint(state.rayMask));
+    const RayHitInfo hit = traceOrderedIntersection(ray, flags, uint(state.rayMask), state.coneRadius,
+      cb.screenSpacePixelSpreadHalfAngle);
     geometryResolverVertex(extraArgs, hit, state);
     if (!state.continueResolving) {
       break;

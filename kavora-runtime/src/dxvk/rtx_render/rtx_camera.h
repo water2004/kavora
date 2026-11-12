@@ -285,6 +285,7 @@ namespace dxvk
     // This must be called after any camera transform changes of the camera in a frame.
     // The transforms must not be externally updated further after applying this offset in the frame
     void applyArtificialWorldOffset(const Vector3& worldOffset);
+    void translateSceneOrigin(const Vector3& offset);
     const Vector3& getArtificialWorldOffset() const { return m_artificalWorldOffset; }
     const Vector3& getPreviousArtificialWorldOffset() const { return m_previousArtificalWorldOffset; }
 

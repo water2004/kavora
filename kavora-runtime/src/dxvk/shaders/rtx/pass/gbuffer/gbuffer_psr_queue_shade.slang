@@ -62,12 +62,12 @@
 
 #include "rtx/algorithm/geometry_resolver.slangh"
 
-RayHitInfo traceQueuedPSRIntersection(RayDesc ray, uint flags, uint mask)
+RayHitInfo traceQueuedPSRIntersection(RayDesc ray, uint flags, uint mask, float coneRadius, float spreadAngle)
 {
 #ifdef RT_SHADER_EXECUTION_REORDERING
-  return traceGbufferIntersection(ray, flags, mask, GBUFFER_SBT_OFFSET_STANDARD);
+  return traceGbufferIntersection(ray, flags, mask, GBUFFER_SBT_OFFSET_STANDARD, coneRadius);
 #else
-  return traceOrderedIntersection(ray, flags, mask);
+  return traceOrderedIntersection(ray, flags, mask, coneRadius, spreadAngle);
 #endif
 }
 
@@ -79,7 +79,7 @@ RayHitInfo traceQueuedPSRState(GeometryPSRResolverState state)
   ray.TMin = 0;
   ray.TMax = floatMax;
   const uint flags = RAY_FLAG_FORCE_OPAQUE | (state.insideMedium ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES);
-  return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask));
+  return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask), state.coneRadius, cb.screenSpacePixelSpreadHalfAngle);
 }
 
 [shader("raygeneration")]

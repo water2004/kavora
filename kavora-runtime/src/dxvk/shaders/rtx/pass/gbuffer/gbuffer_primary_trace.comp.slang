@@ -44,7 +44,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
   ray.Direction = cameraRay.direction;
   ray.TMin = 0.0f;
   ray.TMax = cameraRay.tMax;
-  const RayHitInfo hit = traceOrderedIntersection(ray, primaryRayFlags(), primaryRayMask());
+  const RayHitInfo hit = traceOrderedIntersection(ray, primaryRayFlags(), primaryRayMask(),
+    cameraRay.coneRadius, cameraRay.spreadAngle);
   storePrimaryIntersection(pixel, hit);
   if (cb.volumeArgs.enable || cb.volumeArgs.clouds.enable)
   {

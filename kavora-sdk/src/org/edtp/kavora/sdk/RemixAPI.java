@@ -553,12 +553,14 @@ public class RemixAPI {
         long pNext = 0;
         if (info.parameterizedExt != null) {
             CameraInfoParameterizedEXT p = info.parameterizedExt;
-            pNext = RemixBridge.allocCameraParamExt(
+            pNext = RemixBridge.allocParameterizedCamera(
                     p.position.x, p.position.y, p.position.z,
                     p.forward.x, p.forward.y, p.forward.z,
                     p.up.x, p.up.y, p.up.z,
                     p.right.x, p.right.y, p.right.z,
-                    p.fovYInDegrees, p.aspect, p.nearPlane, p.farPlane, 0);
+                    p.fovYInDegrees, p.aspect, p.nearPlane, p.farPlane, 0, info.sceneOrigin);
+        } else if (info.sceneOrigin != null) {
+            pNext = RemixBridge.allocCameraSceneOrigin(info.sceneOrigin);
         }
         try {
             int result = RemixBridge.setupCamera(info.type, info.view, info.projection, pNext);

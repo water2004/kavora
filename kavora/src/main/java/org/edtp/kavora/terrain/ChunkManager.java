@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.terrain;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.util.LongObjectMap;
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.texture.BlockTextureManager;
@@ -1140,7 +1141,7 @@ public class ChunkManager {
                 le.key().lightIndex(),
                 le.lightLevel(),
                 le.shape(),
-                bits(le.x()), bits(le.y()), bits(le.z()),
+                bits(le.offsetX()), bits(le.y()), bits(le.offsetZ()),
                 bits(le.colorR()), bits(le.colorG()), bits(le.colorB()), le.hasColor(),
                 bits(le.intensity()), le.hasIntensity(),
                 bits(le.radius()),
@@ -1939,7 +1940,8 @@ public class ChunkManager {
 
     private static Transform columnTransform(int cx, int cz) {
         Transform transform = Transform.identity();
-        transform.setTranslation(cx * 16f, 0f, cz * 16f);
+        RenderOrigin origin = RenderOrigin.current();
+        transform.setTranslation(origin.localX(cx * 16.0), 0f, origin.localZ(cz * 16.0));
         return transform;
     }
 

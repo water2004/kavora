@@ -7,17 +7,21 @@ package org.edtp.kavora.gametest;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.MapItem;
-import net.minecraft.network.chat.Component;
 import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.entity.SignTextSlot;
+import net.minecraft.world.level.gamerules.GameRules;
+import org.edtp.kavora.render.RenderOrigin;
+
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -33,6 +37,9 @@ final class KavoraSceneFixtures {
         captureEntityMaterials(context, world, 0);
         captureEntityMaterials(context, world, 8192);
         captureShulkerBoxes(context, world, 8192);
+        if (Boolean.getBoolean("kavora.gametest.entityPrecision")) {
+            captureEntityMaterials(context, world, 1 << 20);
+        }
     }
 
     private static void captureEntityMaterials(ClientGameTestContext context, TestSingleplayerContext world, int x) {
@@ -65,6 +72,9 @@ final class KavoraSceneFixtures {
             player.getAbilities().flying = true;
             player.onUpdateAbilities();
         });
+        if (x == 1 << 20 && Boolean.getBoolean("kavora.gametest.entityPrecision")) {
+            assertOriginCrossing(context, world, x);
+        }
         moveEntityFixtureCamera(context, world, x, -59.65, -0.8, 0);
         context.waitTicks(40);
         KavoraWorldGameTest.captureCompletedFrame(context, "entity-materials-" + x);
@@ -72,15 +82,147 @@ final class KavoraSceneFixtures {
             context.waitTicks(10);
             Path albedo = KavoraWorldGameTest.captureCompletedFrame(context, "entity-materials-albedo-" + x);
             assertVillagerMaterials(readImage(albedo), albedo);
+            if (Boolean.getBoolean("kavora.gametest.entityPrecision") && x != 8192) {
+                assertEntityPrecision(context, x, false);
+            }
             moveEntityFixtureCamera(context, world, x + 3.75, -59.65, -0.8, 0);
             context.waitTicks(12);
             Path mobs = KavoraWorldGameTest.captureCompletedFrame(context, "layered-mobs-albedo-" + x);
             assertSheepFace(readImage(mobs), mobs);
+            if (Boolean.getBoolean("kavora.gametest.entityPrecision") && x != 8192) {
+                assertEntityPrecision(context, x, true);
+            }
             moveEntityFixtureCamera(context, world, x + 1.5, -59.65, 1.5, -23);
             context.waitTicks(12);
             Path sign = KavoraWorldGameTest.captureCompletedFrame(context, "sign-albedo-" + x);
             assertSignMaterials(readImage(sign), sign);
         }
+    }
+
+    private static void assertOriginCrossing(ClientGameTestContext context, TestSingleplayerContext world, int boundary) {
+        moveEntityFixtureCamera(context, world, boundary - 256, -59.65, -0.8, 0);
+        context.waitFor(client -> RenderOrigin.current().x() == boundary - 256, 200);
+        moveEntityFixtureCamera(context, world, boundary - 1.0 / 64, -59.65, -0.8, 0);
+        KavoraWorldGameTest.assertWorldRenders(context, world, "precision-boundary-ready");
+
+        try (var generation = RuntimeOptionScope.acquire(context, "rtx.dlfg.enable", "false");
+             var upscale = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "0");
+             var jitter = RuntimeOptionScope.acquire(context, "rtx.cameraJitterSequenceLength", "1");
+             var albedo = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "32")) {
+            context.waitTicks(10);
+            MaskCenter before = entityMaskCenter(context, "before-origin-crossing", false);
+            MaskCenter stillBefore = entityMaskCenter(context, "before-origin-crossing-still", false);
+            KavoraWorldGameTest.require(before.distanceTo(stillBefore) < 0.75,
+                    "Stationary camera shifted the villager before crossing the origin");
+            context.runOnClient(client -> {
+                KavoraWorldGameTest.require(RenderOrigin.current().x() == boundary - 256,
+                        "Render origin advanced before the camera crossed its boundary");
+                var player = client.player;
+                player.setPos(boundary + 1.0 / 64, player.getY(), player.getZ());
+                player.setOldPosAndRot();
+            });
+            context.waitFor(client -> RenderOrigin.current().x() == boundary, 200);
+            MaskCenter after = entityMaskCenter(context, "after-origin-crossing", false);
+            double maxDrift = 0;
+            for (Path frame : KavoraWorldGameTest.captureConsecutiveFrames(context, "origin-crossing-still", 8)) {
+                maxDrift = Math.max(maxDrift, after.distanceTo(entityMaskCenter(frame, false)));
+            }
+            KavoraWorldGameTest.require(maxDrift < 0.75,
+                    "Stationary camera shifted the villager after crossing the origin: " + maxDrift + " px");
+            double shift = Math.abs(after.x() - before.x());
+            KavoraWorldGameTest.require(shift > 2 && shift < 12,
+                    "Origin crossing must preserve screen motion, measured " + shift + " px at 540p");
+            org.slf4j.LoggerFactory.getLogger(KavoraSceneFixtures.class)
+                    .info("Origin crossing moved the villager {} pixels, then drifted {} pixels across eight frames",
+                            shift, maxDrift);
+        }
+    }
+
+    private static void assertEntityPrecision(ClientGameTestContext context, int x, boolean sheep) {
+        var entity = context.computeOnClient(client -> {
+            var bounds = client.player.getBoundingBox().inflate(6);
+            var level = client.level;
+            if (sheep) return level.getEntitiesOfClass(Sheep.class, bounds).stream()
+                    .filter(mob -> Math.abs(mob.getX() - x - 4.9) < 0.1).findFirst().orElseThrow();
+            return level.getEntitiesOfClass(Villager.class, bounds).stream()
+                    .filter(mob -> Math.abs(mob.getX() - x + 0.55) < 0.1).findFirst().orElseThrow();
+        });
+        var position = context.computeOnClient(client -> entity.position());
+        String name = (sheep ? "sheep" : "villager") + "-precision-" + x;
+        try (var generation = RuntimeOptionScope.acquire(context, "rtx.dlfg.enable", "false");
+             var upscale = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "0");
+             var jitter = RuntimeOptionScope.acquire(context, "rtx.cameraJitterSequenceLength", "1")) {
+            context.waitTicks(3);
+            MaskCenter previous = entityMaskCenter(context, name + "-0", sheep);
+            MaskCenter still = entityMaskCenter(context, name + "-still", sheep);
+            KavoraWorldGameTest.require(still.distanceTo(previous) < 0.75,
+                    "Stationary entity mask moved at X=" + x + ": " + previous + " -> " + still);
+            for (int step = 1; step <= 3; step++) {
+                double nextX = position.x + step / 64.0;
+                // The server still tracks this mob. Apply the probe pose after
+                // packet handling and before extraction on every measured frame.
+                long startFrame = context.computeOnClient(client -> {
+                    KavoraFrameProbe.frameAction = frame -> {
+                        entity.setPos(nextX, position.y, position.z);
+                        entity.setOldPosAndRot();
+                    };
+                    return KavoraFrameProbe.presents;
+                });
+                context.waitFor(client -> KavoraFrameProbe.presents >= startFrame + 3, 200);
+                MaskCenter next = entityMaskCenter(context, name + "-" + step, sheep);
+                double shift = previous.x() - next.x();
+                KavoraWorldGameTest.require(shift >= 1 && shift < 7,
+                        name + " should move smoothly in step " + step + ", measured " + shift + " px at 540p");
+                org.slf4j.LoggerFactory.getLogger(KavoraSceneFixtures.class).info(
+                        "{} step {} moved {} pixels at 540p", name, step, shift);
+                previous = next;
+            }
+        } finally {
+            context.runOnClient(client -> {
+                KavoraFrameProbe.frameAction = null;
+                entity.setPos(position);
+                entity.setOldPosAndRot();
+            });
+        }
+    }
+
+    private record MaskCenter(double x, double y) {
+        double distanceTo(MaskCenter other) {
+            return Math.hypot(x - other.x, y - other.y);
+        }
+    }
+
+    private static MaskCenter entityMaskCenter(ClientGameTestContext context, String name, boolean sheep) {
+        return entityMaskCenter(KavoraWorldGameTest.captureCompletedFrame(context, name), sheep);
+    }
+
+    private static MaskCenter entityMaskCenter(Path screenshot, boolean sheep) {
+        BufferedImage image = readImage(screenshot);
+        double scale = image.getHeight() / 480.0;
+        double originX = image.getWidth() * 0.5 - 427 * scale;
+        int left = (int) Math.round(originX + (sheep ? 120 : 454) * scale);
+        int right = (int) Math.round(originX + (sheep ? 255 : 550) * scale);
+        int top = (int) Math.round((sheep ? 370 : 267) * scale);
+        int bottom = (int) Math.round((sheep ? 452 : 317) * scale);
+        long sumX = 0;
+        long sumY = 0;
+        int count = 0;
+        for (int row = top; row < bottom; row++) {
+            for (int column = left; column < right; column++) {
+                int rgb = image.getRGB(column, row);
+                int r = rgb >> 16 & 255, g = rgb >> 8 & 255, b = rgb & 255;
+                boolean matches = sheep ? r > 80 && r < 215 && g > 65 && g < 200 && r - g > 15 && g - b > 6
+                        : g > 100 && 2 * g > 3 * r && 2 * g > 3 * b;
+                if (matches) {
+                    sumX += column;
+                    sumY += row;
+                    count++;
+                }
+            }
+        }
+        KavoraWorldGameTest.require(count > 20, "Could not find entity mask in " + screenshot);
+        double normalization = 540.0 / (count * (double) image.getHeight());
+        return new MaskCenter(sumX * normalization, sumY * normalization);
     }
 
     private static void captureShulkerBoxes(ClientGameTestContext context, TestSingleplayerContext world, int x) {

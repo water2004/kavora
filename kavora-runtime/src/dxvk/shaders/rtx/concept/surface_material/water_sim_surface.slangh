@@ -22,6 +22,7 @@ float2 sampleWaterImpacts(float2 planar) {
 // The long cascade moves the refraction origin. Fine wind and rings only affect shading.
 float3 sampleWaterSimulation(float3 position, float footprint, bool detail) {
   const float2 planar = waterPlanarPosition(position);
+  const float2 tilePosition = planar + cb.waterTileOrigin;
   float3 wave = 0.0f;
   if (cb.waterEffects & WATER_EFFECT_RIPPLES) {
     const float2 uv = (planar - cb.waterSimulation.xy) * cb.waterSimulation.z;
@@ -31,18 +32,18 @@ float3 sampleWaterSimulation(float3 position, float footprint, bool detail) {
     }
   }
   if (cb.waterEffects & WATER_EFFECT_WIND) {
-    const float gust = 0.75f + 0.25f * sin(dot(planar, float2(0.058f, 0.041f)) + cb.timeSinceStartSeconds * 0.17f);
-    wave += WaterWind.SampleLevel(WaterTileSampler, float3(planar / kWaterWindTileLong, 0.0f), 0.0f).xyz * gust;
+    const float gust = 0.75f + 0.25f * sin(dot(planar, float2(0.058f, 0.041f)) + (cb.timeSinceStartSeconds * 0.17f + cb.waterGustPhase));
+    wave += WaterWind.SampleLevel(WaterTileSampler, float3(tilePosition / kWaterWindTileLong, 0.0f), 0.0f).xyz * gust;
     if (detail && footprint < 0.75f) {
       const float fineFade = 1.0f - smoothstep(0.12f, 0.75f, footprint);
-      wave.yz += WaterWind.SampleLevel(WaterTileSampler, float3(planar / kWaterWindTileShort, 1.0f), 0.0f).yz * (gust * fineFade);
+      wave.yz += WaterWind.SampleLevel(WaterTileSampler, float3(tilePosition / kWaterWindTileShort, 1.0f), 0.0f).yz * (gust * fineFade);
     }
   }
   if (detail && (cb.waterEffects & WATER_EFFECT_RINGS) && footprint < 0.24f) {
     const float spray = (cb.waterEffects & WATER_EFFECT_IMPACTS) ? sampleWaterImpacts(planar).y : 0.0f;
     const float intensity = max(cb.waterRain, spray) * (1.0f - smoothstep(0.055f, 0.24f, footprint));
     if (intensity > 0.0f) {
-      wave.yz += WaterRings.SampleLevel(WaterTileSampler, planar / kWaterRingTile, 0.0f) * intensity;
+      wave.yz += WaterRings.SampleLevel(WaterTileSampler, tilePosition / kWaterRingTile, 0.0f) * intensity;
     }
   }
   return wave;

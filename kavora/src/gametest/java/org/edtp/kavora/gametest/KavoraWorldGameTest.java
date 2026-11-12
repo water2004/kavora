@@ -29,6 +29,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /** Exercises real resource loading, native rendering, and world-session replacement. */
@@ -501,6 +503,35 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
                         if (error == null) result.complete(path);
                         else result.completeExceptionally(error);
                     });
+        });
+        try {
+            context.waitFor(client -> result.isDone(), READY_TIMEOUT_TICKS);
+            return result.join();
+        } finally {
+            context.runOnClient(client -> KavoraFrameProbe.afterNativeMenus = null);
+        }
+    }
+
+    static List<Path> captureConsecutiveFrames(ClientGameTestContext context, String phase, int count) {
+        var result = new CompletableFuture<List<Path>>();
+        context.runOnClient(client -> {
+            var captures = new ArrayList<CompletableFuture<Path>>(count);
+            KavoraFrameProbe.afterNativeMenus = new Runnable() {
+                @Override public void run() {
+                    Path path = client.gameDirectory.toPath().resolve("screenshots")
+                            .resolve("remix-world-" + phase + "-" + captures.size() + ".png");
+                    captures.add(captureTarget(client.gameRenderer.mainRenderTarget(), path));
+                    if (captures.size() < count) {
+                        KavoraFrameProbe.afterNativeMenus = this;
+                        return;
+                    }
+                    CompletableFuture.allOf(captures.toArray(CompletableFuture<?>[]::new))
+                            .whenComplete((ignored, failure) -> {
+                                if (failure != null) result.completeExceptionally(failure);
+                                else result.complete(captures.stream().map(CompletableFuture::join).toList());
+                            });
+                }
+            };
         });
         try {
             context.waitFor(client -> result.isDone(), READY_TIMEOUT_TICKS);

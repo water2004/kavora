@@ -506,7 +506,7 @@ namespace dxvk {
       pipeline.addGeneralShader(GbufferAtmosphereShader::getShader());
       if (serEnabled) {
         pipeline.addGeneralShader(GbufferTraversalMissShader::getShader());
-        pipeline.addHitGroup(nullptr, VoxelCoverageAnyHitShader::getShader(), nullptr);
+        pipeline.addHitGroup(nullptr, OrderedCoverageAnyHitShader::getTraversalShader(), nullptr);
       }
       pipeline.debugName = firstBounce ? "PSR first bounce" : "PSR queued shading";
       return pipeline;
@@ -1270,10 +1270,10 @@ namespace dxvk {
       shaders.addGeneralShader(getGbufferTraceRayGenShader(rayGenKey));
       if (serEnabled) {
         shaders.addGeneralShader(GbufferTraversalMissShader::getShader());
-        shaders.addHitGroup(nullptr, VoxelCoverageAnyHitShader::getShader(), nullptr);
+        shaders.addHitGroup(nullptr, OrderedCoverageAnyHitShader::getTraversalShader(), nullptr);
       } else {
         shaders.addGeneralShader(getGbufferMissShader(passKey));
-        shaders.addHitGroup(getGbufferClosestHitShader(closestHitKey), VoxelCoverageAnyHitShader::getShader(), nullptr);
+        shaders.addHitGroup(getGbufferClosestHitShader(closestHitKey), OrderedCoverageAnyHitShader::getGbufferShader(), nullptr);
       }
       shaders.debugName = "GBuffer TraceRay (RGS)";
     }

@@ -395,6 +395,10 @@ namespace dxvk {
     const RtCamera& camera = ctx->getSceneManager().getCamera();
     constants.viewToWorld = camera.getViewToWorld();
     constants.prevWorldToProjection = camera.getPreviousViewToProjection() * camera.getPreviousWorldToView();
+    const auto origin = ctx->getSceneManager().getSceneOrigin();
+    const auto previousOrigin = ctx->getSceneManager().getPreviousSceneOrigin();
+    constants.previousSceneOffset = vec2(float(int64_t(previousOrigin.x) - origin.x),
+                                         float(int64_t(previousOrigin.y) - origin.y));
     constants.worldToProjection = camera.getViewToProjection() * camera.getWorldToView();
 
     constants.renderingWidth = ctx->getSceneManager().getCamera().m_renderResolution[0];

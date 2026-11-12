@@ -7,12 +7,14 @@ import org.edtp.kavora.sdk.WaterSimulationFrame;
 /** Collects nearby splash impacts on the client thread for the next native submission. */
 public final class KavoraWaterRipples {
     private static final WaterSimulationFrame FRAME = new WaterSimulationFrame();
+    private static final double[] POSITIONS = new double[WaterSimulationFrame.MAX_IMPULSES * 3];
+    private static int splashCount;
     private static boolean enabled;
     private static boolean rings;
     private static boolean sludge;
     private static float lastRain = Float.NaN;
-    private static float lastX = Float.POSITIVE_INFINITY;
-    private static float lastZ = Float.POSITIVE_INFINITY;
+    private static double lastX = Double.POSITIVE_INFINITY;
+    private static double lastZ = Double.POSITIVE_INFINITY;
 
     private KavoraWaterRipples() {}
 
@@ -40,26 +42,44 @@ public final class KavoraWaterRipples {
         }
     }
 
-    public static void splash(float x, float y, float z) {
-        float dx = x - lastX;
-        float dz = z - lastZ;
-        if (dx * dx + dz * dz < 0.25f) return;
-        if (FRAME.add(x, y, z, 0.85f, -0.8f)) {
-            lastX = x;
-            lastZ = z;
-        }
+    public static void splash(double x, double y, double z) {
+        if (splashCount == WaterSimulationFrame.MAX_IMPULSES) return;
+        double dx = x - lastX;
+        double dz = z - lastZ;
+        if (dx * dx + dz * dz < 0.25) return;
+
+        int offset = splashCount++ * 3;
+        POSITIONS[offset] = x;
+        POSITIONS[offset + 1] = y;
+        POSITIONS[offset + 2] = z;
+        lastX = x;
+        lastZ = z;
     }
 
     public static void reset() {
         FRAME.resetWaves();
         lastRain = Float.NaN;
-        lastX = lastZ = Float.POSITIVE_INFINITY;
+        clearSplashPositions();
     }
 
-    static WaterSimulationFrame pendingFrame() { return FRAME.isEmpty() ? null : FRAME; }
+    static WaterSimulationFrame pendingFrame() {
+        FRAME.clearImpulses();
+        RenderOrigin origin = RenderOrigin.current();
+        for (int i = 0; i < splashCount; i++) {
+            int offset = i * 3;
+            FRAME.add(origin.localX(POSITIONS[offset]), (float) POSITIONS[offset + 1],
+                    origin.localZ(POSITIONS[offset + 2]), 0.85f, -0.8f);
+        }
+        return FRAME.isEmpty() ? null : FRAME;
+    }
 
     static void submitted() {
         FRAME.clear();
-        lastX = lastZ = Float.POSITIVE_INFINITY;
+        clearSplashPositions();
+    }
+
+    private static void clearSplashPositions() {
+        splashCount = 0;
+        lastX = lastZ = Double.POSITIVE_INFINITY;
     }
 }

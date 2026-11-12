@@ -66,7 +66,7 @@ void TraceRayCustom<payload_t : IBasePayloadState>(
 {   
   HitObject hitObject = HitObject::TraceRay(                                                                     
     accelerationStructure,                                                                       
-    hasVoxelCoverage() ? (rayFlags & ~RAY_FLAG_FORCE_OPAQUE) : rayFlags, rayMask,
+    orderedRayFlags(rayFlags), rayMask,
     sbtRecordOffset, sbtRecordStride,                                                           
     missIndex, ray,                                                                          
     payload                                                                          
@@ -98,7 +98,7 @@ void TraceRayCustom<payload_t : IBasePayloadState>(
 {
   TraceRay(                                                                      
     accelerationStructure,                                                                          
-    hasVoxelCoverage() ? (rayFlags & ~RAY_FLAG_FORCE_OPAQUE) : rayFlags, rayMask,
+    orderedRayFlags(rayFlags), rayMask,
     sbtRecordOffset,                                         
     sbtRecordStride,                                                          
     missIndex,                                                             
@@ -155,7 +155,7 @@ void TraceRayCustom<payload_t : IBasePayloadState>(
     {                                                                                                   \
       if (!hasInitialHit)                                                                  \
       {                                                                                   \
-        rayHitInfo = traceIntersection(currentRay, flags, uint(payload.rayMask));           \
+        rayHitInfo = traceIntersection(currentRay, flags, uint(payload.rayMask), payload.coneRadius, ray.spreadAngle); \
       }                                                                                   \
                                                                                           \
       /* Call the hit function */                                                         \
@@ -176,7 +176,7 @@ void TraceRayCustom<payload_t : IBasePayloadState>(
     currentRay.TMax = max(currentRay.TMax - segmentHitDistance, 0.0f);                    \
     if (hasInitialHit)                                                                     \
     {                                                                                     \
-      rayHitInfo = traceIntersection(currentRay, flags, uint(payload.rayMask));             \
+      rayHitInfo = traceIntersection(currentRay, flags, uint(payload.rayMask), payload.coneRadius, ray.spreadAngle); \
     }                                                                                     \
   }                                                                                       \
                                                                                           \
@@ -191,11 +191,11 @@ void TraceRayCustom<payload_t : IBasePayloadState>(
 
 #ifdef GBUFFER_TRACE_HIT_OBJECT
 // The hit object carries the intersection. Resolver state stays in ray generation.
-RayHitInfo traceGbufferIntersection(RayDesc ray, uint flags, uint mask, uint sbtRecordOffset)
+RayHitInfo traceGbufferIntersection(RayDesc ray, uint flags, uint mask, uint sbtRecordOffset, float coneRadius)
 {
-  uint traversalPayload = 0;
+  uint traversalPayload = asuint(coneRadius);
   HitObject hit = HitObject::TraceRay(topLevelAS,
-    hasVoxelCoverage() ? (flags & ~RAY_FLAG_FORCE_OPAQUE) : flags,
+    orderedRayFlags(flags),
     mask, sbtRecordOffset, 0u, 0u, ray, traversalPayload);
 
   uint material = MATERIAL_INDEX_INVALID;
@@ -227,7 +227,7 @@ RayHitInfo traceGbufferIntersection(RayDesc ray, uint flags, uint mask, uint sbt
 
 #define TRACE_RESOLVER_VERTEX(extraArgs, currentRay, flags, payload, hitFunction, sbtRecordOffset) \
 {                                                                                              \
-  const RayHitInfo rayHitInfo = traceGbufferIntersection(currentRay, flags, uint(payload.rayMask), sbtRecordOffset); \
+  const RayHitInfo rayHitInfo = traceGbufferIntersection(currentRay, flags, uint(payload.rayMask), sbtRecordOffset, payload.coneRadius); \
   hitFunction(extraArgs, rayHitInfo, payload);                                                   \
 }
 #else

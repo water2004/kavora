@@ -277,6 +277,27 @@ namespace dxvk {
     memcpy(&m_vkInstance.transform, &t, sizeof(VkTransformMatrixKHR));
   }
 
+  void RtInstance::translateSceneOrigin(const Vector3& offset) {
+    surface.objectToWorld[3].xyz() += offset;
+    surface.prevObjectToWorld[3].xyz() += offset;
+    onTransformChanged();
+    if (surface.isClipPlaneEnabled) {
+      surface.clipPlane.w -= dot(surface.clipPlane.xyz(), offset);
+    }
+    if (surface.eyeParams) {
+      surface.eyeParams->eyeballOrigin += offset;
+    }
+  }
+
+  void InstanceManager::translateSceneOrigin(const Vector3& offset) {
+    for (RtInstance* instance : m_instances) {
+      instance->translateSceneOrigin(offset);
+    }
+    for (auto& billboard : m_billboards) {
+      billboard.center += offset;
+    }
+  }
+
   bool RtInstance::teleport(const Matrix4& objectToWorld) {
     surface.objectToWorld = objectToWorld;
     surface.normalObjectToWorld = transpose(inverse(Matrix3(surface.objectToWorld)));
@@ -1122,6 +1143,7 @@ namespace dxvk {
         currentInstance.surface.isFloatingSludge = currentInstance.testCategoryFlags(InstanceCategories::FloatingSludge);
         currentInstance.surface.isSelfLit = materialData->getType() == MaterialDataType::Opaque
           && currentInstance.testCategoryFlags(InstanceCategories::SelfLit);
+        currentInstance.surface.alphaCoverage = currentInstance.testCategoryFlags(InstanceCategories::AlphaCoverage);
         currentInstance.surface.associatedGeometryHash = drawCall.getHash(RtxOptions::geometryAssetHashRule());
         currentInstance.surface.isTextureFactorBlend = drawCall.getMaterialData().isTextureFactorBlend;
         currentInstance.surface.isVertexColorBakedLighting = drawCall.getMaterialData().isVertexColorBakedLighting;

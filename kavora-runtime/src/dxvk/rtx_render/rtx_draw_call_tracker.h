@@ -90,6 +90,7 @@ public:
   // Rebuild all spatial maps with a new cell size.
   // Call when uniqueObjectDistance changes.
   void rebuildSpatialMaps(float cellSize);
+  void translateSceneOrigin(const Vector3& offset);
 
   const std::vector<std::unique_ptr<ReplacementInstance>>& getReplacementInstances() const {
     return m_replacementInstances;

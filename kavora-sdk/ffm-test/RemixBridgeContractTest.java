@@ -164,6 +164,14 @@ public final class RemixBridgeContractTest {
         float[] matrix = new float[16];
         for (int i = 0; i < matrix.length; i++) matrix[i] = i + 1;
         equal(0, RemixBridge.setupCamera(0, matrix, matrix, 0));
+        long cameraExtension = RemixBridge.allocParameterizedCamera(0.25f, 65, 4.5f,
+                0, 0, 1, 0, 1, 0, 1, 0, 0, 70, 1.6f, 0.05f, 1024,
+                0, new CameraInfo.SceneOrigin(1048576, -8192));
+        try {
+            equal(0, RemixBridge.setupCamera(0, matrix, matrix, cameraExtension));
+        } finally {
+            RemixBridge.freeExt(cameraExtension);
+        }
         equal(0, RemixBridge.setCameraMediumMaterial(HANDLE));
         ByteBuffer coverage = ByteBuffer.allocateDirect(4);
         coverage.put(0, (byte) 1); coverage.put(3, (byte) 6);

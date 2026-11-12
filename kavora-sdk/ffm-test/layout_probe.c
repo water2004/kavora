@@ -272,6 +272,12 @@ printf("CameraInfoParameterizedEXT fovYInDegrees %zu\n", offsetof(remixapi_Camer
 printf("CameraInfoParameterizedEXT aspect %zu\n", offsetof(remixapi_CameraInfoParameterizedEXT, aspect));
 printf("CameraInfoParameterizedEXT nearPlane %zu\n", offsetof(remixapi_CameraInfoParameterizedEXT, nearPlane));
 printf("CameraInfoParameterizedEXT farPlane %zu\n", offsetof(remixapi_CameraInfoParameterizedEXT, farPlane));
+printf("CameraInfoSceneOriginEXT sizeof %zu\n", sizeof(remixapi_CameraInfoSceneOriginEXT));
+printf("CameraInfoSceneOriginEXT alignof %zu\n", __alignof(remixapi_CameraInfoSceneOriginEXT));
+printf("CameraInfoSceneOriginEXT sType %zu\n", offsetof(remixapi_CameraInfoSceneOriginEXT, sType));
+printf("CameraInfoSceneOriginEXT pNext %zu\n", offsetof(remixapi_CameraInfoSceneOriginEXT, pNext));
+printf("CameraInfoSceneOriginEXT x %zu\n", offsetof(remixapi_CameraInfoSceneOriginEXT, x));
+printf("CameraInfoSceneOriginEXT z %zu\n", offsetof(remixapi_CameraInfoSceneOriginEXT, z));
 printf("CameraInfo sizeof %zu\n", sizeof(remixapi_CameraInfo));
 printf("CameraInfo alignof %zu\n", __alignof(remixapi_CameraInfo));
 printf("CameraInfo sType %zu\n", offsetof(remixapi_CameraInfo, sType));

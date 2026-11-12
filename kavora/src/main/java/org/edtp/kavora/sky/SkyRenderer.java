@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora.sky;
 
+import org.edtp.kavora.render.RenderOrigin;
 import org.edtp.kavora.sdk.LightInfo;
 import org.edtp.kavora.sdk.LightInfoDomeEXT;
 import org.edtp.kavora.sdk.LightInfoRectEXT;
@@ -530,7 +531,7 @@ public class SkyRenderer {
         }
 
         LightInfoRectEXT rectExt = LightInfoRectEXT.builder()
-                .position(0.0f, SKY_AMBIENT_RECT_Y, 0.0f)
+                .position(-RenderOrigin.current().x(), SKY_AMBIENT_RECT_Y, -RenderOrigin.current().z())
                 .xAxis(1, 0, 0)
                 .xSize(SKY_AMBIENT_RECT_HALF_SIZE)
                 .yAxis(0, 0, 1)

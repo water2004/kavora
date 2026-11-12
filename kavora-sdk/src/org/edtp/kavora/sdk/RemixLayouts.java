@@ -252,6 +252,11 @@ final class RemixLayouts {
                 JAVA_FLOAT.withName("aspect"),
                 JAVA_FLOAT.withName("nearPlane"),
                 JAVA_FLOAT.withName("farPlane"));
+        define("CameraInfoSceneOriginEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_INT.withName("x"),
+                JAVA_INT.withName("z"));
         define("CameraInfo",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

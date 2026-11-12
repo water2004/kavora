@@ -196,6 +196,10 @@ public:
 
   void addLight(const D3DLIGHT9& light);
 
+  ivec2 getSceneOrigin() const { return m_sceneOrigin; }
+  ivec2 getPreviousSceneOrigin() const { return m_previousSceneOrigin; }
+  Vector3 setSceneOrigin(ivec2 origin);
+
   const CameraManager& getCameraManager() const { return m_cameraManager; }
   CameraManager& getCameraManager() { return m_cameraManager; }
   const RtCamera& getCamera() const { return m_cameraManager.getMainCamera(); }
@@ -395,6 +399,8 @@ private:
 
   DrawCallCache m_drawCallCache;
 
+  ivec2 m_sceneOrigin {};
+  ivec2 m_previousSceneOrigin {};
   CameraManager m_cameraManager;
 
   std::unique_ptr<AssetReplacer> m_pReplacer;

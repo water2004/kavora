@@ -815,13 +815,7 @@ namespace dxvk {
         // Calculate the device address for the current instance's transform and write the transform data
         // TODO: only do this for non-identity transforms
         VkDeviceAddress transformDeviceAddress = m_transformBuffer->getDeviceAddress() + instanceTransforms.size() * sizeof(VkTransformMatrixKHR);
-        auto& transform = instanceTransforms.emplace_back(instance->getVkInstance().transform);
-        if (eyeOffset) {
-          // Keep the vertices in eye-relative space until traversal transforms the ray into this BLAS.
-          transform.matrix[0][3] = eyeOffset->x;
-          transform.matrix[1][3] = eyeOffset->y;
-          transform.matrix[2][3] = eyeOffset->z;
-        }
+        auto transform = instance->getVkInstance().transform;
 
         // Try to merge the instance into a compatible bucket using O(1) hash lookup
         BlasBucketKey bucketKey = {};
@@ -833,24 +827,35 @@ namespace dxvk {
         bucketKey.isSubsurface = instance->isSubsurface();
         bucketKey.cameraRelative = eyeOffset != nullptr;
 
-        bool merged = false;
+        BlasBucket* bucket = nullptr;
         auto bucketIt = bucketMap.find(bucketKey);
-        if (bucketIt != bucketMap.end()) {
-          merged = bucketIt->second->tryAddInstance(instance, transformDeviceAddress);
+        if (bucketIt != bucketMap.end() && bucketIt->second->tryAddInstance(instance, transformDeviceAddress)) {
+          bucket = bucketIt->second;
         }
 
         // The instance couldn't be merged into any bucket - make a new one
-        if (!merged) {
+        if (!bucket) {
           auto newBucket = std::make_unique<BlasBucket>();
-          if (eyeOffset) {
-            newBucket->origin = cameraManager.getMainCamera().getPosition();
-          }
-          merged = newBucket->tryAddInstance(instance, transformDeviceAddress);
-          assert(merged);
+          constexpr float kOriginGrid = 256.f;
+          newBucket->origin = eyeOffset ? cameraManager.getMainCamera().getPosition() : Vector3(
+            std::floor(transform.matrix[0][3] / kOriginGrid) * kOriginGrid,
+            std::floor(transform.matrix[1][3] / kOriginGrid) * kOriginGrid,
+            std::floor(transform.matrix[2][3] / kOriginGrid) * kOriginGrid);
+          const bool added = newBucket->tryAddInstance(instance, transformDeviceAddress);
+          assert(added);
 
-          bucketMap[bucketKey] = newBucket.get();
+          bucket = newBucket.get();
+          bucketMap[bucketKey] = bucket;
           blasBuckets.push_back(std::move(newBucket));
         }
+
+        // Store the common translation on the TLAS instance and keep BLAS vertices local.
+        const Vector3 local = eyeOffset ? *eyeOffset : Vector3(
+          transform.matrix[0][3], transform.matrix[1][3], transform.matrix[2][3]) - bucket->origin;
+        transform.matrix[0][3] = local.x;
+        transform.matrix[1][3] = local.y;
+        transform.matrix[2][3] = local.z;
+        instanceTransforms.push_back(transform);
 
         // Track the lifetime and states of the source geometry buffers
         trackBlasBuildResources(ctx, execBarriers, blasEntry);
@@ -1664,6 +1669,7 @@ namespace dxvk {
   void AccelManager::uploadSurfaceData(Rc<DxvkContext> ctx) {
     ScopedCpuProfileZone();
     m_hasDecalSurfaces = false;
+    m_hasAlphaCoverage = false;
     if (m_reorderedSurfaces.empty()) {
       return;
     }
@@ -1699,6 +1705,7 @@ namespace dxvk {
       const auto& currentInstance = *m_reorderedSurfaces[i];
       RtSurface& currentSurface = m_reorderedSurfaces[i]->surface;
       m_hasDecalSurfaces |= currentSurface.alphaState.isDecal;
+      m_hasAlphaCoverage |= currentSurface.alphaCoverage;
 
       // For PointInstancer entries beyond the first, do nothing.  The GPU culling shader will 
       // patch per-instance transforms and set per-instance customInstanceIndex later.
@@ -1894,6 +1901,22 @@ namespace dxvk {
        kScratchAccess);
 
       ctx->getCommandList()->trackResource<DxvkAccess::Write>(m_scratchBuffer);
+    }
+  }
+
+  void AccelManager::translateSceneOrigin(const Vector3& offset) {
+    const auto translate = [&offset](VkAccelerationStructureInstanceKHR& instance) {
+      instance.transform.matrix[0][3] += offset.x;
+      instance.transform.matrix[1][3] += offset.y;
+      instance.transform.matrix[2][3] += offset.z;
+    };
+    for (auto& instances : m_mergedInstances) {
+      for (auto& instance : instances) {
+        translate(instance);
+      }
+    }
+    for (auto& bucket : m_cachedBuckets) {
+      translate(bucket.tlasInstance);
     }
   }
 

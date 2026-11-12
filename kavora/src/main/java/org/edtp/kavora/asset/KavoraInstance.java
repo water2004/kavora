@@ -4,6 +4,8 @@
  */
 package org.edtp.kavora.asset;
 
+import org.edtp.kavora.render.RenderOrigin;
+import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.InstanceInfoBlendEXT;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixBridge;
@@ -24,8 +26,13 @@ public class KavoraInstance extends KavoraAssetBase {
     /** Non-null sentinel used while a live Java instance is culled from the scene. */
     static final long INACTIVE_HANDLE = -1L;
 
+    // All retained submissions are made on the render thread, and the FFM call
+    // copies the matrix before returning.
+    private static final float[] REBASED_TRANSFORM = new float[12];
+
     private KavoraMesh mesh;
     private Transform transform = Transform.identity();
+    private RenderOrigin transformOrigin = RenderOrigin.current();
     private int categoryFlags;
     private InstanceInfoBlendEXT blendExt;
     /**
@@ -60,8 +67,13 @@ public class KavoraInstance extends KavoraAssetBase {
 
     public KavoraInstance setTransform(Transform transform) {
         this.transform = transform;
+        this.transformOrigin = RenderOrigin.current();
         this.sceneInfoDirty = true;
         return this;
+    }
+
+    public boolean isTransformInCurrentOrigin() {
+        return transformOrigin == RenderOrigin.current();
     }
 
     public KavoraInstance setCategoryFlags(int flags) {
@@ -136,13 +148,24 @@ public class KavoraInstance extends KavoraAssetBase {
     }
 
     private long addSceneInstance(RemixAPI api) {
-        return api.sceneInstanceAdd(mesh.getHandleFast(), transform.matrix,
+        return api.sceneInstanceAdd(mesh.getHandleFast(), transformForSubmission(),
                 categoryFlags, doubleSided ? 1 : 0, pNextChain());
     }
 
     private void updateSceneInstance(RemixAPI api, long sceneHandle) {
-        api.sceneInstanceUpdate(sceneHandle, mesh.getHandleFast(), transform.matrix,
+        api.sceneInstanceUpdate(sceneHandle, mesh.getHandleFast(), transformForSubmission(),
                 categoryFlags, doubleSided ? 1 : 0, pNextChain());
+    }
+
+    private float[] transformForSubmission() {
+        RenderOrigin origin = RenderOrigin.current();
+        if (transformOrigin == origin || (categoryFlags & InstanceCategoryBit.CAMERA_RELATIVE_VIEW_MODEL) != 0) {
+            return transform.matrix;
+        }
+        System.arraycopy(transform.matrix, 0, REBASED_TRANSFORM, 0, REBASED_TRANSFORM.length);
+        REBASED_TRANSFORM[3] = origin.localX(transformOrigin.x() + (double) transform.matrix[3]);
+        REBASED_TRANSFORM[11] = origin.localZ(transformOrigin.z() + (double) transform.matrix[11]);
+        return REBASED_TRANSFORM;
     }
 
     private long pNextChain() {

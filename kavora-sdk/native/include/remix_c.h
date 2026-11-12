@@ -168,6 +168,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT             = 49,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT            = 50,
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT          = 51,
+    REMIXAPI_STRUCT_TYPE_CAMERA_INFO_SCENE_ORIGIN_EXT           = 52,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -660,6 +661,16 @@ extern "C" {
     float               farPlane;
   } remixapi_CameraInfoParameterizedEXT;
 
+  // Optional world-camera update for clients submitting render-local positions.
+  // x and z are world-space block coordinates of the local scene origin.
+  // The update precedes all draw/light calls expressed in the new coordinates.
+  typedef struct remixapi_CameraInfoSceneOriginEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    int32_t x;
+    int32_t z;
+  } remixapi_CameraInfoSceneOriginEXT;
+
   typedef struct remixapi_CameraInfo {
     remixapi_StructType sType;
     void*               pNext;
@@ -758,6 +769,8 @@ extern "C" {
     // With VIEW_MODEL, the transform's translation is relative to the world camera eye.
     // The client has already applied the hand projection and scale to the transform.
     REMIXAPI_INSTANCE_CATEGORY_BIT_CAMERA_RELATIVE_VIEW_MODEL = 1 << 30,
+    // Alpha-tested holes do not provide a surface for decals or material effects.
+    REMIXAPI_INSTANCE_CATEGORY_BIT_ALPHA_COVERAGE = 1u << 31,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;

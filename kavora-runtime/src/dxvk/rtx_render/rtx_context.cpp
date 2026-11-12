@@ -1552,15 +1552,25 @@ namespace dxvk {
     NeuralRadianceCache& nrc = m_common->metaNeuralRadianceCache();
     constants.enableNrc = nrc.isActive();
     constants.allowNrcTraining = NeuralRadianceCache::NrcOptions::trainCache();
-    nrc.setRaytraceArgs(constants);
+    const auto sceneOrigin = getSceneManager().getSceneOrigin();
+    nrc.setRaytraceArgs(constants, sceneOrigin);
 
     // Spatially Hashed Radiance Cache
     SpatiallyHashedRadianceCache& sharc = m_common->metaSpatiallyHashedRadianceCache();
     constants.enableSharc = sharc.isActive();
     sharc.setRaytraceArgs(*this, constants);
 
-    m_common->metaNeeCache().setRaytraceArgs(constants, m_resetHistory);
+    const auto previousSceneOrigin = getSceneManager().getPreviousSceneOrigin();
+    const bool originChanged = previousSceneOrigin.x != sceneOrigin.x || previousSceneOrigin.y != sceneOrigin.y;
+    // The NEE hash stores samples in the dispatch's scene frame. Discard those
+    // proposals at a rebase while retaining the image and radiance histories.
+    m_common->metaNeeCache().setRaytraceArgs(constants, m_resetHistory || originChanged);
     constants.surfaceCount = getSceneManager().getAccelManager().getSurfaceCount();
+    constants.hasAlphaCoverage = getSceneManager().getAccelManager().hasAlphaCoverage();
+    constants.sceneOriginX = sceneOrigin.x;
+    constants.sceneOriginZ = sceneOrigin.y;
+    constants.previousSceneOffset = vec2(float(int64_t(previousSceneOrigin.x) - sceneOrigin.x),
+                                         float(int64_t(previousSceneOrigin.y) - sceneOrigin.y));
 
     m_common->metaSparseRendering().setSparseRenderingArgs(*this, constants.sparseRenderingArgs);
 
@@ -1677,6 +1687,12 @@ namespace dxvk {
     constants.waterImpactClip = m_common->waterSimulation().impactArgs();
     constants.waterEffects = m_common->waterSimulation().effects();
     constants.waterRain = m_common->waterSimulation().rain();
+    // 672 is the common repeat length of the two FFT cascades and rain tiles.
+    const int waterOriginZ = RtxOptions::zUp() ? 0 : sceneOrigin.y;
+    constants.waterTileOrigin = vec2(float(sceneOrigin.x % 672), float(waterOriginZ % 672));
+    constants.waterGustPhase = float(std::remainder(
+      double(sceneOrigin.x) * double(0.058f) + double(waterOriginZ) * double(0.041f),
+      6.2831853071795864769));
     constants.sludgeWaterMaterialIndex = getSceneManager().getSludgeWaterMaterialIndex();
 
     // The denoising normals are consumed only by NRD. dispatchDenoise reads these back rather than

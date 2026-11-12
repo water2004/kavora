@@ -73,7 +73,8 @@ bool collideParticleWithScene(inout GpuParticle p)
   );
 
   // fetch the MinimalSurfaceInteraction from last frame
-  MinimalSurfaceInteraction si = minimalSurfaceInteractionReadFromGBuffer(pixel, PreviousWorldPosition_WorldTriangleNormal);
+  MinimalSurfaceInteraction si = minimalSurfaceInteractionReadPrevious(
+          pixel, PreviousWorldPosition_WorldTriangleNormal, particleCb.previousSceneOffset);
 
   if (!si.isValid)
   {
@@ -199,6 +200,7 @@ void main(uint2 threadIdx : SV_DispatchThreadID)
   const uint particleIdx = (threadIdx.x + particleSystem.particleTailOffset) % particleSystem.desc.maxNumParticles;
   
   GpuParticle particle = Particles[particleIdx];
+  particle.position.xz += particleCb.previousSceneOffset;
   
   if (!WaveActiveAllTrue(particle.isSleeping() || particle.isDead()))
   {

@@ -775,6 +775,16 @@ namespace dxvk {
     light->setStableIdentity(stableIdentity);
   }
 
+  void LightManager::translateSceneOrigin(const Vector3& offset) {
+    const Matrix4 translation = translationMatrix(offset);
+    for (auto& [id, light] : m_lights) {
+      light.applyTransform(translation);
+    }
+    for (auto& [handle, light] : m_externalLights) {
+      light.applyTransform(translation);
+    }
+  }
+
   void LightManager::addExternalLight(remixapi_LightHandle handle, const RtLight& rtlight) {
     auto found = m_externalLights.find(handle);
     if (found != m_externalLights.end()) {

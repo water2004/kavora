@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora;
 
+import org.edtp.kavora.render.RenderOrigin;
 import com.mojang.blaze3d.vertex.PoseStack;
 import org.edtp.kavora.sdk.CameraInfo;
 import org.edtp.kavora.sdk.CameraInfoParameterizedEXT;
@@ -132,6 +133,7 @@ public class KavoraRenderer {
     // Particle rendering: atlas manager + per-frame renderer
     private ParticleAtlasManager particleAtlasManager;
     private KavoraWeatherRenderer weatherRenderer;
+    private long cameraUpdateNanos;
     // Deferred operations: flags are set from any thread, executed on the render thread.
     private volatile boolean pendingTextureReload = false;
     private volatile boolean pendingTerrainRecaptureAfterTextureReload = false;
@@ -209,6 +211,7 @@ public class KavoraRenderer {
             confLayerDriver = driver;
             LOGGER.info("Config option-layers acquired - conf-layer blending active");
 
+            RenderOrigin.publish(new RenderOrigin(0, 0));
             initialized = true;
             LOGGER.info("Kavora renderer initialized successfully!");
 
@@ -275,6 +278,15 @@ public class KavoraRenderer {
         if (!initialized) return;
 
         applyPendingWorldResourceChanges();
+        if (KavoraMod.isRtxEnabled()) {
+            Minecraft client = Minecraft.getInstance();
+            long start = System.nanoTime();
+            try (ProfileScope scope = ProfileScope.begin("Camera")) {
+                updateCamera(client.gameRenderer.mainCamera(),
+                        client.getDeltaTracker().getGameTimeDeltaPartialTick(true));
+            }
+            cameraUpdateNanos = System.nanoTime() - start;
+        }
         if (KavoraMod.isBlockEntitiesEnabled()) {
             preloadEntityAtlasesForCapture();
         }
@@ -531,19 +543,13 @@ public class KavoraRenderer {
                 return;
             }
 
-            particles.submitPendingFrame(world);
-
             Camera camera = client.gameRenderer.mainCamera();
             float tickDelta = client.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+            
+            perfTimer.injectNanos(perfTimer.perfCamera, cameraUpdateNanos);
+            
+            particles.submitPendingFrame(world);
             particles.startPrepare(particleAtlasManager, tickDelta, ProfileScope.currentFrameIndex());
-            
-            perfTimer.begin(perfTimer.perfCamera);
-            try (ProfileScope cameraScope = ProfileScope.begin("Camera")) {
-                updateCamera(camera, tickDelta);
-            } finally {
-                perfTimer.end(perfTimer.perfCamera);
-            }
-            
             Vec3 cameraPos = camera.position();
 
             perfTimer.begin(perfTimer.perfLights);
@@ -731,6 +737,8 @@ public class KavoraRenderer {
     private void updateCamera(Camera camera, float tickDelta) {
         try {
             Vec3 pos = camera.position();
+            RenderOrigin previousOrigin = RenderOrigin.current();
+            RenderOrigin origin = previousOrigin.near(pos.x, pos.z);
             float pitch = camera.xRot();
             float yaw = camera.yRot();
     
@@ -763,7 +771,7 @@ public class KavoraRenderer {
             }
     
             CameraInfoParameterizedEXT worldCameraParams = CameraInfoParameterizedEXT.builder()
-                .position((float) pos.x, (float) pos.y, (float) pos.z)
+                .position(origin.localX(pos.x), (float) pos.y, origin.localZ(pos.z))
                 .forward(forwardX, forwardY, forwardZ)
                 .up(upX, upY, upZ)
                 .right(rightX, rightY, rightZ)
@@ -784,7 +792,11 @@ public class KavoraRenderer {
                 .parameterizedExt(worldCameraParams)
                 .build();
     
+            if (origin != previousOrigin) {
+                worldCameraInfo.sceneOrigin = new CameraInfo.SceneOrigin(origin.x(), origin.z());
+            }
             remixApi.setupCamera(worldCameraInfo);
+            RenderOrigin.publish(origin);
             remixApi.setupCamera(viewModelCameraInfo);
             float viewDistanceStrength = viewDistanceFade.layerStrength(ClientViewDistance.chunks(),
                     farDistanceChunks);

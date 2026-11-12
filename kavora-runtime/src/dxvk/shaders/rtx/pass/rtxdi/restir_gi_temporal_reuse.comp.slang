@@ -22,6 +22,7 @@
 #define RAB_HAS_PREVIOUS_GBUFFER 1
 #define RAB_HAS_CURRENT_GBUFFER 1
 #define RAB_HAS_RESTIR_GI_RESERVOIRS 1
+#define RAB_GI_TEMPORAL_REUSE
 
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/rtxdi/restir_gi_reuse_bindings.slangh"

@@ -470,6 +470,12 @@ struct RaytraceArgs {
   uint waterEffects;
   uint sludgeWaterMaterialIndex;
   float waterRain;
+  uint hasAlphaCoverage;
+  int sceneOriginX;
+  int sceneOriginZ;
+  float waterGustPhase;
+  vec2 previousSceneOffset;
+  vec2 waterTileOrigin;
 
   // NOTE: Add structs to the top section of RaytraceArgs, not the bottom.
   // NOTE: bool does not work in debug builds, use uint instead.

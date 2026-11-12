@@ -23,67 +23,36 @@
 
 #include "rtx/concept/surface/surface_shared.h"
 
-// Todo: Move this all once separate Surface Materials for D3D9 compatability and normal usage are created.
-void calcOpaqueSurfaceMaterialOpacity(
-  vec3 originalAlbedo, float originalAlpha, Surface surface,
-  inout float opacity, inout float emissiveBlendOverrideInfluence,
-  // Todo: Opacity disabled currently for emissive modes as they likely need to be rewritten anyways with the new emissive
-  // particle system. Ideally remove these commented out opacity things once we go back and figure this out again.
-  bool enableOpacityEmissiveBlendModes = false)
+float surfaceAlphaTest(Surface surface, float alpha)
 {
-  // Handle Fully Opaque Surfaces
-  // Note: This is done as while resolve functions will check the fully opaque status,
-  // things like material evaluation and BSDF sampling need to know the material is fully
-  // opaque in an opacity sense.
-
-  if (surface.isFullyOpaque)
-  {
-    opacity = float(1.0f);
-
-    return;
-  }
-
-  // Handle Alpha Testing
-
-  const float comparisonAlpha = surface.alphaTestReferenceValue;
-  float newAlpha;
-
+  const float reference = surface.alphaTestReferenceValue;
   switch (uint(surface.alphaTestType))
   {
   default:
-  case uint(AlphaTestType::kAlways):
-    newAlpha = originalAlpha;
-
-    break;
-  case uint(AlphaTestType::kNever):
-    newAlpha = float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kLess):
-    newAlpha = originalAlpha < comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kEqual):
-    newAlpha = originalAlpha == comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kLessOrEqual):
-    newAlpha = originalAlpha <= comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kGreater):
-    newAlpha = originalAlpha > comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kNotEqual):
-    newAlpha = originalAlpha != comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
-  case uint(AlphaTestType::kGreaterOrEqual):
-    newAlpha = originalAlpha >= comparisonAlpha ? originalAlpha : float(0.0f);
-
-    break;
+  case uint(AlphaTestType::kAlways): return alpha;
+  case uint(AlphaTestType::kNever): return 0.0f;
+  case uint(AlphaTestType::kLess): return alpha < reference ? alpha : 0.0f;
+  case uint(AlphaTestType::kEqual): return alpha == reference ? alpha : 0.0f;
+  case uint(AlphaTestType::kLessOrEqual): return alpha <= reference ? alpha : 0.0f;
+  case uint(AlphaTestType::kGreater): return alpha > reference ? alpha : 0.0f;
+  case uint(AlphaTestType::kNotEqual): return alpha != reference ? alpha : 0.0f;
+  case uint(AlphaTestType::kGreaterOrEqual): return alpha >= reference ? alpha : 0.0f;
   }
+}
+
+// Todo: Move this all once separate Surface Materials for D3D9 compatibility and normal usage are created.
+void calcOpaqueSurfaceMaterialOpacity(
+  vec3 originalAlbedo, float originalAlpha, Surface surface,
+  inout float opacity, inout float emissiveBlendOverrideInfluence,
+  bool enableOpacityEmissiveBlendModes = false)
+{
+  if (surface.isFullyOpaque)
+  {
+    opacity = 1.0f;
+    return;
+  }
+
+  const float newAlpha = surfaceAlphaTest(surface, originalAlpha);
 
   // When alpha-testing is used, but blending is disabled, the target alpha is 100%
 
@@ -246,4 +215,14 @@ void chooseTextureOperationAlpha(inout float target, uint8_t textureOperation, f
   case uint(DxvkRtTextureOperation::Add):
     target = min(float(1), textureArg1 + textureArg2); break;
   }
+}
+
+float surfaceTextureAlpha(Surface surface, float opacity, float vertexAlpha)
+{
+  const float factorAlpha = unorm4x8ToFloat4x32(surface.tFactor).a;
+  float arg1, arg2;
+  chooseTextureArgument(arg1, surface.textureAlphaArg1Source, opacity, vertexAlpha, factorAlpha, opacity);
+  chooseTextureArgument(arg2, surface.textureAlphaArg2Source, opacity, vertexAlpha, factorAlpha, 1.0f);
+  chooseTextureOperationAlpha(opacity, surface.textureAlphaOperation, arg1, arg2);
+  return opacity;
 }

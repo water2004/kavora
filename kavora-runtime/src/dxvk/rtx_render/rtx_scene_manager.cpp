@@ -623,6 +623,22 @@ namespace dxvk {
   }
 
 
+  Vector3 SceneManager::setSceneOrigin(ivec2 origin) {
+    const Vector3 offset {
+      float(int64_t(m_sceneOrigin.x) - origin.x),
+      0.f,
+      float(int64_t(m_sceneOrigin.y) - origin.y)
+    };
+    m_sceneOrigin = origin;
+    m_cameraManager.translateSceneOrigin(offset);
+    m_instanceManager.translateSceneOrigin(offset);
+    m_drawCallTracker.translateSceneOrigin(offset);
+    m_accelManager.translateSceneOrigin(offset);
+    m_lightManager.translateSceneOrigin(offset);
+    m_device->getCommon()->waterSimulation().translateSceneOrigin(offset);
+    return offset;
+  }
+
   void SceneManager::onFrameEnd(Rc<DxvkContext> ctx, bool raytracedThisFrame) {
     ScopedCpuProfileZone();
 
@@ -656,6 +672,8 @@ namespace dxvk {
     m_cameraManager.onFrameEnd();
     m_instanceManager.onFrameEnd();
     m_previousFrameSceneAvailable = raytracedThisFrame && RtxOptions::enablePreviousTLAS();
+    if (raytracedThisFrame)
+      m_previousSceneOrigin = m_sceneOrigin;
 
     if (raytracedThisFrame) {
       std::lock_guard lock { m_drawCallMeta.mutex };

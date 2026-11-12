@@ -161,6 +161,7 @@ public:
   void dispatchPointInstancerCulling(Rc<DxvkContext> ctx, const CameraManager& cameraManager);
 
   void buildTlas(Rc<DxvkContext> ctx);
+  void translateSceneOrigin(const Vector3& offset);
 
   void dumpCrashState(const char* reason) const { m_gpuCrashRecorder.dump(reason); }
 
@@ -169,6 +170,7 @@ public:
 
   uint32_t getSurfaceCount() const { return m_reorderedSurfaces.size(); }
   bool hasDecalSurfaces() const { return m_hasDecalSurfaces; }
+  bool hasAlphaCoverage() const { return m_hasAlphaCoverage; }
   const std::vector<RtInstance*>& getOrderedInstances() const { return m_reorderedSurfaces; }
   const std::vector<PointInstancerBatch>& getPointInstancerBatches() const { return m_pointInstancerBatches; }
 
@@ -228,6 +230,7 @@ private:
 
   std::vector<RtInstance*> m_reorderedSurfaces;
   bool m_hasDecalSurfaces = false;
+  bool m_hasAlphaCoverage = false;
   std::vector<uint32_t> m_reorderedSurfacesFirstIndexOffset;
   std::vector<uint32_t> m_reorderedSurfacesPrimitiveIDPrefixSum;              // Exclusive prefix sum for this frame's surface primitive count array
   std::vector<uint32_t> m_reorderedSurfacesPrimitiveIDPrefixSumLastFrame;     // Exclusive prefix sum for last frame's surface primitive count array
