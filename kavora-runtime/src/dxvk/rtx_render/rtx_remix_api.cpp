@@ -733,8 +733,9 @@ namespace {
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_SMOOTH_NORMALS)            { result.set(InstanceCategories::SmoothNormals); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_HAIR_CARDS)                { result.set(InstanceCategories::HairCards); }
       if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE)           { result.set(InstanceCategories::FloatingSludge); }
+      if (flags & REMIXAPI_INSTANCE_CATEGORY_BIT_SELF_LIT)                  { result.set(InstanceCategories::SelfLit); }
       
-      static_assert((int)InstanceCategories::Count == 26, "Instance categories changed, please update Remix SDK");
+      static_assert((int)InstanceCategories::Count == 27, "Instance categories changed, please update Remix SDK");
       return result;
     }
 

@@ -2542,7 +2542,7 @@ static std::string getRemixCategoriesSchemaUsda() {
   std::stringstream ss;
   ss << "#usda 1.0\n";
   ss << "(\n";
-  ss << "    \"\"\"Generated from RTX_OPTION category descriptions. Do not edit directly.\"\"\"\n";
+  ss << "    \"\"\"Generated from Remix category metadata.\"\"\"\n";
   ss << ")\n";
   ss << "\n";
   ss << "class \"RemixInstanceCategoryAPI\" (\n";
@@ -2552,13 +2552,14 @@ static std::string getRemixCategoriesSchemaUsda() {
   ss << ")\n";
   ss << "{\n";
   for (const RemixCategoryEntry& entry : kRemixCategoryEntries) {
-    const RtxOptionImpl* option = RtxOptionImpl::getOptionByFullName(entry.optionName);
-    if (option == nullptr || option->getDescription() == nullptr || option->getDescription()[0] == '\0') {
+    const RtxOptionImpl* option = entry.optionName ? RtxOptionImpl::getOptionByFullName(entry.optionName) : nullptr;
+    const char* description = option ? option->getDescription() : entry.description;
+    if (description == nullptr || description[0] == '\0') {
       return {};
     }
 
     ss << "    bool " << entry.attr << " = 0 (\n";
-    ss << "        doc = \"" << str::escapeCStyle(option->getDescription()) << "\"\n";
+    ss << "        doc = \"" << str::escapeCStyle(description) << "\"\n";
     ss << "        displayGroup = \"Remix Categories\"\n";
     ss << "        displayName = \"" << entry.displayName << "\"\n";
     ss << "    )\n";

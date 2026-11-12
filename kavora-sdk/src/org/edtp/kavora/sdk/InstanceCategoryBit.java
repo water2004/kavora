@@ -37,6 +37,7 @@ public final class InstanceCategoryBit {
     public static final int VIEW_MODEL = 1 << 26;
     public static final int LIVE_CAMERA = 1 << 27;
     public static final int FLOATING_SLUDGE = 1 << 28;
+    public static final int SELF_LIT = 1 << 29;
 
     private InstanceCategoryBit() {}
 }

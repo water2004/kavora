@@ -753,6 +753,8 @@ extern "C" {
     REMIXAPI_INSTANCE_CATEGORY_BIT_VIEW_MODEL                = 1 << 26,
     REMIXAPI_INSTANCE_CATEGORY_BIT_LIVE_CAMERA               = 1 << 27,
     REMIXAPI_INSTANCE_CATEGORY_BIT_FLOATING_SLUDGE           = 1 << 28,
+    // Adds local appearance lighting to visible opaque-material surfaces.
+    REMIXAPI_INSTANCE_CATEGORY_BIT_SELF_LIT                 = 1 << 29,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;

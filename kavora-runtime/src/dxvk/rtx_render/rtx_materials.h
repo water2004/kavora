@@ -356,7 +356,8 @@ struct RtSurface {
     textureFlags |= ((static_cast<uint32_t>(textureAlphaOperation)  & 0x7) << 11);
 
     textureFlags |= eyeParams ? (1 << 14) : 0;
-    // textureFlags bits 15-16 unused
+    textureFlags |= isSelfLit ? (1 << 15) : 0;
+    // textureFlags bit 16 unused
 
     static_assert(static_cast<uint32_t>(TexGenMode::Count) <= 4);
     textureFlags |= ((static_cast<uint32_t>(texgenMode) & 0x3) << 17);
@@ -428,6 +429,7 @@ struct RtSurface {
   bool hasMaterialChanged = false;
   bool isAnimatedWater = false;
   bool isFloatingSludge = false;
+  bool isSelfLit = false;
   bool isClipPlaneEnabled = false;
   bool isTextureFactorBlend = false;
   bool isVertexColorBakedLighting = true;

@@ -1120,6 +1120,8 @@ namespace dxvk {
         currentInstance.surface.alphaState = alphaState;
         currentInstance.surface.isAnimatedWater = currentInstance.testCategoryFlags(InstanceCategories::AnimatedWater);
         currentInstance.surface.isFloatingSludge = currentInstance.testCategoryFlags(InstanceCategories::FloatingSludge);
+        currentInstance.surface.isSelfLit = materialData->getType() == MaterialDataType::Opaque
+          && currentInstance.testCategoryFlags(InstanceCategories::SelfLit);
         currentInstance.surface.associatedGeometryHash = drawCall.getHash(RtxOptions::geometryAssetHashRule());
         currentInstance.surface.isTextureFactorBlend = drawCall.getMaterialData().isTextureFactorBlend;
         currentInstance.surface.isVertexColorBakedLighting = drawCall.getMaterialData().isVertexColorBakedLighting;

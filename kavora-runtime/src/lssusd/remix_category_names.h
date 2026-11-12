@@ -28,6 +28,7 @@ namespace dxvk {
     const char* attr;
     const char* displayName;
     const char* optionName;
+    const char* description = nullptr;
   };
 
   inline constexpr RemixCategoryEntry kRemixCategoryEntries[] = {
@@ -57,6 +58,8 @@ namespace dxvk {
     { "remix_category:smooth_normals",            "Smooth Normals",            "rtx.smoothNormalsTextures" },
     { "remix_category:hair_cards",                "Hair Cards",                "rtx.hairCardTextures" },
     { "remix_category:sludge",                    "Floating Sludge",           "rtx.sludgeTextures" },
+    { "remix_category:self_lit",                  "Self-Lit Appearance",       nullptr,
+      "Adds local appearance lighting to visible opaque-material surfaces without lighting the scene." },
   };
   // NV-DXVK end
 }

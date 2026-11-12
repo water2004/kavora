@@ -39,6 +39,7 @@
 #include "rtx/concept/surface_material/surface_material.slangh"
 #include "rtx/concept/surface_material/opaque_surface_material_interaction.slangh"
 #include "rtx/concept/surface/alpha_blend_surface.slangh"
+#include "rtx/concept/surface/appearance_lighting.slangh"
 #include "rtx/concept/light/light.slangh"
 #include "rtx/algorithm/resolve.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
@@ -2349,7 +2350,8 @@ void geometryResolverVertex(
     AlphaBlendSurface alphaBlendSurface =
       geometryResolverLoadAlphaBlendSurface(geometryResolverState.pixelCoordinate, geometryResolverState.alphaBlendSurfaceStored);
     alphaBlendSurface.update(
-      alphaBlendColor, polymorphicSurfaceMaterialInteraction.shadingNormal, geometryResolverState.accumulatedHitDistance, surface.hashPacked, hasEmissive);
+      alphaBlendColor, polymorphicSurfaceMaterialInteraction.shadingNormal, geometryResolverState.accumulatedHitDistance,
+      surface.hashPacked, hasEmissive, surface.isSelfLit);
     AlphaBlendGBuffer[geometryResolverState.pixelCoordinate] = alphaBlendSurface.pack(cb.alphaBlendSurfacePackMult);
     geometryResolverState.alphaBlendSurfaceStored = true;
 
@@ -2569,6 +2571,12 @@ void geometryResolverVertex(
 
     updateSharcOnGBufferHit(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate,
       gbufferSurfaceRadiance);
+  }
+
+  if (surface.isSelfLit)
+  {
+    geometryResolverState.radiance += geometryResolverState.attenuation *
+      selfLitAppearanceRadiance(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo);
   }
 
   uint transmissionMediumState = cb.startInMediumMaterialIndex;
@@ -3270,6 +3278,12 @@ void geometryPSRResolverVertex(
 
   evalMediumChange(oldInsideMedium, geometryPSRResolverState.insideMedium,
     polymorphicSurfaceMaterialInteraction, geometryPSRResolverState.mediumState);
+
+  if (surface.isSelfLit)
+  {
+    geometryPSRResolverState.radiance += geometryPSRResolverState.attenuation *
+      selfLitAppearanceRadiance(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo);
+  }
 
   // Handle PSR continuation or output a surface otherwise
 

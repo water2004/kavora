@@ -15,8 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Pins the material and instance classification used for map coverage textures and
- * the particle atlas.
+ * Pins the material and instance classification for captured textures.
  */
 class KavoraEntitySubmitterCoverageCutoutTest {
 
@@ -46,6 +45,15 @@ class KavoraEntitySubmitterCoverageCutoutTest {
         assertEquals(InstanceCategoryBit.PARTICLE,
                 KavoraEntitySubmitter.additionalCategoryFlagsForTexture(
                         Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/particles.png")));
+    }
+
+    @Test
+    void allayBodyUsesLocalAppearanceLighting() {
+        assertEquals(InstanceCategoryBit.SELF_LIT,
+                KavoraEntitySubmitter.additionalCategoryFlagsForTexture(
+                        Identifier.withDefaultNamespace("textures/entity/allay/allay.png")));
+        assertEquals(0, KavoraEntitySubmitter.additionalCategoryFlagsForTexture(
+                Identifier.withDefaultNamespace("textures/entity/vex/vex.png")));
     }
 
     @Test

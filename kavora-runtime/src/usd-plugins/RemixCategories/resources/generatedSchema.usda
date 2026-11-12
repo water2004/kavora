@@ -1,6 +1,6 @@
 #usda 1.0
 (
-    """Generated from RTX_OPTION category descriptions. Do not edit directly."""
+    """Generated from Remix category metadata."""
 )
 
 class "RemixInstanceCategoryAPI" (
@@ -138,5 +138,10 @@ class "RemixInstanceCategoryAPI" (
         doc = "Opaque floating film on water. Water disturbances open temporary holes in horizontal parts of the surface."
         displayGroup = "Remix Categories"
         displayName = "Floating Sludge"
+    )
+    bool remix_category:self_lit = 0 (
+        doc = "Adds local appearance lighting to visible opaque-material surfaces without lighting the scene."
+        displayGroup = "Remix Categories"
+        displayName = "Self-Lit Appearance"
     )
 }

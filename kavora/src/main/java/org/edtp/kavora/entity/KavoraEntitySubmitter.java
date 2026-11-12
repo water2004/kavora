@@ -135,6 +135,8 @@ public class KavoraEntitySubmitter {
     private static final Identifier SHIELD_PATTERNS_ATLAS_TEXTURE =
             Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/shield_patterns.png");
     private static final Identifier PARTICLE_ATLAS_ID = TextureAtlas.LOCATION_PARTICLES;
+    private static final Identifier ALLAY_BODY_TEXTURE =
+            Identifier.withDefaultNamespace("textures/entity/allay/allay.png");
     private static final Identifier MAP_DECORATIONS_ATLAS_TEXTURE =
             Identifier.fromNamespaceAndPath("minecraft", "textures/atlas/map_decorations.png");
     private static final String DYNAMIC_MAP_TEXTURE_PREFIX = "dynamic/map/";
@@ -1191,6 +1193,10 @@ public class KavoraEntitySubmitter {
         }
         if (PARTICLE_ATLAS_ID.equals(textureId)) {
             return InstanceCategoryBit.PARTICLE;
+        }
+        // Vanilla supplies full block light to the body texture, including its translucent wings.
+        if (ALLAY_BODY_TEXTURE.equals(textureId)) {
+            return InstanceCategoryBit.SELF_LIT;
         }
         return 0;
     }

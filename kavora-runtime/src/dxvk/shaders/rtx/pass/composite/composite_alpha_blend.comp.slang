@@ -33,6 +33,7 @@
 #include "rtx/utility/debug_view_helpers.slangh"
 #include "rtx/concept/camera/camera.slangh"
 #include "rtx/concept/surface/alpha_blend_surface.slangh"
+#include "rtx/concept/surface/appearance_lighting.slangh"
 #include "rtx/external/NRD.slangh"
 #include "rtx/utility/geometry_flags.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
@@ -270,6 +271,10 @@ void main(uint2 thread_id : SV_DispatchThreadID, uint2 localIndex : SV_GroupThre
   // Both readers only read it where the surface is valid.
   if (surface.isValid())
   {
+    if (surface.isSelfLit)
+    {
+      surfaceLight += selfLitAppearanceRadiance(surface.color.rgb);
+    }
     AlphaBlendRadiance[thread_id.xy] = vec4(surfaceLight * surface.color.a,1);
   }
 }
