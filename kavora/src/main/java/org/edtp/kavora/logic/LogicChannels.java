@@ -22,6 +22,7 @@ public final class LogicChannels {
     public static final String WEATHER_MIST = "mc.weather.mist";
     public static final String DIMENSION_NETHER = "mc.dimension.nether";
     public static final String DIMENSION_NETHER_LIGHTING = "mc.dimension.nether.lighting";
+    public static final String DIMENSION_END_LIGHTING = "mc.dimension.end.lighting";
     public static final String ZONE_PREFIX = "mc.zone.";
     public static final String BIOME_PREFIX = "mc.biome.";
     public static final String TIME_PREFIX = "mc.time.";

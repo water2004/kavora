@@ -50,10 +50,11 @@ transaction and retain edits when navigating back.
 The shader settings home page contains **Quality**. Selecting a profile fills
 editable visual options in the current Apply/Cancel transaction. It never locks
 the controls or changes DLSS, Ray Reconstruction, frame generation, or capture
-distances. Editing a visual option labels the selection **Custom · High**, for
-example, retaining the profile you started from. The source tier and values
-persist together. Profiles leave artistic controls such as cloud shape, water
-color, exposure and biome mist strength alone.
+distances. An edit to a profile-controlled value labels the selection
+**Custom · High**, for example. Matching the profile again clears Custom.
+The source tier and values persist together. Independent settings such as
+cloud style and shape, fog and water color, and exposure keep their values
+when you switch profiles.
 
 | Profile | Clouds | Fog lighting | Relief | Indirect bounces | Reflection/refraction limits |
 | --- | --- | --- | --- | --- | --- |
@@ -167,12 +168,20 @@ Volumetric controls include coverage, thickness, shape scale, density, wind,
 scattering, distance, and view and shadow samples. Classic edge smoothing and
 thickness affect only Classic clouds; the height offset applies to both styles.
 
-Fog controls expose transmittance and scattering colors, optical distance,
-height falloff, anisotropy, colored shadows, and density noise. Automatic ground
-mist follows dawn, weather, and biome conditions rather than appearing
-constantly. Its strength has a separate control. Set height falloff to zero
-for uniform fog. Editing a native fog parameter overrides the corresponding
-map or automatic-profile value for this session, just like image controls.
+Under **Weather & Volume → Volumetric Fog**, **Global Fog Overrides** applies
+edits in every dimension. **Nether Fog** and **End Fog** apply edits in their
+own dimensions and take precedence over the corresponding global values.
+Each folder exposes transmittance, optical distance, scattering ratio and
+direction, ambient scattered light, and falloff above and below the peak
+density height. Reset a folder and apply to let the authored profiles supply
+those values again. The density noise controls live in a separate folder.
+Automatic ground mist follows dawn, weather, and biome conditions. Its own
+folder contains the automatic strength and persistent mist density.
+
+**Image → Lens Effects** contains chromatic aberration, vignette, and motion
+blur. Bloom radius lives with bloom, while color inversion lives under Color
+Grading. **Path Tracing → Radiance Cache → NRC Training** controls the neural
+cache's training and path termination.
 
 Fog's **Integration & Sampling** folder selects full lighting-grid integration
 or a preintegrated view volume. Both use the same world-space fog density,
@@ -297,11 +306,12 @@ and non-default artistic/performance overrides. A default-valued artistic
 control is omitted so world and biome profiles can continue authoring it.
 The file remains present to retain the source profile. A missing file uses Ultra.
 
-The mod settings file carries a version. A file written by a different version is ignored
-rather than converted, because the meaning of a stored value can change between
-versions and a silently misread value is worse than a reset. An entry naming a
-setting that no longer exists, or holding a value outside the setting's range,
-is skipped and reported in `logs/latest.log`. The rest of the file still loads.
+The visual settings schema advances one version at a time. Kavora 1.0.0 and
+1.0.1 used schema 3. On upgrade, fog edits move into Global Fog Overrides, and the
+preset label is recalculated from the saved preset-controlled values. The
+upgraded file is saved automatically. Unknown schema versions are preserved
+on disk. Unknown setting IDs and out-of-range values are logged and skipped
+while the remaining values load.
 
 The video settings file validates an explicit whitelist of native options and
 their ranges. Delete the corresponding file to clear those saved overrides.

@@ -169,6 +169,7 @@ public class KavoraRenderer {
             lightManager = new LightManager(remixApi, textureManager, firstPersonPass);
             skyRenderer = new SkyRenderer(remixApi, benchmarkController, lightManager);
             cloudRenderer = new CloudRenderer(remixApi, benchmarkController);
+            cloudRenderer.setProceduralClouds(true);
             
             particleAtlasManager = new ParticleAtlasManager(remixApi);
             entityPass = new KavoraEntityPass(lightManager::ownsLightThisFrame);

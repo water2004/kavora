@@ -13,13 +13,13 @@
 float heightFogBetween(VolumeArgs args, float3 fromWorld, float3 toWorld)
 {
   return heightFogSegmentDensity(dot(fromWorld, args.sceneUpDirection), dot(toWorld, args.sceneUpDirection),
-    args.heightFogBaseHeight, args.heightFogFalloff);
+    args.heightFogBaseHeight, args.heightFogFalloff, uint16BitsToF32(args.heightFogLowerFalloff));
 }
 
 float sampleDensityField(VolumeArgs args, VolumeDefinitionCamera camera,
   float3 from, float3 to, float distance, float timeMS)
 {
-  if (args.heightFogFalloff <= 0.0f)
+  if (args.heightFogFalloff <= 0.0f && args.heightFogLowerFalloff == 0)
   {
     return sampleBaseDensityField(args, camera, from, to, distance, timeMS);
   }

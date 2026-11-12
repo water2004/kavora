@@ -21,6 +21,7 @@ public final class KavoraSettings {
     private final List<KavoraSetting<?>> all;
     private final Map<String, KavoraSetting<?>> byId;
     private final Runnable beforeVisualApply;
+    private final Runnable afterVisualApply;
     private KavoraQualitySelection quality = new KavoraQualitySelection(QualityPreset.ULTRA, false);
 
     public KavoraSettings(List<KavoraSetting<?>> settings) {
@@ -28,7 +29,12 @@ public final class KavoraSettings {
     }
 
     public KavoraSettings(List<KavoraSetting<?>> settings, Runnable beforeVisualApply) {
+        this(settings, beforeVisualApply, () -> {});
+    }
+
+    KavoraSettings(List<KavoraSetting<?>> settings, Runnable beforeVisualApply, Runnable afterVisualApply) {
         this.beforeVisualApply = java.util.Objects.requireNonNull(beforeVisualApply);
+        this.afterVisualApply = java.util.Objects.requireNonNull(afterVisualApply);
         Map<String, KavoraSetting<?>> map = new LinkedHashMap<>();
         for (KavoraSetting<?> s : settings) {
             if (map.put(s.id(), s) != null) {
@@ -74,6 +80,7 @@ public final class KavoraSettings {
     public KavoraQualitySelection quality() { return quality; }
 
     void beforeVisualApply() { beforeVisualApply.run(); }
+    void afterVisualApply() { afterVisualApply.run(); }
 
     public void setQuality(KavoraQualitySelection quality) {
         this.quality = java.util.Objects.requireNonNull(quality);
@@ -83,6 +90,7 @@ public final class KavoraSettings {
         for (KavoraSetting<?> s : all) {
             s.reset();
         }
+        afterVisualApply();
     }
 
     void resetGroup(SettingGroup group) {

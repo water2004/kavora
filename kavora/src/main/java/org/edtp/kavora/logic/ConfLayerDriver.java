@@ -22,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -110,14 +111,15 @@ public final class ConfLayerDriver {
      */
     enum LayerSource {
         MOD,
-        WORLD
+        WORLD,
+        PLAYER
     }
 
     /**
      * One row of the layer catalog.
      *
      * <p>{@code name} is the logical channel (for example {@code mc.zone.ruins}).
-     * Two roots may drive the same channel, so the map of live layers is keyed
+     * Multiple profiles may drive the same channel, so the map of live layers is keyed
      * by {@link #id()} instead, and per-frame targets are looked up by channel.</p>
      */
     record LayerSpec(String name, String confPath, float priority,
@@ -125,12 +127,41 @@ public final class ConfLayerDriver {
 
         /** Unique key for this layer; distinguishes the two roots for one channel. */
         String id() {
-            return source == LayerSource.WORLD ? WORLD_ID_PREFIX + name : name;
+            return switch (source) {
+                case MOD -> name;
+                case WORLD -> WORLD_ID_PREFIX + name;
+                case PLAYER -> "player/" + name;
+            };
         }
     }
 
     /** Marks a world-sourced layer in {@code layersById} and in status output. */
     static final String WORLD_ID_PREFIX = "world/";
+
+    public enum FogScope {
+        // Player settings sit above authored media. A dimension edit wins over a global edit.
+        GLOBAL("global", "mc.fog.global", null, 21000f),
+        NETHER("nether", LogicChannels.DIMENSION_NETHER_LIGHTING, "nether-lighting.conf", 21001f),
+        END("end", LogicChannels.DIMENSION_END_LIGHTING, "end-lighting.conf", 21001f);
+
+        private final String id;
+        private final String channel;
+        private final String authoredProfile;
+        private final float priority;
+
+        FogScope(String id, String channel, String authoredProfile, float priority) {
+            this.id = id;
+            this.channel = channel;
+            this.authoredProfile = authoredProfile;
+            this.priority = priority;
+        }
+
+        public String id() { return id; }
+
+        private LayerSpec playerLayer() {
+            return new LayerSpec(channel, "fog-" + id, priority, 0.01f, false, LayerSource.PLAYER);
+        }
+    }
 
     // Discovered biome and zone layers: each valid *.conf becomes a layer.
     private static final float BIOME_PRIORITY = 6000f;
@@ -146,9 +177,9 @@ public final class ConfLayerDriver {
 
     /**
      * The fixed layer catalog: water, automatic view distance, volumetric
-     * settling, weather, local mist, Nether grading and lighting, and four fixed time-of-day profiles (13 rows, one per
-     * shipped conf; ConfLayerDriverTest cross-checks them against the shipped
-     * confs). Biome and zone layers are NOT listed here: they are discovered
+     * settling, weather, local mist, dimension looks, and four fixed time-of-day
+     * profiles (14 rows, one per shipped conf, checked by ConfLayerDriverTest).
+     * Biome and zone layers are NOT listed here: they are discovered
      * from their conf file names at acquire and reload time, so a new authored
      * look needs no code.
      * Priorities: water dominates everything, zones beat biomes, thunder
@@ -189,6 +220,8 @@ public final class ConfLayerDriver {
         // Existing installs preserve their nether.conf. Use a new lower-priority file for the lighting defaults.
         table.add(new LayerSpec(LogicChannels.DIMENSION_NETHER_LIGHTING,
                 "confs/dimensions/nether-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
+        table.add(new LayerSpec(LogicChannels.DIMENSION_END_LIGHTING,
+                "confs/dimensions/end-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_THUNDER, "confs/weather/thunder.conf", 5500f, 0.01f, false,
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_RAIN, "confs/weather/rain.conf", 5000f, 0.01f, false,
@@ -390,6 +423,7 @@ public final class ConfLayerDriver {
     // Keyed by LayerSpec.id(), so one channel can hold a mod layer and a world
     // layer at once. Per-frame targets go through channelIndex instead.
     private final Map<String, LayerState> layersById = new LinkedHashMap<>();
+    private final Map<LayerSpec, Map<String, String>> fogOverrides = new LinkedHashMap<>();
     private final Map<String, List<LayerState>> channelIndex = new HashMap<>();
     // Prefix scans are hoisted out of update() into these, rebuilt whenever the
     // catalog changes.
@@ -471,6 +505,63 @@ public final class ConfLayerDriver {
         return gameDir.resolve("rtx-remix").resolve("mods").resolve("minecraft-logic");
     }
 
+    /** Reads the dimension's flat authored defaults without activating its layer. */
+    public Properties fogProfileDefaults(FogScope scope) {
+        Properties defaults = new Properties();
+        if (scope.authoredProfile == null) return defaults;
+        Path path = modRoot().resolve("confs/dimensions").resolve(scope.authoredProfile);
+        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            defaults.load(reader);
+        } catch (IOException | IllegalArgumentException e) {
+            LOGGER.warn("Could not read fog settings defaults from {}", path, e);
+        }
+        return defaults;
+    }
+
+    /** Replaces one sparse player profile using the same runtime layers as authored fog. */
+    public void replaceFogOverrides(FogScope scope, Map<String, String> options) {
+        LayerSpec spec = scope.playerLayer();
+        if (fogOverrides.getOrDefault(spec, Map.of()).equals(options)) return;
+        LayerState old = layersById.get(spec.id());
+        if (options.isEmpty()) {
+            fogOverrides.remove(spec);
+            layersById.remove(spec.id());
+        } else {
+            LayerState next = new LayerState(spec);
+            if (active) {
+                try {
+                    next.handle = acquirePlayerFogLayer(spec, options);
+                } catch (IOException | RemixException e) {
+                    throw new IllegalStateException("Could not apply " + scope.id() + " fog settings", e);
+                }
+            }
+            next.target = next.current = scope == FogScope.GLOBAL ? 1.0f : currentStrength(scope.channel);
+            if (next.handle != 0) sendIfChanged(next);
+            fogOverrides.put(spec, Map.copyOf(options));
+            layersById.put(spec.id(), next);
+        }
+        if (old != null) releaseLayer(old);
+        reindex();
+        settling.advance(true, 0.0f);
+    }
+
+    private long acquirePlayerFogLayer(LayerSpec spec, Map<String, String> options) throws IOException {
+        // The runtime parses synchronously. Only the versioned settings JSON persists.
+        Path path = Files.createTempFile("kavora-" + spec.confPath() + "-", ".conf");
+        try {
+            StringBuilder contents = new StringBuilder();
+            options.forEach((key, value) -> contents.append(key).append(" = ").append(value).append('\n'));
+            Files.writeString(path, contents);
+            return configLayerApi.acquireConfigLayer(path.toString(), spec.priority(), spec.blendThreshold());
+        } finally {
+            try {
+                Files.deleteIfExists(path);
+            } catch (IOException e) {
+                LOGGER.warn("Could not remove temporary fog profile {}", path, e);
+            }
+        }
+    }
+
     /**
      * The root a layer's conf is read from. rebuildLayerStates() only adds
      * WORLD rows while a world root is joined, so a WORLD layer always has one.
@@ -495,6 +586,15 @@ public final class ConfLayerDriver {
     private boolean acquireMissing(boolean waterGates) {
         for (LayerState layer : layersById.values()) {
             if (layer.handle != 0) {
+                continue;
+            }
+            if (layer.spec.source() == LayerSource.PLAYER) {
+                try {
+                    layer.handle = acquirePlayerFogLayer(layer.spec, fogOverrides.get(layer.spec));
+                    layer.lastSent = 0.0f;
+                } catch (IOException | RemixException e) {
+                    LOGGER.warn("Could not restore {} fog settings", layer.spec.id(), e);
+                }
                 continue;
             }
             Path confPath = rootFor(layer.spec.source())
@@ -659,6 +759,7 @@ public final class ConfLayerDriver {
     private void rebuildLayerStates() {
         Path modDir = modRoot();
         List<LayerSpec> specs = new ArrayList<>(STATIC_LAYER_TABLE);
+        specs.addAll(fogOverrides.keySet());
         specs.addAll(biomeRowsFromStems(scanConfStems(modDir, "biomes"), LayerSource.MOD));
         specs.addAll(zoneRowsFromStems(scanConfStems(modDir, "zones"), LayerSource.MOD));
         if (worldConfRoot != null) {
@@ -741,6 +842,7 @@ public final class ConfLayerDriver {
         float nether = Level.NETHER.equals(world.dimension()) ? 1.0f : 0.0f;
         setTarget(LogicChannels.DIMENSION_NETHER, nether);
         setTarget(LogicChannels.DIMENSION_NETHER_LIGHTING, nether);
+        setTarget(LogicChannels.DIMENSION_END_LIGHTING, Level.END.equals(world.dimension()) ? 1.0f : 0.0f);
         setTarget(LogicChannels.VIEW_DISTANCE, Math.clamp(viewDistanceStrength, 0.0f, 1.0f));
         // Time layers follow the shared Overworld clock only; other dimensions
         // contribute no time-of-day strength.
@@ -1055,7 +1157,7 @@ public final class ConfLayerDriver {
         return active;
     }
 
-    /** Targets every layer on a channel, so both roots follow one gameplay input. */
+    /** Targets every layer on a channel from the same gameplay input. */
     private void setTarget(String channel, float target) {
         for (LayerState layer : channelIndex.getOrDefault(channel, List.of())) {
             layer.target = target;

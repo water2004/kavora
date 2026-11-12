@@ -248,7 +248,8 @@ public final class KavoraSettingsFactory {
                 postProcessing::getHighLightAdaptation, postProcessing::setHighLightAdaptation));
 
         KavoraEffectOptions.addTo(list, remix);
-        return new KavoraSettings(list, () -> remix.setConfigVariable("rtx.graphicsPreset", "4"));
+        var fogProfiles = new FogProfileOptions(list, environment, remix);
+        return new KavoraSettings(list, () -> remix.setConfigVariable("rtx.graphicsPreset", "4"), fogProfiles::publish);
     }
 
     static KavoraSetting<Integer> unfocusedFramerate() {

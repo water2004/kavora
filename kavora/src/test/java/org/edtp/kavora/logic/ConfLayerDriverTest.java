@@ -310,13 +310,13 @@ class ConfLayerDriverTest {
     // --- layer table invariants ---
 
     @Test
-    void staticTableHasThirteenUniqueRows() {
+    void staticTableHasFourteenUniqueRows() {
         // 1 water + 2 view-distance endpoints + 1 volumetric settling
-        // controller + 3 weather + 2 Nether + 4 time profiles. Optional biome and zone
+        // controller + 3 weather + 3 dimension + 4 time profiles. Optional biome and zone
         // rows are discovered from disk.
         assertEquals(67, ConfLayerDriver.vanillaBiomeNames().size(),
                 "vanilla 26.3 biome count (Biomes)");
-        assertEquals(13, ConfLayerDriver.STATIC_LAYER_TABLE.size());
+        assertEquals(14, ConfLayerDriver.STATIC_LAYER_TABLE.size());
         Set<String> names = new HashSet<>();
         Set<String> paths = new HashSet<>();
         for (var spec : ConfLayerDriver.STATIC_LAYER_TABLE) {
@@ -389,7 +389,8 @@ class ConfLayerDriverTest {
                 expected = 3500f;
             } else if (spec.name().equals(LogicChannels.DIMENSION_NETHER)) {
                 expected = 3900f;
-            } else if (spec.name().equals(LogicChannels.DIMENSION_NETHER_LIGHTING)) {
+            } else if (spec.name().equals(LogicChannels.DIMENSION_NETHER_LIGHTING)
+                    || spec.name().equals(LogicChannels.DIMENSION_END_LIGHTING)) {
                 expected = 3899f;
             } else if (spec.name().startsWith(LogicChannels.ZONE_PREFIX)) {
                 expected = 11000f;

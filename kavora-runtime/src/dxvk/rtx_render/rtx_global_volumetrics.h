@@ -239,9 +239,12 @@ namespace dxvk {
     RTX_OPTION_ARGS("rtx.volumetrics", float, atmosphereHeightMeters, 30.0f, "Height of the atmosphere in meters, respects scene scale.",
                     args.minValue = 0.0f);
     RTX_OPTION("rtx.volumetrics", float, heightFogBaseHeightMeters, 64.0f,
-               "World height below which fog has full density, in meters along the scene up direction.");
+               "Peak density height in meters along the scene up direction.");
     RTX_OPTION_ARGS("rtx.volumetrics", float, heightFogFalloffMeters, 0.0f,
-               "Fog density e-folding height above its base, in meters. Zero disables the height field.",
+               "Fog density e-folding distance above its peak, in meters. Zero keeps density constant above the peak.",
+               args.minValue = 0.0f);
+    RTX_OPTION_ARGS("rtx.volumetrics", float, heightFogLowerFalloffMeters, 0.0f,
+               "Fog density e-folding distance below its peak, in meters. Zero keeps density constant below the peak.",
                args.minValue = 0.0f);
     RTX_OPTION_ARGS("rtx.volumetrics", float, groundMistExtinctionPerMeter, 0.0f,
                "Additional ground-mist extinction per meter at unit density. Conf-layer strength blends optical density linearly.",

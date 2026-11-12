@@ -46,12 +46,12 @@ class QualityPresetTest {
     }
 
     @Test
-    void stockProfilesRetainReliefCloudsAndRayTracedLighting() {
+    void stockProfilesSetBudgetsAndKeepIndependentFeatureSwitches() {
         for (QualityPreset preset : QualityPreset.values()) {
             var values = KavoraQualityPresets.values(preset);
             for (String effect : List.of("clouds.procedural", "lighting.direct", "lighting.secondary",
                     "lighting.rtxdi", "reflection.psrr", "reflection.pstr", "materials.pomDirect", "materials.pomIndirect")) {
-                assertEquals(true, values.get(effect), preset.id() + ": " + effect);
+                assertFalse(values.containsKey(effect), preset.id() + ": " + effect);
             }
             for (String budget : List.of("clouds.samples", "clouds.shadowSamples", "lighting.bounces",
                     "materials.pom", "fog.integrationResolution", "fog.initialSamples", "fog.lightingDepthSlices", "lighting.risSamples")) {

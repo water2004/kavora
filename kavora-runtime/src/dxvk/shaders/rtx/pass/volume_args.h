@@ -100,7 +100,7 @@ struct VolumeArgs {
   float maxAttenuationDistanceForNoAtmosphere;
   uint resetHistory;
   uint16_t enableTranslucentShadows;
-  uint16_t pad0;
+  uint16_t heightFogLowerFalloff; // Half-float scale in world units.
   uint fogIntegrationMode;
   float heightFogBaseHeight;
   float heightFogFalloff;

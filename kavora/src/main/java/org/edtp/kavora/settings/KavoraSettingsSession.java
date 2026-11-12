@@ -16,10 +16,8 @@ import java.util.function.Predicate;
 final class KavoraSettingsSession {
     private final KavoraSettings settings;
     private final Map<KavoraSetting<?>, Object> pending = new LinkedHashMap<>();
-    private final Map<KavoraSetting<?>, Object> baseline = new LinkedHashMap<>();
     private final Set<KavoraSetting<?>> presetWrites = new HashSet<>();
     private QualityPreset basePreset;
-    private boolean inheritedCustomization;
 
     KavoraSettingsSession(KavoraSettings settings) {
         this.settings = settings;
@@ -35,7 +33,7 @@ final class KavoraSettingsSession {
         Map<KavoraSetting<?>, Object> staged = new LinkedHashMap<>();
         values.forEach((id, value) -> {
             var setting = settings.byId(id);
-            if (setting == null || !pending.containsKey(setting)) {
+            if (setting == null || !pending.containsKey(setting) || !KavoraQualityPresets.owns(id)) {
                 throw new IllegalArgumentException("Preset contains an unknown visual setting: " + id);
             }
             boolean valid = switch (setting.kind()) {
@@ -51,15 +49,10 @@ final class KavoraSettingsSession {
         presetWrites.clear();
         presetWrites.addAll(staged.keySet());
         basePreset = preset;
-        inheritedCustomization = false;
-        baseline.clear();
-        baseline.putAll(pending);
     }
 
     KavoraQualitySelection quality() {
-        boolean custom = inheritedCustomization || pending.entrySet().stream()
-                .anyMatch(entry -> different(entry.getKey(), entry.getValue(), baseline.get(entry.getKey())));
-        return new KavoraQualitySelection(basePreset, custom);
+        return KavoraQualityPresets.selection(settings, basePreset, pending::get);
     }
 
     boolean changed(KavoraSetting<?> setting) {
@@ -90,11 +83,11 @@ final class KavoraSettingsSession {
         settings.beforeVisualApply();
         for (var setting : pending.keySet()) {
             boolean valueChanged = changed(setting);
-            // Owned values must be explicit user writes even when equal to the cached value.
-            if (!valueChanged && !presetWrites.contains(setting) && !KavoraQualityPresets.owns(setting.id())) continue;
+            if (!valueChanged && !presetWrites.contains(setting)) continue;
             applyOne(setting);
             if (valueChanged) changed.add(setting.group());
         }
+        settings.afterVisualApply();
         settings.setQuality(selected);
         discard();
         return changed;
@@ -108,9 +101,6 @@ final class KavoraSettingsSession {
         for (var setting : settings.all()) {
             if (setting.group().category() != SettingCategory.PERFORMANCE) pending.put(setting, setting.get());
         }
-        baseline.clear();
-        baseline.putAll(pending);
         basePreset = settings.quality().base();
-        inheritedCustomization = settings.quality().customized();
     }
 }

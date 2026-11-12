@@ -110,7 +110,7 @@ final class KavoraOptionFactory {
     }
 
     static Component floatValueText(String settingId, double value) {
-        String format = KavoraEffectOptions.contains(settingId)
+        String format = KavoraEffectOptions.contains(settingId) || FogProfileOptions.contains(settingId)
                 ? Math.abs(value) > 0 && Math.abs(value) < 0.01 ? "%.6f" : "%.3f"
                 : "%.2f";
         String formatted = String.format(Locale.ROOT, format, value);

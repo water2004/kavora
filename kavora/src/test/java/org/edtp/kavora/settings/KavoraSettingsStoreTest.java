@@ -40,9 +40,12 @@ class KavoraSettingsStoreTest {
         double[] f = {1.0}; int[] i = {42}; boolean[] b = {true};
         KavoraSettings settings = registryWith(f, i, b);
         var edit = new KavoraSettingsSession(settings);
-        edit.stagePreset(QualityPreset.HIGH, Map.of("f", 3.5));
+        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 128));
         @SuppressWarnings("unchecked")
         var artistic = (KavoraSetting<Boolean>) settings.byId("b");
+        @SuppressWarnings("unchecked")
+        var material = (KavoraSetting<Double>) settings.byId("f");
+        edit.stage(material, 3.5);
         edit.stage(artistic, false);
         edit.apply();
         KavoraSettingsStore store = new KavoraSettingsStore(file);
@@ -54,7 +57,7 @@ class KavoraSettingsStoreTest {
         assertEquals(3.5, f2[0]);
         assertEquals(42, i2[0]);
         assertFalse(b2[0]);
-        assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, true), restored.quality());
+        assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, false), restored.quality());
     }
 
     @Test
@@ -100,7 +103,7 @@ class KavoraSettingsStoreTest {
         new KavoraSettingsStore(file).save(registryWith(f, i, b));
 
         JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
-        assertEquals(3, root.get("version").getAsInt());
+        assertEquals(4, root.get("version").getAsInt());
         JsonObject values = root.getAsJsonObject("settings");
         assertEquals(160, values.get("clouds.samples").getAsInt());
         assertEquals(42, values.get("i").getAsInt());
@@ -160,7 +163,7 @@ class KavoraSettingsStoreTest {
         assertEquals(2.0, f[0]);
         assertEquals(7, i[0]);
         assertTrue(b[0]);
-        assertEquals(new KavoraQualitySelection(QualityPreset.ULTRA, true), settings.quality());
+        assertEquals(new KavoraQualitySelection(QualityPreset.ULTRA, false), settings.quality());
     }
 
     @Test
@@ -197,7 +200,7 @@ class KavoraSettingsStoreTest {
 
         new KavoraSettingsStore(file).load(settings);
 
-        assertEquals(List.of("beforeVisualApply", "samples=160", "psrr=true"), operations);
+        assertEquals(List.of("beforeVisualApply", "samples=160"), operations);
     }
 
     @Test
@@ -238,19 +241,59 @@ class KavoraSettingsStoreTest {
     @Test
     void loadRejectsAnyVersionItDoesNotOwn(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("kavora.json");
-        for (int version : new int[]{2, 4}) {
+        for (int version : new int[]{2, 5}) {
             Files.writeString(file, """
                     {"version":%d,"quality":{"base":"low","custom":true},"settings":{"f":9.0,"i":50,"b":false}}
                     """.formatted(version));
             double[] f = {1.0}; int[] i = {5}; boolean[] b = {true};
             KavoraSettings settings = registryWith(f, i, b);
 
-            new KavoraSettingsStore(file).load(settings);
+            var store = new KavoraSettingsStore(file);
+            String original = Files.readString(file);
+            store.load(settings);
+            store.save(settings);
 
             assertEquals(1.0, f[0]);
             assertEquals(5, i[0]);
             assertTrue(b[0]);
             assertEquals(new KavoraQualitySelection(QualityPreset.ULTRA, false), settings.quality());
+            assertEquals(original, Files.readString(file));
         }
+    }
+
+    @Test
+    void migratesReleasedGlobalFogAndRecomputesThePresetLabel(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("kavora.json");
+        Files.writeString(file, """
+                {"version":3,"quality":{"base":"high","custom":true},
+                 "settings":{"fog.heightFalloff":22,"fog.transmittance.red":0.8,
+                             "fog.global.transmittance.red":0.7,"unknown":9}}
+                """);
+        double[] globalFalloff = {0}, endFalloff = {14}, red = {0.999};
+        var settings = new KavoraSettings(List.of(
+                fog("fog.global.heightFalloff", globalFalloff, 0, 128),
+                fog("fog.end.heightFalloff", endFalloff, 14, 128),
+                fog("fog.global.transmittance.red", red, 0.999, 1)));
+        var store = new KavoraSettingsStore(file);
+        store.load(settings);
+
+        assertEquals(22, globalFalloff[0]);
+        assertEquals(14, endFalloff[0]);
+        assertEquals(0.7, red[0]);
+        assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, false), settings.quality());
+        String migrated = Files.readString(file);
+        JsonObject root = JsonParser.parseString(migrated).getAsJsonObject();
+        assertEquals(4, root.get("version").getAsInt());
+        var values = root.getAsJsonObject("settings");
+        assertFalse(values.has("fog.heightFalloff"));
+        assertEquals(22, values.get("fog.global.heightFalloff").getAsInt());
+        assertEquals(9, values.get("unknown").getAsInt());
+        store.load(settings);
+        assertEquals(migrated, Files.readString(file));
+    }
+
+    private static KavoraSetting<Double> fog(String id, double[] value, double baseline, double max) {
+        return KavoraSetting.ofFloat(id, SettingGroup.FOG, "l", "t", 0, max, baseline,
+                () -> value[0], next -> value[0] = next);
     }
 }

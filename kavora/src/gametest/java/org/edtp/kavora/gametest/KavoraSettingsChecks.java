@@ -32,6 +32,7 @@ import net.caffeinemc.mods.sodium.client.config.structure.ExternalPage;
 import net.caffeinemc.mods.sodium.client.config.structure.OptionPage;
 import net.caffeinemc.mods.sodium.client.gui.VideoSettingsScreen;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.events.ContainerEventHandler;
@@ -39,6 +40,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.Level;
 
 /** Exercises the visual and Sodium settings transactions with native option readback. */
 final class KavoraSettingsChecks {
@@ -235,6 +237,28 @@ final class KavoraSettingsChecks {
                 .filter(page -> page.name().getString().equals(label)).findFirst().orElseThrow();
     }
 
+    static void checkEndFog(ClientGameTestContext context, TestSingleplayerContext world) {
+        String option = "rtx.volumetrics.heightFogLowerFalloffMeters";
+        world.getServer().runOnServer(server -> KavoraDimensionGameTest.buildAndEnter(server, Level.END));
+        context.waitFor(client -> client.level != null && client.level.dimension().equals(Level.END)
+                && client.gui.screen() == null && Double.parseDouble(read(option)) == 12.0, 2400);
+        context.runOnClient(client -> {
+            KavoraSodiumConfig.openEffects(client.gui.screen());
+            press(client.gui.screen(), "kavora.settings.category.weather");
+            press(client.gui.screen(), "kavora.settings.group.fog");
+            press(client.gui.screen(), "kavora.settings.group.fogEnd");
+            editNumber("fog.end.lowerHeightFalloff", "19");
+            press(client.gui.screen(), "kavora.settings.apply");
+        });
+        context.waitFor(client -> Double.parseDouble(read(option)) == 19.0, 100);
+        KavoraWorldGameTest.captureCompletedFrame(context, "settings-end-fog");
+        context.runOnClient(client -> press(client.gui.screen(), "kavora.settings.resetShort"));
+        String applyLabel = Component.translatable("kavora.settings.apply").getString();
+        context.waitFor(client -> findWidget(client.gui.screen(), applyLabel).active, 40);
+        context.runOnClient(client -> press(client.gui.screen(), "kavora.settings.apply"));
+        context.waitFor(client -> Double.parseDouble(read(option)) == 12.0, 100);
+    }
+
     private static void checkNeuralRendering(ClientGameTestContext context, VideoSettingsScreen sodium) {
         String enableKey = "rtx.dlssNeuralRendering.enable";
         String modelKey = "rtx.dlssNeuralRendering.model";
@@ -359,8 +383,9 @@ final class KavoraSettingsChecks {
         var originalQuality = context.computeOnClient(client -> KavoraMod.getRtxSettings().quality());
         Map<String, Double> original = context.computeOnClient(client -> {
             var values = new LinkedHashMap<String, Double>();
-            for (String id : new String[] {"clouds.coverage", "fog.transmittance.red", "fog.transmittance.green",
-                    "water.ior", "water.red", "water.absorptionDistance"}) values.put(id, floating(id).get());
+            for (String id : new String[] {"clouds.coverage", "fog.global.transmittance.red", "fog.global.transmittance.green",
+                    "fog.end.lowerHeightFalloff", "image.inversionAmount", "water.ior", "water.red",
+                    "water.absorptionDistance"}) values.put(id, floating(id).get());
             return values;
         });
         try {
@@ -379,8 +404,12 @@ final class KavoraSettingsChecks {
             context.runOnClient(client -> {
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.group.fog");
-                editNumber("fog.transmittance.red", "0.8");
-                editNumber("fog.transmittance.green", "0.85");
+                press(client.gui.screen(), "kavora.settings.group.fogEnd");
+                editNumber("fog.end.lowerHeightFalloff", "19");
+                press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.group.fogGlobal");
+                editNumber("fog.global.transmittance.red", "0.8");
+                editNumber("fog.global.transmittance.green", "0.85");
             });
             context.waitTicks(2);
             context.runOnClient(client -> requireNonOverlappingWidgets(client.gui.screen()));
@@ -388,9 +417,16 @@ final class KavoraSettingsChecks {
             context.runOnClient(client -> press(client.gui.screen(), "kavora.settings.apply"));
             context.waitFor(client -> Math.abs(Double.parseDouble(read("rtx.clouds.coverage")) - 0.7) < 1e-5
                     && read("rtx.volumetrics.transmittanceColor").startsWith("0.8, 0.85,"), 100);
+            context.runOnClient(client -> {
+                require(!KavoraMod.getRtxSettings().quality().customized(), "Artistic fog controls changed the preset label");
+                require(floating("fog.end.lowerHeightFalloff").get() == 19.0, "The End fog edit was not applied");
+                require(Double.parseDouble(read("rtx.volumetrics.heightFogLowerFalloffMeters")) == 0.0,
+                        "The End fog edit leaked into the Overworld");
+            });
             var references = context.computeOnClient(client -> new org.edtp.kavora.asset.KavoraMaterial[] {
                     BlockTextureManager.get().getWaterSurfaceMaterial(), BlockTextureManager.get().getWaterCameraMediumMaterial()});
             context.runOnClient(client -> {
+                press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.category.materials");

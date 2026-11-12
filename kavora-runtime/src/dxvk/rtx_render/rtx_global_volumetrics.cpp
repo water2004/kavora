@@ -19,6 +19,8 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+#include <glm/gtc/packing.hpp>
+
 #include "rtx_global_volumetrics.h"
 #include "rtx_animation_time.h"
 #include "dxvk_device.h"
@@ -703,6 +705,9 @@ namespace dxvk {
     volumeArgs.maxAttenuationDistanceForNoAtmosphere = transmittanceMeasurementDistance * 5;
     volumeArgs.heightFogBaseHeight = heightFogBaseHeightMeters() * RtxOptions::getMeterToWorldUnitScale();
     volumeArgs.heightFogFalloff = heightFogFalloffMeters() * RtxOptions::getMeterToWorldUnitScale();
+    constexpr float kMaxHalfFloat = 65504.0f;
+    volumeArgs.heightFogLowerFalloff = glm::packHalf1x16(std::min(
+      heightFogLowerFalloffMeters() * RtxOptions::getMeterToWorldUnitScale(), kMaxHalfFloat));
     volumeArgs.densityTimeMS = static_cast<float>(RtxAnimationTime::milliseconds());
     volumeArgs.groundMistExtinction = groundMistExtinctionPerMeter() / RtxOptions::getMeterToWorldUnitScale();
     volumeArgs.groundMistBaseHeight = groundMistBaseHeightMeters() * RtxOptions::getMeterToWorldUnitScale();

@@ -135,7 +135,10 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
                 farProbe = KavoraStreamingChecks.run(context, world);
             } else {
                 KavoraSettingsChecks.run(context);
-                if (Boolean.getBoolean("kavora.gametest.settingsOnly")) return;
+                if (Boolean.getBoolean("kavora.gametest.settingsOnly")) {
+                    KavoraSettingsChecks.checkEndFog(context, world);
+                    return;
+                }
                 assertWorldResize(context);
                 assertTerrainReload(context, world);
                 if (Boolean.getBoolean("kavora.gametest.includeStreaming")) farProbe = KavoraStreamingChecks.run(context, world);

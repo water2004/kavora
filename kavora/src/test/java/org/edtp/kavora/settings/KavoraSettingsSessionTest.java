@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class KavoraSettingsSessionTest {
     @Test
     void selectingEditingAndCancellingKeepLiveValuesAndQualityUntilApply() {
-        double[] live = {0.5};
+        int[] live = {160};
         int[] writes = {0};
-        var value = KavoraSetting.ofFloat("clouds", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
+        var value = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "k", "t", 8, 256, 160,
                 () -> live[0], next -> { live[0] = next; writes[0]++; });
         var settings = new KavoraSettings(List.of(value));
         var edit = new KavoraSettingsSession(settings);
@@ -26,52 +26,56 @@ class KavoraSettingsSessionTest {
         var high = new KavoraQualitySelection(QualityPreset.HIGH, false);
         var customizedHigh = new KavoraQualitySelection(QualityPreset.HIGH, true);
 
-        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds", 0.7));
+        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 128));
         assertEquals(high, edit.quality());
-        assertEquals(0.7, edit.value(value));
+        assertEquals(128, edit.value(value));
         assertTrue(edit.hasChanges());
-        edit.stage(value, 0.8);
+        edit.stage(value, 120);
         assertEquals(customizedHigh, edit.quality());
-        edit.stage(value, 0.7);
+        edit.stage(value, 128);
         assertEquals(high, edit.quality());
-        edit.stage(value, 0.9);
+        edit.stage(value, 144);
         assertEquals(ultra, settings.quality());
-        assertEquals(0.5, live[0]);
+        assertEquals(160, live[0]);
 
         edit.discard();
         assertFalse(edit.hasChanges());
         assertEquals(ultra, edit.quality());
-        assertEquals(0.5, edit.value(value));
+        assertEquals(160, edit.value(value));
         assertEquals(0, writes[0]);
 
-        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds", 0.7));
-        edit.stage(value, 0.8);
+        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 128));
+        edit.stage(value, 120);
         assertEquals(EnumSet.of(SettingGroup.CLOUDS), edit.apply());
-        assertEquals(0.8, live[0]);
+        assertEquals(120, live[0]);
         assertEquals(1, writes[0]);
         assertEquals(customizedHigh, settings.quality());
         assertFalse(edit.hasChanges());
         assertTrue(edit.apply().isEmpty());
         assertEquals(1, writes[0]);
 
-        edit.stagePreset(QualityPreset.MEDIUM, Map.of("clouds", 0.4));
+        edit.stagePreset(QualityPreset.MEDIUM, Map.of("clouds.samples", 96));
         edit.discard();
-        assertEquals(0.8, edit.value(value));
+        assertEquals(120, edit.value(value));
         assertEquals(customizedHigh, edit.quality());
+        edit.stage(value, 128);
+        assertEquals(high, edit.quality());
     }
 
     @Test
     void reselectingCurrentPresetWritesItsValuesOnlyOnApply() {
         var operations = new ArrayList<String>();
         var samples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "k", "t", 8, 256, 160,
-                () -> 160, next -> operations.add("samples=" + next));
+                () -> 128, next -> operations.add("samples=" + next));
         var bounces = KavoraSetting.ofInt("reflection.bounces", SettingGroup.REFLECTIONS, "k", "t", 1, 16, 10,
                 () -> 8, next -> operations.add("bounces=" + next));
         var settings = new KavoraSettings(List.of(samples, bounces), () -> operations.add("beforeVisualApply"));
         var high = new KavoraQualitySelection(QualityPreset.HIGH, false);
         settings.setQuality(high);
         var edit = new KavoraSettingsSession(settings);
-        var values = Map.of(samples.id(), 160, bounces.id(), 8);
+        var values = new LinkedHashMap<String, Integer>();
+        values.put(samples.id(), 128);
+        values.put(bounces.id(), 8);
 
         edit.stagePreset(QualityPreset.HIGH, values);
         assertEquals(high, edit.quality());
@@ -84,7 +88,7 @@ class KavoraSettingsSessionTest {
         edit.stagePreset(QualityPreset.HIGH, values);
         assertTrue(edit.hasChanges());
         edit.apply();
-        assertEquals(List.of("beforeVisualApply", "samples=160", "bounces=8"), operations);
+        assertEquals(List.of("beforeVisualApply", "samples=128", "bounces=8"), operations);
         assertEquals(high, settings.quality());
         assertFalse(edit.hasChanges());
     }
@@ -94,27 +98,26 @@ class KavoraSettingsSessionTest {
         double[] clouds = {0.5};
         int[] bounces = {2};
         int[] distance = {8};
-        var coverage = KavoraSetting.ofFloat("clouds", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
+        var coverage = KavoraSetting.ofFloat("clouds.coverage", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
                 () -> clouds[0], next -> clouds[0] = next);
-        var reflections = KavoraSetting.ofInt("bounces", SettingGroup.REFLECTIONS, "k", "t", 0, 8, 2,
+        var reflections = KavoraSetting.ofInt("reflection.bounces", SettingGroup.REFLECTIONS, "k", "t", 0, 16, 10,
                 () -> bounces[0], next -> bounces[0] = next).withStep(2);
         var capture = KavoraSetting.ofInt("dist", SettingGroup.RENDER_DISTANCE, "k", "t", 0, 32, 16,
                 () -> distance[0], next -> distance[0] = next);
         var settings = new KavoraSettings(List.of(coverage, reflections, capture));
         var edit = new KavoraSettingsSession(settings);
-        edit.stagePreset(QualityPreset.MEDIUM, Map.of("clouds", 0.4, "bounces", 4));
         edit.stage(coverage, 0.45);
+        edit.stagePreset(QualityPreset.MEDIUM, Map.of(reflections.id(), 4));
         var before = edit.quality();
         var invalid = new LinkedHashMap<String, Object>();
-        invalid.put("clouds", 0.9);
-        invalid.put("bounces", 3);
+        invalid.put(reflections.id(), 3);
 
         assertThrows(IllegalArgumentException.class, () -> edit.stagePreset(QualityPreset.LOW, invalid));
         assertEquals(0.45, edit.value(coverage));
         assertEquals(4, edit.value(reflections));
         assertEquals(before, edit.quality());
 
-        invalid.remove("bounces");
+        invalid.remove(reflections.id());
         invalid.put("dist", 16);
         assertThrows(IllegalArgumentException.class, () -> edit.stagePreset(QualityPreset.LOW, invalid));
         assertEquals(0.45, edit.value(coverage));
@@ -124,7 +127,11 @@ class KavoraSettingsSessionTest {
         assertEquals(0.45, clouds[0]);
         assertEquals(4, bounces[0]);
         assertEquals(8, distance[0]);
-        assertEquals(new KavoraQualitySelection(QualityPreset.MEDIUM, true), settings.quality());
+        assertEquals(new KavoraQualitySelection(QualityPreset.MEDIUM, false), settings.quality());
+        edit.stagePreset(QualityPreset.LOW, Map.of(reflections.id(), 2));
+        edit.apply();
+        assertEquals(0.45, clouds[0]);
+        assertEquals(new KavoraQualitySelection(QualityPreset.LOW, false), settings.quality());
     }
 
     @Test
