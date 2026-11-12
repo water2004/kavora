@@ -1,6 +1,6 @@
 # 安装与使用
 
-安装步骤和依赖版本见[项目首页](../README.md#安装)。安装发布版 `Kavora-1.0.1+mc26.3.jar`，不要把开发用的轻量 JAR 当完整发行包。
+安装步骤和依赖版本见[项目首页](../README.md#安装)。安装发布版 `Kavora-1.0.2+mc26.3.jar`，不要把开发用的轻量 JAR 当完整发行包。
 
 Sodium 和 Fabric API 独立安装。Kavora Horizon 为可选附加包。资源包照常放入实例的 `resourcepacks/`，不需要把 SDK 或 DLL 手动放入启动器目录。
 
