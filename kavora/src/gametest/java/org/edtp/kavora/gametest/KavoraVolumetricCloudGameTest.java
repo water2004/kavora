@@ -91,6 +91,13 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             double thickness = context.computeOnClient(client -> cloudValue("thicknessMeters"));
             KavoraWorldGameTest.require(Double.isFinite(base) && Double.isFinite(thickness) && thickness > 0,
                     "Cloud layer height or thickness did not resolve");
+            if (Boolean.getBoolean("kavora.gametest.cloudWorldSpace")) {
+                checkCameraTranslation(context, world, base - 260);
+                if (System.getenv("RTX_DLFG_CAPTURE_PATH") != null) {
+                    captureSkyMapFrameGeneration(context, world, base - 260);
+                }
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.cloudLightingOnly")) {
                 captureLighting(context, world);
                 return;
@@ -188,6 +195,93 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 KavoraMod.renderer.getCloudRenderer().setProceduralClouds(style);
                 if (client.gui.hud.isHidden() != hidden) client.gui.hud.toggle();
             });
+        }
+    }
+
+    private static void checkCameraTranslation(ClientGameTestContext context, TestSingleplayerContext world, double height) {
+        try (var upscaler = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "0");
+             var reconstruction = RuntimeOptionScope.acquire(context, "rtx.enableRayReconstruction", "false");
+             var coverage = RuntimeOptionScope.acquire(context, "rtx.clouds.coverage", "0.65")) {
+            for (int mode : new int[] {1, 0}) {
+                try (var transport = RuntimeOptionScope.acquire(context, "rtx.clouds.transportMode", Integer.toString(mode))) {
+                    pose(context, world, 0, height, -2000, 0, -25);
+                    waitPresentedFrames(context, 12);
+                    try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
+                        setCloudsEnabled(context, false);
+                        waitPresentedFrames(context, 8);
+                        Path clear = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-clear");
+                        setCloudsEnabled(context, true);
+                        waitPresentedFrames(context, 12);
+                        Path start = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-start");
+                        requireDifference(clear, start);
+                        pose(context, world, 256, height, -2000, 0, -25);
+                        waitPresentedFrames(context, 12);
+                        Path translated = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-translated");
+                        pose(context, world, 0, height, -2000, 0, -25);
+                        waitPresentedFrames(context, 12);
+                        Path returned = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-returned");
+                        double moved = skyImageDifference(start, translated);
+                        double restored = skyImageDifference(start, returned);
+                        KavoraWorldGameTest.require(moved > 10 && moved > 2 * restored,
+                                "Cloud field did not follow world-space parallax in mode " + mode + ": " + moved + " vs " + restored);
+                        if (mode == 1) checkSkyMapMotionVectors(context);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void checkSkyMapMotionVectors(ClientGameTestContext context) {
+        try (var maximum = RuntimeOptionScope.acquire(context, "rtx.debugView.maxValue", "2");
+             var view = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "21")) {
+            waitPresentedFrames(context, 8);
+            Path stationary = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-motion-stationary");
+            double start = context.computeOnClient(client -> client.player.getX());
+            context.getInput().holdKey(options -> options.keyRight);
+            Path moving;
+            try {
+                context.waitFor(client -> Math.abs(client.player.getX() - start) > 4, 200);
+                moving = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-motion-translated");
+            } finally {
+                context.getInput().releaseKey(options -> options.keyRight);
+            }
+            double difference = skyImageDifference(stationary, moving);
+            org.slf4j.LoggerFactory.getLogger(KavoraVolumetricCloudGameTest.class)
+                    .info("Sky-map motion guide difference during translation: {}", difference);
+            KavoraWorldGameTest.require(difference > 4, "Sky-map cloud pixels lost the camera's translation");
+        }
+    }
+
+    private static void captureSkyMapFrameGeneration(ClientGameTestContext context, TestSingleplayerContext world, double height) {
+        try (var transport = RuntimeOptionScope.acquire(context, "rtx.clouds.transportMode", "1");
+             var coverage = RuntimeOptionScope.acquire(context, "rtx.clouds.coverage", "0.65");
+             var quality = RuntimeOptionScope.acquire(context, "rtx.qualityDLSS", "0");
+             var frames = RuntimeOptionScope.acquire(context, "rtx.dlfg.maxInterpolatedFrames", "1")) {
+            pose(context, world, 0, height, -2000, 0, -25);
+            context.getInput().holdKey(options -> options.keyRight);
+            try (var enabled = RuntimeOptionScope.acquire(context, "rtx.dlfg.enable", "true")) {
+                waitPresentedFrames(context, 40);
+            } finally {
+                context.getInput().releaseKey(options -> options.keyRight);
+            }
+        }
+    }
+
+    private static double skyImageDifference(Path first, Path second) {
+        try {
+            var a = ImageIO.read(first.toFile());
+            var b = ImageIO.read(second.toFile());
+            double sum = 0;
+            int samples = 0;
+            for (int y = 0; y < a.getHeight() * 4 / 5; y += 4) {
+                for (int x = 0; x < a.getWidth(); x += 4) {
+                    sum += Math.abs((a.getRGB(x, y) >>> 16 & 255) - (b.getRGB(x, y) >>> 16 & 255));
+                    samples++;
+                }
+            }
+            return sum / samples;
+        } catch (IOException e) {
+            throw new AssertionError("Cannot read cloud comparison frames", e);
         }
     }
 

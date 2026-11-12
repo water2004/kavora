@@ -314,12 +314,13 @@ namespace dxvk {
 
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
-    VolumeArgs getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes) const;
+    VolumeArgs getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes);
 
     void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, uint32_t numActiveFroxelVolumes);
-    // Uses the current frame's uploaded scene constants. Publishes linear radiance in RGB and transmittance in A.
+    // Publishes radiance, transmittance and the first opacity moment of each sky ray.
     void dispatchCloudSky(class RtxContext* ctx, const CloudArgs& clouds);
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
+    Rc<DxvkImageView> getCloudSkyDistanceMoment() const { return m_cloudSkyDistanceMoment.view; }
     
     const Resources::Resource& getCurrentVolumeReservoirs() const { return m_volumeReservoirs[0]; }
     const Resources::Resource& getPreviousVolumeReservoirs() const { return m_volumeReservoirs[1]; }
@@ -346,6 +347,8 @@ namespace dxvk {
 
   private:
     Resources::Resource m_cloudSky;
+    Resources::Resource m_cloudSkyDistanceMoment;
+    Vector3 m_previousCloudWindOffset = Vector3(0.f);
     VkExtent3D m_froxelVolumeExtent;
     VkExtent3D m_restirFroxelVolumeExtent;
     uint32_t m_numFroxelVolumes;

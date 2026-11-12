@@ -53,6 +53,9 @@ Sampler2D<float3> SkyMatte;
 layout(binding = GBUFFER_BINDING_SKYPROBE)
 SamplerCube<float3> SkyProbe;
 
+layout(binding = GBUFFER_BINDING_CLOUD_SKY_DISTANCE_MOMENT)
+Texture2D<float> CloudSkyDistanceMoment;
+
 layout(binding = GBUFFER_BINDING_BINDING_SHARC_HASH_ENTRIES_INPUT_OUTPUT)
 RWStructuredBuffer<uint64_t> SharcHashEntriesBuffer;
 

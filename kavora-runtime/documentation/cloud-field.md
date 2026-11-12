@@ -43,9 +43,11 @@ transport must not be described as the same algorithm.
 
 Sky-map transport runs the same volume integration into a camera-centered
 equirectangular radiance/transmittance texture. Background rays reuse it, while
-light visibility stays world-space. This cheaper approximation loses parallax
-between ray origins and local cloud occlusion against scene geometry. The
-transport option is independent of host quality-profile names.
+light visibility stays world-space. Camera-ray motion uses the opacity-weighted
+distance from the same integration and the wind displacement between frames.
+Secondary rays approximate parallax with the camera-origin map. The map
+approximates local cloud occlusion against scene geometry. The transport option
+is independent of host quality-profile names.
 
 No OpenGL compositor, CPU cloud meshes, occupancy tiles, extra cloud layer,
 or CE history system is included.

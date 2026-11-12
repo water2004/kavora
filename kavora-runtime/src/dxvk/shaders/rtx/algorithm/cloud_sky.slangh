@@ -11,17 +11,21 @@ float3 cloudSkyDirection(float2 uv, float3 up)
   return up.z > 0.5f ? direction.xzy : direction;
 }
 
+float2 cloudSkyUv(CloudArgs args, float3 direction)
+{
+  const float3 local = args.up.z > 0.5f ? direction.xzy : direction;
+  const float halfTexel = 0.5f / float(args.skyResolution);
+  return float2(atan2(local.z, local.x) / (2.0f * kCloudSkyPi) + 0.5f,
+    clamp(acos(clamp(local.y, -1.0f, 1.0f)) / kCloudSkyPi, halfTexel, 1.0f - halfTexel));
+}
+
 float4 sampleCloudSky(CloudArgs args, float3 direction)
 {
   if (!args.enable || args.transportMode != 1)
   {
     return float4(0, 0, 0, 1);
   }
-  const float3 local = args.up.z > 0.5f ? direction.xzy : direction;
-  const float halfTexel = 0.5f / float(args.skyResolution);
-  const float2 uv = float2(atan2(local.z, local.x) / (2.0f * kCloudSkyPi) + 0.5f,
-    clamp(acos(clamp(local.y, -1.0f, 1.0f)) / kCloudSkyPi, halfTexel, 1.0f - halfTexel));
-  return CloudSkySampler.SampleLevel(uv, 0);
+  return CloudSkySampler.SampleLevel(cloudSkyUv(args, direction), 0);
 }
 
 float3 applyCloudSky(CloudArgs args, float3 direction, float3 background)

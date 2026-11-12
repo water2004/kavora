@@ -34,8 +34,10 @@ struct CloudArgs {
   uint skyResolution;
   float night;
   uint padding;
+  vec3 previousWindDelta;
+  uint padding2;
 };
 
 #ifdef __cplusplus
-static_assert(sizeof(CloudArgs) == 176);
+static_assert(sizeof(CloudArgs) == 192);
 #endif

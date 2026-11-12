@@ -14,6 +14,8 @@ layout(binding = CLOUD_SKY_BINDING_SAMPLER)
 SamplerState SkySampler;
 layout(binding = CLOUD_SKY_BINDING_OUTPUT)
 RWTexture2D<float4> CloudSky;
+layout(binding = CLOUD_SKY_BINDING_DISTANCE_MOMENT_OUTPUT)
+RWTexture2D<float> CloudSkyDistanceMoment;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -28,19 +30,23 @@ void main(uint2 pixel : SV_DispatchThreadID)
   const float3 ambient = sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, SkySampler, args.up) * 0.5f;
   float3 radiance = 0;
   float transmittance = 1;
+  float distanceMoment = 0;
   float previous = grid.interval.x;
   for (uint cell = 0; previous < grid.interval.y; cell++)
   {
     const float next = grid.boundary(cell + 1);
-    const float3 position = origin + direction * grid.sampleAt(cell);
+    const float distance = grid.sampleAt(cell);
+    const float3 position = origin + direction * distance;
     const float extinction = cloudExtinction(args, position);
     if (extinction > 0)
     {
-      accumulateCloudSkyStep(extinction, next - previous, args.albedo,
+      const float opacity = accumulateCloudSkyStep(extinction, next - previous, args.albedo,
         cloudIncidentRadiance(args, position, direction, ambient), radiance, transmittance);
+      distanceMoment += opacity * distance;
     }
     if (transmittance < kOpaqueCloudTransmittance) break;
     previous = next;
   }
   CloudSky[pixel] = float4(radiance, transmittance);
+  CloudSkyDistanceMoment[pixel] = distanceMoment / args.maxDistance;
 }

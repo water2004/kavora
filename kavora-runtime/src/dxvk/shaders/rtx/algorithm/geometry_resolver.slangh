@@ -347,7 +347,7 @@ void geometryResolverOutputRawAovs(uvec2 pixelCoordinate, vec4 worldPosition, ve
 void geometryResolverOutputMiss<
   let PRIMARY_SURFACE : bool,
   let SELECTED_INTEGRATION_SURFACE : bool>(
-  uvec2 pixelCoordinate, uvec2 compactedCoordinate, bool alphaBlendSurfaceStored = true)
+  uvec2 pixelCoordinate, uvec2 compactedCoordinate, bool alphaBlendSurfaceStored = true, float cloudDistance = 0.0f)
 {
   // Every pixel writes its per-pixel outputs. Only a pixel with a slot also stores a GBuffer.
   const bool storesGBuffer = hasGBufferSlot(compactedCoordinate);
@@ -355,10 +355,22 @@ void geometryResolverOutputMiss<
 
   if (PRIMARY_SURFACE)
   {
-    PrimaryScreenSpaceMotionVector[pixelCoordinate] = calcMotionVectorForRayMiss(pixelCoordinate);
+    float depth = cb.clearColorDepth;
+    float2 motion;
+    if (cloudDistance > 0.0f)
+    {
+      const VirtualHitProjection cloud = projectVirtualHit(pixelCoordinate, cloudDistance, cb.volumeArgs.clouds.previousWindDelta);
+      depth = saturate(cloud.depth);
+      motion = cloud.screenSpaceMotion;
+    }
+    else
+    {
+      motion = calcMotionVectorForRayMiss(pixelCoordinate);
+    }
+    PrimaryScreenSpaceMotionVector[pixelCoordinate] = motion;
     PrimarySurfaceFlags[pixelCoordinate] = 0;
     PrimaryDisocclusionThresholdMix[pixelCoordinate] = 0;
-    PrimaryDepth[pixelCoordinate] = cb.clearColorDepth;
+    PrimaryDepth[pixelCoordinate] = depth;
 
     // PSR misses clear the initial hit's raw AOV values.
     geometryResolverOutputRawAovs(pixelCoordinate, vec4(0.0f), vec4(0.0f), vec4(0.0f));
@@ -372,7 +384,7 @@ void geometryResolverOutputMiss<
     if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
     {
       PrimaryPerceptualRoughness[pixelCoordinate] = 0.f;
-      PrimaryDepthDLSSRR[pixelCoordinate] = cb.clearColorDepth;
+      PrimaryDepthDLSSRR[pixelCoordinate] = depth;
       PrimaryWorldShadingNormalDLSSRR[pixelCoordinate] = vec4(0.0f);
     }
 
@@ -2362,10 +2374,25 @@ void geometryResolverVertex(
   // Output a miss
   if (!rayInteractionHasHit(rayInteraction))
   {
+    float cloudDistance = 0.0f;
     if (!cb.ignoreSkyIfCameraInMedium)
     {
-      geometryResolverState.radiance += geometryResolverState.attenuation
-        * sampleBackgroundRadiance(geometryResolverState.direction, SkyProbe, LinearWrapSampler);
+      const float3 direction = geometryResolverState.direction;
+      const CloudArgs clouds = cb.volumeArgs.clouds;
+      float3 background = sampleClearBackgroundRadiance(direction, SkyProbe, LinearWrapSampler);
+      if (clouds.enable && clouds.transportMode == 1)
+      {
+        const float2 uv = cloudSkyUv(clouds, direction);
+        const float4 cloud = CloudSkySampler.SampleLevel(uv, 0);
+        background = cloud.rgb + cloud.a * background;
+        const float opacity = 1.0f - cloud.a;
+        if (opacity > 0.0f)
+        {
+          const float moment = CloudSkyDistanceMoment.SampleLevel(LinearWrapSampler, uv, 0);
+          cloudDistance = saturate(moment / opacity) * clouds.maxDistance;
+        }
+      }
+      geometryResolverState.radiance += geometryResolverState.attenuation * background;
     }
 
     updateNrcOnGBufferMiss(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate);
@@ -2378,7 +2405,7 @@ void geometryResolverVertex(
     }
 
     geometryResolverOutputMiss<true, true>(geometryResolverState.pixelCoordinate,
-      geometryResolverState.compactedCoordinate, geometryResolverState.alphaBlendSurfaceStored);
+      geometryResolverState.compactedCoordinate, geometryResolverState.alphaBlendSurfaceStored, cloudDistance);
     geometryResolverState.alphaBlendSurfaceStored = true;
 
     if (usesPrimaryRayMissFlag(cb.sparseRenderingArgs))

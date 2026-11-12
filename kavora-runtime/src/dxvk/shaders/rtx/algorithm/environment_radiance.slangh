@@ -22,9 +22,12 @@ float3 sampleIndirectEnvironmentRadiance(float3 direction, SamplerCube<float3> p
 
 // Analytic emitters already participate in direct-light sampling. Their visible disks
 // belong to the camera and specular-continuation background, not the indirect environment.
-float3 sampleBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
+float3 sampleClearBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
   DomeLightArgs dome = cb.domeLightArgs;
   dome.textureIndex = dome.backgroundTextureIndex;
-  return applyCloudSky(cb.volumeArgs.clouds, direction,
-    sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction));
+  return sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction);
+}
+
+float3 sampleBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
+  return applyCloudSky(cb.volumeArgs.clouds, direction, sampleClearBackgroundRadiance(direction, probe, sampler));
 }

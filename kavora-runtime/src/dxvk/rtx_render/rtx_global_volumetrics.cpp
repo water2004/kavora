@@ -56,6 +56,7 @@ namespace dxvk {
         SAMPLERCUBE(CLOUD_SKY_BINDING_PROBE)
         SAMPLER(CLOUD_SKY_BINDING_SAMPLER)
         RW_TEXTURE2D(CLOUD_SKY_BINDING_OUTPUT)
+        RW_TEXTURE2D(CLOUD_SKY_BINDING_DISTANCE_MOMENT_OUTPUT)
       END_PARAMETER()
     };
 
@@ -494,7 +495,7 @@ namespace dxvk {
     return approximateDensity < fogDensityThrehold;
   }
 
-  VolumeArgs RtxGlobalVolumetrics::getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes) const {
+  VolumeArgs RtxGlobalVolumetrics::getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes) {
     // Calculate the volumetric parameters from options and the fixed function fog state
 
     // Note: Volumetric transmittance color option is in gamma space, so must be converted to linear for usage in the volumetric system.
@@ -601,9 +602,13 @@ namespace dxvk {
     clouds.skyResolution = CloudOptions::skyResolution();
     clouds.up = RtxOptions::zUp() ? Vector3(0, 0, 1) : Vector3(0, 1, 0);
     const float cloudTime = CloudOptions::worldTimeSeconds() * CloudOptions::windSpeed();
-    clouds.windOffset = RtxOptions::zUp()
+    const Vector3 windOffset = RtxOptions::zUp()
       ? Vector3(4.8f * cloudTime, 1.4f * cloudTime, 0) * cloudWorldScale
       : Vector3(4.8f * cloudTime, 0, 1.4f * cloudTime) * cloudWorldScale;
+    clouds.windOffset = windOffset;
+    clouds.previousWindDelta = m_cloudSky.isValid() && !mainCamera.isCameraCut()
+      ? m_previousCloudWindOffset - windOffset : Vector3(0.f);
+    m_previousCloudWindOffset = windOffset;
     clouds.baseHeight = (CloudOptions::worldBaseHeightMeters() + CloudOptions::altitudeOffsetMeters()) * cloudWorldScale;
     clouds.thickness = CloudOptions::thicknessMeters() * cloudWorldScale;
     clouds.shapeScale = CloudOptions::shapeScaleMeters() * cloudWorldScale;
@@ -739,6 +744,7 @@ namespace dxvk {
   void RtxGlobalVolumetrics::dispatchCloudSky(RtxContext* ctx, const CloudArgs& clouds) {
     if (!clouds.enable || clouds.transportMode != 1) {
       m_cloudSky.reset();
+      m_cloudSkyDistanceMoment.reset();
       return;
     }
     ScopedGpuProfileZone(ctx, "Cloud Sky Generation");
@@ -747,6 +753,8 @@ namespace dxvk {
       Rc<DxvkContext> resourceContext = ctx;
       m_cloudSky = Resources::createImageResource(resourceContext, "cloud sky radiance and transmittance", extent,
         VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
+      m_cloudSkyDistanceMoment = Resources::createImageResource(resourceContext, "cloud sky distance moment", extent,
+        VK_FORMAT_R16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
     }
     ctx->bindCommonRayTracingResources();
     const auto clampSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
@@ -756,6 +764,7 @@ namespace dxvk {
     ctx->bindResourceSampler(CLOUD_SKY_BINDING_PROBE, clampSampler);
     ctx->bindResourceSampler(CLOUD_SKY_BINDING_SAMPLER, wrapSampler);
     ctx->bindResourceView(CLOUD_SKY_BINDING_OUTPUT, m_cloudSky.view, nullptr);
+    ctx->bindResourceView(CLOUD_SKY_BINDING_DISTANCE_MOMENT_OUTPUT, m_cloudSkyDistanceMoment.view, nullptr);
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudSkyShader::getShader());
     ctx->dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
   }

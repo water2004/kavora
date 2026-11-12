@@ -164,6 +164,7 @@ namespace dxvk {
         RW_TEXTURE2D(GBUFFER_BINDING_ALPHA_BLEND_GBUFFER_OUTPUT)
         SAMPLER2D(GBUFFER_BINDING_SKYMATTE)
         SAMPLERCUBE(GBUFFER_BINDING_SKYPROBE)
+        TEXTURE2D(GBUFFER_BINDING_CLOUD_SKY_DISTANCE_MOMENT)
 
         RW_TEXTURE2D(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_0)
         RW_TEXTURE2D(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_OUTPUT)
@@ -844,6 +845,7 @@ namespace dxvk {
     ctx->bindResourceSampler(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT, linearClampSampler);
     ctx->bindResourceView(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT, globalVolumetrics.getFilteredRadianceCoCg().view, nullptr);
     ctx->bindResourceSampler(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT, linearClampSampler);
+    ctx->bindResourceView(GBUFFER_BINDING_CLOUD_SKY_DISTANCE_MOMENT, globalVolumetrics.getCloudSkyDistanceMoment(), nullptr);
 
     ctx->bindResourceView(GBUFFER_BINDING_SKYMATTE, ctx->getResourceManager().getSkyMatte(ctx).view, nullptr);
     ctx->bindResourceSampler(GBUFFER_BINDING_SKYMATTE, linearClampSampler);
