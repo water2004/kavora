@@ -45,7 +45,8 @@ float3 fogRayFroxelUVW(VolumeArgs args, FogRayProjection ray, float distance)
 
 bool fogFroxelContains(float3 uvw)
 {
-  return all(uvw.xy > 0) && all(uvw.xy < 1) && uvw.z > 0;
+  // The depth mapping saturates to 1 beyond the last slice.
+  return all(uvw > 0) && all(uvw < 1);
 }
 
 struct FogRadianceSample
