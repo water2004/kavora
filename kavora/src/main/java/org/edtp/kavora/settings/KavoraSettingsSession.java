@@ -80,7 +80,6 @@ final class KavoraSettingsSession {
         EnumSet<SettingGroup> changed = EnumSet.noneOf(SettingGroup.class);
         if (!hasChanges()) return changed;
         KavoraQualitySelection selected = quality();
-        settings.beforeVisualApply();
         for (var setting : pending.keySet()) {
             boolean valueChanged = changed(setting);
             if (!valueChanged && !presetWrites.contains(setting)) continue;

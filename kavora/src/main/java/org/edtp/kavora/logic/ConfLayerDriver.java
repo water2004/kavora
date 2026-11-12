@@ -138,36 +138,13 @@ public final class ConfLayerDriver {
     /** Marks a world-sourced layer in {@code layersById} and in status output. */
     static final String WORLD_ID_PREFIX = "world/";
 
-    public enum FogScope {
-        // Player settings sit above authored media. A dimension edit wins over a global edit.
-        GLOBAL("global", "mc.fog.global", null, 21000f),
-        NETHER("nether", LogicChannels.DIMENSION_NETHER_LIGHTING, "nether-lighting.conf", 21001f),
-        END("end", LogicChannels.DIMENSION_END_LIGHTING, "end-lighting.conf", 21001f);
-
-        private final String id;
-        private final String channel;
-        private final String authoredProfile;
-        private final float priority;
-
-        FogScope(String id, String channel, String authoredProfile, float priority) {
-            this.id = id;
-            this.channel = channel;
-            this.authoredProfile = authoredProfile;
-            this.priority = priority;
-        }
-
-        public String id() { return id; }
-
-        private LayerSpec playerLayer() {
-            return new LayerSpec(channel, "fog-" + id, priority, 0.01f, false, LayerSource.PLAYER);
-        }
-    }
-
     // Discovered biome and zone layers: each valid *.conf becomes a layer.
     private static final float BIOME_PRIORITY = 6000f;
     private static final float BIOME_BLEND_THRESHOLD = 0.01f;
     private static final float ZONE_PRIORITY = 11000f;
     private static final float ZONE_BLEND_THRESHOLD = 0.01f;
+    private static final float PLAYER_FOG_PRIORITY = 19000f;
+    private static final float UNDERWATER_PRIORITY = 20000f;
     // World profiles sit just above their mod counterparts, so a map's file
     // wins per option while the mod archetype still supplies keys the map
     // leaves out. Sparse override rather than wholesale replacement, which is
@@ -178,7 +155,7 @@ public final class ConfLayerDriver {
     /**
      * The fixed layer catalog: water, automatic view distance, volumetric
      * settling, weather, local mist, dimension looks, and four fixed time-of-day
-     * profiles (14 rows, one per shipped conf, checked by ConfLayerDriverTest).
+     * profiles (13 rows, one per shipped conf, checked by ConfLayerDriverTest).
      * Biome and zone layers are NOT listed here: they are discovered
      * from their conf file names at acquire and reload time, so a new authored
      * look needs no code.
@@ -205,7 +182,7 @@ public final class ConfLayerDriver {
      */
     private static List<LayerSpec> buildStaticLayerTable() {
         List<LayerSpec> table = new ArrayList<>();
-        table.add(new LayerSpec(LogicChannels.UNDERWATER, "confs/water.conf", 20000f, 0.5f, false,
+        table.add(new LayerSpec(LogicChannels.UNDERWATER, "confs/water.conf", UNDERWATER_PRIORITY, 0.5f, false,
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.VIEW_DISTANCE,
                 "confs/view_distance.conf", 3000f, 0.01f, false, LayerSource.MOD));
@@ -215,9 +192,6 @@ public final class ConfLayerDriver {
                 "confs/volumetrics/settling.conf", 3100f, 0.01f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.WEATHER_MIST,
                 "confs/weather/mist.conf", 3500f, 0.01f, true, LayerSource.MOD));
-        table.add(new LayerSpec(LogicChannels.DIMENSION_NETHER,
-                "confs/dimensions/nether.conf", 3900f, 0.01f, false, LayerSource.MOD));
-        // Existing installs preserve their nether.conf. Use a new lower-priority file for the lighting defaults.
         table.add(new LayerSpec(LogicChannels.DIMENSION_NETHER_LIGHTING,
                 "confs/dimensions/nether-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.DIMENSION_END_LIGHTING,
@@ -433,6 +407,7 @@ public final class ConfLayerDriver {
     private Path gameDir;
     /** {@code <world>/rtx-remix} while a single-player world is joined, else null. */
     private Path worldConfRoot;
+    private AtmosphereDimension currentDimension;
     private boolean active = false;
     private long lastFrameNanos = 0;
     private final SettlingEnvelope settling = new SettlingEnvelope();
@@ -506,7 +481,7 @@ public final class ConfLayerDriver {
     }
 
     /** Reads the dimension's flat authored defaults without activating its layer. */
-    public Properties fogProfileDefaults(FogScope scope) {
+    public Properties fogProfileDefaults(AtmosphereDimension scope) {
         Properties defaults = new Properties();
         if (scope.authoredProfile == null) return defaults;
         Path path = modRoot().resolve("confs/dimensions").resolve(scope.authoredProfile);
@@ -519,8 +494,8 @@ public final class ConfLayerDriver {
     }
 
     /** Replaces one sparse player profile using the same runtime layers as authored fog. */
-    public void replaceFogOverrides(FogScope scope, Map<String, String> options) {
-        LayerSpec spec = scope.playerLayer();
+    public void replaceFogOverrides(AtmosphereDimension scope, Map<String, String> options) {
+        LayerSpec spec = new LayerSpec(scope.channel, "fog-" + scope.id(), PLAYER_FOG_PRIORITY, 0.01f, false, LayerSource.PLAYER);
         if (fogOverrides.getOrDefault(spec, Map.of()).equals(options)) return;
         LayerState old = layersById.get(spec.id());
         if (options.isEmpty()) {
@@ -535,7 +510,7 @@ public final class ConfLayerDriver {
                     throw new IllegalStateException("Could not apply " + scope.id() + " fog settings", e);
                 }
             }
-            next.target = next.current = scope == FogScope.GLOBAL ? 1.0f : currentStrength(scope.channel);
+            next.target = next.current = currentDimension == scope ? 1.0f : 0.0f;
             if (next.handle != 0) sendIfChanged(next);
             fogOverrides.put(spec, Map.copyOf(options));
             layersById.put(spec.id(), next);
@@ -654,6 +629,7 @@ public final class ConfLayerDriver {
 
     /** Drops the joined world's profiles; the mod catalog keeps driving. */
     public void onWorldLeave() {
+        currentDimension = null;
         if (worldConfRoot == null) {
             return;
         }
@@ -839,10 +815,10 @@ public final class ConfLayerDriver {
         float dtSeconds = frameDtSeconds();
 
         setTarget(LogicChannels.UNDERWATER, underwater ? 1.0f : 0.0f);
-        float nether = Level.NETHER.equals(world.dimension()) ? 1.0f : 0.0f;
-        setTarget(LogicChannels.DIMENSION_NETHER, nether);
-        setTarget(LogicChannels.DIMENSION_NETHER_LIGHTING, nether);
-        setTarget(LogicChannels.DIMENSION_END_LIGHTING, Level.END.equals(world.dimension()) ? 1.0f : 0.0f);
+        currentDimension = AtmosphereDimension.of(world.dimension());
+        setTarget(LogicChannels.DIMENSION_OVERWORLD_LIGHTING, currentDimension == AtmosphereDimension.OVERWORLD ? 1.0f : 0.0f);
+        setTarget(LogicChannels.DIMENSION_NETHER_LIGHTING, currentDimension == AtmosphereDimension.NETHER ? 1.0f : 0.0f);
+        setTarget(LogicChannels.DIMENSION_END_LIGHTING, currentDimension == AtmosphereDimension.END ? 1.0f : 0.0f);
         setTarget(LogicChannels.VIEW_DISTANCE, Math.clamp(viewDistanceStrength, 0.0f, 1.0f));
         // Time layers follow the shared Overworld clock only; other dimensions
         // contribute no time-of-day strength.

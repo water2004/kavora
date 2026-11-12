@@ -4,6 +4,8 @@
  */
 package org.edtp.kavora.settings;
 
+import org.edtp.kavora.logic.AtmosphereDimension;
+
 /** Ordering of constants drives ordering of rows in the settings screen. */
 public enum SettingGroup {
     RENDER_DISTANCE(SettingCategory.PERFORMANCE, "kavora.settings.group.renderDistance"),
@@ -27,12 +29,15 @@ public enum SettingGroup {
     CLOUDS(SettingCategory.WEATHER, "kavora.settings.group.clouds"),
     CLOUD_QUALITY(CLOUDS, "kavora.settings.group.cloudQuality"),
     FOG(SettingCategory.WEATHER, "kavora.settings.group.fog"),
-    FOG_GLOBAL(FOG, "kavora.settings.group.fogGlobal"),
-    FOG_NETHER(FOG, "kavora.settings.group.fogNether"),
-    FOG_END(FOG, "kavora.settings.group.fogEnd"),
+    FOG_OVERWORLD(FOG, "kavora.settings.group.overworld"),
+    GROUND_MIST(FOG_OVERWORLD, "kavora.settings.group.groundMist"),
+    FOG_NETHER(FOG, "kavora.settings.group.nether"),
+    FOG_END(FOG, "kavora.settings.group.end"),
     FOG_QUALITY(FOG, "kavora.settings.group.fogQuality"),
     FOG_NOISE(FOG, "kavora.settings.group.fogNoise"),
-    GROUND_MIST(SettingCategory.WEATHER, "kavora.settings.group.groundMist"),
+    LAVA_OVERWORLD(SettingCategory.COLOR, "kavora.settings.group.overworld"),
+    LAVA_NETHER(SettingCategory.COLOR, "kavora.settings.group.nether"),
+    LAVA_END(SettingCategory.COLOR, "kavora.settings.group.end"),
     TONEMAPPING(SettingCategory.IMAGE, "kavora.settings.group.tonemapping"),
     BLOOM(SettingCategory.IMAGE, "kavora.settings.group.bloom"),
     COLOR_GRADING(SettingCategory.IMAGE, "kavora.settings.group.colorGrading"),
@@ -60,6 +65,22 @@ public enum SettingGroup {
 
     SettingGroup parent() {
         return parent;
+    }
+
+    static SettingGroup fog(AtmosphereDimension dimension) {
+        return switch (dimension) {
+            case OVERWORLD -> FOG_OVERWORLD;
+            case NETHER -> FOG_NETHER;
+            case END -> FOG_END;
+        };
+    }
+
+    static SettingGroup lava(AtmosphereDimension dimension) {
+        return switch (dimension) {
+            case OVERWORLD -> LAVA_OVERWORLD;
+            case NETHER -> LAVA_NETHER;
+            case END -> LAVA_END;
+        };
     }
 
     boolean contains(SettingGroup group) {

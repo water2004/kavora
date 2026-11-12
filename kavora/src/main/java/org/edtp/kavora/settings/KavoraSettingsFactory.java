@@ -249,7 +249,8 @@ public final class KavoraSettingsFactory {
 
         KavoraEffectOptions.addTo(list, remix);
         var fogProfiles = new FogProfileOptions(list, environment, remix);
-        return new KavoraSettings(list, () -> remix.setConfigVariable("rtx.graphicsPreset", "4"), fogProfiles::publish);
+        LavaLightOptions.add(list, textures);
+        return new KavoraSettings(list, fogProfiles::publish);
     }
 
     static KavoraSetting<Integer> unfocusedFramerate() {

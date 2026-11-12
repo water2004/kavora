@@ -153,11 +153,12 @@ public final class AtlasAnimationForwarder {
      * @param roughnessHandle handle of the roughness atlas, or 0 if none exists
      * @param metallicHandle handle of the metallic atlas, or 0 if none exists
      * @param sssHandle      handle of the SSS atlas, or 0 if none exists
+     * @param lava           dimension-dependent emission for the shared atlas
      */
-    public static void flush(RemixAPI api, long albedoHandle, long emissiveHandle,
-                             long roughnessHandle, long metallicHandle, long sssHandle) {
+    static void flush(RemixAPI api, long albedoHandle, long emissiveHandle,
+                      long roughnessHandle, long metallicHandle, long sssHandle, LavaEmission lava) {
         int count = pendingPatches.size();
-        if (count == 0 || albedoHandle == 0) {
+        if (count == 0 && (emissiveHandle == 0 || !lava.hasDirtyRegions())) {
             return;
         }
 
@@ -194,8 +195,13 @@ public final class AtlasAnimationForwarder {
                 if (roughness != null) roughnessPatches.add(roughness);
                 if (metallic != null) metallicPatches.add(metallic);
                 if (thickness != null) sssPatches.add(thickness);
-                if (emissive != null) emissivePatches.add(emissive);
+                if (emissive != null) {
+                    lava.applyAnimation(p.id, emissive);
+                    emissivePatches.add(emissive);
+                }
             }
+
+            if (emissiveHandle != 0) lava.appendDirtyPatches(emissivePatches, ownedBuffers);
 
             // One batch per frame: the runtime handles each entry's texture
             // independently, so all five channels travel in a single call.
@@ -211,6 +217,7 @@ public final class AtlasAnimationForwarder {
             api.updateTextureFromMemory(info);
 
         } catch (Exception e) {
+            lava.invalidate();
             LOGGER.error("Error flushing animation patches", e);
         } finally {
             for (ByteBuffer buffer : ownedBuffers) {

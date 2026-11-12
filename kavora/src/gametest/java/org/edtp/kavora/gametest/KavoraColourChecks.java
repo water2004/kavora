@@ -72,10 +72,8 @@ final class KavoraColourChecks {
         Map<String, String> values = resolved(context);
         measurements.add(Map.of("name", name, "resolved", values));
         writeMeasurements(context);
-        boolean nether = name.equals("nether");
-        double saturation = nether ? .85 : 1;
-        if (Boolean.parseBoolean(values.get(GRADING)) != nether
-                || Math.abs(Double.parseDouble(values.get(SATURATION)) - saturation) > .0001) {
+        if (Boolean.parseBoolean(values.get(GRADING))
+                || Math.abs(Double.parseDouble(values.get(SATURATION)) - 1.0) > .0001) {
             throw new AssertionError("Unexpected dimension colour profile in " + name + ": " + values);
         }
     }

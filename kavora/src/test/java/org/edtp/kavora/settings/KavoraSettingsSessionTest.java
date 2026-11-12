@@ -67,9 +67,11 @@ class KavoraSettingsSessionTest {
         var operations = new ArrayList<String>();
         var samples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "k", "t", 8, 256, 160,
                 () -> 128, next -> operations.add("samples=" + next));
+        var coverage = KavoraSetting.ofFloat("clouds.coverage", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
+                () -> 0.65, next -> operations.add("coverage=" + next));
         var bounces = KavoraSetting.ofInt("reflection.bounces", SettingGroup.REFLECTIONS, "k", "t", 1, 16, 10,
                 () -> 8, next -> operations.add("bounces=" + next));
-        var settings = new KavoraSettings(List.of(samples, bounces), () -> operations.add("beforeVisualApply"));
+        var settings = new KavoraSettings(List.of(samples, coverage, bounces));
         var high = new KavoraQualitySelection(QualityPreset.HIGH, false);
         settings.setQuality(high);
         var edit = new KavoraSettingsSession(settings);
@@ -88,7 +90,7 @@ class KavoraSettingsSessionTest {
         edit.stagePreset(QualityPreset.HIGH, values);
         assertTrue(edit.hasChanges());
         edit.apply();
-        assertEquals(List.of("beforeVisualApply", "samples=128", "bounces=8"), operations);
+        assertEquals(List.of("samples=128", "bounces=8"), operations);
         assertEquals(high, settings.quality());
         assertFalse(edit.hasChanges());
     }

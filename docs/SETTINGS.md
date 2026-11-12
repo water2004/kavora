@@ -1,9 +1,10 @@
 # Settings
 
 Open **RTX Remix Settings...** in Options for the independent shader settings
-screen. It has six categories: Lighting, Ray Tracing, Materials, Sky,
-Weather & Volumes, and Image & Exposure. Each opens folders for related effects. Sodium's RTX Remix
-sidebar also links to this screen through **Shader Settings...**.
+screen. Its visual categories include Lighting, Ray Tracing, Materials, Sky,
+Weather & Volumes, Color, and Image & Exposure. Each opens folders for related
+effects. Sodium's RTX Remix sidebar also links to this screen through
+**Shader Settings...**.
 
 Sodium contains DLSS, Ray Reconstruction, frame generation, capture distances,
 and the background frame cap. These edits remain
@@ -137,8 +138,8 @@ The Milky Way uses NASA SVS's catalogue-derived Deep Star Maps 2020. Its source,
 credit and public-domain notice are in `packaging/licenses/NASA-Deep-Star-Maps.txt`.
 The separate star field has sparse bright points over a much dimmer population.
 
-Sky contains the atmosphere and celestial environments. Clouds, fog and ground
-mist live in Weather & Volumes. Minecraft's cloud option
+Sky contains the atmosphere and celestial environments. Weather & Volumes
+contains clouds, fog, and ground mist. Minecraft's cloud option
 remains the master switch: Off removes both styles. Volumetric clouds use a
 world-space density field along camera, reflection, and refraction rays;
 Classic uses Minecraft's blocky cloud pattern. Cloud distance is independent
@@ -168,15 +169,21 @@ Volumetric controls include coverage, thickness, shape scale, density, wind,
 scattering, distance, and view and shadow samples. Classic edge smoothing and
 thickness affect only Classic clouds; the height offset applies to both styles.
 
-Under **Weather & Volume → Volumetric Fog**, **Global Fog Overrides** applies
-edits in every dimension. **Nether Fog** and **End Fog** apply edits in their
-own dimensions and take precedence over the corresponding global values.
-Each folder exposes transmittance, optical distance, scattering ratio and
-direction, ambient scattered light, and falloff above and below the peak
-density height. Reset a folder and apply to let the authored profiles supply
-those values again. The density noise controls live in a separate folder.
-Automatic ground mist follows dawn, weather, and biome conditions. Its own
-folder contains the automatic strength and persistent mist density.
+**Weather & Volumes → Volumetric Fog** has separate Overworld, Nether, and End folders.
+Each dimension exposes transmittance, optical distance,
+scattering ratio and direction, ambient scattered light, and falloff around the
+peak density height. Reset a folder and apply to restore the authored profile.
+The Overworld's **Ground Mist** follows dawn, weather, and biome conditions.
+Shared sampling and density noise controls live alongside the dimension folders.
+
+**Color** gives the Overworld, Nether, and End independent lava warmth, hue
+shift, saturation, and emitted brightness controls. These apply to each texel's
+material color and preserve the animated emissive pattern. The Nether starts
+with a cooler offset, and the Overworld, End, and custom dimensions start from
+the material color. The same emission lights nearby surfaces, reflections and
+fog. Presets write the individual setting IDs declared in
+`KavoraQualityPresets`. Other settings keep their values regardless of their
+menu folder.
 
 **Image → Lens Effects** contains chromatic aberration, vignette, and motion
 blur. Bloom radius lives with bloom, while color inversion lives under Color
@@ -217,11 +224,8 @@ and requests one terrain/material rebuild. Quality profiles leave it alone.
 
 The folders cover bloom, local and global tonemapping, color grading and RGB
 balance, and eye adaptation, including metering and adaptation speed.
-Color grading runs once in the shared output stage after either tone mapper;
-its saturation, contrast and RGB balance controls work in both modes.
-The Nether supplies a milder default saturation through
-`rtx-remix/mods/minecraft-logic/confs/dimensions/nether.conf`. It changes display
-color only and releases the adjustment when you leave that dimension.
+The shared output stage applies color grading once after either tone mapper.
+Contrast and RGB balance work in both modes.
 Taking control of a native value masks that option in a map's lighting profiles for
 the rest of the session; see [Where A Setting Can Come From](#where-a-setting-can-come-from).
 
@@ -307,11 +311,12 @@ control is omitted so world and biome profiles can continue authoring it.
 The file remains present to retain the source profile. A missing file uses Ultra.
 
 The visual settings schema advances one version at a time. Kavora 1.0.0 and
-1.0.1 used schema 3. On upgrade, fog edits move into Global Fog Overrides, and the
-preset label is recalculated from the saved preset-controlled values. The
-upgraded file is saved automatically. Unknown schema versions are preserved
-on disk. Unknown setting IDs and out-of-range values are logged and skipped
-while the remaining values load.
+1.0.1 used schema 3. On upgrade, saved fog edits are carried into each vanilla
+dimension's profile. The old saturation setting is discarded and the preset
+label is recalculated from the saved preset-controlled values. The upgraded
+file is saved automatically. Unknown schema versions are preserved on disk.
+Unknown setting IDs and out-of-range values are logged and skipped while the
+remaining values load.
 
 The video settings file validates an explicit whitelist of native options and
 their ranges. Delete the corresponding file to clear those saved overrides.

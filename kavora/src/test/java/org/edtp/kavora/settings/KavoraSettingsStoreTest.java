@@ -184,7 +184,7 @@ class KavoraSettingsStoreTest {
     }
 
     @Test
-    void loadWritesMatchingOwnedValuesAfterOneVisualHook(@TempDir Path dir) throws Exception {
+    void loadWritesMatchingOwnedValuesBeforePublishingChanges(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("kavora.json");
         Files.writeString(file, """
                 {"version":3,"settings":{"clouds.samples":160,"reflection.psrr":true,"clouds.coverage":0.5}}
@@ -196,11 +196,11 @@ class KavoraSettingsStoreTest {
                 () -> true, next -> operations.add("psrr=" + next));
         var coverage = KavoraSetting.ofFloat("clouds.coverage", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
                 () -> 0.5, next -> operations.add("coverage=" + next));
-        var settings = new KavoraSettings(List.of(samples, psrr, coverage), () -> operations.add("beforeVisualApply"));
+        var settings = new KavoraSettings(List.of(samples, psrr, coverage), () -> operations.add("publish"));
 
         new KavoraSettingsStore(file).load(settings);
 
-        assertEquals(List.of("beforeVisualApply", "samples=160"), operations);
+        assertEquals(List.of("samples=160", "publish"), operations);
     }
 
     @Test
@@ -262,31 +262,35 @@ class KavoraSettingsStoreTest {
     }
 
     @Test
-    void migratesReleasedGlobalFogAndRecomputesThePresetLabel(@TempDir Path dir) throws Exception {
+    void migratesReleasedFogToEachDimensionAndRecomputesThePresetLabel(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("kavora.json");
         Files.writeString(file, """
                 {"version":3,"quality":{"base":"high","custom":true},
                  "settings":{"fog.heightFalloff":22,"fog.transmittance.red":0.8,
-                             "fog.global.transmittance.red":0.7,"unknown":9}}
+                             "fog.end.heightFalloff":14,"image.saturation":0.85,"unknown":9}}
                 """);
-        double[] globalFalloff = {0}, endFalloff = {14}, red = {0.999};
+        double[] overworldFalloff = {0}, netherFalloff = {0}, endFalloff = {4}, red = {0.999};
         var settings = new KavoraSettings(List.of(
-                fog("fog.global.heightFalloff", globalFalloff, 0, 128),
-                fog("fog.end.heightFalloff", endFalloff, 14, 128),
-                fog("fog.global.transmittance.red", red, 0.999, 1)));
+                fog("fog.overworld.heightFalloff", overworldFalloff, 0, 128),
+                fog("fog.nether.heightFalloff", netherFalloff, 0, 128),
+                fog("fog.end.heightFalloff", endFalloff, 4, 128),
+                fog("fog.overworld.transmittance.red", red, 0.999, 1)));
         var store = new KavoraSettingsStore(file);
         store.load(settings);
 
-        assertEquals(22, globalFalloff[0]);
+        assertEquals(22, overworldFalloff[0]);
+        assertEquals(22, netherFalloff[0]);
         assertEquals(14, endFalloff[0]);
-        assertEquals(0.7, red[0]);
+        assertEquals(0.8, red[0]);
         assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, false), settings.quality());
         String migrated = Files.readString(file);
         JsonObject root = JsonParser.parseString(migrated).getAsJsonObject();
         assertEquals(4, root.get("version").getAsInt());
         var values = root.getAsJsonObject("settings");
         assertFalse(values.has("fog.heightFalloff"));
-        assertEquals(22, values.get("fog.global.heightFalloff").getAsInt());
+        assertFalse(values.has("image.saturation"));
+        assertEquals(22, values.get("fog.overworld.heightFalloff").getAsInt());
+        assertEquals(22, values.get("fog.nether.heightFalloff").getAsInt());
         assertEquals(9, values.get("unknown").getAsInt());
         store.load(settings);
         assertEquals(migrated, Files.readString(file));

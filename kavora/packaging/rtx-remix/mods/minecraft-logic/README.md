@@ -251,7 +251,6 @@ from several places with a shared channel.
 | `confs/time/dusk.conf` | Fixed Overworld schedule | 4002 | 0.50 | The clock curve below |
 | `confs/time/day.conf` | Fixed Overworld schedule | 4001 | 0.50 | The clock curve below |
 | `confs/time/dawn.conf` | Fixed Overworld schedule | 4000 | 0.50 | The clock curve below |
-| `confs/dimensions/nether.conf` | Camera is in the Nether: 0 or 1 | 3900 | 0.01 | Immediate on dimension change |
 | `confs/dimensions/nether-lighting.conf` | Camera is in the Nether: 0 or 1 | 3899 | 0.01 | Immediate on dimension change |
 | `confs/dimensions/end-lighting.conf` | Camera is in the End: 0 or 1 | 3899 | 0.01 | Immediate on dimension change |
 | `confs/weather/mist.conf` | Automatic dawn, weather and biome mist | 3500 | 0.01 | Half-second half-life |
@@ -259,11 +258,8 @@ from several places with a shared channel.
 | `confs/view_distance.conf` | Render distance, 2 to 32 chunks | 3000 | 0.01 | Immediate on each change |
 | `confs/view_distance_voxy.conf` | Active far capture radius, 32 to 2048 chunks | 2999 | 0.0001 | Immediate on each change |
 
-The Nether profile reduces display saturation while preserving luminance and
-neutral colors. It uses the shared color-grading output stage in either tone-mapping
-mode and releases its influence when leaving the dimension. Editing
-`rtx.tonemap.saturation` in this profile changes its default look; a player override
-in the shader settings takes precedence.
+The Nether's dimension profile lives in `confs/dimensions/nether-lighting.conf`.
+Transfer any authored settings from the retired `nether.conf` to that profile.
 
 The End profile places peak fog density at the island layer. The
 `rtx.volumetrics.heightFogFalloffMeters` and

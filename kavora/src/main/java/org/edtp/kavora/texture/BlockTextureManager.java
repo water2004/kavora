@@ -5,6 +5,7 @@
 package org.edtp.kavora.texture;
 
 import com.mojang.blaze3d.platform.NativeImage;
+import org.edtp.kavora.logic.AtmosphereDimension;
 import org.edtp.kavora.sdk.InstanceInfoBlendEXT;
 import org.edtp.kavora.sdk.MaterialInfo;
 import org.edtp.kavora.sdk.MaterialInfoOpaqueEXT;
@@ -84,6 +85,7 @@ public class BlockTextureManager {
     public static BlockTextureManager get() { return INSTANCE; }
 
     private final RemixAPI api;
+    private final LavaEmission lavaEmission = new LavaEmission();
     private byte[] albedoRGBA;
     private KavoraTexture atlasAlbedo;
     private KavoraTexture atlasEmissive;
@@ -562,6 +564,7 @@ public class BlockTextureManager {
         SpriteAtlasContent.extrudePadding(atlas, roughnessAtlas, 1);
         SpriteAtlasContent.extrudePadding(atlas, metallicAtlas, 1);
         SpriteAtlasContent.extrudePadding(atlas, emissiveAtlas, 4);
+        if (hasAnyEmissive) lavaEmission.install(atlas, emissiveAtlas, atlasW);
         SpriteAtlasContent.extrudePadding(atlas, sssThicknessAtlas, 1);
         SpriteAtlasContent.extrudePadding(atlas, sssAlbedoAtlas, 4);
         String auditDirectory = System.getProperty("kavora.materialSnapshotDirectory");
@@ -1276,11 +1279,21 @@ public class BlockTextureManager {
     // ====================================================================
 
     public boolean isInitialized() { return initialized && !sprites.isEmpty(); }
-    public KavoraTexture getBlockAtlasTexture() { ensureInit(); return atlasAlbedo; }
-    public KavoraTexture getEmissiveAtlasTexture() { ensureInit(); return atlasEmissive; }
     public KavoraTexture getRoughnessAtlasTexture() { ensureInit(); return atlasRoughnessTex; }
-    public KavoraTexture getMetallicAtlasTexture() { ensureInit(); return atlasMetallicTex; }
-    public KavoraTexture getSssAtlasTexture() { ensureInit(); return atlasSssTex; }
+
+    public void setLavaEmission(AtmosphereDimension dimension, LavaEmission.Profile profile) {
+        lavaEmission.setProfile(dimension, profile);
+    }
+
+    public void flushAnimations(AtmosphereDimension dimension) {
+        lavaEmission.select(dimension);
+        ensureInit();
+        if (!initialized || atlasAlbedo == null) return;
+        AtlasAnimationForwarder.flush(api, atlasAlbedo.getHandle(),
+                handle(atlasEmissive), handle(atlasRoughnessTex), handle(atlasMetallicTex), handle(atlasSssTex), lavaEmission);
+    }
+
+    private static long handle(KavoraTexture texture) { return texture == null ? 0 : texture.getHandle(); }
     private void ensureInit() { if (!initialized) initialize(); }
 
     public void reload() { cleanup(); initialized = initFailed = false; initialize(); }
@@ -1292,9 +1305,12 @@ public class BlockTextureManager {
         for (KavoraTexture tex : managedTextures)
             if (!tex.isDeleted()) tex.destroy();
         managedTextures.clear();
+        lavaEmission.clearAtlas();
         sprites.clear(); spriteById.clear(); spriteLightColors.clear();
         Arrays.fill(atlasMaterials, null);
         Arrays.fill(atlasMaterialsSSS, null);
+        atlasAlbedo = null;
+        atlasEmissive = null;
         atlasNormalTex = null;
         atlasHeightTex = null;
         atlasRoughnessTex = null;

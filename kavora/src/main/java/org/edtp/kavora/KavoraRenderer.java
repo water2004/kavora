@@ -16,13 +16,13 @@ import org.edtp.kavora.asset.KavoraLightStore;
 import org.edtp.kavora.asset.KavoraMaterial;
 import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraMeshStore;
-import org.edtp.kavora.asset.KavoraTexture;
 import org.edtp.kavora.asset.KavoraTextureStore;
 import org.edtp.kavora.benchmark.BenchmarkController;
 import org.edtp.kavora.render.KavoraInterop;
 import org.edtp.kavora.render.KavoraFramePresentation;
 import org.edtp.kavora.render.RenderBackend;
 import org.edtp.kavora.light.LightManager;
+import org.edtp.kavora.logic.AtmosphereDimension;
 import org.edtp.kavora.logic.ViewDistanceFade;
 import org.edtp.kavora.profiling.PerformanceTimer;
 import org.edtp.kavora.profiling.ProfileScope;
@@ -650,20 +650,7 @@ public class KavoraRenderer {
             if (textureManager != null) {
                 perfTimer.begin(perfTimer.perfAtlas);
                 try (ProfileScope atlasScope = ProfileScope.begin("Atlas")) {
-                    KavoraTexture albedoTex = textureManager.getBlockAtlasTexture();
-                    KavoraTexture emissiveTex = textureManager.getEmissiveAtlasTexture();
-                    KavoraTexture roughnessTex = textureManager.getRoughnessAtlasTexture();
-                    KavoraTexture metallicTex = textureManager.getMetallicAtlasTexture();
-                    KavoraTexture sssTex = textureManager.getSssAtlasTexture();
-                    long albedoHandle = albedoTex != null ? albedoTex.getHandle() : 0;
-                    long emissiveHandle = emissiveTex != null ? emissiveTex.getHandle() : 0;
-                    long roughnessHandle = roughnessTex != null ? roughnessTex.getHandle() : 0;
-                    long metallicHandle = metallicTex != null ? metallicTex.getHandle() : 0;
-                    long sssHandle = sssTex != null ? sssTex.getHandle() : 0;
-                    if (albedoHandle != 0) {
-                        AtlasAnimationForwarder.flush(remixApi, albedoHandle, emissiveHandle,
-                                roughnessHandle, metallicHandle, sssHandle);
-                    }
+                    textureManager.flushAnimations(AtmosphereDimension.of(world.dimension()));
                 } finally {
                     perfTimer.end(perfTimer.perfAtlas);
                 }

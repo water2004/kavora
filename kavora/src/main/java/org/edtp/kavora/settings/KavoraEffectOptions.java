@@ -137,7 +137,6 @@ final class KavoraEffectOptions {
         new Control("image.globalExposure", SettingGroup.COLOR_GRADING, "rtx.tonemap.exposureBias", KavoraSetting.Kind.FLOAT, -8, 8),
         new Control("image.grading", SettingGroup.COLOR_GRADING, "rtx.tonemap.colorGradingEnabled", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("image.contrast", SettingGroup.COLOR_GRADING, "rtx.tonemap.contrast", KavoraSetting.Kind.FLOAT, 0, 2),
-        new Control("image.saturation", SettingGroup.COLOR_GRADING, "rtx.tonemap.saturation", KavoraSetting.Kind.FLOAT, 0, 2),
         new Control("lens.enabled", SettingGroup.LENS, "rtx.postfx.enable", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("lens.chromaticAberration", SettingGroup.LENS, "rtx.postfx.enableChromaticAberration", KavoraSetting.Kind.BOOL, 0, 1),
         new Control("lens.chromaticAmount", SettingGroup.LENS, "rtx.postfx.chromaticAberrationAmount", KavoraSetting.Kind.FLOAT, 0, 0.2),

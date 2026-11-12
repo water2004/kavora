@@ -246,7 +246,7 @@ final class KavoraSettingsChecks {
             KavoraSodiumConfig.openEffects(client.gui.screen());
             press(client.gui.screen(), "kavora.settings.category.weather");
             press(client.gui.screen(), "kavora.settings.group.fog");
-            press(client.gui.screen(), "kavora.settings.group.fogEnd");
+            press(client.gui.screen(), "kavora.settings.group.end");
             editNumber("fog.end.lowerHeightFalloff", "19");
             press(client.gui.screen(), "kavora.settings.apply");
         });
@@ -383,8 +383,9 @@ final class KavoraSettingsChecks {
         var originalQuality = context.computeOnClient(client -> KavoraMod.getRtxSettings().quality());
         Map<String, Double> original = context.computeOnClient(client -> {
             var values = new LinkedHashMap<String, Double>();
-            for (String id : new String[] {"clouds.coverage", "fog.global.transmittance.red", "fog.global.transmittance.green",
-                    "fog.end.lowerHeightFalloff", "image.inversionAmount", "water.ior", "water.red",
+            for (String id : new String[] {"clouds.coverage", "fog.overworld.transmittance.red", "fog.overworld.transmittance.green",
+                    "fog.end.lowerHeightFalloff", "lava.nether.intensity", "lava.nether.saturation",
+                    "image.inversionAmount", "water.ior", "water.red",
                     "water.absorptionDistance"}) values.put(id, floating(id).get());
             return values;
         });
@@ -403,13 +404,21 @@ final class KavoraSettingsChecks {
             KavoraWorldGameTest.captureCompletedFrame(context, "settings-clouds");
             context.runOnClient(client -> {
                 press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.category.color");
+                press(client.gui.screen(), "kavora.settings.group.nether");
+                editNumber("lava.nether.intensity", "1.25");
+                editNumber("lava.nether.saturation", "0.7");
+                press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.category.weather");
                 press(client.gui.screen(), "kavora.settings.group.fog");
-                press(client.gui.screen(), "kavora.settings.group.fogEnd");
+                press(client.gui.screen(), "kavora.settings.group.end");
                 editNumber("fog.end.lowerHeightFalloff", "19");
                 press(client.gui.screen(), "kavora.settings.back");
-                press(client.gui.screen(), "kavora.settings.group.fogGlobal");
-                editNumber("fog.global.transmittance.red", "0.8");
-                editNumber("fog.global.transmittance.green", "0.85");
+                press(client.gui.screen(), "kavora.settings.group.overworld");
+                editNumber("fog.overworld.transmittance.red", "0.8");
+                editNumber("fog.overworld.transmittance.green", "0.85");
             });
             context.waitTicks(2);
             context.runOnClient(client -> requireNonOverlappingWidgets(client.gui.screen()));
@@ -420,6 +429,11 @@ final class KavoraSettingsChecks {
             context.runOnClient(client -> {
                 require(!KavoraMod.getRtxSettings().quality().customized(), "Artistic fog controls changed the preset label");
                 require(floating("fog.end.lowerHeightFalloff").get() == 19.0, "The End fog edit was not applied");
+                require(floating("lava.nether.intensity").get() == 1.25
+                                && Math.abs(floating("lava.nether.saturation").get() - 0.7) < 1e-6
+                                && floating("lava.overworld.intensity").get() == 1.0
+                                && floating("lava.overworld.saturation").get() == 1.0,
+                        "Nether lava light edit was not scoped to the Nether");
                 require(Double.parseDouble(read("rtx.volumetrics.heightFogLowerFalloffMeters")) == 0.0,
                         "The End fog edit leaked into the Overworld");
             });
@@ -495,6 +509,7 @@ final class KavoraSettingsChecks {
         Map<String, List<String>> routes = new LinkedHashMap<>();
         routes.put("cloud-quality", List.of("weather", "clouds", "cloudQuality"));
         routes.put("fog-quality", List.of("weather", "fog", "fogQuality"));
+        routes.put("nether-lava", List.of("color", "nether"));
         routes.put("parallax", List.of("materials", "materials", "parallax"));
         routes.put("radiance-cache", List.of("rayTracing", "pathTracing", "radianceCache"));
         for (var route : routes.entrySet()) {
@@ -563,6 +578,7 @@ final class KavoraSettingsChecks {
         var settings = context.computeOnClient(client -> KavoraMod.getRtxSettings());
         var originalQuality = context.computeOnClient(client -> settings.quality());
         var originalDisplay = context.computeOnClient(client -> displaySettings());
+        String originalNativePreset = context.computeOnClient(client -> read("rtx.graphicsPreset"));
         var restoreValues = context.computeOnClient(client -> KavoraQualityPresets.values(QualityPreset.ULTRA).keySet()
                 .stream().map(id -> restoreSetting(setting(id))).toList());
         Path file = FabricLoader.getInstance().getConfigDir().resolve("kavora.json");
@@ -641,18 +657,18 @@ final class KavoraSettingsChecks {
                 require(settings.quality().equals(ultra), "Ultra did not clear the custom label");
                 require(displaySettings().equals(originalDisplay), "Ultra changed display reconstruction or frame generation");
             });
-            // A developer-menu preset must not mask a later shader-menu transaction.
             context.runOnClient(client -> KavoraMod.renderer.getRemixApi().setConfigVariable("rtx.graphicsPreset", "0"));
-            context.waitFor(client -> read("rtx.pathMinBounces").equals("1")
-                    && read("rtx.pathMaxBounces").equals("4"), 100);
+            context.waitFor(client -> read("rtx.graphicsPreset").equals("0"), 100);
             context.runOnClient(client -> KavoraQualityPresets.apply(settings, QualityPreset.HIGH));
-            context.waitFor(client -> read("rtx.graphicsPreset").equals("4")
-                    && read("rtx.pathMinBounces").equals("0")
-                    && read("rtx.pathMaxBounces").equals(Integer.toString(highBounces)), 100);
-            context.runOnClient(client -> require(displaySettings().equals(originalDisplay),
-                    "Reclaiming visual settings changed display reconstruction or frame generation"));
+            context.waitTicks(3);
+            context.runOnClient(client -> {
+                require(read("rtx.graphicsPreset").equals("0"), "High changed the native graphics preset");
+                require(settings.quality().equals(high), "High did not update the Kavora selection");
+                require(displaySettings().equals(originalDisplay), "High changed display reconstruction or frame generation");
+            });
         } finally {
             context.runOnClient(client -> {
+                KavoraMod.renderer.getRemixApi().setConfigVariable("rtx.graphicsPreset", originalNativePreset);
                 restoreValues.forEach(Runnable::run);
                 settings.setQuality(originalQuality);
                 restoreSettingsFile(file, originalFile);

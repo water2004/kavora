@@ -2,7 +2,7 @@
 package org.edtp.kavora.settings;
 
 import org.edtp.kavora.logic.ConfLayerDriver;
-import org.edtp.kavora.logic.ConfLayerDriver.FogScope;
+import org.edtp.kavora.logic.AtmosphereDimension;
 import org.edtp.kavora.sdk.RemixAPI;
 
 import java.util.ArrayList;
@@ -42,26 +42,26 @@ final class FogProfileOptions {
     }
 
     private final ConfLayerDriver driver;
-    private final Map<FogScope, List<Value>> profiles = new EnumMap<>(FogScope.class);
+    private final Map<AtmosphereDimension, List<Value>> profiles = new EnumMap<>(AtmosphereDimension.class);
     private boolean changed;
 
     static boolean contains(String id) {
-        return id.startsWith("fog.global.") || id.startsWith("fog.nether.") || id.startsWith("fog.end.")
+        return id.startsWith("fog.overworld.") || id.startsWith("fog.nether.") || id.startsWith("fog.end.")
                 || id.equals("mist.density");
     }
 
     FogProfileOptions(List<KavoraSetting<?>> settings, ConfLayerDriver driver, RemixAPI api) {
         this.driver = driver;
-        Map<Parameter, float[]> global = new LinkedHashMap<>();
+        Map<Parameter, float[]> runtimeDefaults = new LinkedHashMap<>();
         for (var parameter : PARAMETERS) {
-            global.put(parameter, parse(parameter, api.getConfigVariableResolved(parameter.runtimeKey())));
+            runtimeDefaults.put(parameter, parse(parameter, api.getConfigVariableResolved(parameter.runtimeKey())));
         }
-        for (var scope : FogScope.values()) {
+        for (var scope : AtmosphereDimension.values()) {
             var authored = driver.fogProfileDefaults(scope);
             var values = new ArrayList<Value>();
             for (var parameter : PARAMETERS) {
                 String text = authored.getProperty(parameter.runtimeKey());
-                float[] defaults = global.get(parameter);
+                float[] defaults = runtimeDefaults.get(parameter);
                 if (text != null) {
                     try {
                         defaults = parse(parameter, text);
@@ -71,23 +71,15 @@ final class FogProfileOptions {
                 }
                 Value value = new Value(parameter, defaults);
                 values.add(value);
-                addControls(settings, group(scope), "fog." + scope.id(), "fog", value);
+                addControls(settings, SettingGroup.fog(scope), "fog." + scope.id(), "fog", value);
             }
-            if (scope == FogScope.GLOBAL) {
+            if (scope == AtmosphereDimension.OVERWORLD) {
                 var mist = new Value(MIST_DENSITY, parse(MIST_DENSITY, api.getConfigVariableResolved(MIST_DENSITY.runtimeKey())));
                 values.add(mist);
                 addControls(settings, SettingGroup.GROUND_MIST, "mist", "mist", mist);
             }
             profiles.put(scope, List.copyOf(values));
         }
-    }
-
-    private static SettingGroup group(FogScope scope) {
-        return switch (scope) {
-            case GLOBAL -> SettingGroup.FOG_GLOBAL;
-            case NETHER -> SettingGroup.FOG_NETHER;
-            case END -> SettingGroup.FOG_END;
-        };
     }
 
     private void addControls(List<KavoraSetting<?>> settings, SettingGroup group, String idPrefix, String labelPrefix, Value value) {

@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.edtp.kavora.QualityPreset;
+import org.edtp.kavora.logic.AtmosphereDimension;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -130,9 +131,6 @@ public final class KavoraSettingsStore {
             Object value = readEntry(setting, entry.getValue());
             if (value != null) loaded.put(setting, value);
         }
-        boolean visualOverride = loaded.keySet().stream()
-                .anyMatch(setting -> setting.group().category() != SettingCategory.PERFORMANCE);
-        if (visualOverride) settings.beforeVisualApply();
         loaded.forEach(KavoraSettingsStore::applyEntry);
         settings.afterVisualApply();
         settings.setQuality(KavoraQualityPresets.selection(settings, base, KavoraSetting::get));
@@ -156,12 +154,16 @@ public final class KavoraSettingsStore {
     }
 
     private static void migrateRelease3To4(JsonObject values) {
+        values.remove("image.saturation");
         for (String suffix : java.util.List.of("range", "anisotropy", "baseHeight", "heightFalloff",
                 "transmittance.red", "transmittance.green", "transmittance.blue",
                 "scatteringAlbedo.red", "scatteringAlbedo.green", "scatteringAlbedo.blue")) {
             JsonElement value = values.remove("fog." + suffix);
-            String scopedId = "fog.global." + suffix;
-            if (value != null && !values.has(scopedId)) values.add(scopedId, value);
+            if (value == null) continue;
+            for (var dimension : AtmosphereDimension.values()) {
+                String scopedId = "fog." + dimension.id() + "." + suffix;
+                if (!values.has(scopedId)) values.add(scopedId, value.deepCopy());
+            }
         }
     }
 
