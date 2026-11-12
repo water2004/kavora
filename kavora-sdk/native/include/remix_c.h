@@ -167,6 +167,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT       = 48,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT             = 49,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT            = 50,
+    REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT          = 51,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -303,6 +304,14 @@ extern "C" {
     float               dlssControlMaskToneStrength;
     float               dlssControlMaskStructuralStrength;
   } remixapi_MaterialInfoOpaqueEXT;
+
+  // Opaque emissive Minecraft portal. MaterialInfo supplies the sky in albedoTexture
+  // and the repeating star pattern in emissiveTexture.
+  typedef struct remixapi_MaterialInfoEndPortalEXT {
+    remixapi_StructType     sType;
+    void*                   pNext;
+    uint32_t                starLayers; // 15 for the end portal, 16 for the gateway.
+  } remixapi_MaterialInfoEndPortalEXT;
 
   // Valid only if remixapi_MaterialInfo contains remixapi_MaterialInfoOpaqueEXT in pNext chain
   typedef struct remixapi_MaterialInfoOpaqueSubsurfaceEXT {

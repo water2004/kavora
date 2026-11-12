@@ -286,17 +286,30 @@ public class RemixAPI {
                         s.subsurfaceRadiusScale, s.subsurfaceMaxSampleRadius,
                         s.subsurfaceRadiusTexture, 0);
             }
-            return RemixBridge.allocOpaqueExt(
-                    o.roughnessTexture, o.metallicTexture, o.anisotropy,
-                    o.albedoConstant.x, o.albedoConstant.y, o.albedoConstant.z,
-                    o.opacityConstant, o.roughnessConstant, o.metallicConstant,
-                    o.thinFilmThickness_hasvalue != 0, o.thinFilmThickness_value,
-                    o.alphaIsThinFilmThickness != 0,
-                    o.heightTexture, o.displaceIn,
-                    o.useDrawCallAlphaState != 0,
-                    o.blendType_hasvalue != 0, o.blendType_value, o.invertedBlend != 0,
-                    o.alphaTestType, o.alphaReferenceValue, o.displaceOut,
-                    subsurfacePtr);
+            if (o.endPortalLayers != 0) {
+                try {
+                    subsurfacePtr = RemixBridge.allocEndPortalExt(o.endPortalLayers, subsurfacePtr);
+                } catch (RuntimeException | Error failure) {
+                    RemixBridge.freeExtChain(subsurfacePtr);
+                    throw failure;
+                }
+            }
+            try {
+                return RemixBridge.allocOpaqueExt(
+                        o.roughnessTexture, o.metallicTexture, o.anisotropy,
+                        o.albedoConstant.x, o.albedoConstant.y, o.albedoConstant.z,
+                        o.opacityConstant, o.roughnessConstant, o.metallicConstant,
+                        o.thinFilmThickness_hasvalue != 0, o.thinFilmThickness_value,
+                        o.alphaIsThinFilmThickness != 0,
+                        o.heightTexture, o.displaceIn,
+                        o.useDrawCallAlphaState != 0,
+                        o.blendType_hasvalue != 0, o.blendType_value, o.invertedBlend != 0,
+                        o.alphaTestType, o.alphaReferenceValue, o.displaceOut,
+                        subsurfacePtr);
+            } catch (RuntimeException | Error failure) {
+                RemixBridge.freeExtChain(subsurfacePtr);
+                throw failure;
+            }
         } else if (info.translucentExt != null) {
             MaterialInfoTranslucentEXT t = info.translucentExt;
             long water = t.simulatedWater ? RemixBridge.allocWaterSurfaceExt() : 0;

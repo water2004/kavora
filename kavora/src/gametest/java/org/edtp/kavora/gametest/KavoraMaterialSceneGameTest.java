@@ -57,6 +57,10 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
                 else checkVanillaBeacon(context, world);
                 return;
             }
+            if (Boolean.getBoolean("kavora.gametest.endPortalsOnly")) {
+                checkEndPortals(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.stainedGlassOnly")) {
                 checkStainedGlass(context, world);
                 return;
@@ -213,6 +217,45 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
             return (double) (red - blue) / Math.max(1, red + green + blue);
         } catch (IOException error) {
             throw new AssertionError("Cannot inspect stained glass screenshot " + path, error);
+        }
+    }
+
+    private static void checkEndPortals(ClientGameTestContext context, TestSingleplayerContext world) {
+        context.runOnClient(client -> { if (!client.gui.hud.isHidden()) client.gui.hud.toggle(); });
+        world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                "gamemode creative @a", "time set 18000",
+                "fill -5 -61 7 -1 -61 11 minecraft:obsidian",
+                "fill -5 -60 7 -1 -60 11 minecraft:end_portal",
+                "setblock 2 -59 10 minecraft:end_gateway{Age:400L}",
+                "setblock 2 -60 10 minecraft:obsidian",
+                "setblock 2 -58 10 minecraft:obsidian"));
+        pose(world, -2.5, -56.62, 3, 0, 35);
+        assertPortalStars(capture(context, world, "end-portal-starlight"), .50, .47, .12, .10);
+        pose(world, 2.5, -58.27, 5, 0, 18);
+        assertPortalStars(capture(context, world, "end-gateway-starlight"), .50, .49, .027, .043);
+    }
+
+    private static void assertPortalStars(Path screenshot, double u, double v, double halfWidth, double halfHeight) {
+        try {
+            var image = ImageIO.read(screenshot.toFile());
+            int tinted = 0, samples = 0, low = 255, high = 0;
+            for (int y = (int) ((v - halfHeight) * image.getHeight()); y < (v + halfHeight) * image.getHeight(); y++) {
+                for (int x = (int) ((u - halfWidth) * image.getWidth()); x < (u + halfWidth) * image.getWidth(); x++) {
+                    int rgb = image.getRGB(x, y);
+                    int r = rgb >>> 16 & 255, g = rgb >>> 8 & 255, b = rgb & 255;
+                    int light = Math.max(g, b);
+                    if (light >= r + 10 && light >= 20) {
+                        tinted++;
+                        low = Math.min(low, light);
+                        high = Math.max(high, light);
+                    }
+                    samples++;
+                }
+            }
+            KavoraWorldGameTest.require(tinted > samples / 8 && high - low >= 22,
+                    "Portal lacks a varied star pattern (" + tinted + "/" + samples + ", " + low + "–" + high + "): " + screenshot);
+        } catch (IOException e) {
+            throw new AssertionError("Cannot inspect portal screenshot " + screenshot, e);
         }
     }
 

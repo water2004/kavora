@@ -39,9 +39,19 @@ final class RenderLayerUtils {
         EMISSIVE_CUTOUT,
         /** Refracting clear glass on the block atlas. */
         GLASS,
-        STAINED_GLASS_BLOCK;
+        STAINED_GLASS_BLOCK,
+        END_PORTAL,
+        END_GATEWAY;
 
         boolean isEmissive() { return this == EMISSIVE || this == EMISSIVE_CUTOUT; }
+
+        int endPortalLayers() {
+            return switch (this) {
+                case END_PORTAL -> 15;
+                case END_GATEWAY -> 16;
+                default -> 0;
+            };
+        }
     }
 
     /** How a layer's captured vertex stream turns into Remix triangles. */
@@ -181,6 +191,8 @@ final class RenderLayerUtils {
 
     private static SurfaceMode surfaceModeUncached(RenderType layer) {
         var pipeline = layer.pipeline();
+        if (pipeline == RenderPipelines.END_PORTAL) return SurfaceMode.END_PORTAL;
+        if (pipeline == RenderPipelines.END_GATEWAY) return SurfaceMode.END_GATEWAY;
         // The core and halo share an unlit shader but have different coverage states.
         if (isBeaconBeam(layer)) return layer.hasBlending() ? SurfaceMode.EMISSIVE : SurfaceMode.EMISSIVE_CUTOUT;
         boolean emissive = pipeline == RenderPipelines.EYES

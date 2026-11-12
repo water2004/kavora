@@ -68,6 +68,11 @@ printf("MaterialInfoOpaqueEXT enableDlssControlMask %zu\n", offsetof(remixapi_Ma
 printf("MaterialInfoOpaqueEXT dlssControlMaskIntensity %zu\n", offsetof(remixapi_MaterialInfoOpaqueEXT, dlssControlMaskIntensity));
 printf("MaterialInfoOpaqueEXT dlssControlMaskToneStrength %zu\n", offsetof(remixapi_MaterialInfoOpaqueEXT, dlssControlMaskToneStrength));
 printf("MaterialInfoOpaqueEXT dlssControlMaskStructuralStrength %zu\n", offsetof(remixapi_MaterialInfoOpaqueEXT, dlssControlMaskStructuralStrength));
+printf("MaterialInfoEndPortalEXT sizeof %zu\n", sizeof(remixapi_MaterialInfoEndPortalEXT));
+printf("MaterialInfoEndPortalEXT alignof %zu\n", __alignof(remixapi_MaterialInfoEndPortalEXT));
+printf("MaterialInfoEndPortalEXT sType %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, sType));
+printf("MaterialInfoEndPortalEXT pNext %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, pNext));
+printf("MaterialInfoEndPortalEXT starLayers %zu\n", offsetof(remixapi_MaterialInfoEndPortalEXT, starLayers));
 printf("MaterialInfoOpaqueSubsurfaceEXT sizeof %zu\n", sizeof(remixapi_MaterialInfoOpaqueSubsurfaceEXT));
 printf("MaterialInfoOpaqueSubsurfaceEXT alignof %zu\n", __alignof(remixapi_MaterialInfoOpaqueSubsurfaceEXT));
 printf("MaterialInfoOpaqueSubsurfaceEXT sType %zu\n", offsetof(remixapi_MaterialInfoOpaqueSubsurfaceEXT, sType));

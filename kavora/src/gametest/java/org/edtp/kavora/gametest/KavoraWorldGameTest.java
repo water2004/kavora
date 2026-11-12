@@ -39,6 +39,7 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         if (Boolean.getBoolean("kavora.gametest.dimensionColourOnly")) return;
         if (Boolean.getBoolean("kavora.gametest.cloudsOnly")) return;
         if (Boolean.getBoolean("kavora.gametest.beaconOnly") || Boolean.getBoolean("kavora.gametest.particleOnly")
+                || Boolean.getBoolean("kavora.gametest.endPortalsOnly")
                 || Boolean.getBoolean("kavora.gametest.stainedGlassOnly")
                 || Boolean.getBoolean("kavora.gametest.lightingOnly")
                 || Boolean.getBoolean("kavora.gametest.retainedOnly")) return;

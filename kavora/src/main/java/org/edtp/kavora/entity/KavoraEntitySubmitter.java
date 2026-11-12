@@ -2281,11 +2281,35 @@ public class KavoraEntitySubmitter {
                 textureSets.put(textureId, textures);
             }
 
-            KavoraMaterial material = createMaterial(materialKey, textures);
+            int portalLayers = materialKey.surfaceMode().endPortalLayers();
+            KavoraMaterial material = portalLayers == 0
+                    ? createMaterial(materialKey, textures)
+                    : createEndPortalMaterial(textures.albedo, portalLayers);
             cacheMaterial(materialKey, material);
         } catch (Exception e) {
             LOGGER.error("Failed to create material for {}: {}", textureId, e.getMessage(), e);
         }
+    }
+
+    private KavoraMaterial createEndPortalMaterial(KavoraTexture sky, int layers) throws Exception {
+        Identifier starId = net.minecraft.client.renderer.blockentity.AbstractEndPortalRenderer.END_PORTAL_LOCATION;
+        EntityTextureSet stars = textureSets.get(starId);
+        if (stars == null) {
+            stars = tryCreateTextureSet(starId);
+            if (stars == null) return null;
+            textureSets.put(starId, stars);
+        }
+        MaterialInfo info = MaterialInfo.builder()
+                .albedoTexture(sky.getHandle())
+                .emissiveTexture(stars.albedo.getHandle())
+                .emissiveIntensity(1f)
+                .filterMode(0)
+                .opaqueExt(MaterialInfoOpaqueEXT.builder().albedoConstant(0f, 0f, 0f)
+                        .endPortalLayers(layers).build())
+                .build();
+        KavoraMaterial material = new KavoraMaterial(info, List.of(sky, stars.albedo), null);
+        KavoraMaterialStore.get().create(material);
+        return material;
     }
 
     /**

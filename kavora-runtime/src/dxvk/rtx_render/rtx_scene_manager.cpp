@@ -1843,16 +1843,23 @@ namespace dxvk {
       constexpr Vector4 kWhiteModeAlbedo = Vector4(0.7f, 0.7f, 0.7f, 1.0f);
 
       const auto& opaqueMaterialData = renderMaterialData.getOpaqueMaterialData();
+      const uint8_t endPortalLayers = opaqueMaterialData.getEndPortalLayers();
+      if (endPortalLayers) {
+        // Projected portal textures are independent of the mesh's vertex UVs.
+        trackTexture(opaqueMaterialData.getAlbedoOpacityTexture(), secondaryTextureIndex, true, false);
+      }
 
       if (RtxOptions::useWhiteMaterialMode()) {
         albedoOpacityConstant = kWhiteModeAlbedo;
         metallicConstant = 0.f;
         roughnessConstant = 1.f;
       } else {
-        trackTexture(opaqueMaterialData.getAlbedoOpacityTexture(), albedoOpacityTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+        if (!endPortalLayers) {
+          trackTexture(opaqueMaterialData.getAlbedoOpacityTexture(), albedoOpacityTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+          trackTexture(opaqueMaterialData.getSecondaryTexture(), secondaryTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+        }
         trackTexture(opaqueMaterialData.getRoughnessTexture(), roughnessTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
         trackTexture(opaqueMaterialData.getMetallicTexture(), metallicTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
-        trackTexture(opaqueMaterialData.getSecondaryTexture(), secondaryTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
 
         albedoOpacityConstant.xyz() = opaqueMaterialData.getAlbedoConstant();
         albedoOpacityConstant.w = opaqueMaterialData.getOpacityConstant();
@@ -1864,7 +1871,8 @@ namespace dxvk {
       trackTexture(opaqueMaterialData.getNormalTexture(), normalTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
       trackTexture(opaqueMaterialData.getTangentTexture(), tangentTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
       trackTexture(opaqueMaterialData.getHeightTexture(), heightTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
-      trackTexture(opaqueMaterialData.getEmissiveColorTexture(), emissiveColorTextureIndex, hasTexcoords, true, &samplerFeedbackStamp);
+      trackTexture(opaqueMaterialData.getEmissiveColorTexture(), emissiveColorTextureIndex,
+                   hasTexcoords || endPortalLayers, !endPortalLayers, &samplerFeedbackStamp);
 
       emissiveIntensity = opaqueMaterialData.getEmissiveIntensity() * RtxOptions::emissiveIntensity();
       emissiveColorConstant = opaqueMaterialData.getEmissiveColorConstant();
@@ -1950,7 +1958,8 @@ namespace dxvk {
         samplerFeedbackStamp,
         secondaryTextureIndex,
         reliefSamplerIndex,
-        vertexColorMaskTextureIndex
+        vertexColorMaskTextureIndex,
+        endPortalLayers
       };
 
       surfaceMaterial.emplace(opaqueSurfaceMaterial);

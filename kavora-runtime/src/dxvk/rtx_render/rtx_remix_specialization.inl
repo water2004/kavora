@@ -194,6 +194,8 @@ namespace pnext::detail {
   template<> struct Root<remixapi_MaterialInfoVertexColorMaskEXT> { using Type = remixapi_MaterialInfo; };
   template<> constexpr auto ToEnum<remixapi_MaterialInfoWaterSurfaceEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_WATER_SURFACE_EXT;
   template<> struct Root<remixapi_MaterialInfoWaterSurfaceEXT> { using Type = remixapi_MaterialInfo; };
+  template<> constexpr auto ToEnum<remixapi_MaterialInfoEndPortalEXT> = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT;
+  template<> struct Root<remixapi_MaterialInfoEndPortalEXT> { using Type = remixapi_MaterialInfo; };
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterSimEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT;
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterRainEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT;
   template<> struct Root<remixapi_SubmitInfoWaterSimEXT> { using Type = remixapi_SubmitInfo; };

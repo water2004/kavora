@@ -369,7 +369,8 @@ namespace {
           src.getTextureScrollAngle(),
           src.getTextureScale(),
           src.getTextureOffset(),
-          src.getTextureRotation()
+          src.getTextureRotation(),
+          src.getEndPortalLayers()
         } };
       }
       case MaterialDataType::Translucent: 
@@ -427,6 +428,7 @@ namespace {
     MaterialData toRtMaterialWithoutTexturePreload(const remixapi_MaterialInfo& info) {
       if (auto extOpaque = pnext::find<remixapi_MaterialInfoOpaqueEXT>(&info)) {
         auto extSubsurface = pnext::find<remixapi_MaterialInfoOpaqueSubsurfaceEXT>(&info);
+        auto endPortal = pnext::find<remixapi_MaterialInfoEndPortalEXT>(&info);
         const bool hasDlssControlMask = s_apiVersion >= REMIXAPI_VERSION_MAKE(0, 6, 5);
         return MaterialData { OpaqueMaterialData {
           {},
@@ -484,6 +486,7 @@ namespace {
           Vector2(1.f),
           Vector2(0.f),
           0.f,
+          endPortal ? static_cast<uint8_t>(endPortal->starLayers) : uint8_t(0),
         } };
       }
       if (auto extTranslucent = pnext::find<remixapi_MaterialInfoTranslucentEXT>(&info)) {
@@ -1005,6 +1008,13 @@ namespace {
     }
     if (!out_handle || !info || info->sType != REMIXAPI_STRUCT_TYPE_MATERIAL_INFO) {
       return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
+    }
+    if (const auto* endPortal = pnext::find<remixapi_MaterialInfoEndPortalEXT>(info)) {
+      if ((endPortal->starLayers != 15 && endPortal->starLayers != 16) || !info->albedoTexture ||
+          !info->emissiveTexture || info->emissiveIntensity <= 0.f ||
+          !pnext::find<remixapi_MaterialInfoOpaqueEXT>(info)) {
+        return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
+      }
     }
     static std::atomic<uint64_t> nextMaterial { 0 };
     auto handle = reinterpret_cast<remixapi_MaterialHandle>(++nextMaterial);

@@ -30,6 +30,7 @@ public class MaterialInfoOpaqueEXT {
     public float displaceOut = 0.0f;
 
     public MaterialInfoOpaqueSubsurfaceEXT subsurfaceExt;
+    public int endPortalLayers;
 
     public MaterialInfoOpaqueEXT() {}
 
@@ -61,6 +62,7 @@ public class MaterialInfoOpaqueEXT {
         private int blendType = 0;
         private boolean useDrawCallAlphaState = false;
         private MaterialInfoOpaqueSubsurfaceEXT subsurfaceExt;
+        private int endPortalLayers;
 
         public Builder roughnessTexture(long handle) { this.roughnessTexture = handle; return this; }
         public Builder metallicTexture(long handle) { this.metallicTexture = handle; return this; }
@@ -70,6 +72,15 @@ public class MaterialInfoOpaqueEXT {
 
         public Builder subsurfaceExt(MaterialInfoOpaqueSubsurfaceEXT ext) {
             this.subsurfaceExt = ext;
+            return this;
+        }
+
+        /** Selects the projected Minecraft sky and star material. Zero selects ordinary PBR. */
+        public Builder endPortalLayers(int layers) {
+            if (layers != 0 && layers != 15 && layers != 16) {
+                throw new IllegalArgumentException("End portals have 15 or 16 star layers");
+            }
+            this.endPortalLayers = layers;
             return this;
         }
 
@@ -161,6 +172,7 @@ public class MaterialInfoOpaqueEXT {
             ext.blendType_hasvalue = this.hasBlendType ? 1 : 0;
             ext.blendType_value = this.blendType;
             ext.subsurfaceExt = this.subsurfaceExt;
+            ext.endPortalLayers = this.endPortalLayers;
             return ext;
         }
     }

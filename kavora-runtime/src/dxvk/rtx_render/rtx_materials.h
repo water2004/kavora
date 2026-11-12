@@ -687,7 +687,8 @@ struct RtOpaqueSurfaceMaterial {
     uint16_t samplerFeedbackStamp,
     uint32_t secondaryTextureIndex = 0,
     uint32_t reliefSamplerIndex = BINDING_INDEX_INVALID,
-    uint32_t vertexColorMaskTextureIndex = BINDING_INDEX_INVALID
+    uint32_t vertexColorMaskTextureIndex = BINDING_INDEX_INVALID,
+    uint8_t endPortalLayers = 0
   ) :
     m_albedoOpacityTextureIndex{ albedoOpacityTextureIndex }, m_secondaryTextureIndex{secondaryTextureIndex}, m_normalTextureIndex{ normalTextureIndex },
     m_tangentTextureIndex { tangentTextureIndex }, m_heightTextureIndex { heightTextureIndex }, m_roughnessTextureIndex{ roughnessTextureIndex },
@@ -699,7 +700,7 @@ struct RtOpaqueSurfaceMaterial {
     m_ignoreAlphaChannel { ignoreAlphaChannel }, m_enableThinFilm { enableThinFilm }, m_alphaIsThinFilmThickness { alphaIsThinFilmThickness },
     m_thinFilmThicknessConstant { thinFilmThicknessConstant }, m_samplerIndex{ samplerIndex }, m_displaceIn{ displaceIn },
     m_displaceOut{ displaceOut },
-    m_enableDlssControlMask{ enableDlssControlMask },
+    m_enableDlssControlMask{ enableDlssControlMask }, m_endPortalLayers{ endPortalLayers },
     m_dlssControlMaskIntensity{ dlssControlMaskIntensity },
     m_dlssControlMaskToneStrength{ dlssControlMaskToneStrength },
     m_dlssControlMaskStructuralStrength{ dlssControlMaskStructuralStrength },
@@ -741,6 +742,12 @@ struct RtOpaqueSurfaceMaterial {
 
     if (m_isHairCard) {
       flags |= OPAQUE_SURFACE_MATERIAL_FLAG_IS_HAIR_CARD;
+    }
+    if (m_endPortalLayers) {
+      flags |= OPAQUE_SURFACE_MATERIAL_FLAG_IS_END_PORTAL;
+      if (m_endPortalLayers == 16) {
+        flags |= OPAQUE_SURFACE_MATERIAL_FLAG_IS_END_GATEWAY;
+      }
     }
 
     float displaceIn = m_displaceIn * getDisplacementInFactor();
@@ -1020,6 +1027,9 @@ private:
       &HashStruct::secondaryTextureIndex,
       &HashStruct::reliefSamplerIndex,
       &HashStruct::vertexColorMaskTextureIndex>(hashData);
+    if (m_endPortalLayers) {
+      m_cachedHash = XXH64(&m_endPortalLayers, sizeof(m_endPortalLayers), m_cachedHash);
+    }
   }
 
   void updateCachedData() {
@@ -1068,6 +1078,7 @@ private:
   // How far outwards a height_texture value of 1 maps to.
   float m_displaceOut;
   bool m_enableDlssControlMask;
+  uint8_t m_endPortalLayers;
   float m_dlssControlMaskIntensity;
   float m_dlssControlMaskToneStrength;
   float m_dlssControlMaskStructuralStrength;

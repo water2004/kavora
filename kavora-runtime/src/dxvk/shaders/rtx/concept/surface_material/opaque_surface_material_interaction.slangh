@@ -24,6 +24,7 @@
 #include "rtx/concept/surface_material/water_normal_coordinates.slangh"
 
 #include "opaque_surface_material_blending.slangh"
+#include "end_portal_material.slangh"
 
 // Opaque Surface Material Interaction Constants
 
@@ -963,32 +964,41 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
 
   if (opaqueSurfaceMaterial.emissiveIntensity != 0.0)
   {
-    vec4 emissiveColorSample;
-    const bool emissiveColorLoaded = surfaceMaterialInteractionTextureReadHelper(opaqueSurfaceMaterial.emissiveColorTextureIndex, opaqueSurfaceMaterial.samplerIndex, surfaceInteraction, emissiveColorSample, materialLodBias);
-
-    vec3 emissiveColor = opaqueSurfaceMaterial.emissiveColorConstant;
-
-    if (emissiveColorLoaded)
+    if (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_FLAG_IS_END_PORTAL)
     {
-      emissiveColor = emissiveColorSample.xyz;
+      opaqueSurfaceMaterialInteraction.albedo = vec3(0.0f);
+      opaqueSurfaceMaterialInteraction.baseReflectivity = vec3(0.0f);
+      emissiveRadiance = endPortalEmission(opaqueSurfaceMaterial, minimalRayInteraction.viewDirection);
     }
+    else
+    {
+      vec4 emissiveColorSample;
+      const bool emissiveColorLoaded = surfaceMaterialInteractionTextureReadHelper(opaqueSurfaceMaterial.emissiveColorTextureIndex, opaqueSurfaceMaterial.samplerIndex, surfaceInteraction, emissiveColorSample, materialLodBias);
 
-    // Fixed function texture stage setting (emissive)
-    vec3 textureArg1 = vec3(1.0);
-    vec3 textureArg2 = vec3(1.0);
-    chooseTextureArgument(textureArg1, surface.textureColorArg1Source, emissiveColor, surfaceInteraction.vertexColor.rgb, tFactor.rgb, vec3(1.0));
-    chooseTextureArgument(textureArg2, surface.textureColorArg2Source, emissiveColor, surfaceInteraction.vertexColor.rgb, tFactor.rgb, vec3(1.0));
-    chooseTextureOperationColor(emissiveColor, surface.textureColorOperation, textureArg1, textureArg2);
-    if (surface.isTextureFactorBlend) {
-      emissiveColor *= tFactor.rgb;
+      vec3 emissiveColor = opaqueSurfaceMaterial.emissiveColorConstant;
+
+      if (emissiveColorLoaded)
+      {
+        emissiveColor = emissiveColorSample.xyz;
+      }
+
+      // Fixed function texture stage setting (emissive)
+      vec3 textureArg1 = vec3(1.0);
+      vec3 textureArg2 = vec3(1.0);
+      chooseTextureArgument(textureArg1, surface.textureColorArg1Source, emissiveColor, surfaceInteraction.vertexColor.rgb, tFactor.rgb, vec3(1.0));
+      chooseTextureArgument(textureArg2, surface.textureColorArg2Source, emissiveColor, surfaceInteraction.vertexColor.rgb, tFactor.rgb, vec3(1.0));
+      chooseTextureOperationColor(emissiveColor, surface.textureColorOperation, textureArg1, textureArg2);
+      if (surface.isTextureFactorBlend) {
+        emissiveColor *= tFactor.rgb;
+      }
+
+      // Note: Gamma correct emissive color input (be it from a constant or a texture). Currently assuming all textures are not using sRGB formats which
+      // automatically do this conversion.
+      // Todo: Disable this for when a sRGB texture is the source of the emissive color.
+      emissiveColor = gammaToLinear(emissiveColor);
+
+      emissiveRadiance = emissiveBlendOverrideInfluence * emissiveColor * opaqueSurfaceMaterial.emissiveIntensity;
     }
-
-    // Note: Gamma correct emissive color input (be it from a constant or a texture). Currently assuming all textures are not using sRGB formats which
-    // automatically do this conversion.
-    // Todo: Disable this for when a sRGB texture is the source of the emissive color.
-    emissiveColor = gammaToLinear(emissiveColor);
-
-    emissiveRadiance = emissiveBlendOverrideInfluence * emissiveColor * opaqueSurfaceMaterial.emissiveIntensity;
   }
 
   opaqueSurfaceMaterialInteraction.emissiveRadiance = emissiveRadiance;

@@ -72,6 +72,10 @@ final class RemixLayouts {
                 JAVA_FLOAT.withName("dlssControlMaskIntensity"),
                 JAVA_FLOAT.withName("dlssControlMaskToneStrength"),
                 JAVA_FLOAT.withName("dlssControlMaskStructuralStrength"));
+        define("MaterialInfoEndPortalEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_INT.withName("starLayers"));
         define("MaterialInfoOpaqueSubsurfaceEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
