@@ -24,7 +24,7 @@ public final class VoxelMip {
         for (int y = 0; y < 16; y++)
             for (int z = 0; z < 16; z++)
                 for (int x = 0; x < 16; x++) {
-                    int chosen = 0, priority = -1, chosenY = 0;
+                    int chosen = 0, priority = 0, chosenY = 0;
                     // Stable ties retain the upper sample, rather than averaging unrelated block
                     // identities.
                     for (int dy = 0; dy < 2; dy++)

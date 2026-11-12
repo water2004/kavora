@@ -11,6 +11,40 @@ import java.util.*;
 
 class VoxelPipelineTest {
     @Test
+    void derivesAndUpdatesExactSourcesFromExistingVoxelRecords(@TempDir Path directory) throws Exception {
+        long key = VoxelKey.of(0, -2, 4, 3);
+        int index = VoxelKey.index(27, 8, 15);
+        int[] cells = new int[VoxelKey.VOLUME];
+        cells[index] = 1;
+        var first = new VoxelSection(key, 1, 255, 255, cells);
+        try (var old = new VoxelDatabase(directory)) {
+            old.commit(List.of(first), Map.of());
+        }
+        try (var indexed = new VoxelDatabase(directory)) {
+            indexed.openBlockSourceIndex(id -> id == 1 ? 15 : id == 2 ? 7 : 0, () -> true);
+            while (indexed.backfillBlockSources()) { }
+            Map<Long, int[]> actual = new HashMap<>();
+            indexed.forEachBlockSourceSection(actual::put);
+            assertArrayEquals(new int[] { index | 15 * VoxelKey.VOLUME }, actual.get(key));
+            assertTrue(Arrays.stream(VoxelMip.reduce(first, id -> -1)).allMatch(cell -> cell == 0));
+            cells = cells.clone();
+            cells[index] = 2;
+            indexed.commit(List.of(new VoxelSection(key, 2, 255, 255, cells)), Map.of());
+        }
+        try (var reopened = new VoxelDatabase(directory)) {
+            reopened.openBlockSourceIndex(id -> id == 2 ? 7 : 0, () -> true);
+            assertFalse(reopened.backfillBlockSources());
+            Map<Long, int[]> actual = new HashMap<>();
+            reopened.forEachBlockSourceSection(actual::put);
+            assertArrayEquals(new int[] { index | 7 * VoxelKey.VOLUME }, actual.get(key));
+            reopened.commit(List.of(new VoxelSection(key, 3, 255, 0, VoxelSection.AIR)), Map.of());
+            actual.clear();
+            reopened.forEachBlockSourceSection(actual::put);
+            assertTrue(actual.isEmpty());
+        }
+    }
+
+    @Test
     void mipPriorityTiesKeepTheLastSampleAndItsFluidHeight() {
         Random random = new Random(0x50414c45545445L);
         for (int level = 0; level <= VoxelKey.ROOT_LEVEL; level++) {

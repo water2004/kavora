@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -129,6 +130,21 @@ final class RetainedEntityPartRegistry<O, V> {
         for (Entry<V> entry : parts.values()) {
             retire.accept(entry.value);
         }
+    }
+
+    /** Marks the whole owner seen if all its retained parts can still be drawn. */
+    <T> boolean touchOwner(O owner, T state, Predicate<? super V> reusable, BiConsumer<? super V, T> update) {
+        requireOpenFrame();
+        Map<Slot, Entry<V>> parts = owners.get(owner);
+        if (parts == null) return false;
+        for (Entry<V> entry : parts.values()) {
+            if (!reusable.test(entry.value)) return false;
+        }
+        for (Entry<V> entry : parts.values()) {
+            entry.lastSeenFrame = frameIndex;
+            update.accept(entry.value, state);
+        }
+        return true;
     }
 
     void discardIf(Predicate<? super V> predicate, Consumer<? super V> retire) {

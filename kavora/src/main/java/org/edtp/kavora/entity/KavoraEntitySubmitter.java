@@ -60,6 +60,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import net.minecraft.client.Minecraft;
@@ -158,6 +159,8 @@ public class KavoraEntitySubmitter {
             Integer.getInteger("kavora.entity.meshCache.maxEntries", DEFAULT_MAX_MESH_CACHE_ENTRIES));
     private static final Predicate<RetainedEntityPart> PART_REUSABLE =
             part -> !part.instance.isDeletedFast();
+    private static final Predicate<RetainedEntityPart> STATIC_PART_REUSABLE =
+            part -> PART_REUSABLE.test(part) && !part.instance.getMesh().isDeletedFast();
 
     private final RemixAPI api;
 
@@ -561,6 +564,7 @@ public class KavoraEntitySubmitter {
      */
     private final RetainedEntityPartRegistry<Object, RetainedEntityPart> retainedEntityParts =
             new RetainedEntityPartRegistry<>();
+    private final BiConsumer<RetainedEntityPart, Transform> updateStaticPart = this::updateStaticPart;
     /** Whether a capture window is open; see {@link #beginFrame()}. */
     private boolean frameOpen = false;
     private KavoraMesh pendingPartMesh;
@@ -1426,11 +1430,7 @@ public class KavoraEntitySubmitter {
                 PENDING_PART_FACTORY,
                 KavoraEntitySubmitter::destroyRetainedPart);
 
-        if (!Arrays.equals(part.transform.matrix, reusableRigidTransform.matrix)) {
-            System.arraycopy(reusableRigidTransform.matrix, 0,
-                    part.transform.matrix, 0, reusableRigidTransform.matrix.length);
-            part.instance.setTransform(part.transform);
-        }
+        setPartTransform(part, reusableRigidTransform);
         part.instance
                 .setMesh(mesh)
                 .setCategoryFlags(categoryFlags)
@@ -1441,6 +1441,29 @@ public class KavoraEntitySubmitter {
             part.meshKey = pendingPartKey != null ? pendingPartKey : rigidMeshLookupKey.immutableCopy();
         }
         lastDrawCount++;
+    }
+
+    /** Reuses a captured owner whose vertices are already in its root coordinate space. */
+    boolean retainStaticOwner(Object owner, Transform root) {
+        try {
+            return retainedEntityParts.touchOwner(owner, root, STATIC_PART_REUSABLE, updateStaticPart);
+        } catch (RuntimeException | Error failure) {
+            retainedEntityParts.discardOwner(owner, KavoraEntitySubmitter::destroyRetainedPart);
+            throw failure;
+        }
+    }
+
+    private void updateStaticPart(RetainedEntityPart part, Transform root) {
+        PooledMesh pooled = rigidMeshPool.get(part.meshKey);
+        if (pooled != null) pooled.lastUsedFrame = frameIndex();
+        if (setPartTransform(part, root)) part.instance.drawFast(api);
+    }
+
+    private static boolean setPartTransform(RetainedEntityPart part, Transform transform) {
+        if (Arrays.equals(part.transform.matrix, transform.matrix)) return false;
+        System.arraycopy(transform.matrix, 0, part.transform.matrix, 0, transform.matrix.length);
+        part.instance.setTransform(part.transform);
+        return true;
     }
 
     /**

@@ -4,10 +4,12 @@ package org.edtp.kavora.gametest;
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.UnfocusedFramerateLimit;
 import org.edtp.kavora.light.BlockLightRuleManager;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.core.BlockPos;
@@ -26,6 +28,16 @@ final class KavoraNightIlluminationChecks {
         int limit = context.computeOnClient(client -> UnfocusedFramerateLimit.get());
         try {
             context.runOnClient(client -> UnfocusedFramerateLimit.set(UnfocusedFramerateLimit.UNLIMITED));
+            if (Boolean.getBoolean("kavora.gametest.blockSources")) {
+                boolean hidden = context.computeOnClient(client -> client.gui.hud.isHidden());
+                if (!hidden) context.runOnClient(client -> client.gui.hud.toggle());
+                try {
+                    captureBlockSources(context, world);
+                } finally {
+                    if (!hidden) context.runOnClient(client -> client.gui.hud.toggle());
+                }
+                return;
+            }
             inventory(context);
             world.getServer().runOnServer(server -> {
                 server.getGameRules().set(GameRules.ADVANCE_TIME, false, server);
@@ -69,6 +81,126 @@ final class KavoraNightIlluminationChecks {
             }
         } finally {
             context.runOnClient(client -> UnfocusedFramerateLimit.set(limit));
+        }
+    }
+
+    private static void captureBlockSources(ClientGameTestContext context, TestSingleplayerContext world) {
+        KavoraWorldGameTest.assertWorldRenders(context, world, "block-sources");
+        world.getServer().runOnServer(server -> {
+            server.getGameRules().set(GameRules.ADVANCE_TIME, false, server);
+            server.getGameRules().set(GameRules.SPAWN_MOBS, false, server);
+            KavoraSceneFixtures.commands(server, "time set 18000", "weather clear",
+                    "fill -7 -61 -1 7 -54 13 minecraft:white_concrete hollow");
+            var player = server.getPlayerList().getPlayers().getFirst();
+            player.setGameMode(GameType.CREATIVE);
+            player.getAbilities().flying = true;
+            player.onUpdateAbilities();
+            player.teleportTo(server.overworld(), .5, -60, 1.5, Set.of(), 0, 6, true);
+        });
+        for (String[] source : new String[][] {{"empty", "air"}, {"invisible", "light[level=15]"},
+                {"zero", "light[level=0]"}, {"beacon", "beacon"}}) {
+            if (!source[1].equals("air")) {
+                world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                        "setblock 0 -59 7 minecraft:" + source[1]));
+            }
+            waitForFrames(context, 32);
+            var lights = context.computeOnClient(client -> KavoraMod.renderer.getChunkManager().lightStatsByRule());
+            LOGGER.info("Block source {}: {}", source[0], lights);
+            int drawn = lights.stream().mapToInt(org.edtp.kavora.terrain.ChunkManager.LightRuleStats::drawn).sum();
+            boolean lit = source[0].equals("invisible") || source[0].equals("beacon");
+            KavoraWorldGameTest.require((drawn > 0) == lit, "Wrong near-light submission for " + source[0]);
+            KavoraWorldGameTest.captureCompletedFrame(context, "block-source-" + source[0]);
+        }
+        try (var debug = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "30")) {
+            waitForFrames(context, 8);
+            Path emission = KavoraWorldGameTest.captureCompletedFrame(context, "beacon-core-emission");
+            double core = sampleValue(emission, 0.5, 0.445);
+            LOGGER.info("Beacon core emitted radiance sample: {}", core);
+            KavoraWorldGameTest.require(core > 30, "Beacon core has no emitted radiance");
+        }
+        if (Boolean.getBoolean("kavora.gametest.farBlockSources")) captureFarBlockSource(context, world);
+    }
+
+    private static void captureFarBlockSource(ClientGameTestContext context, TestSingleplayerContext world) {
+        int distance = context.computeOnClient(client -> client.options.renderDistance().get());
+        context.runOnClient(client -> client.options.renderDistance().set(2));
+        try {
+            world.getServer().runOnServer(server -> {
+                server.getPlayerList().setViewDistance(2);
+                server.getPlayerList().getPlayers().getFirst()
+                        .teleportTo(server.overworld(), .5, 94.88, 8.5, Set.of(), 0, 0, true);
+            });
+            context.waitFor(client -> client.player.getY() > 90
+                    && client.level.getChunkSource().getChunk(0, 1, false) != null
+                    && client.level.getChunkSource().getChunk(-1, 1, false) != null, 600);
+            world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                    "fill -5 91 17 5 102 17 minecraft:white_concrete",
+                    "fill -5 95 12 5 95 15 minecraft:white_concrete", "setblock 0 96 14 minecraft:light[level=15]"));
+            context.waitFor(client -> client.level.getBlockState(new BlockPos(0, 96, 17)).is(Blocks.CONCRETE.white())
+                    && KavoraMod.renderer.getChunkManager().hasTerrainGeometry(0, 1)
+                    && KavoraMod.renderer.getChunkManager()
+                    .lightStatsByRule().stream().anyMatch(rule -> rule.drawn() == 1
+                            && rule.ruleId().getPath().endsWith("/light.json")), 600);
+            world.getServer().runOnServer(server -> server.getPlayerList().getPlayers().getFirst()
+                    .teleportTo(server.overworld(), .5, 94.88, -113.5, Set.of(), 0, 0, true));
+            try {
+                context.waitFor(client -> client.level.getChunkSource().getChunk(0, 0, false) == null
+                        && client.level.getChunkSource().getChunk(0, 1, false) == null
+                        && !KavoraMod.renderer.getChunkManager().hasTerrainGeometry(0, 1)
+                        && KavoraMod.renderer.getChunkManager().hasVisibleFarTerrainGeometry(0, 6, 1), 600);
+            } catch (AssertionError failure) {
+                context.runOnClient(client -> {
+                    var terrain = KavoraMod.renderer.getChunkManager();
+                    LOGGER.error("Far light fixture at {}: source loaded={}, wall loaded={}, near wall={}, {}",
+                            client.player.position(), client.level.getChunkSource().getChunk(0, 0, false) != null,
+                            client.level.getChunkSource().getChunk(0, 1, false) != null,
+                            terrain.hasTerrainGeometry(0, 1), terrain.getFarSectionDiagnostics(0, 6, 1));
+                });
+                throw failure;
+            }
+            waitForFrames(context, 16);
+            try (var debug = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "32")) {
+                waitForFrames(context, 8);
+                Path albedo = KavoraWorldGameTest.captureCompletedFrame(context, "far-invisible-light-albedo");
+                KavoraWorldGameTest.require(sampleValue(albedo, .5, .5) > 190,
+                        "Far invisible Light block is hiding the white wall");
+            }
+            try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
+                waitForFrames(context, 24);
+                Path lit = KavoraWorldGameTest.captureCompletedFrame(context, "far-invisible-light-lit");
+                try (var direct = RuntimeOptionScope.acquire(context, "rtx.enableDirectLighting", "false")) {
+                    waitForFrames(context, 32);
+                    Path dark = KavoraWorldGameTest.captureCompletedFrame(context, "far-invisible-light-no-direct");
+                    double litValue = sampleValue(lit, .5, .5), darkValue = sampleValue(dark, .5, .5);
+                    LOGGER.info("Far Light block wall sample: lit={}, no direct={}", litValue, darkValue);
+                    KavoraWorldGameTest.require(litValue > darkValue + 15, "Far Light block did not illuminate the wall");
+                }
+            }
+        } finally {
+            world.getServer().runOnServer(server -> server.getPlayerList().setViewDistance(distance));
+            context.runOnClient(client -> client.options.renderDistance().set(distance));
+        }
+    }
+
+    private static void waitForFrames(ClientGameTestContext context, int frames) {
+        long target = context.computeOnClient(client -> KavoraFrameProbe.presents) + frames;
+        context.waitFor(client -> KavoraFrameProbe.presents >= target, 1600);
+    }
+
+    private static double sampleValue(Path file, double u, double v) {
+        try {
+            var image = ImageIO.read(file.toFile());
+            int cx = (int) (u * image.getWidth()), cy = (int) (v * image.getHeight());
+            int sum = 0;
+            for (int y = cy - 8; y < cy + 8; y++) {
+                for (int x = cx - 8; x < cx + 8; x++) {
+                    int rgb = image.getRGB(x, y);
+                    sum += (rgb >>> 16 & 255) + (rgb >>> 8 & 255) + (rgb & 255);
+                }
+            }
+            return sum / (16.0 * 16 * 3);
+        } catch (IOException e) {
+            throw new AssertionError("Cannot read block-source capture " + file, e);
         }
     }
 

@@ -5,17 +5,24 @@
 package org.edtp.kavora.entity;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
+import org.edtp.kavora.sdk.Transform;
+import org.edtp.kavora.terrain.lod.FarBeaconBeam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.IdentityHashMap;
 import java.util.List;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.blockentity.BeaconRenderer;
+import net.minecraft.client.renderer.blockentity.state.BeaconRenderState;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.entity.BeaconBlockEntity;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -78,6 +85,10 @@ public final class KavoraBlockEntityPass {
     private final KavoraSubmitNodeCollector collector = new KavoraSubmitNodeCollector(provider);
     private final IdentityHashMap<BlockEntityType<?>, String> typeKeyCache = new IdentityHashMap<>();
     private final FailureLogThrottle failures = new FailureLogThrottle(LOGGER, "Block entity");
+    private final LongOpenHashSet submittedBeacons = new LongOpenHashSet();
+    private final BeaconRenderer<BeaconBlockEntity> beaconRenderer = new BeaconRenderer<>();
+    private final BeaconRenderState beaconState = new BeaconRenderState();
+    private final Transform beaconRoot = Transform.identity();
     // One buffer suffices: the submit consumes the bones before the next capture
     // overwrites them.
     private float[] reusableBoneData = new float[0];
@@ -96,9 +107,45 @@ public final class KavoraBlockEntityPass {
      */
     public void capture(BlockEntity be, BlockEntityRenderCall call,
                         EntityRenderDispatcher dispatcher, KavoraEntitySubmitter submitter) {
+        if (capture(be, be.getBlockPos(), typeKey(be), call, submitter, null)
+                && be instanceof BeaconBlockEntity) {
+            submittedBeacons.add(be.getBlockPos().asLong());
+        }
+    }
+
+    /** Captures the vanilla layers once per snapshot. Width changes only affect the instance. */
+    public void submitFarBeacon(FarBeaconBeam beam, Vec3 camera, boolean scoping, KavoraEntitySubmitter submitter) {
+        BlockPos pos = beam.pos();
+        if (submittedBeacons.contains(pos.asLong())) return;
+
+        double dx = camera.x - pos.getX() - .5, dz = camera.z - pos.getZ() - .5;
+        // Use the vanilla distance scale at one-sixteenth increments to avoid updating
+        // a native transform for movements too small to change the beam's width on screen.
+        float scale = scoping ? 1f : Math.max(1f, Math.round(Math.sqrt(dx * dx + dz * dz) / 6) / 16f);
+        beaconRoot.set(0, 0, scale);
+        beaconRoot.set(2, 2, scale);
+        float offset = (1f - scale) * .5f;
+        beaconRoot.setTranslation(pos.getX() + offset, pos.getY(), pos.getZ() + offset);
+        try {
+            if (submitter.retainStaticOwner(beam, beaconRoot)) return;
+        } catch (RuntimeException failure) {
+            failures.noteFailure("submitting", "far beacon beam", pos, failure);
+            return;
+        }
+
+        beaconState.sections = beam.sections().stream()
+                .map(section -> new BeaconRenderState.Section(section.color(), section.height())).toList();
+        beaconState.beamRadiusScale = 1f;
+        beaconState.animationTime = 0f;
+        capture(beam, pos, "minecraft:beacon", (matrices, collector) ->
+                beaconRenderer.submit(beaconState, matrices, collector, null), submitter, beaconRoot);
+    }
+
+    private boolean capture(Object owner, BlockPos pos, String type, BlockEntityRenderCall call,
+                            KavoraEntitySubmitter submitter, Transform staticRoot) {
         long captureStart = System.nanoTime();
         EntityRenderContext ctx = EntityRenderContext.get();
-        provider.beginEntity();
+        provider.beginEntity(staticRoot != null);
         matrices.pushPose();
         ctx.begin(true);
         List<KavoraVertexConsumerProvider.CapturedLayer> layers;
@@ -107,8 +154,8 @@ public final class KavoraBlockEntityPass {
             collector.capture();
             layers = provider.endEntity();
         } catch (Exception e) {
-            failures.noteFailure("capturing", "block entity " + typeKey(be), be.getBlockPos(), e);
-            return;
+            failures.noteFailure("capturing", "block entity " + type, pos, e);
+            return false;
         } finally {
             // All three restore even if the renderer threw mid-traversal: the identity
             // root returns every pooled entry, the player's shadow setting comes back,
@@ -122,20 +169,20 @@ public final class KavoraBlockEntityPass {
             // The dispatcher's own render-distance check ends here too. Snapshotting
             // the zero bones it left would swap the reusable buffer for the shared
             // empty array and force the next capture to allocate.
-            return;
+            return false;
         }
 
         reusableBoneData = ctx.snapshotBoneTransforms(reusableBoneData);
         KavoraEntityPass.EntityCaptureResult result = new KavoraEntityPass.EntityCaptureResult(
-                be,
-                Vec3.atLowerCornerOf(be.getBlockPos()),
+                owner,
+                Vec3.atLowerCornerOf(pos),
                 0.0f,
                 layers,
                 reusableBoneData,
                 ctx.getBoneCount(),
-                typeKey(be),
+                type,
                 false);
-        submit(be, result, submitter);
+        return submit(pos, result, submitter, staticRoot);
     }
 
     /**
@@ -143,16 +190,19 @@ public final class KavoraBlockEntityPass {
      * parts before a failure reaches here, so the block entity is absent this frame
      * and rebuilt on the next; the failure must not escape into vanilla's world render.
      */
-    private void submit(BlockEntity be, KavoraEntityPass.EntityCaptureResult result,
-                        KavoraEntitySubmitter submitter) {
+    private boolean submit(BlockPos pos, KavoraEntityPass.EntityCaptureResult result,
+                           KavoraEntitySubmitter submitter, Transform staticRoot) {
         long submitStart = System.nanoTime();
         int partsBefore = submitter.getLastDrawCount();
         int meshCreatesBefore = submitter.getLastMeshCreateCount();
         try {
-            submitter.submitEntity(result, STATIC_WORLD_CANVASES);
+            if (staticRoot == null) submitter.submitEntity(result, STATIC_WORLD_CANVASES);
+            else submitter.submitEntity(result, staticRoot, 0, STATIC_WORLD_CANVASES);
             frameCount++;
+            return true;
         } catch (Exception e) {
-            failures.noteFailure("submitting", "block entity " + typeKey(be), be.getBlockPos(), e);
+            failures.noteFailure("submitting", "block entity " + result.entityTypeKey(), pos, e);
+            return false;
         } finally {
             frameSubmitNanos += System.nanoTime() - submitStart;
             frameParts += submitter.getLastDrawCount() - partsBefore;
@@ -166,6 +216,7 @@ public final class KavoraBlockEntityPass {
      * dispatch belongs to the submitter's {@code endFrame}.
      */
     public FrameStats finishFrame() {
+        submittedBeacons.clear();
         failures.endFrame();
         FrameStats stats = new FrameStats(frameCount, frameParts, frameMeshCreates,
                 (int) (frameCaptureNanos / 1000L), (int) (frameSubmitNanos / 1000L));

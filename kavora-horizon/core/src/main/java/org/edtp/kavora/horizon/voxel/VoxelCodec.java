@@ -4,6 +4,7 @@ package org.edtp.kavora.horizon.voxel;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.function.IntUnaryOperator;
 import java.util.zip.CRC32C;
 
 /** Versioned local palette and bit-packed indices. RocksDB compresses the resulting records. */
@@ -112,5 +113,30 @@ public final class VoxelCodec {
             cells[i] = palette[id];
         }
         return new VoxelSection(key, revision, known, occupied, cells);
+    }
+
+    /** Exact source cells from an encoded level-zero node. Geometry reduction never uses this list. */
+    static int[] blockSources(byte[] bytes, IntUnaryOperator level) {
+        ByteBuffer input = ByteBuffer.wrap(bytes);
+        int count = input.getInt(14);
+        int firstSource = 0;
+        while (firstSource < count && level.applyAsInt(VoxelSection.material(input.getInt(18 + firstSource * 4))) == 0) {
+            firstSource++;
+        }
+        if (firstSource == count) return new int[0];
+
+        int[] levels = new int[count];
+        for (int i = firstSource; i < count; i++) {
+            levels[i] = level.applyAsInt(VoxelSection.material(input.getInt(18 + i * 4)));
+        }
+        int bits = 32 - Integer.numberOfLeadingZeros(count - 1);
+        int dataStart = 18 + count * 4, mask = (1 << bits) - 1;
+        var sources = new it.unimi.dsi.fastutil.ints.IntArrayList();
+        input.order(ByteOrder.LITTLE_ENDIAN);
+        for (int cell = 0, bit = 0; cell < VoxelKey.VOLUME; cell++, bit += bits) {
+            int index = bits == 0 ? 0 : (input.getInt(dataStart + (bit >>> 3)) >>> (bit & 7)) & mask;
+            if (levels[index] != 0) sources.add(cell | levels[index] << 15);
+        }
+        return sources.toIntArray();
     }
 }

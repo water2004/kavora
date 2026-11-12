@@ -127,7 +127,10 @@ public final class BlockLightIntensityControls {
                     || multiplier > MAX_MULTIPLIER) {
                 throw new IllegalArgumentException("Block-light multiplier out of range");
             }
-            this.multiplier = multiplier;
+            if (this.multiplier != multiplier) {
+                this.multiplier = multiplier;
+                BlockLightRuleManager.lightingChanged();
+            }
         }
     }
 }

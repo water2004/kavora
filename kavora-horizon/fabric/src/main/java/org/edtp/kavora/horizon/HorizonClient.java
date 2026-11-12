@@ -12,6 +12,9 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.BeaconBlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.nio.charset.StandardCharsets;
@@ -30,10 +33,15 @@ public final class HorizonClient implements ClientModInitializer {
     private static java.util.concurrent.CompletableFuture<Void> previousClose =
             java.util.concurrent.CompletableFuture.completedFuture(null);
     private static final Long2ObjectOpenHashMap<BitSet> dirty = new Long2ObjectOpenHashMap<>();
+    private static boolean beaconCacheReconciled;
 
     @Override
     public void onInitializeClient() {
-        ClientChunkEvents.CHUNK_LOAD.register((level, chunk) -> session(level).observe(chunk));
+        ClientChunkEvents.CHUNK_LOAD.register((level, chunk) -> {
+            VoxelSession store = session(level);
+            store.observe(chunk);
+            if (store.beacons.reconcile(chunk)) store.schedulePump();
+        });
         ClientChunkEvents.CHUNK_UNLOAD.register(
                 (level, chunk) -> {
                     if (current != null && current.level == level) {
@@ -49,14 +57,21 @@ public final class HorizonClient implements ClientModInitializer {
                     }
                     VoxelSession store = session(client.level);
                     store.checkFailure();
+                    if (!beaconCacheReconciled && store.ready()) {
+                        beaconCacheReconciled = true;
+                        store.beacons.forEachColumn((column, ignored) -> {
+                            var chunk = client.level.getChunkSource().getChunk(ChunkPos.getX(column), ChunkPos.getZ(column), false);
+                            if (chunk != null && store.beacons.reconcile(chunk)) store.schedulePump();
+                        });
+                    }
                     for (var it = dirty.long2ObjectEntrySet().fastIterator(); it.hasNext(); ) {
                         var entry = it.next();
                         long key = entry.getLongKey();
                         BitSet sections = entry.getValue();
                         it.remove();
                         int x = ChunkPos.getX(key), z = ChunkPos.getZ(key);
-                        if (client.level.hasChunk(x, z))
-                            store.observeSections(client.level.getChunk(x, z), sections);
+                        var chunk = client.level.getChunkSource().getChunk(x, z, false);
+                        if (chunk != null) store.observeSections(chunk, sections);
                     }
                 });
         ClientPlayConnectionEvents.DISCONNECT.register(
@@ -85,8 +100,9 @@ public final class HorizonClient implements ClientModInitializer {
         return current;
     }
 
-    public static void changed(ClientLevel level, BlockPos pos) {
+    public static void changed(ClientLevel level, BlockPos pos, BlockState state) {
         if (current != null && current.level == level) {
+            if (!state.is(Blocks.BEACON) && current.beacons.forget(pos)) current.schedulePump();
             int section = (pos.getY() >> 4) - level.getMinSectionY();
             if (section < 0 || section >= level.getSectionsCount()) return;
             BitSet sections =
@@ -99,12 +115,32 @@ public final class HorizonClient implements ClientModInitializer {
         }
     }
 
+    public static void observedBeacon(ClientLevel level, BeaconBlockEntity beacon) {
+        if (current == null || current.level != level) return;
+        if (!hasBeaconBase(level, beacon.getBlockPos())) return;
+        if (current.beacons.observe(beacon)) current.schedulePump();
+    }
+
+    /** The beam column and first pyramid layer must be resident to determine whether a beacon is active. */
+    public static boolean hasBeaconBase(ClientLevel level, BlockPos pos) {
+        int minX = (pos.getX() - 1) >> 4, maxX = (pos.getX() + 1) >> 4;
+        int minZ = (pos.getZ() - 1) >> 4, maxZ = (pos.getZ() + 1) >> 4;
+        var chunks = level.getChunkSource();
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                if (chunks.getChunk(x, z, false) == null) return false;
+            }
+        }
+        return true;
+    }
+
     private static void disconnect() {
         if (current != null) {
             previousClose = current.close();
             current = null;
         }
         currentConnection = null;
+        beaconCacheReconciled = false;
         dirty.clear();
     }
 

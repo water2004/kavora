@@ -13,7 +13,9 @@ import org.edtp.kavora.render.RenderBackend;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.level.block.entity.BeaconBlockEntity;
 import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.phys.AABB;
 
@@ -51,7 +53,8 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
                 return;
             }
             if (Boolean.getBoolean("kavora.gametest.beaconOnly")) {
-                checkVanillaBeacon(context, world);
+                if (Boolean.getBoolean("kavora.gametest.farBeacon")) checkFarBeacon(context, world);
+                else checkVanillaBeacon(context, world);
                 return;
             }
             if (Boolean.getBoolean("kavora.gametest.stainedGlassOnly")) {
@@ -232,6 +235,95 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
                 "setblock 20 -56 8 minecraft:red_stained_glass", "time set 6000"));
         context.waitTicks(100);
         capture(context, world, "beacon-filtered-day");
+    }
+
+    private static void checkFarBeacon(ClientGameTestContext context, TestSingleplayerContext world) {
+        BlockPos beacon = new BlockPos(0, 95, 12);
+        int distance = context.computeOnClient(client -> client.options.renderDistance().get());
+        context.runOnClient(client -> {
+            client.options.renderDistance().set(2);
+            if (!client.gui.hud.isHidden()) client.gui.hud.toggle();
+        });
+        try {
+            world.getServer().runOnServer(server -> {
+                server.getPlayerList().setViewDistance(2);
+                KavoraSceneFixtures.commands(server, "gamemode creative @a", "time set 18000", "weather clear");
+            });
+            pose(world, .5, 93.88, 3.5, 0, -10);
+            context.waitFor(client -> client.player.getY() > 90
+                    && client.level.getChunkSource().getChunk(0, 0, false) != null
+                    && client.level.getChunkSource().getChunk(-1, 0, false) != null, 600);
+            world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                    "fill -1 94 11 1 94 13 minecraft:iron_block",
+                    "setblock 0 95 12 minecraft:beacon",
+                    "setblock 0 110 12 minecraft:red_stained_glass"));
+            context.waitFor(client -> client.level.getBlockEntity(beacon) instanceof BeaconBlockEntity blockEntity
+                    && blockEntity.getBeamSections().size() >= 2, 600);
+            capture(context, world, "horizon-beacon-near-red");
+            context.waitFor(client -> KavoraMod.renderer.getChunkManager().farBeaconBeams().stream()
+                    .anyMatch(beam -> beam.pos().equals(beacon)), 600);
+            assertFarBeaconStripe(farBeaconFrame(context, world, "horizon-beacon-far-red"), true, true);
+
+            pose(world, .5, 93.88, 3.5, 0, -10);
+            context.waitFor(client -> client.level.getBlockEntity(beacon) instanceof BeaconBlockEntity blockEntity
+                    && blockEntity.getBeamSections().size() >= 2, 600);
+            int red = context.computeOnClient(client ->
+                    ((BeaconBlockEntity) client.level.getBlockEntity(beacon)).getBeamSections().getLast().getColor());
+            world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                    "setblock 0 110 12 minecraft:blue_stained_glass"));
+            context.waitFor(client -> client.level.getBlockEntity(beacon) instanceof BeaconBlockEntity blockEntity
+                    && blockEntity.getBeamSections().size() >= 2
+                    && blockEntity.getBeamSections().getLast().getColor() != red, 600);
+            assertFarBeaconStripe(farBeaconFrame(context, world, "horizon-beacon-far-blue"), false, true);
+
+            pose(world, .5, 93.88, 3.5, 0, -10);
+            context.waitFor(client -> client.level.getBlockEntity(beacon) instanceof BeaconBlockEntity blockEntity
+                    && !blockEntity.getBeamSections().isEmpty(), 600);
+            world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server, "setblock 0 94 12 minecraft:air"));
+            context.waitFor(client -> client.level.getBlockEntity(beacon) instanceof BeaconBlockEntity blockEntity
+                    && blockEntity.getBeamSections().isEmpty(), 600);
+            assertFarBeaconStripe(farBeaconFrame(context, world, "horizon-beacon-far-inactive"), false, false);
+        } finally {
+            context.runOnClient(client -> client.options.renderDistance().set(distance));
+            world.getServer().runOnServer(server -> server.getPlayerList().setViewDistance(distance));
+        }
+    }
+
+    private static Path farBeaconFrame(ClientGameTestContext context, TestSingleplayerContext world, String name) {
+        pose(world, .5, 93.88, -113.5, 0, -10);
+        context.waitFor(client -> client.player.getZ() < -110
+                && client.level.getChunkSource().getChunk(0, 0, false) == null
+                && !KavoraMod.renderer.getChunkManager().hasTerrainGeometry(0, 0)
+                && KavoraMod.renderer.getChunkManager().getLodDiagnostics() != null, 600);
+        long presents = context.computeOnClient(client -> KavoraFrameProbe.presents);
+        context.waitFor(client -> KavoraFrameProbe.presents >= presents + 24, 1200);
+        context.runOnClient(client -> org.slf4j.LoggerFactory.getLogger(KavoraMaterialSceneGameTest.class)
+                .info("GameTest {} cached beams: {}", name, KavoraMod.renderer.getChunkManager().farBeaconBeams()));
+        return KavoraWorldGameTest.captureCompletedFrame(context, name);
+    }
+
+    private static void assertFarBeaconStripe(Path screenshot, boolean red, boolean active) {
+        try {
+            var image = ImageIO.read(screenshot.toFile());
+            int height = image.getHeight() * 2 / 5;
+            int center = image.getWidth() / 2;
+            int rows = 0;
+            for (int y = 0; y < height; y++) {
+                for (int x = center - 6; x <= center + 6; x++) {
+                    int rgb = image.getRGB(x, y);
+                    int target = red ? rgb >>> 16 & 255 : rgb & 255;
+                    int other = red ? rgb & 255 : rgb >>> 16 & 255;
+                    if (target > 140 && target > 1.3 * Math.max(other, rgb >>> 8 & 255)) {
+                        rows++;
+                        break;
+                    }
+                }
+            }
+            KavoraWorldGameTest.require(active ? rows > height / 2 : rows < height / 20,
+                    "Unexpected far beacon stripe in " + rows + " of " + height + " rows: " + screenshot);
+        } catch (IOException e) {
+            throw new AssertionError("Cannot inspect far beacon screenshot " + screenshot, e);
+        }
     }
 
     /** The night fixture points along the beam through its white-to-red glass transition. */

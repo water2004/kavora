@@ -13,30 +13,20 @@ import org.edtp.kavora.terrain.capture.DirectQuadWriter;
 import org.edtp.kavora.terrain.capture.BlockDataQueue;
 import org.edtp.kavora.terrain.lod.NearSection;
 import org.edtp.kavora.terrain.lod.FarTerrainExtension;
+import org.edtp.kavora.terrain.lod.FarBeaconBeam;
 import org.edtp.kavora.terrain.lod.LodTerrainScene;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.profiling.PerformanceTimer;
-import org.edtp.kavora.light.LightPower;
 import org.edtp.kavora.light.LightEntry;
-import org.edtp.kavora.light.BlockLightRuleManager;
 import org.edtp.kavora.light.BlockLightKey;
-import org.edtp.kavora.light.BlockLightIntensityControls;
 import org.edtp.kavora.asset.KavoraMeshStore;
 import org.edtp.kavora.asset.KavoraMesh;
-import org.edtp.kavora.asset.KavoraLightStore;
 import org.edtp.kavora.asset.KavoraLight;
 import org.edtp.kavora.asset.KavoraInstanceStore;
 import org.edtp.kavora.asset.KavoraInstance;
 import org.edtp.kavora.ClientViewDistance;
-import org.edtp.kavora.sdk.Float3D;
 import org.edtp.kavora.sdk.InstanceCategoryBit;
 import org.edtp.kavora.sdk.InstanceInfoBlendEXT;
-import org.edtp.kavora.sdk.LightInfo;
-import org.edtp.kavora.sdk.LightInfoCylinderEXT;
-import org.edtp.kavora.sdk.LightInfoDiskEXT;
-import org.edtp.kavora.sdk.LightInfoLightShaping;
-import org.edtp.kavora.sdk.LightInfoRectEXT;
-import org.edtp.kavora.sdk.LightInfoSphereEXT;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.Transform;
 import org.slf4j.Logger;
@@ -54,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -98,6 +89,7 @@ public class ChunkManager {
     private final TerrainNativeCallStats nativeCallStats = new TerrainNativeCallStats();
     private final TerrainAssetRetirementQueue retirementQueue = new TerrainAssetRetirementQueue(nativeCallStats);
     private final LodTerrainScene lodScene = new LodTerrainScene();
+    private final Predicate<BlockLightKey> ownsBlockLight = this::ownsBlockLight;
     private final LinkedHashSet<Long> pendingLodRemovals = new LinkedHashSet<>();
     private final ArrayList<ColumnRenderState> dirtyBuildScratch = new ArrayList<>();
 
@@ -259,13 +251,7 @@ public class ChunkManager {
         private void createLight(LightMutation mutation) {
             if (entry.lights().containsKey(mutation.key())) return;
             LightEntry incoming = mutation.incoming();
-            BlockLightRadiance radiance = blockLightRadiance(incoming, textures);
-            LightInfo info = buildBlockLightInfo(incoming, radiance);
-            KavoraLight light = new KavoraLight(info, null);
-            KavoraLightStore.get().create(light);
-            TerrainLight record = new TerrainLight(light);
-            record.place(incoming.x(), incoming.y(), incoming.z(),
-                    LightPower.of(incoming, radiance.r(), radiance.g(), radiance.b()));
+            TerrainLight record = TerrainLight.create(incoming, textures);
             entry.putLight(mutation.key(), record);
             entry.lightFingerprints().put(mutation.key(), mutation.fingerprint());
             terrain.adjustSectionLightCount(
@@ -276,11 +262,7 @@ public class ChunkManager {
             TerrainLight record = entry.lights().get(mutation.key());
             if (record == null || record.light != mutation.existing()) return;
             LightEntry incoming = mutation.incoming();
-            BlockLightRadiance radiance = blockLightRadiance(incoming, textures);
-            LightInfo info = buildBlockLightInfo(incoming, radiance);
-            KavoraLightStore.get().update(mutation.existing(), info);
-            record.place(incoming.x(), incoming.y(), incoming.z(),
-                    LightPower.of(incoming, radiance.r(), radiance.g(), radiance.b()));
+            record.update(incoming, textures);
             entry.lightFingerprints().put(mutation.key(), mutation.fingerprint());
         }
 
@@ -556,6 +538,8 @@ public class ChunkManager {
         return lodScene.diagnostics();
     }
     public int getFarRenderDistanceChunks() { return Math.ceilDiv(lodScene.renderRadiusBlocks(), 16); }
+
+    public List<FarBeaconBeam> farBeaconBeams() { return lodScene.beaconBeams(); }
 
     /**
      * Sets the light cull distance in chunks. 0 = Auto, Minecraft's render
@@ -1142,85 +1126,6 @@ public class ChunkManager {
         pendingLightOps = 0;
         lightWorkBackpressured = false;
         lastLightFailureLogNanos = 0;
-    }
-
-    /** Linear RGB radiance after every multiplier, shared by the native light and its power. */
-    private record BlockLightRadiance(float r, float g, float b) {}
-
-    private static BlockLightRadiance blockLightRadiance(LightEntry entry, BlockTextureManager tex) {
-        float[] blockColor = (tex != null)
-                ? tex.getLightColorForBlock(entry.block())
-                : BlockTextureManager.FALLBACK_WARM_WHITE;
-        float r = entry.hasColor() ? entry.colorR() : blockColor[0];
-        float g = entry.hasColor() ? entry.colorG() : blockColor[1];
-        float b = entry.hasColor() ? entry.colorB() : blockColor[2];
-        float baseIntensity = entry.hasIntensity()
-                ? entry.intensity()
-                : entry.lightLevel() * BlockLightRuleManager.RADIANCE_PER_LIGHT_LEVEL;
-        baseIntensity *= entry.authoredIntensityMultiplier();
-        float intensity =
-                BlockLightIntensityControls.apply(entry.key().ruleId(), baseIntensity);
-        return new BlockLightRadiance(r * intensity, g * intensity, b * intensity);
-    }
-
-    private LightInfo buildBlockLightInfo(LightEntry entry, BlockLightRadiance radiance) {
-        LightInfo.Builder builder = LightInfo.builder()
-                .radiance(radiance.r(), radiance.g(), radiance.b());
-        return switch (entry.shape()) {
-            case SPHERE -> {
-                LightInfoSphereEXT.Builder sphere = LightInfoSphereEXT.builder()
-                        .position(entry.x(), entry.y(), entry.z())
-                        .radius(entry.radius())
-                        .volumetricRadianceScale(entry.volumetricRadianceScale());
-                // Spot lights: only sphere/rect/disk accept shaping in the Remix
-                // API, and shapedSphere is currently the only producer of it.
-                if (entry.hasShaping()) {
-                    sphere.shaping(shapingOf(entry));
-                }
-                yield builder.sphereExt(sphere.build()).build();
-            }
-            case CYLINDER -> builder
-                    .cylinderExt(LightInfoCylinderEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
-                            .radius(entry.radius())
-                            .axis(entry.axisX(), entry.axisY(), entry.axisZ())
-                            .axisLength(entry.axisLength())
-                            .volumetricRadianceScale(entry.volumetricRadianceScale())
-                            .build())
-                    .build();
-            case RECT -> builder
-                    .rectExt(LightInfoRectEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
-                            .xAxis(entry.xAxisX(), entry.xAxisY(), entry.xAxisZ())
-                            .xSize(entry.xSize())
-                            .yAxis(entry.yAxisX(), entry.yAxisY(), entry.yAxisZ())
-                            .ySize(entry.ySize())
-                            .direction(entry.directionX(), entry.directionY(), entry.directionZ())
-                            .volumetricRadianceScale(entry.volumetricRadianceScale())
-                            .build())
-                    .build();
-            case DISK -> builder
-                    .diskExt(LightInfoDiskEXT.builder()
-                            .position(entry.x(), entry.y(), entry.z())
-                            .xAxis(entry.xAxisX(), entry.xAxisY(), entry.xAxisZ())
-                            .xRadius(entry.xSize())
-                            .yAxis(entry.yAxisX(), entry.yAxisY(), entry.yAxisZ())
-                            .yRadius(entry.ySize())
-                            .direction(entry.directionX(), entry.directionY(), entry.directionZ())
-                            .volumetricRadianceScale(entry.volumetricRadianceScale())
-                            .build())
-                    .build();
-        };
-    }
-
-    private static LightInfoLightShaping shapingOf(LightEntry entry) {
-        LightInfoLightShaping shaping = new LightInfoLightShaping();
-        shaping.direction = new Float3D(
-                entry.shapingDirectionX(), entry.shapingDirectionY(), entry.shapingDirectionZ());
-        shaping.coneAngleDegrees = entry.coneAngleDegrees();
-        shaping.coneSoftness = entry.coneSoftness();
-        shaping.focusExponent = entry.focusExponent();
-        return shaping;
     }
 
     /**
@@ -1879,6 +1784,7 @@ public class ChunkManager {
                     }
                 }
             }
+            lodScene.drawBlockLights(cam, lightReachThreshold, ownsBlockLight);
             traversalScope.drawCalls(drawCalls);
         }
 
@@ -1888,6 +1794,12 @@ public class ChunkManager {
         t.count(cntReachable, terrain.reachableCount());
         t.count(cntFloodIncrementalUs, terrain.takeIncrementalFloodNanos() / 1_000L);
         return drawCalls;
+    }
+
+    private boolean ownsBlockLight(BlockLightKey key) {
+        var pos = key.pos();
+        var section = terrain.findSection(pos.getX() >> 4, pos.getY() >> 4, pos.getZ() >> 4);
+        return section != null && section.lights().containsKey(key);
     }
 
     /** Hides retained terrain instances while preserving cached meshes. */

@@ -5,6 +5,8 @@ import org.edtp.kavora.horizon.voxel.*;
 import org.edtp.kavora.sdk.*;
 import org.edtp.kavora.asset.*;
 import org.edtp.kavora.profiling.ProfileScope;
+import org.edtp.kavora.light.BlockLightKey;
+import org.edtp.kavora.terrain.lod.FarBeaconBeam;
 import org.edtp.kavora.terrain.lod.FarTerrainExtension;
 import org.edtp.kavora.terrain.lod.NearSection;
 import org.edtp.kavora.texture.BlockTextureManager;
@@ -13,12 +15,14 @@ import it.unimi.dsi.fastutil.longs.*;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 
 import org.joml.Matrix4f;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Predicate;
 
 /** Render-thread ownership of a voxel octree in the shared Remix scene. */
 public final class KavoraHorizon implements FarTerrainExtension {
@@ -106,6 +110,11 @@ public final class KavoraHorizon implements FarTerrainExtension {
     private final LongOpenHashSet selection = new LongOpenHashSet();
     private final Long2ObjectOpenHashMap<Set<NearSection>> near = new Long2ObjectOpenHashMap<>();
     private final NearCoverage coverage = new NearCoverage();
+    private final FarBlockLights blockLights = new FarBlockLights();
+    private final ArrayList<FarBeaconBeam> beaconCandidates = new ArrayList<>();
+    private final List<FarBeaconBeam> beaconView = Collections.unmodifiableList(beaconCandidates);
+    private long beaconRevision = Long.MIN_VALUE, beaconViewColumn;
+    private int beaconRadius;
     private final ProjectedError view = new ProjectedError();
     private final TerrainMeshStream.Budget staging = new TerrainMeshStream.Budget(MAX_STAGING_BATCHES);
     private final Matrix4f projection = new Matrix4f();
@@ -223,6 +232,7 @@ public final class KavoraHorizon implements FarTerrainExtension {
         this.textures = textures;
         coverage.update(camera, world);
         if (!store.ready()) return;
+        selectBeacons(camera);
         var client = Minecraft.getInstance();
         client.gameRenderer.mainCamera().getViewRotationProjectionMatrix(projection).get(matrix);
         view.set(
@@ -568,6 +578,36 @@ public final class KavoraHorizon implements FarTerrainExtension {
     }
 
     @Override
+    public void drawBlockLights(Vec3 camera, float threshold, Predicate<BlockLightKey> ownedByNear) {
+        if (session != null && session.ready()) {
+            blockLights.draw(session, api, textures, camera, threshold, renderRadiusBlocks(), ownedByNear);
+        }
+    }
+
+    private void selectBeacons(Vec3 camera) {
+        long revision = session.beacons.revision();
+        if (revision == 0) return;
+        int x = (int) Math.floor(camera.x) >> 4;
+        int z = (int) Math.floor(camera.z) >> 4;
+        long column = ChunkPos.pack(x, z);
+        int radius = HorizonSettings.INSTANCE.distanceChunks;
+        if (revision == beaconRevision && column == beaconViewColumn && radius == beaconRadius) return;
+
+        beaconCandidates.clear();
+        session.beacons.forEachColumn((key, beams) -> {
+            if (Math.abs(ChunkPos.getX(key) - x) <= radius && Math.abs(ChunkPos.getZ(key) - z) <= radius) {
+                beaconCandidates.addAll(beams);
+            }
+        });
+        beaconRevision = revision;
+        beaconViewColumn = column;
+        beaconRadius = radius;
+    }
+
+    @Override
+    public List<FarBeaconBeam> beaconBeams() { return beaconView; }
+
+    @Override
     public boolean isActive() {
         return session != null && HorizonSettings.INSTANCE.enabled;
     }
@@ -760,6 +800,9 @@ public final class KavoraHorizon implements FarTerrainExtension {
     }
 
     private void clearGraphics() {
+        blockLights.clear();
+        beaconCandidates.clear();
+        beaconRevision = Long.MIN_VALUE;
         if (tree != null) {
             tree.close();
             tree = null;

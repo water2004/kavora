@@ -21,6 +21,6 @@ abstract class ClientLevelMixin {
             int flags,
             int recursion,
             CallbackInfoReturnable<Boolean> result) {
-        if (result.getReturnValueZ()) HorizonClient.changed((ClientLevel) (Object) this, pos);
+        if (result.getReturnValueZ()) HorizonClient.changed((ClientLevel) (Object) this, pos, state);
     }
 }

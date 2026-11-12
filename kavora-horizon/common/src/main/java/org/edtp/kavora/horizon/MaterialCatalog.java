@@ -8,6 +8,9 @@ import com.mojang.serialization.JsonOps;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LightBlock;
+import net.minecraft.world.level.block.RenderShape;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,9 +21,10 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * cross threads.
  */
 final class MaterialCatalog {
+    static final int WATERLOGGED_SOURCE = 16;
     record Key(BlockState state, String biome) {}
 
-    record Entry(Key key, boolean solid, int opacity, int fluidMaterial) {}
+    record Entry(Key key, boolean solid, int opacity, int fluidMaterial, int sourceCode) {}
 
     record Layer(TerrainMaterial.FaceMaterial material, int tint) {}
 
@@ -42,6 +46,7 @@ final class MaterialCatalog {
             new AtomicReferenceArray<>((VoxelSection.MATERIAL_MASK + 1) / SEGMENT_SIZE);
     private final Map<Integer, String> pending = new LinkedHashMap<>();
     private volatile TerrainMaterialPalette modelPalette;
+    private volatile boolean hasBlockSources;
     private int nextId = 1;
 
     int register(BlockState state, String biome) {
@@ -64,13 +69,7 @@ final class MaterialCatalog {
         if (!state.getFluidState().isEmpty()
                 && !(state.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock))
             fluid = register(state.getFluidState().createLegacyBlock(), biome);
-        publish(
-                id,
-                new Entry(
-                        key,
-                        state.isSolidRender(),
-                        state.isSolidRender() ? 3 : !state.getFluidState().isEmpty() ? 2 : 1,
-                        fluid));
+        publish(id, describe(key, fluid));
         pending.put(
                 id,
                 BlockState.CODEC.encodeStart(JsonOps.INSTANCE, state).getOrThrow().toString()
@@ -99,13 +98,7 @@ final class MaterialCatalog {
                             .getOrThrow();
             Key key = new Key(state, pair.getValue().substring(split + 1));
             ids.put(key, pair.getKey());
-            publish(
-                    pair.getKey(),
-                    new Entry(
-                            key,
-                            state.isSolidRender(),
-                            state.isSolidRender() ? 3 : !state.getFluidState().isEmpty() ? 2 : 1,
-                            0));
+            publish(pair.getKey(), describe(key, 0));
             nextId = Math.max(nextId, pair.getKey() + 1);
         }
         for (int id : saved.keySet()) {
@@ -115,10 +108,26 @@ final class MaterialCatalog {
                     && !(state.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock)) {
                 int fluid =
                         register(state.getFluidState().createLegacyBlock(), entry.key().biome());
-                publish(id, new Entry(entry.key(), entry.solid(), entry.opacity(), fluid));
+                publish(id, describe(entry.key(), fluid));
             }
         }
     }
+
+    private Entry describe(Key key, int fluid) {
+        BlockState state = key.state();
+        int sourceLevel = state.is(Blocks.LIGHT) ? state.getLightEmission() : 0;
+        int sourceCode = sourceLevel > 0 && state.getValue(LightBlock.WATERLOGGED)
+                ? sourceLevel | WATERLOGGED_SOURCE : sourceLevel;
+        if (sourceLevel > 0) hasBlockSources = true;
+        boolean solid = state.isSolidRender();
+        int opacity = solid ? 3 : !state.getFluidState().isEmpty() ? 2
+                : state.getRenderShape() == RenderShape.INVISIBLE ? -1 : 1;
+        return new Entry(key, solid, opacity, fluid, sourceCode);
+    }
+
+    boolean hasBlockSources() { return hasBlockSources; }
+
+    int sourceCode(int id) { return id == 0 ? 0 : entry(id).sourceCode(); }
 
     synchronized Map<Integer, String> drainDictionary() {
         var result = new LinkedHashMap<>(pending);

@@ -5,8 +5,11 @@
 package org.edtp.kavora.terrain.lod;
 
 import org.edtp.kavora.sdk.RemixAPI;
+import org.edtp.kavora.light.BlockLightKey;
 import org.edtp.kavora.texture.BlockTextureManager;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
 
@@ -22,6 +25,10 @@ public interface FarTerrainExtension extends AutoCloseable {
     void tick(RemixAPI api, BlockTextureManager textures, ClientLevel world, Vec3 camera);
     /** Records committed near geometry. The extension must not delay or initiate near publication. */
     void recordNear(long column, Set<NearSection> sections);
+    /** Submit sources from observed far terrain without replacing a committed near source. */
+    default void drawBlockLights(Vec3 camera, float threshold, Predicate<BlockLightKey> ownedByNear) {}
+    /** Read-only beam snapshots for the current far-terrain range, valid until the next tick. */
+    default List<FarBeaconBeam> beaconBeams() { return List.of(); }
     boolean isActive();
     int renderRadiusBlocks();
     Stats diagnostics();

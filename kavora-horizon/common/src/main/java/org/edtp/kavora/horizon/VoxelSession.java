@@ -98,6 +98,7 @@ final class VoxelSession {
 
     final ClientLevel level;
     final MaterialCatalog materials = new MaterialCatalog();
+    final BeaconCache beacons = new BeaconCache();
     final ConcurrentHashMap<Long, VoxelSection.Info> metadata = new ConcurrentHashMap<>();
     final ChangedKeys changed = new ChangedKeys();
     final Set<Long> roots = ConcurrentHashMap.newKeySet();
@@ -128,7 +129,7 @@ final class VoxelSession {
                         if (previousFailure != null)
                             throw new IllegalStateException(
                                     "Previous voxel session failed to close", previousFailure);
-                        if (!accepting && observations.isEmpty()) {
+                        if (!accepting && !hasPendingObservations()) {
                             initialized = true;
                             closeDatabase();
                             return;
@@ -136,14 +137,19 @@ final class VoxelSession {
                         database = new VoxelDatabase(directory);
                         world = new VoxelWorld(database, 1024);
                         materials.restore(database.materials());
+                        database.openBlockSourceIndex(materials::sourceCode, materials::hasBlockSources);
+                        beacons.restore(database);
                         for (var info : database.roots()) {
                             metadata.put(info.key(), info);
                             roots.add(info.key());
                         }
                         initialized = true;
                         ready = true;
-                        if (!accepting && observations.isEmpty()) closeDatabase();
-                        else schedulePump();
+                        if (!accepting && !hasPendingObservations()) closeDatabase();
+                        else {
+                            schedulePump();
+                            IO.execute(this::backfillBlockSources);
+                        }
                     } catch (Throwable e) {
                         failure = e;
                         initialized = true;
@@ -156,6 +162,20 @@ final class VoxelSession {
     boolean ready() {
         checkFailure();
         return ready;
+    }
+
+    private void backfillBlockSources() {
+        try {
+            if (accepting && database.backfillBlockSources()) IO.execute(this::backfillBlockSources);
+        } catch (Throwable e) {
+            failure = e;
+        }
+    }
+
+    long blockSourceRevision() { return database.blockSourceRevision(); }
+
+    void forEachBlockSourceSection(java.util.function.BiConsumer<Long, int[]> action) {
+        database.forEachBlockSourceSection(action);
     }
 
     int pendingColumns() {
@@ -197,7 +217,9 @@ final class VoxelSession {
         schedulePump();
     }
 
-    private void schedulePump() {
+    private boolean hasPendingObservations() { return !observations.isEmpty() || beacons.hasWrites(); }
+
+    void schedulePump() {
         if (ready && pumping.compareAndSet(false, true)) IO.execute(this::pump);
     }
 
@@ -230,12 +252,13 @@ final class VoxelSession {
                         roots.add(section.key());
                 }
             }
+            beacons.flush(database);
         } catch (Throwable e) {
             failure = e;
             observations.clear();
         } finally {
             pumping.set(false);
-            if (!observations.isEmpty()) schedulePump();
+            if (failure == null && hasPendingObservations()) schedulePump();
             else if (!accepting) closeDatabase();
         }
     }
@@ -444,7 +467,7 @@ final class VoxelSession {
                 () -> {
                     pumpMeshes();
                     if (!initialized) return;
-                    if (observations.isEmpty() && !pumping.get()) closeDatabase();
+                    if ((!hasPendingObservations() || failure != null) && !pumping.get()) closeDatabase();
                     else schedulePump();
                 });
         return closed;

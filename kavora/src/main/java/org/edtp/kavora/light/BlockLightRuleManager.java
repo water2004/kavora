@@ -49,6 +49,11 @@ public final class BlockLightRuleManager {
     private static final Gson GSON = new Gson();
     // The initial resource reload publishes the default catalog before section capture starts.
     private static volatile RuleCatalog activeCatalog = new RuleCatalog(Map.of());
+    private static final java.util.concurrent.atomic.AtomicLong REVISION = new java.util.concurrent.atomic.AtomicLong();
+
+    public static long revision() { return REVISION.get(); }
+
+    static void lightingChanged() { REVISION.incrementAndGet(); }
 
     /** Immutable rule snapshot indexed by the canonical raw ID of each registered block state. */
     private static final class RuleCatalog {
@@ -293,6 +298,7 @@ public final class BlockLightRuleManager {
     static void reload(ResourceManager manager, Map<Identifier, Rule> defaults) {
         Map<Identifier, Rule> rules = loadRules(manager, defaults);
         activeCatalog = new RuleCatalog(rules);
+        lightingChanged();
         LOGGER.info("Loaded {} block light rules", rules.size());
     }
 

@@ -5,8 +5,11 @@
 package org.edtp.kavora.terrain.lod;
 
 import org.edtp.kavora.sdk.RemixAPI;
+import org.edtp.kavora.light.BlockLightKey;
 import org.edtp.kavora.texture.BlockTextureManager;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.phys.Vec3;
@@ -27,6 +30,10 @@ public final class LodTerrainScene implements AutoCloseable {
         if (extension != null) extension.tick(api, textures, world, camera);
     }
     public void recordNear(long column, Set<NearSection> sections) { if (extension != null) extension.recordNear(column, sections); }
+    public void drawBlockLights(Vec3 camera, float threshold, Predicate<BlockLightKey> ownedByNear) {
+        if (extension != null) extension.drawBlockLights(camera, threshold, ownedByNear);
+    }
+    public List<FarBeaconBeam> beaconBeams() { return extension == null ? List.of() : extension.beaconBeams(); }
     public boolean isActive() { return extension != null && extension.isActive(); }
     public boolean isViewRefined() { return extension != null && extension.isViewRefined(); }
     public int renderRadiusBlocks() { return extension == null ? 0 : extension.renderRadiusBlocks(); }

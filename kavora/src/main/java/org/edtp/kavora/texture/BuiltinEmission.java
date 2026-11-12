@@ -46,8 +46,15 @@ public final class BuiltinEmission {
         return SEA_PICKLE_TIP_PEAK * fromTip * fromTip;
     };
 
+    /** The beacon sprite paints a bright circular core inside a reflective border. */
+    static final Mask BEACON = (u, v) -> {
+        float x = u - 0.5f, y = v - 0.5f;
+        return 0.12f * Math.clamp(1.5f - 12f * (x * x + y * y), 0f, 1f);
+    };
+
     private static final Map<Identifier, Mask> MASK = Map.of(
-            Identifier.withDefaultNamespace("block/sea_pickle"), SEA_PICKLE);
+            Identifier.withDefaultNamespace("block/sea_pickle"), SEA_PICKLE,
+            Identifier.withDefaultNamespace("block/beacon"), BEACON);
 
     private BuiltinEmission() {
     }

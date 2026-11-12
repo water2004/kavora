@@ -12,6 +12,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
+import java.util.function.IntUnaryOperator;
 
 /**
  * World/dimension-scoped records. A snapshot and all of its mip ancestors commit in one write
@@ -19,10 +23,16 @@ import java.util.Map;
  */
 public final class VoxelDatabase implements AutoCloseable {
     private static final byte[] FORMAT = {'F'};
+    private static final byte[] SOURCE_INDEX_CURSOR = {'S'};
     private final Options options;
     private final WriteOptions writes;
     private final CompressionOptions compression;
     private final RocksDB db;
+    private final ConcurrentHashMap<Long, int[]> blockSources = new ConcurrentHashMap<>();
+    private IntUnaryOperator sourceLevel;
+    private BooleanSupplier hasSourceMaterials;
+    private long sourceIndexCursor;
+    private volatile long sourceRevision;
 
     static {
         RocksDB.loadLibrary();
@@ -134,15 +144,125 @@ public final class VoxelDatabase implements AutoCloseable {
         return result;
     }
 
+    /** Sparse block-entity snapshots keyed by column, independent of the voxel mip records. */
+    public Map<Long, byte[]> beaconColumns() throws RocksDBException {
+        Map<Long, byte[]> result = new LinkedHashMap<>();
+        try (RocksIterator iterator = db.newIterator()) {
+            for (iterator.seek(key('B', 0)); iterator.isValid(); iterator.next()) {
+                byte[] key = iterator.key();
+                if (key.length != 9 || key[0] != 'B') break;
+                result.put(ByteBuffer.wrap(key, 1, 8).getLong(), iterator.value());
+            }
+            iterator.status();
+        }
+        return result;
+    }
+
+    public void writeBeaconColumn(long column, byte[] snapshot) throws RocksDBException {
+        if (snapshot.length == 0) db.delete(writes, key('B', column));
+        else db.put(writes, key('B', column), snapshot);
+    }
+
+    /** Enables the derived index without changing existing voxel records. */
+    public void openBlockSourceIndex(IntUnaryOperator level, BooleanSupplier hasSources)
+            throws RocksDBException {
+        sourceLevel = level;
+        hasSourceMaterials = hasSources;
+        byte[] cursor = db.get(SOURCE_INDEX_CURSOR);
+        sourceIndexCursor = cursor == null ? 0 : ByteBuffer.wrap(cursor).getLong();
+        try (RocksIterator iterator = db.newIterator()) {
+            for (iterator.seek(key('S', 0)); iterator.isValid(); iterator.next()) {
+                byte[] key = iterator.key();
+                if (key.length != 9 || key[0] != 'S') break;
+                long section = ByteBuffer.wrap(key, 1, 8).getLong();
+                byte[] bytes = iterator.value();
+                int[] sources = new int[bytes.length / Integer.BYTES];
+                ByteBuffer.wrap(bytes).asIntBuffer().get(sources);
+                blockSources.put(section, sources);
+            }
+            iterator.status();
+        }
+        if (!blockSources.isEmpty()) sourceRevision++;
+        if (sourceIndexCursor == 0 && !hasSources.getAsBoolean()) {
+            sourceIndexCursor = Long.MAX_VALUE;
+            db.put(SOURCE_INDEX_CURSOR, cursorBytes(sourceIndexCursor));
+        }
+    }
+
+    /** Scans a bounded slice of legacy level-zero records on the storage thread. */
+    public boolean backfillBlockSources() throws RocksDBException {
+        if (sourceIndexCursor == Long.MAX_VALUE) return false;
+        Map<Long, int[]> changes = new LinkedHashMap<>();
+        long next = Long.MAX_VALUE;
+        try (RocksIterator iterator = db.newIterator(); WriteBatch batch = new WriteBatch()) {
+            iterator.seek(key('V', sourceIndexCursor));
+            for (int visited = 0; visited < 32 && iterator.isValid(); visited++, iterator.next()) {
+                byte[] encoded = iterator.key();
+                if (encoded.length != 9 || encoded[0] != 'V') break;
+                long section = ByteBuffer.wrap(encoded, 1, 8).getLong();
+                if (VoxelKey.level(section) != 0) break;
+                stageSources(batch, changes, section, iterator.value());
+                next = section + 1;
+            }
+            iterator.status();
+            batch.put(SOURCE_INDEX_CURSOR, cursorBytes(next));
+            db.write(writes, batch);
+        }
+        sourceIndexCursor = next;
+        publishSources(changes);
+        return next != Long.MAX_VALUE;
+    }
+
+    public long blockSourceRevision() { return sourceRevision; }
+
+    /** Packed level-zero positions grouped by sparse 32-block sections. */
+    public void forEachBlockSourceSection(java.util.function.BiConsumer<Long, int[]> action) {
+        blockSources.forEach(action);
+    }
+
+    private static byte[] cursorBytes(long cursor) {
+        return ByteBuffer.allocate(Long.BYTES).putLong(cursor).array();
+    }
+
+    private void stageSources(WriteBatch batch, Map<Long, int[]> changes, long section, byte[] encoded)
+            throws RocksDBException {
+        int[] previous = blockSources.get(section);
+        int[] sources = VoxelCodec.blockSources(encoded, sourceLevel);
+        if (sources.length == 0) {
+            if (previous == null) return;
+            batch.delete(key('S', section));
+        } else {
+            if (Arrays.equals(previous, sources)) return;
+            ByteBuffer bytes = ByteBuffer.allocate(sources.length * Integer.BYTES);
+            bytes.asIntBuffer().put(sources);
+            batch.put(key('S', section), bytes.array());
+        }
+        changes.put(section, sources);
+    }
+
+    private void publishSources(Map<Long, int[]> changes) {
+        if (changes.isEmpty()) return;
+        changes.forEach((section, sources) -> {
+            if (sources.length == 0) blockSources.remove(section);
+            else blockSources.put(section, sources);
+        });
+        sourceRevision++;
+    }
+
     public void commit(Collection<VoxelSection> sections, Map<Integer, String> materials)
             throws RocksDBException {
+        boolean indexSources = sourceLevel != null && hasSourceMaterials.getAsBoolean();
+        Map<Long, int[]> sourceChanges = indexSources ? new LinkedHashMap<>() : Map.of();
         try (WriteBatch batch = new WriteBatch()) {
             for (var entry : materials.entrySet())
                 batch.put(
                         key('M', entry.getKey()),
                         entry.getValue().getBytes(StandardCharsets.UTF_8));
             for (VoxelSection section : sections) {
-                batch.put(key('V', section.key()), VoxelCodec.encode(section));
+                byte[] encoded = VoxelCodec.encode(section);
+                batch.put(key('V', section.key()), encoded);
+                if (indexSources && VoxelKey.level(section.key()) == 0)
+                    stageSources(batch, sourceChanges, section.key(), encoded);
                 batch.put(
                         key('I', section.key()),
                         ByteBuffer.allocate(10)
@@ -153,6 +273,7 @@ public final class VoxelDatabase implements AutoCloseable {
             }
             db.write(writes, batch);
         }
+        publishSources(sourceChanges);
     }
 
     @Override

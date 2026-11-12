@@ -13,6 +13,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
@@ -251,6 +252,7 @@ public final class TerrainMaterialPalette {
                                             sprite.v1 - sprite.v0))));
             return new TerrainMaterial.CellMaterials(result);
         }
+        if (state.getRenderShape() == RenderShape.INVISIBLE) return new TerrainMaterial.CellMaterials(result);
         var model = Minecraft.getInstance().getModelManager().getBlockStateModelSet().get(state);
         parts.clear();
         random.setSeed(42);

@@ -42,6 +42,7 @@ public class KavoraVertexConsumerProvider  {
     private RenderType[] activeLayers = new RenderType[8];
     private KavoraCapturingConsumer[] activeConsumers = new KavoraCapturingConsumer[8];
     private int activeCount;
+    private boolean stableGeometry;
 
     /** Pool of consumers for reuse. Only safe when consumers are consumed before next beginEntity(). */
     private final List<KavoraCapturingConsumer> consumerPool = new ArrayList<>();
@@ -55,6 +56,11 @@ public class KavoraVertexConsumerProvider  {
      * Begins capturing for a new entity. Clears previous capture state.
      */
     public void beginEntity() {
+        beginEntity(false);
+    }
+
+    void beginEntity(boolean stableGeometry) {
+        this.stableGeometry = stableGeometry;
         for (int i = 0; i < activeCount; i++) {
             KavoraCapturingConsumer consumer = activeConsumers[i];
             consumer.clear();
@@ -115,7 +121,7 @@ public class KavoraVertexConsumerProvider  {
 
         RenderLayerUtils.Topology topology = RenderLayerUtils.topology(layer)
                 .orElse(RenderLayerUtils.Topology.QUADS);
-        boolean transientGeometry = RenderLayerUtils.isStreamedPerFrame(layer);
+        boolean transientGeometry = !stableGeometry && RenderLayerUtils.isStreamedPerFrame(layer);
         KavoraCapturingConsumer consumer;
         if (!consumerPool.isEmpty()) {
             consumer = consumerPool.remove(consumerPool.size() - 1);

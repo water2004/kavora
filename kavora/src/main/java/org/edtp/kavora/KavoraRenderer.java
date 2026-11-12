@@ -568,6 +568,13 @@ public class KavoraRenderer {
 
             entitySubmitter.beginFrame();
             try {
+                if (KavoraMod.isWorldEnabled() && KavoraMod.isBlockEntitiesEnabled()) {
+                    boolean scoping = client.player != null && client.player.isScoping();
+                    var beams = chunkManager.farBeaconBeams();
+                    for (int i = 0; i < beams.size(); i++) {
+                        blockEntityPass.submitFarBeacon(beams.get(i), cameraPos, scoping, entitySubmitter);
+                    }
+                }
                 if (KavoraMod.isEntitiesEnabled()) {
                     perfTimer.begin(perfTimer.perfEntities);
                     try (ProfileScope entitiesScope = ProfileScope.begin("Entities")) {
