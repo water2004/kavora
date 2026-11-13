@@ -170,6 +170,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_END_PORTAL_EXT          = 51,
     REMIXAPI_STRUCT_TYPE_CAMERA_INFO_SCENE_ORIGIN_EXT           = 52,
     REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_GLINT_EXT               = 53,
+    REMIXAPI_STRUCT_TYPE_CAMERA_MEDIUM_WATER_EXT               = 54,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -546,6 +547,8 @@ extern "C" {
     // previousPosition is explicit motion history, including deformation. New vertices
     // must use their current position. Cannot be combined with compact input or skinning.
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS = 1 << 2,
+    /** On translucent surfaces, vertex alpha zero marks a face whose exterior is water. */
+    REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_WATER_CONTACT = 1 << 3,
   } remixapi_MeshInfoSurfaceTrianglesFlagBit;
   typedef uint32_t remixapi_MeshInfoSurfaceTrianglesFlags;
 
@@ -702,6 +705,13 @@ extern "C" {
     void*                   pNext;
     remixapi_MaterialHandle medium;
   } remixapi_CameraMediumInfo;
+
+  /** Supplies the exterior medium of water-contact mesh faces, even when the camera is dry. */
+  typedef struct remixapi_CameraMediumWaterEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    remixapi_MaterialHandle water;
+  } remixapi_CameraMediumWaterEXT;
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_SetCameraMediumMaterial)(
     const remixapi_CameraMediumInfo* info);

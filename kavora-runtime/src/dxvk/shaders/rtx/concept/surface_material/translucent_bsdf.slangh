@@ -45,7 +45,7 @@ SurfaceMaterialInteractionLobeSample translucentSurfaceMaterialInteractionCalcLo
   TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
   float random,
   MinimalRayInteraction minimalRayInteraction,
-  bool insideMedium)
+  TranslucentInterface boundary)
 {
   SurfaceMaterialInteractionLobeSample surfaceMaterialInteractionLobeSample;
 
@@ -59,24 +59,7 @@ SurfaceMaterialInteractionLobeSample translucentSurfaceMaterialInteractionCalcLo
 
   // Compute material-related quantities
 
-  float fresnel;
-
-  if (insideMedium)
-  {
-    // Note: Currently this does not handle nested translucency (and we probably won't due to the complexity of it).
-    // Other medium refractive index therefore always assumed to be a vacuum.
-    const float relativeRefractiveIndex = translucentSurfaceMaterialInteraction.refractiveIndex / materialIoRVacuum;
-    // Todo: This will result in TIR at times (a reflection fresnel of 1) preventing any transmission to not waste samples on it as expected, but on rough
-    // surfaces this may cause issues due to the microfacet normal approximation we use above. We did solve this once before by computing the outgoing direction
-    // prior to the lobe selection, but that may be hard in this framework. Regardless this should work fine for the time being on dirac translucent surfaces.
-    fresnel = evalTranslucentSchlickFresnelTIR(translucentSurfaceMaterialInteraction.baseReflectivity, relativeRefractiveIndex, normalDotOutputDirection);
-  }
-  else
-  {
-    // Note: Fine to use evalTranslucentSchlickFresnel here as the influence of TIR on the function will never have to be taken into account due to being outside
-    // the medium.
-    fresnel = evalTranslucentSchlickFresnel(translucentSurfaceMaterialInteraction.baseReflectivity, normalDotOutputDirection);
-  }
+  const float fresnel = evalTranslucentSchlickFresnelTIR(boundary.baseReflectivity, boundary.eta, normalDotOutputDirection);
 
   // Calculate lobe probabilities
 
@@ -134,14 +117,10 @@ SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecul
   TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
   vec4 tangentToWorldSpaceQuaternion,
   MinimalRayInteraction minimalRayInteraction,
-  bool insideMedium)
+  TranslucentInterface boundary)
 {
-  float outsideRelativeRefractiveIndex;
-  float insideRelativeRefractiveIndex;
-
-  translucentSurfaceMaterialInteractionCalcRelativeRefractiveIndices(
-    translucentSurfaceMaterialInteraction, insideMedium,
-    outsideRelativeRefractiveIndex, insideRelativeRefractiveIndex);
+  const float outsideRelativeRefractiveIndex = boundary.eta;
+  const float insideRelativeRefractiveIndex = rcp(boundary.eta);
 
   const vec4 worldToTangentSpaceQuaternion = quaternionInverse(tangentToWorldSpaceQuaternion);
 
@@ -190,15 +169,15 @@ SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecul
   // Calculate the fresnel of the sample
 
   const float outsideFresnel = evalTranslucentSchlickFresnelTIR(
-    translucentSurfaceMaterialInteraction.baseReflectivity, outsideRelativeRefractiveIndex, abs(outputDirectionDotMicrofacetNormal));
+    boundary.baseReflectivity, outsideRelativeRefractiveIndex, abs(outputDirectionDotMicrofacetNormal));
   const float insideFresnel = evalTranslucentSchlickFresnelTIR(
-    translucentSurfaceMaterialInteraction.baseReflectivity, insideRelativeRefractiveIndex, refractedDirectionDotMicrofacetNormal);
+    boundary.baseReflectivity, insideRelativeRefractiveIndex, refractedDirectionDotMicrofacetNormal);
 
   // Calculate the throughput of the sample
 
   vec3 throughput;
 
-  const bool isThinWalled = translucentSurfaceMaterialInteractionIsThinWalled(translucentSurfaceMaterialInteraction);
+  const bool isThinWalled = boundary.thin;
 
   if (!isThinWalled)
   {
@@ -242,14 +221,10 @@ SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecul
 SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecularTransmissionSample(
   TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
   MinimalRayInteraction minimalRayInteraction,
-  inout bool insideMedium, inout bool penetrateSurface)
+  TranslucentInterface boundary, inout uint medium, inout bool penetrateSurface)
 {
-  float outsideRelativeRefractiveIndex;
-  float insideRelativeRefractiveIndex;
-
-  translucentSurfaceMaterialInteractionCalcRelativeRefractiveIndices(
-    translucentSurfaceMaterialInteraction, insideMedium,
-    outsideRelativeRefractiveIndex, insideRelativeRefractiveIndex);
+  const float outsideRelativeRefractiveIndex = boundary.eta;
+  const float insideRelativeRefractiveIndex = rcp(boundary.eta);
 
   // Set up relevant input vectors
 
@@ -289,16 +264,16 @@ SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecul
   // Note: This is done in advance to determine TIR before BRDF/BTDF evaluation
 
   const float outsideFresnel = evalTranslucentSchlickFresnelTIR(
-    translucentSurfaceMaterialInteraction.baseReflectivity, outsideRelativeRefractiveIndex, outputDirectionDotMicrofacetNormal);
+    boundary.baseReflectivity, outsideRelativeRefractiveIndex, outputDirectionDotMicrofacetNormal);
   const float insideFresnel = evalTranslucentSchlickFresnelTIR(
-    translucentSurfaceMaterialInteraction.baseReflectivity, insideRelativeRefractiveIndex, refractedDirectionDotMicrofacetNormal);
+    boundary.baseReflectivity, insideRelativeRefractiveIndex, refractedDirectionDotMicrofacetNormal);
 
   // Switch between reflection and transmission
 
   vec3 inputDirection;
   vec3 throughput;
 
-  const bool isThinWalled = translucentSurfaceMaterialInteractionIsThinWalled(translucentSurfaceMaterialInteraction);
+  const bool isThinWalled = boundary.thin;
 
   if (!isThinWalled)
   {
@@ -342,9 +317,7 @@ SurfaceMaterialInteractionSample translucentSurfaceMaterialInteractionCalcSpecul
       // Note: Simplified version of (weight / solidAnglePdf) * (n.l)
       throughput = float(1.0f - outsideFresnel).xxx;
 
-      // Flip the inside medium flag as transmission occured
-
-      insideMedium = !insideMedium;
+      medium = translucentTransmittedMedium(translucentSurfaceMaterialInteraction, boundary);
       penetrateSurface = true;
     }
   }
@@ -401,22 +374,23 @@ void translucentSurfaceMaterialInteractionCalcSample(
   MinimalRayInteraction minimalRayInteraction,
   inout SurfaceMaterialInteractionSample surfaceMaterialInteractionSample,
   inout SurfaceMaterialInteractionLobeSample surfaceMaterialInteractionLobeSample,
-  inout bool insideMedium, inout bool penetrateSurface)
+  inout uint medium, inout bool penetrateSurface)
 {
+  const TranslucentInterface boundary = translucentInterface(translucentSurfaceMaterialInteraction, medium);
   surfaceMaterialInteractionLobeSample = translucentSurfaceMaterialInteractionCalcLobeSample(
-    translucentSurfaceMaterialInteraction, lobeRandom, minimalRayInteraction, insideMedium);
+    translucentSurfaceMaterialInteraction, lobeRandom, minimalRayInteraction, boundary);
 
   switch (uint(surfaceMaterialInteractionLobeSample.lobe))
   {
   default:
   case uint(translucentLobeTypeSpecularReflection):
     surfaceMaterialInteractionSample = translucentSurfaceMaterialInteractionCalcSpecularReflectionSample(
-      translucentSurfaceMaterialInteraction, tangentToWorldSpaceQuaternion, minimalRayInteraction, insideMedium);
+      translucentSurfaceMaterialInteraction, tangentToWorldSpaceQuaternion, minimalRayInteraction, boundary);
 
     break;
   case uint(translucentLobeTypeSpecularTransmission):
     surfaceMaterialInteractionSample = translucentSurfaceMaterialInteractionCalcSpecularTransmissionSample(
-      translucentSurfaceMaterialInteraction, minimalRayInteraction, insideMedium, penetrateSurface);
+      translucentSurfaceMaterialInteraction, minimalRayInteraction, boundary, medium, penetrateSurface);
 
     break;
   }

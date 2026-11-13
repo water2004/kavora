@@ -191,6 +191,9 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   translucentSurfaceMaterialInteraction.sourcePackedGammaEmissiveColor = colorToR5G6B5(linearToGammaFast(emissiveColor));
 
   translucentSurfaceMaterialInteraction.flags = translucentSurfaceMaterial.flags;
+  if (surface.hasWaterContact && surfaceInteraction.vertexColor.a < 0.5f) {
+    translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_WATER_CONTACT;
+  }
   if (transmittanceOrDiffuseLoaded && !useDiffuseLayer)
   {
     translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE;
@@ -303,6 +306,9 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   translucentSurfaceMaterialInteraction.flags =
     (useDiffuseLayer ? TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER : 0) |
     (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER);
+  if (gBufferMemoryPolymorphicSurfaceMaterialInteraction.waterContact) {
+    translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_WATER_CONTACT;
+  }
   if (!useDiffuseLayer && translucentSurfaceMaterial.transmittanceOrDiffuseTextureIndex != BINDING_INDEX_INVALID)
   {
     translucentSurfaceMaterialInteraction.flags |= TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE;

@@ -148,8 +148,7 @@ public:
   // DXVK chunks (see REMIX-5845) because an API client may never present again.
   void destroyExternalMesh(const Rc<DxvkContext>& ctx, remixapi_MeshHandle handle);
   
-  void setExternalStartInMediumMaterial(const MaterialData& translucentMaterial);
-  void clearExternalStartInMediumMaterial();
+  void setExternalMedia(const MaterialData* camera, const MaterialData* water);
   
   bool hasAnyMods() const;
   std::vector<Mod::State> getReplacementStates() const;
@@ -210,6 +209,7 @@ public:
   const fast_unordered_cache<FogState>& getFogStates() const { return m_fogStates; }
 
   uint32_t getStartInMediumMaterialIndex() { return m_startInMediumMaterialIndex; }
+  uint32_t getWaterMediumMaterialIndex() const { return m_waterMediumMaterialIndex; }
   
   uint32_t getActivePOMCount() {return m_activePOMCount;}
   bool hasSimulatedWater() const { return m_simulatedWaterCount != 0; }
@@ -418,6 +418,9 @@ private:
   bool m_checkedSludgeScene = false;
   uint32_t m_fogStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
   uint32_t m_externalStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
+  uint32_t m_externalWaterMediumIndexInCache = kInvalidMaterialCacheIndex;
+  uint32_t m_uploadedWaterMediumIndexInCache = kInvalidMaterialCacheIndex;
+  uint32_t m_waterMediumMaterialIndex = SURFACE_INDEX_INVALID;
   uint32_t m_startInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
   uint32_t m_lastResolvedStartInMediumMaterialIndexInCache = kInvalidMaterialCacheIndex;
   uint32_t m_lastUploadedStartInMediumMaterialIndexInCache = kInvalidMaterialCacheIndex;

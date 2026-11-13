@@ -105,6 +105,7 @@ public class BlockTextureManager {
     private final List<KavoraMaterial> managedMaterials = new ArrayList<>();
     private KavoraMaterial waterSurfaceMaterial;
     private KavoraMaterial waterCameraMediumMaterial;
+    private int waterMaterialRevision;
     private long waterNormalHandle;
     private boolean initialized, initFailed;
     private float cutoutSssTransmissionDistance = DEFAULT_CUTOUT_SSS_TRANSMISSION_DISTANCE;
@@ -899,6 +900,7 @@ public class BlockTextureManager {
 
     public KavoraMaterial getWaterSurfaceMaterial() { return waterSurfaceMaterial; }
     public KavoraMaterial getWaterCameraMediumMaterial() { return waterCameraMediumMaterial; }
+    public int getWaterMaterialRevision() { return waterMaterialRevision; }
     public static float getWaterTileSize() { return WATER_TILE_SIZE; }
     public float getWaterIor() { return waterIor; }
     public float getWaterTransmittanceR() { return waterTransmittanceR; }
@@ -1066,6 +1068,7 @@ public class BlockTextureManager {
         if (waterSurfaceMaterial == null || waterCameraMediumMaterial == null) return false;
         KavoraMaterialStore.get().update(waterSurfaceMaterial, waterSurfaceInfo());
         KavoraMaterialStore.get().update(waterCameraMediumMaterial, waterCameraMediumInfo());
+        waterMaterialRevision++;
         return true;
     }
 
@@ -1196,6 +1199,10 @@ public class BlockTextureManager {
     public static String glassLayerOverride(BlockState state) {
         if (state.is(Blocks.GLASS) || state.is(Blocks.GLASS_PANE)) return "glass";
         return state.getBlock() instanceof StainedGlassBlock ? STAINED_GLASS_BLOCK_LAYER : null;
+    }
+
+    public static boolean isFullGlass(BlockState state) {
+        return state.is(Blocks.GLASS) || state.getBlock() instanceof StainedGlassBlock;
     }
 
     public static boolean isTranslucentLayer(int layer) {

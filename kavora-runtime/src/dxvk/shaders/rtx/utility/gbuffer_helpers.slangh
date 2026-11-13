@@ -159,11 +159,17 @@ PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteractionReadF
   memory.worldShadingNormal = signedOctahedralToSphereDirection(snorm2x16ToFloat2x32(worldShadingNormalTexture[compactedPosition]));
   memory.perceptualRoughness = perceptualRoughnessTexture[perceptualRoughnessPosition];
   memory.albedo = f16vec3(albedoTexture[compactedPosition].rgb);
-  memory.baseReflectivity = f16vec3(baseReflectivityTexture[compactedPosition].rgb);
+  const vec4 reflectivity = baseReflectivityTexture[compactedPosition];
+  memory.baseReflectivity = f16vec3(reflectivity.rgb);
+  memory.waterContact = reflectivity.a > 0.5f;
   memory.data0 = data0Texture[compactedPosition].x;
   memory.data1 = data1Texture[compactedPosition].x;
 
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction = polymorphicSurfaceMaterialInteractionCreate(memory);
+  if (polymorphicSurfaceMaterialInteraction.type != surfaceMaterialTypeOpaque)
+  {
+    return polymorphicSurfaceMaterialInteraction;
+  }
   if (cb.sssArgs.enableThinOpaque || cb.sssArgs.enableDiffusionProfile)
   {
     const uint primarySurfaceIndex = surfaceIndexTexture[compactedPosition];
@@ -220,7 +226,8 @@ void polymorphicSurfaceMaterialInteractionWriteToGBuffer(
     gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
 
   albedoTexture[compactedPosition] = vec4(gBufferMemoryPolymorphicSurfaceMaterialInteraction.albedo, 1.0);
-  baseReflectivityTexture[compactedPosition] = vec4(gBufferMemoryPolymorphicSurfaceMaterialInteraction.baseReflectivity, 1.0);
+  baseReflectivityTexture[compactedPosition] = vec4(gBufferMemoryPolymorphicSurfaceMaterialInteraction.baseReflectivity,
+    float(gBufferMemoryPolymorphicSurfaceMaterialInteraction.waterContact));
 
   f16vec3 virtualShadingNormal = gBufferMemoryPolymorphicSurfaceMaterialInteraction.worldShadingNormal;
 

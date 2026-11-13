@@ -331,10 +331,15 @@ public final class BlockMeshBuilder {
                         "Canonical terrain page range exceeds the bucket payload");
             }
             putCanonicalQuadIndices(im, totalVerts);
+            int flags = MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS | MeshInfoSurfaceTriangles.COMPACT_VERTICES;
+            int layer = BlockTextureManager.layerType(bucket.key);
+            if (layer == BlockTextureManager.L_GLASS || layer == BlockTextureManager.L_STAINED_GLASS_BLOCK) {
+                flags |= MeshInfoSurfaceTriangles.WATER_CONTACT;
+            }
             KavoraMeshSurface surface = new KavoraMeshSurface(material)
                     .setVertexData(vm, totalVerts)
                     .setIndexData(im, totalIdx)
-                    .setFlags(MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS | MeshInfoSurfaceTriangles.COMPACT_VERTICES);
+                    .setFlags(flags);
             transferred = true;
             return surface;
         } finally {

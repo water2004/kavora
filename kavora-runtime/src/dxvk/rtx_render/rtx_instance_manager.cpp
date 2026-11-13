@@ -1144,6 +1144,7 @@ namespace dxvk {
         currentInstance.surface.isSelfLit = materialData->getType() == MaterialDataType::Opaque
           && currentInstance.testCategoryFlags(InstanceCategories::SelfLit);
         currentInstance.surface.alphaCoverage = currentInstance.testCategoryFlags(InstanceCategories::AlphaCoverage);
+        currentInstance.surface.hasWaterContact = drawCall.getGeometryData().hasWaterContact;
         currentInstance.surface.associatedGeometryHash = drawCall.getHash(RtxOptions::geometryAssetHashRule());
         currentInstance.surface.isTextureFactorBlend = drawCall.getMaterialData().isTextureFactorBlend;
         currentInstance.surface.isVertexColorBakedLighting = drawCall.getMaterialData().isVertexColorBakedLighting;

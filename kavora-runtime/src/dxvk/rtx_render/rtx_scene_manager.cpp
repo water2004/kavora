@@ -350,6 +350,9 @@ namespace dxvk {
     m_startInMediumMaterialIndex = SURFACE_INDEX_INVALID;
     m_fogStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
     m_externalStartInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
+    m_externalWaterMediumIndexInCache = kInvalidMaterialCacheIndex;
+    m_uploadedWaterMediumIndexInCache = kInvalidMaterialCacheIndex;
+    m_waterMediumMaterialIndex = SURFACE_INDEX_INVALID;
     m_startInMediumMaterialIndex_inCache = kInvalidMaterialCacheIndex;
     m_lastResolvedStartInMediumMaterialIndexInCache = kInvalidMaterialCacheIndex;
     m_lastUploadedStartInMediumMaterialIndexInCache = kInvalidMaterialCacheIndex;
@@ -2085,18 +2088,19 @@ namespace dxvk {
     return m_externalSampler;
   }
 
-  void SceneManager::setExternalStartInMediumMaterial(const MaterialData& translucentMaterial) {
-    assert(translucentMaterial.getType() == MaterialDataType::Translucent);
+  void SceneManager::setExternalMedia(const MaterialData* camera, const MaterialData* water) {
+    const auto trackMedium = [&](const MaterialData* material) -> uint32_t {
+      if (material == nullptr) {
+        return kInvalidMaterialCacheIndex;
+      }
+      const auto samplerIndex = trackSampler(getOrCreateExternalSampler());
+      return m_surfaceMaterialCache.track(RtSurfaceMaterial(
+        createTranslucentSurfaceMaterial(material->getTranslucentMaterialData(), samplerIndex, true)));
+    };
 
-    const auto samplerIndex = trackSampler(getOrCreateExternalSampler());
-    const auto surfaceMaterial = RtSurfaceMaterial(
-      createTranslucentSurfaceMaterial(translucentMaterial.getTranslucentMaterialData(), samplerIndex, true));
-
-    m_externalStartInMediumMaterialIndex_inCache = m_surfaceMaterialCache.track(surfaceMaterial);
-  }
-
-  void SceneManager::clearExternalStartInMediumMaterial() {
-    m_externalStartInMediumMaterialIndex_inCache = UINT32_MAX;
+    m_externalWaterMediumIndexInCache = trackMedium(water);
+    m_externalStartInMediumMaterialIndex_inCache = camera == water
+      ? m_externalWaterMediumIndexInCache : trackMedium(camera);
   }
 
   void SceneManager::setStartInMediumMaterial(const MaterialData& translucentMaterial) {
@@ -2501,6 +2505,10 @@ namespace dxvk {
     // Baked terrain materials are updated independently of acceleration-structure
     // scene generation, so keep their surface-material upload live.
     const bool startInMediumStateChanged = m_startInMediumMaterialIndex_inCache != m_lastUploadedStartInMediumMaterialIndexInCache;
+    const uint32_t waterMediumInCache = m_externalWaterMediumIndexInCache < m_surfaceMaterialCache.getTotalCount()
+      ? m_externalWaterMediumIndexInCache : kInvalidMaterialCacheIndex;
+    const bool separateWaterMedium = waterMediumInCache != kInvalidMaterialCacheIndex &&
+      waterMediumInCache != m_startInMediumMaterialIndex_inCache;
     const bool sceneUnchanged = m_accelManager.wasSceneUnchangedThisFrame();
     const bool hadSludge = m_sludgeWaterMaterialIndex != SURFACE_INDEX_INVALID;
     const auto& instances = m_accelManager.getOrderedInstances();
@@ -2512,7 +2520,7 @@ namespace dxvk {
     const bool updateSurfaceMaterials =
       !sceneUnchanged ||
       TerrainBaker::needsTerrainBaking() ||
-      startInMediumStateChanged || hasSludge != hadSludge;
+      startInMediumStateChanged || waterMediumInCache != m_uploadedWaterMediumIndexInCache || hasSludge != hadSludge;
     if (updateSurfaceMaterials) {
       m_sludgeWaterMaterialIndex = SURFACE_INDEX_INVALID;
       DxvkBufferCreateInfo matInfo;
@@ -2527,7 +2535,8 @@ namespace dxvk {
         ScopedGpuProfileZone(ctx, "updateSurfaceMaterials");
         // Note: We duplicate the materials in the buffer so we don't have to do pointer chasing on the GPU
         const uint32_t expectedSurfaceMaterialEntries = m_accelManager.getSurfaceCount()
-          + (m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex ? 1u : 0u) + uint32_t(hasSludge);
+          + uint32_t(m_startInMediumMaterialIndex_inCache != kInvalidMaterialCacheIndex)
+          + uint32_t(separateWaterMedium) + uint32_t(hasSludge);
         const size_t surfaceMaterialsGPUSize = expectedSurfaceMaterialEntries * kSurfaceMaterialGPUSize;
 
         matInfo.size = align(surfaceMaterialsGPUSize, kBufferAlignment);
@@ -2565,6 +2574,15 @@ namespace dxvk {
           m_startInMediumMaterialIndex = SURFACE_INDEX_INVALID;
         }
 
+        m_waterMediumMaterialIndex = SURFACE_INDEX_INVALID;
+        if (separateWaterMedium) {
+          m_surfaceMaterialCache.getObjectTable()[waterMediumInCache].writeGPUData(
+            surfaceMaterialsGPUData.data(), dataOffset, surfaceIndex);
+          m_waterMediumMaterialIndex = surfaceIndex++;
+        } else if (waterMediumInCache != kInvalidMaterialCacheIndex) {
+          m_waterMediumMaterialIndex = m_startInMediumMaterialIndex;
+        }
+
         if (hasSludge) {
           constexpr uint32_t invalid = kSurfaceMaterialInvalidTextureIndex;
           const RtTranslucentSurfaceMaterial water(invalid, invalid, invalid, 1.333f, 1.8f,
@@ -2577,6 +2595,7 @@ namespace dxvk {
         assert(surfaceIndex == expectedSurfaceMaterialEntries);
         assert(dataOffset == surfaceMaterialsGPUSize);
         m_lastUploadedStartInMediumMaterialIndexInCache = m_startInMediumMaterialIndex_inCache;
+        m_uploadedWaterMediumIndexInCache = waterMediumInCache;
 
         // PointInstancer copies use the template material slot, so leave theirs out
         {

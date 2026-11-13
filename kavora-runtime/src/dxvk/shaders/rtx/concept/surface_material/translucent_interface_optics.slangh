@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/concept/surface_material/surface_material.h"
+#include "rtx/concept/surface_material/translucent_medium.slangh"
 #include "rtx/utility/brdf.slangh"
 
 // Interface optics shared by BSDF sampling and primary surface replacement.
@@ -37,28 +38,43 @@ float translucentSurfaceMaterialInteractionGetThinWallThickness(
   return -translucentSurfaceMaterialInteraction.thicknessOrMeasurementDistance;
 }
 
-// Note: Calculates the relative refractive indices for an incident and outgoing refractive event.
-void translucentSurfaceMaterialInteractionCalcRelativeRefractiveIndices(
-  TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
-  bool insideMedium,
-  inout float outsideRelativeRefractiveIndex, inout float insideRelativeRefractiveIndex)
+struct TranslucentInterface
 {
-  float incidentRefractiveIndex;
-  float transmittedRefractiveIndex;
+  uint exteriorMedium;
+  bool exiting;
+  bool thin;
+  float eta;
+  float baseReflectivity;
+};
 
-  if (!insideMedium)
-  {
-    incidentRefractiveIndex = materialIoRVacuum;
-    transmittedRefractiveIndex = translucentSurfaceMaterialInteraction.refractiveIndex;
-  }
-  else
-  {
-    incidentRefractiveIndex = translucentSurfaceMaterialInteraction.refractiveIndex;
-    transmittedRefractiveIndex = materialIoRVacuum;
-  }
+// Thick faces delimit their material and their declared exterior. Thin sheets keep the incident medium.
+TranslucentInterface translucentInterface(TranslucentSurfaceMaterialInteraction material, uint medium)
+{
+  TranslucentInterface boundary;
+  boundary.thin = translucentSurfaceMaterialInteractionIsThinWalled(material);
+  boundary.exteriorMedium = (material.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_WATER_CONTACT)
+    ? cb.waterMediumMaterialIndex : SURFACE_INDEX_INVALID;
+  boundary.exiting = !boundary.thin && medium != SURFACE_INDEX_INVALID && medium != boundary.exteriorMedium;
 
-  outsideRelativeRefractiveIndex = incidentRefractiveIndex / transmittedRefractiveIndex;
-  insideRelativeRefractiveIndex = transmittedRefractiveIndex / incidentRefractiveIndex;
+  const uint exteriorMedium = boundary.thin ? medium : boundary.exteriorMedium;
+  const float exteriorIor = exteriorMedium == cb.waterMediumMaterialIndex && exteriorMedium != SURFACE_INDEX_INVALID
+    ? float(translucentSurfaceMaterialCreate(surfaceMaterials[exteriorMedium]).refractiveIndex) : materialIoRVacuum;
+  const float ratio = exteriorIor / material.refractiveIndex;
+  boundary.eta = boundary.exiting ? rcp(ratio) : ratio;
+  boundary.baseReflectivity = material.baseReflectivity;
+  if (exteriorIor != materialIoRVacuum) {
+    const float vacuumReflectivity = square((material.refractiveIndex - 1.0f) / (material.refractiveIndex + 1.0f));
+    boundary.baseReflectivity = saturate(boundary.baseReflectivity + square((1.0f - ratio) / (1.0f + ratio)) - vacuumReflectivity);
+  }
+  return boundary;
+}
+
+uint translucentTransmittedMedium(TranslucentSurfaceMaterialInteraction material, TranslucentInterface boundary)
+{
+  if (boundary.exiting) return boundary.exteriorMedium;
+  if ((material.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER) &&
+      cb.waterMediumMaterialIndex != SURFACE_INDEX_INVALID) return cb.waterMediumMaterialIndex;
+  return translucentMediumEnter(material);
 }
 
 // Thin sheets use transmittance measured over one world unit.

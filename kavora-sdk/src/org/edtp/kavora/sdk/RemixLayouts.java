@@ -272,6 +272,10 @@ final class RemixLayouts {
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 ADDRESS.withName("medium"));
+        define("CameraMediumWaterEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                ADDRESS.withName("water"));
         define("InstanceInfoBoneTransformsEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

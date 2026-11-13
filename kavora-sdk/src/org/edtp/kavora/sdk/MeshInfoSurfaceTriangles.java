@@ -18,6 +18,8 @@ public class MeshInfoSurfaceTriangles {
     /** Full-stride records include previous rendered-frame positions at offset 44.
      * New vertices must set previous=current. Incompatible with COMPACT_VERTICES and skinning. */
     public static final int PREVIOUS_POSITIONS = 1 << 2;
+    /** On translucent faces, a zero vertex alpha marks water on the exterior side. */
+    public static final int WATER_CONTACT = 1 << 3;
 
     /** Direct, native-order records starting at offset zero; capacity must cover vertexCount times the stride. */
     public ByteBuffer vertexBuffer;

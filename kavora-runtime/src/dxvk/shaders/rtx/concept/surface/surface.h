@@ -512,6 +512,11 @@ struct Surface
     get { return packedFlagGet(data13.z, 1 << 16); }
   }
 
+  property bool hasWaterContact
+  {
+    get { return packedFlagGet(data13.z, 1 << 19); }
+  }
+
   property uint tFactor
   {
     get { return data13.y; }

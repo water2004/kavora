@@ -563,8 +563,19 @@ public final class RemixBridge {
         }
     }
     public static int setCameraMediumMaterial(long materialHandle) {
+        return setCameraMediumMaterial(materialHandle, 0);
+    }
+
+    public static int setCameraMediumMaterial(long materialHandle, long waterHandle) {
         try (Scratch arena = scratch()) {
-            MemorySegment info = info(arena, "CameraMediumInfo", StructType.CAMERA_MEDIUM_INFO, 0);
+            long chain = 0;
+            if (waterHandle != 0) {
+                String type = "CameraMediumWaterEXT";
+                MemorySegment water = info(arena, type, StructType.CAMERA_MEDIUM_WATER_EXT, 0);
+                put(water, type, "water", waterHandle);
+                chain = water.address();
+            }
+            MemorySegment info = info(arena, "CameraMediumInfo", StructType.CAMERA_MEDIUM_INFO, chain);
             put(info, "CameraMediumInfo", "medium", materialHandle);
             return call("SetCameraMediumMaterial", info);
         }

@@ -312,7 +312,6 @@ void sampleIndirectRayForFirstBounce(
   MinimalSurfaceInteraction primaryMinimalSurfaceInteraction,
   PolymorphicSurfaceMaterialInteraction primaryPolymorphicSurfaceMaterialInteraction,
   inout uint mediumState,
-  inout bool insideMedium,
   out bool mediumChanged,
   out Ray sampledRay,
   out vec3 throughput,
@@ -341,7 +340,7 @@ void sampleIndirectRayForFirstBounce(
   // stochastic, unlike the emissive outputs from the g-buffer pass) will not lose energy.
   throughput = 1.0f / integrationSurfacePdf;
 
-  const bool oldInsideMedium = insideMedium;
+  const uint incidentMedium = mediumState;
   
   // Sample a new direction
   // Note: If this sample is invalid the throughput and solid angle pdf will be set to 0. Since this throughput is written right out
@@ -351,14 +350,14 @@ void sampleIndirectRayForFirstBounce(
   // a role in setting the continuation flag there, whereas here it just modifies the throughput. This is because russian roulette may
   // not be throughput based or may clamp the minimum probability like it does here in the direct integrator, so care must be taken to
   // not have this dispatch rays on otherwise invalid direction samples.
-  sampledRay = sampleDirection(randomState, insideMedium, throughput,
+  sampledRay = sampleDirection(randomState, mediumState, throughput,
                                primaryRay, primaryMinimalRayInteraction, primaryMinimalSurfaceInteraction,
                                primaryPolymorphicSurfaceMaterialInteraction,
                                firstRayPathSampledLobe, firstSampledLobePdf, firstSampledSolidAnglePdf,
                                true);
 
   // Set the material medium index if a medium was entered or exited
-  mediumChanged = evalMediumChange(oldInsideMedium, insideMedium, primaryPolymorphicSurfaceMaterialInteraction, mediumState);
+  mediumChanged = mediumState != incidentMedium;
   
   // Set the first sampled lobe type
 
@@ -384,9 +383,8 @@ void sampleAndStoreIndirectRayPathSample(
   PolymorphicSurfaceMaterialInteraction primaryPolymorphicSurfaceMaterialInteraction,
   inout GeometryFlags geometryFlags)
 {
-  // Only stored back when the medium changes, in which case evalMediumChange overwrites it.
-  uint mediumState = SURFACE_INDEX_INVALID;
-  bool insideMedium = geometryFlags.insideMedium;
+  const uint8_t materialType = polymorphicSurfaceMaterialInteractionGetTypeHelper(primaryPolymorphicSurfaceMaterialInteraction);
+  uint mediumState = materialType == surfaceMaterialTypeTranslucent ? SharedMediumState[compactedCoordinate] : SURFACE_INDEX_INVALID;
 
   bool mediumChanged;
   Ray sampledRay;
@@ -402,7 +400,7 @@ void sampleAndStoreIndirectRayPathSample(
                                   primaryMinimalRayInteraction, 
                                   primarySurfaceInteraction,
                                   primaryPolymorphicSurfaceMaterialInteraction,
-                                  mediumState, insideMedium,
+                                  mediumState,
                                   mediumChanged, sampledRay, throughput, perceptualRoughness, 
                                   firstRayPathSampledLobe, firstSampledLobePdf, firstSampledSolidAnglePdf, firstSampledLobeIsSpecular);
 
@@ -441,6 +439,7 @@ void sampleAndStoreIndirectRayPathSample(
   const bool firstSampledLobeUsesDiffuseSignal =
     polymorphicSurfaceMaterialInteractionGetTypeHelper(primaryPolymorphicSurfaceMaterialInteraction) == surfaceMaterialTypeOpaque &&
     (firstRayPathSampledLobe == opaqueLobeTypeDiffuseReflection || firstRayPathSampledLobe == opaqueLobeTypeDiffuseTransmission);
+  const bool insideMedium = mediumChanged ? mediumState != SURFACE_INDEX_INVALID : geometryFlags.insideMedium;
   if (insideMedium != geometryFlags.insideMedium || firstSampledLobeIsSpecular != geometryFlags.firstSampledLobeIsSpecular ||
       firstSampledLobeUsesDiffuseSignal != geometryFlags.firstSampledLobeUsesDiffuseSignal)
   {

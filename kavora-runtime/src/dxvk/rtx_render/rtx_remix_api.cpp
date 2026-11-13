@@ -1076,6 +1076,7 @@ namespace {
     dst.frontFace = VK_FRONT_FACE_CLOCKWISE;
     dst.vertexCount = src.vertices_count;
     dst.immutablePositions = !src.skinning_hasvalue;
+    dst.hasWaterContact = (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_WATER_CONTACT) != 0;
     if (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS) {
       dst.previousPositionOffset = offsetof(remixapi_HardcodedVertex, previousPosition);
     }
@@ -1331,26 +1332,28 @@ namespace {
     }
 
     const remixapi_MaterialHandle handle = info->medium;
+    const auto* waterInfo = pnext::find<remixapi_CameraMediumWaterEXT>(info);
+    const remixapi_MaterialHandle water = waterInfo ? waterInfo->water : nullptr;
 
     std::lock_guard lock { s_mutex };
-    remixDevice->EmitCs([handle](dxvk::DxvkContext* ctx) {
+    remixDevice->EmitCs([handle, water](dxvk::DxvkContext* ctx) {
       auto& sceneManager = ctx->getCommonObjects()->getSceneManager();
-      if (handle == nullptr) {
-        sceneManager.clearExternalStartInMediumMaterial();
-        return;
+      const auto getMedium = [&](remixapi_MaterialHandle medium) -> const dxvk::MaterialData* {
+        if (medium == nullptr) {
+          return nullptr;
+        }
+        const auto* material = sceneManager.getAssetReplacer()->accessExternalMaterial(medium);
+        if (material == nullptr || material->data.getType() != dxvk::MaterialDataType::Translucent) {
+          dxvk::Logger::warn("SetCameraMediumMaterial: expected a valid translucent material handle");
+          return nullptr;
+        }
+        return &material->data;
+      };
+      const auto* waterMaterial = getMedium(water);
+      const auto* cameraMaterial = handle == water ? waterMaterial : getMedium(handle);
+      if ((handle == nullptr || cameraMaterial) && (water == nullptr || waterMaterial)) {
+        sceneManager.setExternalMedia(cameraMaterial, waterMaterial);
       }
-
-      const auto* material = sceneManager.getAssetReplacer()->accessExternalMaterial(handle);
-      if (material == nullptr) {
-        dxvk::Logger::warn("SetCameraMediumMaterial: material handle not found");
-        return;
-      }
-      if (material->data.getType() != dxvk::MaterialDataType::Translucent) {
-        dxvk::Logger::warn("SetCameraMediumMaterial: material must be translucent");
-        return;
-      }
-
-      sceneManager.setExternalStartInMediumMaterial(material->data);
     });
     return REMIXAPI_ERROR_CODE_SUCCESS;
   }

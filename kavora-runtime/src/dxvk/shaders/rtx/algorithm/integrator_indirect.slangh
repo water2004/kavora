@@ -548,7 +548,6 @@ void integratePathVertex(
     float restirHitT = kMissHitDistance;
     updateReSTIRGIHitDistance(oldLuminance, calcBt709Luminance(pathState.radiance), restirHitT, pathState.accumulatedHitDistance);
     
-    const bool oldInsideMedium = pathState.insideMedium;
     // Held in half precision across the light sampling. sampleDirection clamps it below float16Max.
     f16vec3 sampledContinuationThroughput;
     uint8_t continuationLobe = 0;
@@ -559,7 +558,7 @@ void integratePathVertex(
       // Note: If this sample is invalid the throughput and solid angle pdf will be set to 0.
       vec3 sampledThroughput = vec3(1.0);
       const Ray sampledRay = sampleDirection(
-        randomState, pathState.insideMedium, sampledThroughput,
+        randomState, pathState.mediumState, sampledThroughput,
         ray, rayInteraction, surfaceInteraction,
         polymorphicSurfaceMaterialInteraction,
         continuationLobe, sampledLobePdf, solidAnglePdf,
@@ -583,11 +582,7 @@ void integratePathVertex(
       pathState.solidAnglePdf = solidAnglePdf;
     }
     
-    // Set the material medium index if a medium was entered or exited
-    
-    evalMediumChange(
-      oldInsideMedium, pathState.insideMedium,
-      polymorphicSurfaceMaterialInteraction, pathState.mediumState);
+    pathState.insideMedium = pathState.mediumState != SURFACE_INDEX_INVALID;
     
     // Get Opaque material information for future reference
     

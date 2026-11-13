@@ -2504,7 +2504,7 @@ void geometryResolverVertex(
   // writing this value out in cases we know the PDF will be 1 (any case where only PSRR or PSTR happen but not both) to
   // save some writes/reads, but this should be fine for now.
   float selectedIntegrationSurfacePdf = 1.0f;
-  const bool oldInsideMedium = geometryResolverState.insideMedium;
+  uint transmissionMediumState = cb.startInMediumMaterialIndex;
   bool pstrPenetrateSurface = false;
   
   if (samplePSR)
@@ -2516,7 +2516,7 @@ void geometryResolverVertex(
         polymorphicSurfaceMaterialInteraction, randomState, rayInteraction,
         surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
         diffuseLayerWeight, geometryResolverState.reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
-        geometryResolverState.insideMedium, pstrPenetrateSurface);
+        transmissionMediumState, pstrPenetrateSurface);
 
       geometryResolverState.performPSRR =
         enablePSRR &&
@@ -2581,10 +2581,6 @@ void geometryResolverVertex(
     geometryResolverState.radiance += geometryResolverState.attenuation *
       selfLitAppearanceRadiance(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo);
   }
-
-  uint transmissionMediumState = cb.startInMediumMaterialIndex;
-  evalMediumChange(oldInsideMedium, geometryResolverState.insideMedium,
-    polymorphicSurfaceMaterialInteraction, transmissionMediumState);
 
   if (rayInteraction.isViewModel)
   {
@@ -2862,6 +2858,7 @@ void geometryPSRResolverEvaluateContinuation(
   inout SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionReflectionPSRSample,
   inout SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionTransmissionPSRSample,
   inout vec3 diffuseLayerWeight,
+  inout uint transmissionMedium,
   inout bool penetrateSurface,
   inout bool useReflectionPSRSample,
   inout bool useTransmissionPSRSample,
@@ -2909,7 +2906,7 @@ void geometryPSRResolverEvaluateContinuation(
     polymorphicSurfaceMaterialInteraction, dummyRandomState, minimalRayInteraction,
     surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
     diffuseLayerWeight, dummyReflectionSelectedIntegrationSurface, dummySelectedIntegrationSurfacePdf,
-    geometryPSRResolverState.insideMedium, penetrateSurface);
+    transmissionMedium, penetrateSurface);
 
   // Calculate transmission related PSR flags
 
@@ -2926,8 +2923,10 @@ void geometryPSRResolverEvaluateContinuation(
   // Note: Inside medium flag describes the state of the sampled ray, for example if the ray is currently inside a medium and a transmission event is sampled,
   // it will be set to false upon reaching this point.
   const bool tirSampleCase = geometryPSRResolverState.insideMedium && !penetrateSurface;
-  const bool insideOutsideTransmissionCase = !geometryPSRResolverState.insideMedium && penetrateSurface && pstrOutgoingSplitApproximation;
-  const bool outsideInsideTransmissionCase = geometryPSRResolverState.insideMedium && penetrateSurface && pstrSecondaryIncidentSplitApproximation;
+  const bool insideOutsideTransmissionCase = transmissionMedium == SURFACE_INDEX_INVALID && penetrateSurface && pstrOutgoingSplitApproximation;
+  const bool outsideInsideTransmissionCase = transmissionMedium != SURFACE_INDEX_INVALID && penetrateSurface && pstrSecondaryIncidentSplitApproximation;
+  const bool betweenMedia = penetrateSurface && geometryPSRResolverState.insideMedium &&
+    transmissionMedium != SURFACE_INDEX_INVALID && transmissionMedium != geometryPSRResolverState.mediumState;
 
   // Determine which PSR sample information should be used (if any) for PSR continuation
 
@@ -2947,7 +2946,7 @@ void geometryPSRResolverEvaluateContinuation(
     !surfaceMaterialInteractionTransmissionPSRSample.performPSR;
   useTransmissionPSRSample =
     surfaceMaterialInteractionTransmissionPSRSample.performPSR &&
-    (tirSampleCase || insideOutsideTransmissionCase || outsideInsideTransmissionCase);
+    (tirSampleCase || insideOutsideTransmissionCase || outsideInsideTransmissionCase || betweenMedia);
 }
 
 void geometryPSRResolverVertex(
@@ -3208,8 +3207,8 @@ void geometryPSRResolverVertex(
       }
       geometryPSRResolverState.renderTargetPath = true;
       geometryPSRResolverState.renderTargetTriangle.x = SURFACE_INDEX_INVALID;
-      geometryPSRResolverState.insideMedium = false;
       geometryPSRResolverState.mediumState = cb.startInMediumMaterialIndex;
+      geometryPSRResolverState.insideMedium = geometryPSRResolverState.mediumState != SURFACE_INDEX_INVALID;
       geometryPSRResolverState.accumulatedRotation = getIdentityQuaternion();
     }
     return;
@@ -3220,7 +3219,7 @@ void geometryPSRResolverVertex(
   SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionReflectionPSRSample;
   SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionTransmissionPSRSample;
   vec3 diffuseLayerWeight = vec3(0.0f);
-  const bool oldInsideMedium = geometryPSRResolverState.insideMedium;
+  uint transmissionMedium = geometryPSRResolverState.mediumState;
   bool penetrateSurface = false;
   bool useReflectionPSRSample = false;
   bool useTransmissionPSRSample = false;
@@ -3230,7 +3229,7 @@ void geometryPSRResolverVertex(
     geometryPSRResolverState, psrType,
     rayInteraction, polymorphicSurfaceMaterialInteraction,
     surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
-    diffuseLayerWeight, penetrateSurface, useReflectionPSRSample, useTransmissionPSRSample, isLastBounce);
+    diffuseLayerWeight, transmissionMedium, penetrateSurface, useReflectionPSRSample, useTransmissionPSRSample, isLastBounce);
 
   // GBuffer surface radiance - emissive + diffuse layer (i.e. all except
   // Integrate Direct and Indirect Lighting).
@@ -3279,9 +3278,6 @@ void geometryPSRResolverVertex(
     }
   }
 
-  evalMediumChange(oldInsideMedium, geometryPSRResolverState.insideMedium,
-    polymorphicSurfaceMaterialInteraction, geometryPSRResolverState.mediumState);
-
   if (surface.isSelfLit)
   {
     geometryPSRResolverState.radiance += geometryPSRResolverState.attenuation *
@@ -3315,6 +3311,8 @@ void geometryPSRResolverVertex(
   }
   else if (useTransmissionPSRSample)
   {
+    geometryPSRResolverState.mediumState = transmissionMedium;
+    geometryPSRResolverState.insideMedium = transmissionMedium != SURFACE_INDEX_INVALID;
     geometryPSRResolverState.viewModelOpticalPath = geometryPSRResolverState.viewModelOpticalPath && rayInteraction.isViewModel;
     // Set PSR resolver state information from the transmission sample for the next iteration
 
@@ -3582,7 +3580,7 @@ void geometryResolverWritePrimaryMaterialInteraction(
     gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
 
   PrimaryAlbedo[compactedCoordinate] = vec4(materialMemory.albedo, 1.0f);
-  PrimaryBaseReflectivity[compactedCoordinate] = vec4(materialMemory.baseReflectivity, 1.0f);
+  PrimaryBaseReflectivity[compactedCoordinate] = vec4(materialMemory.baseReflectivity, float(materialMemory.waterContact));
   PrimaryWorldShadingNormal[compactedCoordinate] =
     float2x32ToSnorm2x16(sphereDirectionToSignedOctahedral(materialMemory.worldShadingNormal));
   PrimaryWorldShadingNormalDense[pixelCoordinate] = PrimaryWorldShadingNormal[compactedCoordinate];
@@ -3838,7 +3836,9 @@ void geometryResolverBlendDecalIntoGBuffer(
     signedOctahedralToSphereDirection(snorm2x16ToFloat2x32(PrimaryWorldShadingNormal[compactedCoordinate]));
   materialMemory.perceptualRoughness = perceptualRoughness;
   materialMemory.albedo = f16vec3(PrimaryAlbedo[compactedCoordinate].rgb);
-  materialMemory.baseReflectivity = f16vec3(PrimaryBaseReflectivity[compactedCoordinate].rgb);
+  const vec4 reflectivity = PrimaryBaseReflectivity[compactedCoordinate];
+  materialMemory.baseReflectivity = f16vec3(reflectivity.rgb);
+  materialMemory.waterContact = reflectivity.a > 0.5f;
   materialMemory.data0 = SharedMaterialData0[compactedCoordinate].x;
   materialMemory.data1 = SharedMaterialData1[compactedCoordinate].x;
 
@@ -4144,7 +4144,9 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
     signedOctahedralToSphereDirection(snorm2x16ToFloat2x32(PrimaryWorldShadingNormal[pixelCoordinate]));
   surfaceMaterialInteractionMemory.perceptualRoughness = PrimaryPerceptualRoughness[pixelCoordinate];
   surfaceMaterialInteractionMemory.albedo = f16vec3(PrimaryAlbedo[pixelCoordinate].rgb);
-  surfaceMaterialInteractionMemory.baseReflectivity = f16vec3(PrimaryBaseReflectivity[pixelCoordinate].rgb);
+  const vec4 reflectivity = PrimaryBaseReflectivity[pixelCoordinate];
+  surfaceMaterialInteractionMemory.baseReflectivity = f16vec3(reflectivity.rgb);
+  surfaceMaterialInteractionMemory.waterContact = reflectivity.a > 0.5f;
   surfaceMaterialInteractionMemory.data0 = SharedMaterialData0[pixelCoordinate].x;
   surfaceMaterialInteractionMemory.data1 = SharedMaterialData1[pixelCoordinate].x;
 
@@ -4183,15 +4185,14 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   vec3 diffuseLayerWeight = vec3(0.0f);
   bool reflectionSelectedIntegrationSurface = false;
   float selectedIntegrationSurfacePdf = 1.0f;
-  bool insideMedium = cb.startInMediumMaterialIndex != SURFACE_INDEX_INVALID;
-  const bool oldInsideMedium = insideMedium;
+  uint transmissionMediumState = cb.startInMediumMaterialIndex;
   bool pstrPenetrateSurface = false;
 
   polymorphicSurfaceMaterialInteractionCalcPSRSample(
     polymorphicSurfaceMaterialInteraction, randomState, minimalRayInteraction,
     reflectionPSRSample, transmissionPSRSample,
     diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
-    insideMedium, pstrPenetrateSurface);
+    transmissionMediumState, pstrPenetrateSurface);
 
   const bool performPSRR = candidatePSRR && reflectionPSRSample.performPSR;
   const bool performPSTR = candidatePSTR && transmissionPSRSample.performPSR;
@@ -4268,9 +4269,6 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   // The first-hit GBuffer may encode serialized view direction in the sign bit of
   // PrimaryConeRadius. PSR resolving consumes this texture as a raw cone radius.
   PrimaryConeRadius[pixelCoordinate] = minimalRayInteraction.coneRadius;
-
-  uint transmissionMediumState = cb.startInMediumMaterialIndex;
-  evalMediumChange(oldInsideMedium, insideMedium, polymorphicSurfaceMaterialInteraction, transmissionMediumState);
 
   const uint packedGeometryFlags = geometryFlagsEncode(geometryFlags);
   bool useAlternateDisocclusionThreshold = false;

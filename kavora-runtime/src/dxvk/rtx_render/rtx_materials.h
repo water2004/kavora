@@ -361,7 +361,7 @@ struct RtSurface {
 
     static_assert(static_cast<uint32_t>(TexGenMode::Count) <= 4);
     textureFlags |= ((static_cast<uint32_t>(texgenMode) & 0x3) << 17);
-    // textureFlags bits 19-30 unused
+    textureFlags |= hasWaterContact ? (1 << 19) : 0;
 
     writeGPUHelper(data, offset, textureFlags);
 
@@ -431,6 +431,7 @@ struct RtSurface {
   bool isFloatingSludge = false;
   bool isSelfLit = false;
   bool alphaCoverage = false;
+  bool hasWaterContact = false;
   bool isClipPlaneEnabled = false;
   bool isTextureFactorBlend = false;
   bool isVertexColorBakedLighting = true;

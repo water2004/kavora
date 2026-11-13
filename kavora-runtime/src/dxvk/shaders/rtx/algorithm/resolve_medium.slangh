@@ -25,21 +25,6 @@
 #include "rtx/algorithm/atmosphere.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 
-// Tracks the current thick medium across transmission events. Nested media are unsupported.
-bool evalMediumChange(bool wasInside, bool isInside, PolymorphicSurfaceMaterialInteraction interaction,
-  inout uint mediumState)
-{
-  if (wasInside == isInside)
-  {
-    return false;
-  }
-
-  mediumState = isInside
-    ? translucentMediumEnter(translucentSurfaceMaterialInteractionCreate(interaction))
-    : SURFACE_INDEX_INVALID;
-  return true;
-}
-
 // Applies one ray segment to its incoming throughput and emitted radiance.
 // Each resolver variant chooses the existing atmosphere implementation.
 #ifdef RESOLVER_USE_VOLUMETRIC_ATTENUATION

@@ -147,7 +147,17 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_CreateTextureFromFile(
 static remixapi_ErrorCode REMIXAPI_CALL mock_DestroyTexture(
     remixapi_TextureHandle                handle) {  return REMIXAPI_ERROR_CODE_SUCCESS; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_SetCameraMediumMaterial(
-    const remixapi_CameraMediumInfo* info) { CHECK(info && info->sType == 27 && info->medium == (void*)0x1234); return REMIXAPI_ERROR_CODE_SUCCESS; }
+    const remixapi_CameraMediumInfo* info) {
+    CHECK(info && info->sType == REMIXAPI_STRUCT_TYPE_CAMERA_MEDIUM_INFO);
+    if (info->pNext) {
+      const remixapi_CameraMediumWaterEXT* water = info->pNext;
+      CHECK(water->sType == REMIXAPI_STRUCT_TYPE_CAMERA_MEDIUM_WATER_EXT && !water->pNext);
+      CHECK(water->water == (void*)0x1234 && !info->medium);
+    } else {
+      CHECK(info->medium == (void*)0x1234);
+    }
+    return REMIXAPI_ERROR_CODE_SUCCESS;
+}
 static int texture_patch_calls;
 __declspec(dllexport) int mock_texture_patch_call_count(void) { return texture_patch_calls; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_UpdateTextureFromMemory(

@@ -585,8 +585,13 @@ public class RemixAPI {
     }
 
     public void setCameraMediumMaterial(long materialHandle) {
+        setCameraMediumMaterial(materialHandle, 0);
+    }
+
+    /** Updates the eye medium and supplies the water material for mesh faces marked WATER_CONTACT. */
+    public void setCameraMediumMaterial(long materialHandle, long waterHandle) {
         checkInitialized();
-        int result = RemixBridge.setCameraMediumMaterial(materialHandle);
+        int result = RemixBridge.setCameraMediumMaterial(materialHandle, waterHandle);
         if (result != ErrorCode.SUCCESS) {
             throw new RemixException("SetCameraMediumMaterial failed", result);
         }

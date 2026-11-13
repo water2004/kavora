@@ -146,6 +146,8 @@ public class KavoraRenderer {
     private final CameraController cameraController = new CameraController();
     private final BenchmarkController benchmarkController = new BenchmarkController(cameraController);
     private long lastCameraMediumHandle = Long.MIN_VALUE;
+    private long lastWaterMediumHandle;
+    private int lastWaterMaterialRevision;
     private final ViewDistanceFade viewDistanceFade = new ViewDistanceFade();
     
     /**
@@ -860,25 +862,27 @@ public class KavoraRenderer {
             // Submersion is read before material readiness so the driver sees
             // it on early frames.
             boolean underwater = camera.getFluidInCamera() == FogType.WATER;
-            long materialHandle = 0;
-            if (underwater && textureManager != null) {
-                KavoraMaterial cameraMediumMaterial = textureManager.getWaterCameraMediumMaterial();
-                if (cameraMediumMaterial != null && !cameraMediumMaterial.isDeleted()) {
-                    materialHandle = cameraMediumMaterial.getHandle();
+            KavoraMaterial waterMedium = textureManager == null ? null : underwater
+                    ? textureManager.getWaterCameraMediumMaterial() : textureManager.getWaterSurfaceMaterial();
+            long waterHandle = waterMedium != null && !waterMedium.isDeleted() ? waterMedium.getHandle() : 0;
+            long materialHandle = underwater ? waterHandle : 0;
+            int waterRevision = textureManager != null ? textureManager.getWaterMaterialRevision() : 0;
+            if (materialHandle != lastCameraMediumHandle || waterHandle != lastWaterMediumHandle
+                    || waterRevision != lastWaterMaterialRevision) {
+                remixApi.setCameraMediumMaterial(materialHandle, waterHandle);
+                lastWaterMediumHandle = waterHandle;
+                lastWaterMaterialRevision = waterRevision;
+                if (materialHandle != lastCameraMediumHandle) {
+                    LOGGER.info("Camera medium updated: {}", materialHandle != 0 ? "water" : "clear");
+                    lastCameraMediumHandle = materialHandle;
                 }
             }
-    
-            remixApi.setCameraMediumMaterial(materialHandle);
             // Conf layers own the volumetric profile and the view-distance
             // fade. A driver left inactive by a failed reload drives nothing
             // until the next successful /kavora conf reload.
             if (confLayerDriver != null && confLayerDriver.isActive() && world != null) {
                 confLayerDriver.update(world, cameraPos, underwater,
                         viewDistanceStrength, tickDelta, zoneRegistry);
-            }
-            if (materialHandle != lastCameraMediumHandle) {
-                LOGGER.info("Camera medium updated: {}", materialHandle != 0 ? "water" : "clear");
-                lastCameraMediumHandle = materialHandle;
             }
         } catch (RemixException e) {
             LOGGER.error("Error updating camera medium: {} (code: {})", e.getMessage(), e.getErrorCode());

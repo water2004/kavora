@@ -121,7 +121,7 @@ float calculateSpreadAngleFromSolidAnglePdf(float incomingSpreadAngle, float sol
 }
 
 Ray sampleDirection(
-  inout RNG randomState, inout bool insideMedium, inout vec3 throughput,
+  inout RNG randomState, inout uint mediumState, inout vec3 throughput,
   Ray ray, MinimalRayInteraction minimalRayInteraction, MinimalSurfaceInteraction minimalSurfaceInteraction,
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   out uint8_t sampledLobe, out float sampledLobePdf, out float solidAnglePdf,
@@ -136,7 +136,7 @@ Ray sampleDirection(
   polymorphicSurfaceMaterialInteractionCalcSample(
     polymorphicSurfaceMaterialInteraction, randomState, minimalRayInteraction,
     surfaceMaterialInteractionSample, surfaceMaterialInteractionLobeSample,
-    insideMedium, penetrateSurface, isPrimaryIndirectSample);
+    mediumState, penetrateSurface, isPrimaryIndirectSample);
 
   sampledLobe = surfaceMaterialInteractionLobeSample.lobe;
   sampledLobePdf = surfaceMaterialInteractionLobeSample.pdf;
@@ -166,7 +166,7 @@ Ray sampleDirection(
 }
 
 Ray sampleDirection(
-  inout RNG randomState, inout bool insideMedium, inout vec3 throughput,
+  inout RNG randomState, inout uint mediumState, inout vec3 throughput,
   Ray ray, MinimalRayInteraction minimalRayInteraction, MinimalSurfaceInteraction minimalSurfaceInteraction,
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   out uint8_t sampledLobe, bool isPrimaryIndirectSample)
@@ -174,7 +174,7 @@ Ray sampleDirection(
   float dummySampledLobePdf, dummySolidAnglePdf;
 
   return sampleDirection(
-    randomState, insideMedium, throughput,
+    randomState, mediumState, throughput,
     ray, minimalRayInteraction, minimalSurfaceInteraction,
     polymorphicSurfaceMaterialInteraction, sampledLobe, dummySampledLobePdf, dummySolidAnglePdf, isPrimaryIndirectSample);
 }

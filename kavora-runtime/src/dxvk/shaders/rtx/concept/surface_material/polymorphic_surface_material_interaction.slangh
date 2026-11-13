@@ -179,9 +179,10 @@ void polymorphicSurfaceMaterialInteractionCalcSample(
   MinimalRayInteraction minimalRayInteraction,
   inout SurfaceMaterialInteractionSample surfaceMaterialInteractionSample,
   inout SurfaceMaterialInteractionLobeSample surfaceMaterialInteractionLobeSample,
-  inout bool insideMedium, inout bool penetrateSurface,
+  inout uint medium, inout bool penetrateSurface,
   bool isPrimaryIndirectSample)
 {
+  bool insideMedium = medium != SURFACE_INDEX_INVALID;
   const vec4 tangentToWorldSpaceQuaternion =
     quaternionCreateOrientation(materialTangentSpaceNormal, polymorphicSurfaceMaterialInteraction.shadingNormal);
 
@@ -216,7 +217,7 @@ void polymorphicSurfaceMaterialInteractionCalcSample(
     translucentSurfaceMaterialInteractionCalcSample(
       translucentSurfaceMaterialInteraction, lobeRandom, tangentToWorldSpaceQuaternion, minimalRayInteraction,
       surfaceMaterialInteractionSample, surfaceMaterialInteractionLobeSample,
-      insideMedium, penetrateSurface);
+      medium, penetrateSurface);
 
     break;
   case uint(surfaceMaterialTypeRayPortal):
@@ -240,8 +241,9 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
   inout vec3 diffuseLayerWeight,
   inout bool reflectionSelectedIntegrationSurface,
   inout float selectedIntegrationSurfacePdf,
-  inout bool insideMedium, inout bool penetrateSurface)
+  inout uint medium, inout bool penetrateSurface)
 {    
+  bool insideMedium = medium != SURFACE_INDEX_INVALID;
   const uint8_t polymorphicType = polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction);
 
   switch (uint(polymorphicType))
@@ -266,7 +268,7 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
       translucentSurfaceMaterialInteraction, random, minimalRayInteraction,
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
       diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
-      insideMedium, penetrateSurface);
+      medium, penetrateSurface);
 
     break;
   case uint(surfaceMaterialTypeRayPortal):

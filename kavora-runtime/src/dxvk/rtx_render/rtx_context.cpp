@@ -1647,6 +1647,7 @@ namespace dxvk {
     RtxGlobalVolumetrics& globalVolumetrics = getCommonObjects()->metaGlobalVolumetrics();
     constants.volumeArgs = globalVolumetrics.getVolumeArgs(cameraManager, getSceneManager().getFogState(), enablePortalVolumes);
     constants.startInMediumMaterialIndex = getSceneManager().getStartInMediumMaterialIndex();
+    constants.waterMediumMaterialIndex = getSceneManager().getWaterMediumMaterialIndex();
     OpaqueMaterialOptions::fillShaderParams(constants.opaqueMaterialArgs);
     TranslucentMaterialOptions::fillShaderParams(constants.translucentMaterialArgs);
     ViewDistanceOptions::fillShaderParams(constants.viewDistanceArgs, RtxOptions::getMeterToWorldUnitScale());

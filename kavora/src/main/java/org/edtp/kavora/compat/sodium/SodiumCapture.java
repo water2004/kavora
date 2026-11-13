@@ -45,6 +45,8 @@ public final class SodiumCapture {
         final int[] colors = new int[4];
         Material material;
         String glassLayer;
+        LevelSlice world;
+        BlockState block;
     }
 
     public static void begin(RenderSection section, ChunkBuildContext context) {
@@ -52,6 +54,8 @@ public final class SodiumCapture {
         state.capturing = VanillaSectionBuilds.beginBuild(KavoraMod::isRtxEnabled);
         state.material = null;
         state.glassLayer = null;
+        state.world = null;
+        state.block = null;
         if (!state.capturing) return;
         state.section = section.getPosition();
         state.token = BlockDataQueue.beginCapture(state.section.x(), state.section.z());
@@ -66,6 +70,8 @@ public final class SodiumCapture {
         BlockQuadEmitter emitter = BlockQuadEmitter.threadLocal();
         emitter.finishEvaluatedBlock();
         state.glassLayer = BlockTextureManager.glassLayerOverride(block);
+        state.world = world;
+        state.block = block;
         state.material = null;
         emitter.processBlock(block, world, state.pos.set(x, y, z), block.isSolidRender());
     }
@@ -75,6 +81,8 @@ public final class SodiumCapture {
         if (!state.capturing) return;
         BlockQuadEmitter.threadLocal().finishEvaluatedBlock();
         state.glassLayer = null;
+        state.world = null;
+        state.block = null;
         state.material = null;
     }
 
@@ -105,7 +113,8 @@ public final class SodiumCapture {
             layer = material != null && material.isTranslucent() ? "translucent"
                     : (materialBits >>> 1) != 0 ? "cutout" : "solid";
         }
-        BlockQuadEmitter.threadLocal().captureEvaluatedQuad(state.positions, state.uv, state.colors, sprite, layer);
+        BlockQuadEmitter.threadLocal().captureEvaluatedQuad(state.positions, state.uv, state.colors, sprite, layer,
+                state.world, state.pos, state.block, state.glassLayer != null);
     }
 
     public static void end(ChunkBuildOutput output, boolean cancelled) {
@@ -125,6 +134,8 @@ public final class SodiumCapture {
             state.section = null;
             state.token = null;
             state.material = null;
+            state.world = null;
+            state.block = null;
         }
     }
 

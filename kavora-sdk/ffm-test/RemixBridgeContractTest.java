@@ -173,6 +173,7 @@ public final class RemixBridgeContractTest {
             RemixBridge.freeExt(cameraExtension);
         }
         equal(0, RemixBridge.setCameraMediumMaterial(HANDLE));
+        equal(0, RemixBridge.setCameraMediumMaterial(0, HANDLE));
         ByteBuffer coverage = ByteBuffer.allocateDirect(4);
         coverage.put(0, (byte) 1); coverage.put(3, (byte) 6);
         equal(0, RemixBridge.setVoxelCoverage(-7, -4, 3, 2, 1, 2, 16, coverage));

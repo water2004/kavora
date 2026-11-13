@@ -286,6 +286,7 @@ struct GBufferMemoryPolymorphicSurfaceMaterialInteraction
 
   uint data0;
   uint data1;
+  bool waterContact = false;
 };
 
 struct PolymorphicSurfaceMaterialInteraction

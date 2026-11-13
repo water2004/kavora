@@ -351,7 +351,8 @@ struct RaytraceArgs {
 
   uint startInMediumMaterialIndex;
   uint enableUvBoundsLooping;
-  uint3 atlasSamplingPadding;
+  uint waterMediumMaterialIndex;
+  uint2 atlasSamplingPadding;
   uint enableReSTIRGI;
   uint enableReSTIRGIFinalVisibility;
   uint enableReSTIRGIReflectionReprojection;

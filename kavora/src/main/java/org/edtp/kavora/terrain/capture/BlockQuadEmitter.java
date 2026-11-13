@@ -390,7 +390,8 @@ public final class BlockQuadEmitter {
 
     /** Receives an evaluated quad from an alternate section builder, with unlit ARGB tint. */
     public void captureEvaluatedQuad(float[] positions, float[] uvs, int[] colors,
-            TextureAtlasSprite sprite, String layerName) {
+            TextureAtlasSprite sprite, String layerName,
+            BlockAndTintGetter world, BlockPos blockPos, BlockState block, boolean glassLayer) {
         float ax = positions[3] - positions[0], ay = positions[4] - positions[1], az = positions[5] - positions[2];
         float bx = positions[6] - positions[0], by = positions[7] - positions[1], bz = positions[8] - positions[2];
         float nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
@@ -398,10 +399,25 @@ public final class BlockQuadEmitter {
         if (length < 1.0e-6f) return;
         nx /= length; ny /= length; nz /= length;
         Identifier id = sprite == null ? null : sprite.contents().name();
-        if (isWaterSprite(id)) {
+        boolean waterSprite = isWaterSprite(id);
+        if (waterSprite || WATER_OVERLAY_SPRITE.equals(id)) {
+            if (block != null && block.getFluidState().is(FluidTags.WATER)) {
+                Direction face = quadBoundary(positions, blockPos, nx, ny, nz);
+                if (face != null && isGlassWaterContact(world, blockPos, face, false)) return;
+            }
+        }
+        if (waterSprite) {
             System.arraycopy(positions, 0, tempPositions, 0, 12);
             emitBlockWaterQuad(nx, ny, nz, colors[0], layerName, colors);
         } else {
+            if (glassLayer) {
+                Direction face = quadBoundary(positions, blockPos, nx, ny, nz);
+                boolean wet = face != null && BlockTextureManager.isFullGlass(block)
+                        && isGlassWaterContact(world, blockPos, face, true);
+                for (int i = 0; i < 4; i++) {
+                    colors[i] = (colors[i] & 0x00FFFFFF) | (wet ? 0 : 0xFF000000);
+                }
+            }
             writer.stageColoredQuad(positions, uvs, nx, ny, nz, colors, id,
                     sprite == null ? 0 : sprite.getU0(), sprite == null ? 0 : sprite.getV0(),
                     sprite == null ? 1 : sprite.getU1(), sprite == null ? 1 : sprite.getV1(), layerName);
@@ -490,6 +506,69 @@ public final class BlockQuadEmitter {
 
     private static final Identifier WATER_STILL_SPRITE = Identifier.withDefaultNamespace("block/water_still");
     private static final Identifier WATER_FLOW_SPRITE = Identifier.withDefaultNamespace("block/water_flow");
+    private static final Identifier WATER_OVERLAY_SPRITE = Identifier.withDefaultNamespace("block/water_overlay");
+
+    private static Direction quadBoundary(float[] positions, BlockPos pos, float nx, float ny, float nz) {
+        // Sodium insets the fluid mesh by 0.001 blocks and can emit both windings.
+        final float epsilon = 0.002f;
+        int axis;
+        int origin;
+        Direction minimum, maximum;
+        if (Math.abs(nx) > 0.9999f) {
+            axis = 0; origin = SectionPos.sectionRelative(pos.getX());
+            minimum = Direction.WEST; maximum = Direction.EAST;
+        } else if (Math.abs(ny) > 0.9999f) {
+            axis = 1; origin = SectionPos.sectionRelative(pos.getY());
+            minimum = Direction.DOWN; maximum = Direction.UP;
+        } else if (Math.abs(nz) > 0.9999f) {
+            axis = 2; origin = SectionPos.sectionRelative(pos.getZ());
+            minimum = Direction.NORTH; maximum = Direction.SOUTH;
+        } else {
+            return null;
+        }
+        float plane = positions[axis];
+        int boundary = Math.round(plane - origin);
+        if (boundary < 0 || boundary > 1) return null;
+        for (int i = axis; i < positions.length; i += 3) {
+            if (Math.abs(positions[i] - origin - boundary) > epsilon) return null;
+        }
+        return boundary == 0 ? minimum : maximum;
+    }
+
+    private boolean isGlassWaterContact(BlockAndTintGetter world, BlockPos pos, Direction face, boolean glassSide) {
+        Direction waterToGlass = glassSide ? face.getOpposite() : face;
+        int x = pos.getX(), y = pos.getY(), z = pos.getZ();
+        if (glassSide) {
+            x += face.getStepX(); y += face.getStepY(); z += face.getStepZ();
+        } else if (!BlockTextureManager.isFullGlass(getCachedBlockState(world,
+                x + face.getStepX(), y + face.getStepY(), z + face.getStepZ()))) {
+            return false;
+        }
+
+        FluidState water = getCachedFluidState(world, x, y, z);
+        if (!water.is(FluidTags.WATER)) return false;
+        if (waterToGlass == Direction.DOWN || getCachedFluidState(world, x, y + 1, z).is(FluidTags.WATER)) return true;
+
+        if (waterToGlass == Direction.UP) {
+            return fullWaterCorner(world, x, y, z) && fullWaterCorner(world, x + 1, y, z)
+                    && fullWaterCorner(world, x, y, z + 1) && fullWaterCorner(world, x + 1, y, z + 1);
+        }
+        int edgeX = x + (waterToGlass == Direction.EAST ? 1 : 0);
+        int edgeZ = z + (waterToGlass == Direction.SOUTH ? 1 : 0);
+        return fullWaterCorner(world, edgeX, y, edgeZ)
+                && fullWaterCorner(world, edgeX + Math.abs(waterToGlass.getStepZ()), y,
+                        edgeZ + Math.abs(waterToGlass.getStepX()));
+    }
+
+    private boolean fullWaterCorner(BlockGetter world, int x, int y, int z) {
+        for (int dx = -1; dx <= 0; dx++) {
+            for (int dz = -1; dz <= 0; dz++) {
+                if (getCachedFluidState(world, x + dx, y, z + dz).is(FluidTags.WATER)
+                        && getCachedFluidState(world, x + dx, y + 1, z + dz).is(FluidTags.WATER)) return true;
+            }
+        }
+        return false;
+    }
 
     /** A block-model face painted with the water texture: the cauldron's water level is the vanilla case. */
     static boolean isWaterSprite(Identifier spriteId) {
