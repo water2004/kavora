@@ -27,7 +27,7 @@
 #include "rtx/utility/brdf.slangh"
 #include "rtx/utility/froxel.slangh"
 #include "rtx/utility/packing.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 
 float softEdge(float size, float2 centerUv, float2 screenUv)
 {

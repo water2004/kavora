@@ -5,7 +5,7 @@ The End environment adapts `shaders/world/end_environment.slang` from
 `ea3dc4bf67fc3bfce1860dbb025c71626b26e983`. Copyright 2026 ComfyFluffy and
 contributors. Caustica-Horizon is maintained by Ruiwen68 (West68).
 
-The adapted `caustica_end.slangh` and `generate_end_background.comp.slang`
+The adapted `caustica_end.slang` and `generate_end_background.comp.slang`
 under `src/dxvk/shaders/rtx/pass/dome_composite/` remain LGPL-3.0-or-later.
 The license texts are [LGPLv3](licenses/Caustica-Horizon-LGPL-3.0.txt) and
 [GPLv3](licenses/Caustica-Horizon-GPL-3.0.txt). The native fork's modified

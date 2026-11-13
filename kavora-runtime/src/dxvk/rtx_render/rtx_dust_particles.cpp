@@ -255,7 +255,7 @@ namespace dxvk {
 
   static_assert(sizeof(GpuDustParticle) == 8 * 4, "Unexpected, please check perf");// be careful with performance when increasing this!
 
-  void RtxDustParticles::simulateAndDraw(RtxContext* ctx, DxvkContextState& dxvkCtxState, const Resources::RaytracingOutput& rtOutput) {
+  void RtxDustParticles::simulateAndDraw(RtxContext* ctx, DxvkContextState& dxvkCtxState, DispatchResources resources) {
     if (!enable()) {
       m_particles = nullptr;
       return;
@@ -295,10 +295,10 @@ namespace dxvk {
     ctx->bindResourceView(DUST_PARTICLES_BINDING_FILTERED_RADIANCE_CO_CG_INPUT, globalVolumetrics.getFilteredRadianceCoCg().view, nullptr);
     ctx->bindResourceSampler(DUST_PARTICLES_BINDING_FILTERED_RADIANCE_CO_CG_INPUT, linearSampler);
     ctx->bindResourceBuffer(DUST_PARTICLES_BINDING_PARTICLES_BUFFER_INOUT, DxvkBufferSlice(m_particles));
-    ctx->bindResourceView(DUST_PARTICLES_BINDING_DEPTH_INPUT, rtOutput.m_primaryDepth.view, nullptr);
+    ctx->bindResourceView(DUST_PARTICLES_BINDING_DEPTH_INPUT, resources.get<&RaytracingFrame::m_primaryDepth>().view, nullptr);
     ctx->bindResourceSampler(DUST_PARTICLES_BINDING_DEPTH_INPUT, linearSampler);
     
-    setupRasterizerState(ctx, rtOutput.m_finalOutput.resource(Resources::AccessType::ReadWrite));
+    setupRasterizerState(ctx, resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::ReadWrite));
     
     ctx->bindShader(VK_SHADER_STAGE_VERTEX_BIT, DustParticleVertexShader::getShader());
     ctx->bindShader(VK_SHADER_STAGE_FRAGMENT_BIT, DustParticlePixelShader::getShader());

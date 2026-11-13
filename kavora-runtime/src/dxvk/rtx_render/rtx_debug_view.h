@@ -28,7 +28,7 @@
 #include "dxvk_context.h"
 #include "../dxvk_include.h"
 
-#include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_objectpicking.h"
 #include "rtx_options.h"
 #include "rtx_accumulation.h"
@@ -48,8 +48,28 @@ namespace dxvk {
     DebugView(dxvk::DxvkDevice* device);
     ~DebugView() = default;
 
-    void dispatch(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, Rc<DxvkImage>& outputImage, const Resources::RaytracingOutput& rtOutput, DxvkObjects& common);
-    void dispatchAfterCompositionPass(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, const Resources::RaytracingOutput& rtOutput, DxvkObjects& common);
+    // Diagnostic views sample intermediates across all frame stages.
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_raytraceArgs,
+      &RaytracingFrame::getCurrentRtxdiConfidence,
+      &RaytracingFrame::m_compositeOutput,
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_primaryDirectDiffuseRadiance,
+      &RaytracingFrame::m_primaryDirectSpecularRadiance,
+      &RaytracingFrame::m_secondaryCombinedDiffuseRadiance,
+      &RaytracingFrame::m_secondaryCombinedSpecularRadiance,
+      &RaytracingFrame::m_sharedFlags,
+      &RaytracingFrame::m_primaryLinearViewZ,
+      &RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_primaryDisocclusionThresholdMix,
+      &RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getCurrentSharedTerminatorFix,
+      &RaytracingFrame::m_sparseRenderingCompactedPixelIndices,
+      &RaytracingFrame::m_sparseRenderingTileActiveCounts>;
+
+    void dispatch(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, Rc<DxvkImage>& outputImage, DispatchResources frame, DxvkObjects& common);
+    void dispatchAfterCompositionPass(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, DispatchResources frame, DxvkObjects& common);
     void initSettings(const dxvk::Config& config);
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
@@ -77,14 +97,14 @@ namespace dxvk {
   private:
     void initCompositeDebugViews();
     void updateCompositeView(Rc<DxvkContext>& ctx);
-    void processOutputStatistics(Rc<RtxContext>& ctx, const Resources::RaytracingOutput& rtOutput);
+    void processOutputStatistics(Rc<RtxContext>& ctx);
     void showOutputStatistics();
     bool shouldDebugViewDispatch() const;
     void createConstantsBuffer();
     Rc<DxvkBuffer> getDebugViewConstantsBuffer();
     bool areDebugViewStatisticsSupported() const;
 
-    DebugViewArgs getCommonDebugViewArgs(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, DxvkObjects& common);
+    DebugViewArgs getCommonDebugViewArgs(RtxContext& ctx, DispatchResources frame, DxvkObjects& common);
 
     void generateCompositeImage(Rc<DxvkContext> ctx, Rc<DxvkImage>& outputImage);
     virtual void onFrameBegin(Rc<DxvkContext>& ctx, const FrameBeginContext& frameBeginCtx) override;
@@ -93,9 +113,9 @@ namespace dxvk {
 
     virtual bool isEnabled() const override;
 
-    void dispatchDebugViewInternal(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer, const Resources::RaytracingOutput& rtOutput, DxvkObjects& common);
-    void dispatchPostprocess(Rc<RtxContext> ctx, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer, const Resources::RaytracingOutput& rtOutput);
-    void dispatchRenderToOutput(Rc<RtxContext> ctx, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer, const Resources::RaytracingOutput& rtOutput);
+    void dispatchDebugViewInternal(Rc<RtxContext> ctx, Rc<DxvkSampler> nearestSampler, Rc<DxvkSampler> linearSampler, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer, DispatchResources frame, DxvkObjects& common);
+    void dispatchPostprocess(Rc<RtxContext> ctx, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer);
+    void dispatchRenderToOutput(Rc<RtxContext> ctx, DebugViewArgs& debugViewArgs, Rc<DxvkBuffer>& debugViewConstantBuffer, DispatchResources frame);
     bool shouldRunDispatchPostCompositePass() const;
     Rc<DxvkShader> getDebugViewShader() const;
 

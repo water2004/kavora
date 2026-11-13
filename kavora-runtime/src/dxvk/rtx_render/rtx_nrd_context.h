@@ -41,7 +41,7 @@ namespace dxvk {
       Rc<DxvkContext> ctx,
       DxvkBarrierSet& barriers,
       const SceneManager& sceneManager,
-      const Resources::RaytracingOutput& rtOutput,
+      const VkExtent3D& renderExtent,
       const DxvkDenoise::Input& inputs,
       const DxvkDenoise::Output& outputs);
 
@@ -63,9 +63,9 @@ namespace dxvk {
 
     void prepareResources(
       Rc<DxvkContext> ctx,
-      const Resources::RaytracingOutput& rtOutput);
+      const VkExtent3D& renderExtent);
 
-    void createResources(Rc<DxvkContext> ctx, const Resources::RaytracingOutput& rtOutput);
+    void createResources(Rc<DxvkContext> ctx);
     void createPipelines();
 
     const Resources::Resource* getTexture(
@@ -79,7 +79,7 @@ namespace dxvk {
     void updateNRDSettings(
       const SceneManager& sceneManager,
       const DxvkDenoise::Input& inputs,
-      const Resources::RaytracingOutput& rtOutput);
+      const VkExtent3D& renderExtent);
 
     void updateAdaptiveScaling(const VkExtent3D& renderSize);
     

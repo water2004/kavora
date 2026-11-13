@@ -2,7 +2,7 @@
 #pragma once
 
 #include "rtx/concept/light/light_helper.slangh"
-#include "rtx/algorithm/cloud_sky.slangh"
+import "rtx/algorithm/cloud_sky.slang";
 
 float3 sampleEnvironmentRadiance(DomeLightArgs dome, float brightness, SamplerCube<float3> probe,
   SamplerState sampler, float3 direction)
@@ -16,7 +16,7 @@ float3 sampleEnvironmentRadiance(DomeLightArgs dome, float brightness, SamplerCu
 
 float3 sampleIndirectEnvironmentRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler)
 {
-  return applyCloudSky(cb.volumeArgs.clouds, direction,
+  return applyCloudSky(cb.volumeArgs.clouds, CloudSkySampler, direction,
     sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, probe, sampler, direction));
 }
 
@@ -29,5 +29,5 @@ float3 sampleClearBackgroundRadiance(float3 direction, SamplerCube<float3> probe
 }
 
 float3 sampleBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
-  return applyCloudSky(cb.volumeArgs.clouds, direction, sampleClearBackgroundRadiance(direction, probe, sampler));
+  return applyCloudSky(cb.volumeArgs.clouds, CloudSkySampler, direction, sampleClearBackgroundRadiance(direction, probe, sampler));
 }

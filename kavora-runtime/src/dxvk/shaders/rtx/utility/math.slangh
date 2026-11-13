@@ -21,9 +21,9 @@
 */
 #pragma once
 
-static const float pi = 3.1415926535897932384626433832795f;
-static const float twoPi = 2.0f * pi;
-static const float fourPi = 4.0f * pi;
+import "rtx/utility/math_constants.slang";
+import "rtx/utility/quaternion.slang";
+
 static const float goldenRatio = 1.61803398875f;
 static const float silverRatio = 0.61803398875f;
 
@@ -213,13 +213,6 @@ GENERIC_SQUARE_LENGTH(float, vec2)
 GENERIC_SQUARE_LENGTH(float, vec3)
 GENERIC_SQUARE_LENGTH(float, vec4)
 
-float2 cartesianDirectionToLatLongSphere(float3 direction)
-{
-  float theta = acos(direction.z);
-  float phi = atan2(direction.x, direction.y);
-  return float2(0.5 + phi / twoPi, theta / pi);
-}
-
 // Calculates an orthonormal basis from a specified normal vector
 // [Duff et al. 17, Building An Orthonormal Basis, Revisited]
 void calcOrthonormalBasis(f16vec3 normal, out f16vec3 tangent, out f16vec3 bitangent)
@@ -331,11 +324,6 @@ bool isQuatRightHanded(float16_t q)
   return float16BitsToUint16(q) & 0x8000;
 }
 
-bool isQuatRightHanded(float q)
-{
-  return asuint(q) & 0x80000000;
-}
-
 // Calculates the quaternion which transforms the normalized vector src to normalized vector dst
 // Note: returns a zero quat if src == -dst, case when dot(src, dst) == -1 needs to be handled if this is expected.
 vec4 quaternionCreateOrientation(vec3 src, vec3 dst)
@@ -365,24 +353,6 @@ f16vec3 quaternionTransformVector(vec4 q, f16vec3 v, bool signBitIsParity = fals
   }
 
   return f16vec3(newVector);
-}
-
-vec3 quaternionTransformVector(vec4 q, vec3 v, bool signBitIsParity = false)
-{
-  vec3 newVector = v + 2.0f * cross(q.xyz, cross(q.xyz, v) + q.w * v);
-
-  // In cases where we encode the sign bit of the quaternion representing an improper rotation...
-  if (signBitIsParity)
-  {
-    newVector = (isQuatRightHanded(q.w) ? -1.0f : 1.0f) * newVector;
-  }
-
-  return newVector;
-}
-
-vec4 quaternionInverse(vec4 q)
-{
-  return vec4(-q.xyz, q.w);
 }
 
 vec4 quaternionMultiply(vec4 q1, vec4 q2, bool signBitIsParity = false)
@@ -614,26 +584,6 @@ f16mat3 getReflectionMatrix(f16vec3 normal)
   );
 }
 
-vec4 getReflectionQuaternion(vec3 normal)
-{
-  // Half-angle for quaternion calculation
-  float halfAngle = pi * 0.5f;
-
-  // Calculate the quaternion components
-  float sinHalfAngle = sin(halfAngle);
-    
-  vec4 q;
-  q.x = normal.x * sinHalfAngle;
-  q.y = normal.y * sinHalfAngle;
-  q.z = normal.z * sinHalfAngle;
-  q.w = cos(halfAngle);
-
-  // Normalize the quaternion to ensure it's a unit quaternion, also negate the result
-  // Reflection quaternions have a determinant = -1, we'll utilize the q = -q property 
-  // of quaternions to encode the accumulated parity of reflections.
-  return -normalize(q);
-}
-
 f16mat3 getIdentityMatrix()
 {
   return f16mat3(1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f);
@@ -735,11 +685,6 @@ vec4 tbnFrameToQuaternion(vec3 tangent, vec3 biTangent, vec3 normal)
   }
 
   return quaternion;
-}
-
-vec4 getIdentityQuaternion()
-{
-  return vec4(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
 // Calculate a non-normalized gaussian weight for a sample position

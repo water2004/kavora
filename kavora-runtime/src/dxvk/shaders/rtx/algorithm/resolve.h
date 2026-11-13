@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/concept/ray_portal/ray_portal.slangh"
+import "rtx/algorithm/ray_resolve.slang";
 
 // Resolve Constants
 
@@ -59,27 +60,3 @@ static const uint8_t resolveModeTranslucencyTransmissionApprox = uint8_t(1 << 6)
 // Decal surfaces are stored into the DecalMaterial texture and continueResolving flag is enabled for them.
 // Non-decal surfaces get the previously encountered decals applied on top of them.
 static const uint8_t resolveModeDecalMaterialBlending = uint8_t(1 << 7);
-
-// Resolve Helper Structures
-// Todo: Potentially reduce duplication between these structures and the integrator path state as much is in common between them.
-
-interface IBasePayloadState
-{
-  property float3 origin { get; set; }
-  property float coneRadius { get; set; }
-  property float segmentHitDistance { get; set; }
-  property uint8_t rayMask { get; set; }
-  property PortalSpace2BitsType portalSpace{ get; set; }
-  property vec3 direction { get; set; }
-  property bool decalEncountered { get; set; }
-  property bool continueResolving { get; set; }
-  property bool directionAltered { get; set; }
-  property vec4 accumulatedRotation { get; set; }
-
-#ifdef RAY_PIPELINE
-  // Returns if the caller should reorder before invokeHitObject, along with coherence hints to use
-  bool shouldReorder(out uint coherenceHints, out uint numCoherenceHints);
-#endif
-};
-
-struct EmptyExtraArgs {};

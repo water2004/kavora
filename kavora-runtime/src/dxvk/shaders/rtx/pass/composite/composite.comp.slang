@@ -19,6 +19,8 @@
 * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 * DEALINGS IN THE SOFTWARE.
 */
+import "rtx/utility/cloud_density.slang";
+import "rtx/algorithm/fog_froxel_sampling.slang";
 #include "rtx/pass/composite/composite_bindings.slangh"
 
 #include "rtx/pass/composite/composite_args.h"
@@ -34,15 +36,18 @@
 #include "rtx/utility/brdf.slangh"
 #include "rtx/utility/demodulate_helpers.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/surface/alpha_blend_surface.slangh"
 #include "rtx/utility/geometry_flags.slangh"
 #include "rtx/pass/post_fx/post_fx_motion_blur_geometry_flags.slangh"
 
 #include "rtx/concept/light/spherical_harmonics.slangh"
 #define VOLUME_LIGHTING_NO_NEE
-#include "rtx/algorithm/atmosphere.slangh"
-#include "rtx/algorithm/cloud_sky.slangh"
+import "rtx/algorithm/atmosphere.slang";
+import "rtx/algorithm/clouds.slang";
+import "rtx/utility/lat_long_projection.slang";
+#include "rtx/algorithm/volume_lighting.slangh"
+import "rtx/algorithm/cloud_sky.slang";
 #include "rtx/algorithm/accumulate.slangh"
 #include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
@@ -436,8 +441,9 @@ void applyAlphaBlendForeground(
         float3 ambient = cb.domeLightArgs.active
           ? cb.domeLightArgs.radiance * sampleDomeLightTexture(SkyLight, cb.volumeArgs.sceneUpDirection, cb.domeLightArgs.worldToLightTransform) * 0.5f
           : cb.skyBrightness * SkyProbe.SampleLevel(cb.volumeArgs.sceneUpDirection, 0) * 0.5f;
-        AtmosphereSegment atmosphere = integrateAtmosphereSegment(cb.volumeArgs, VolumeFilteredRadianceY,
-          VolumeFilteredRadianceCoCg, cameraPosition, primaryRayDirections.worldDirection, surface.hitT, ambient);
+        AtmosphereSegment atmosphere = integrateAtmosphereSegment<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+          VolumeFilteredRadianceCoCg,
+          CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, cameraPosition, primaryRayDirections.worldDirection, surface.hitT, ambient);
         alphaBlendOutput = (alphaBlendOutput * atmosphere.transmittance + atmosphere.radiance) * (1 - backgroundAlpha);
       }
       else
@@ -605,8 +611,9 @@ vec4 compositeResult(
     float distance = primaryMiss ? floatMax : viewDistance;
     float3 origin = cameraGetWorldPosition(cb.camera);
     float cloudAttenuation = cb.volumeArgs.clouds.transportMode == 0
-      ? cloudTransmittance(cb.volumeArgs.clouds, origin, primaryRayDirections.worldDirection, distance)
-      : (primaryMiss ? sampleCloudSky(cb.volumeArgs.clouds, primaryRayDirections.worldDirection).a : 1.0f);
+      ? cloudTransmittance(cb.volumeArgs.clouds, origin, primaryRayDirections.worldDirection, distance,
+        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler)
+      : (primaryMiss ? sampleCloudSky(cb.volumeArgs.clouds, CloudSkySampler, primaryRayDirections.worldDirection).a : 1.0f);
     vec3 fogAttenuation = calcVolumetricAttenuation(cb.volumeArgs, none, primaryMiss, viewDistance, origin, primaryRayDirections.worldDirection);
     controlMaskVolumeAttenuation = fogAttenuation * cloudAttenuation;
     if (cb.debugViewIdx == DEBUG_VIEW_PRIMARY_VOLUME_TRANSMITTANCE) storeInDebugView(pixelCoordinate, fogAttenuation);

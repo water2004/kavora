@@ -1,0 +1,229 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_features.slangh"
+#include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
+#include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
+#include "rtx/utility/gbuffer_helpers.slangh"
+#include "rtx/concept/ray/ray.slangh"
+#include "rtx/concept/surface/alpha_blend_surface.slangh"
+
+// Maps screen pixels to G-buffer slots and owns the shared flag and continuation encodings.
+
+// Every pixel is resolved. Under the compacted GBuffer only active pixels have a slot to store a GBuffer at.
+// The other pixels write only the per-pixel outputs. See gbuffer_guides_output.slangh.
+static const uint16_t kNoGBufferSlot = uint16_t(0xFFFF);
+
+bool hasGBufferSlot(uvec2 compactedCoordinate)
+{
+  return compactedCoordinate.x != kNoGBufferSlot;
+}
+
+// Returns the compacted slot that stores a pixel's GBuffer.
+// Returns kNoGBufferSlot when the pixel is inactive.
+// Returns the pixel itself when the GBuffer is not compacted.
+uvec2 loadGBufferStoreCoordinate(uvec2 pixelCoordinate)
+{
+  if (cb.sparseRenderingArgs.mode == SparseRenderingMode::Off)
+  {
+    return pixelCoordinate;
+  }
+
+  uvec2 activeCoordinate;
+  if (!compactedCoordinateFromPixelIfActive(
+        CompactedPixelIndices, TileActiveCounts, pixelCoordinate, cb.sparseRenderingArgs, activeCoordinate))
+  {
+    return uvec2(kNoGBufferSlot);
+  }
+
+  return activeCoordinate;
+}
+
+// Under the compacted GBuffer every pixel has its flags in the dense copy.
+GeometryFlags geometryResolverReadFlags(uvec2 pixelCoordinate)
+{
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    return geometryFlagsReadFromGBuffer(ivec2(pixelCoordinate), SharedFlagsDense);
+  }
+
+  return geometryFlagsReadFromGBuffer(ivec2(pixelCoordinate), SharedFlags);
+}
+
+// Also writes the dense copy under the compacted GBuffer, for the passes that read flags by pixel.
+void geometryResolverWriteFlags(GeometryFlags geometryFlags, uvec2 pixelCoordinate, uvec2 compactedCoordinate)
+{
+  if (hasGBufferSlot(compactedCoordinate))
+  {
+    geometryFlagsWriteToGBuffer(geometryFlags, ivec2(compactedCoordinate), SharedFlags);
+  }
+
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    geometryFlagsWriteToGBuffer(geometryFlags, ivec2(pixelCoordinate), SharedFlagsDense);
+  }
+}
+
+
+// Stores the hit distance and cone radius that both PSR lobes resume the path with.
+// The compacted GBuffer temporarily stores them in the primary depth outputs,
+// so nothing may read those at a PSR pixel before the last PSR lobe overwrites them.
+void geometryResolverStorePSRContinuation(
+  uvec2 pixelCoordinate, uvec2 compactedCoordinate, float hitDistance, float coneRadius)
+{
+  if (hasGBufferSlot(compactedCoordinate))
+  {
+    PrimaryConeRadius[compactedCoordinate] = coneRadius;
+    PrimaryHitDistance[compactedCoordinate] = hitDistance;
+    SecondaryHitDistance[compactedCoordinate] = hitDistance;
+  }
+
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    PrimaryLinearViewZ[pixelCoordinate] = hitDistance;
+    PrimaryDepth[pixelCoordinate] = coneRadius;
+  }
+}
+
+// The primary PSR lobe replaces this seed with the resolved screen-space guide.
+void geometryResolverStorePSRProjectionSeed(uvec2 pixel, float refractionScale, bool viewModel)
+{
+  PrimaryScreenSpaceMotionVector[pixel] = vec2(refractionScale, float(viewModel));
+}
+
+float geometryResolverLoadPSRConeRadius(uvec2 pixelCoordinate)
+{
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    return PrimaryDepth[pixelCoordinate];
+  }
+
+  return PrimaryConeRadius[pixelCoordinate];
+}
+
+// The primary-surface lobe reads the primary GBuffer copy and the secondary lobe reads the secondary copy,
+// because the reflection PSR pass may overwrite the primary copy before the transmission pass reads it.
+float geometryResolverLoadPSRHitDistance(uvec2 pixelCoordinate, bool isSecondarySurface)
+{
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    return PrimaryLinearViewZ[pixelCoordinate];
+  }
+
+  if (isSecondarySurface)
+  {
+    return SecondaryHitDistance[pixelCoordinate];
+  }
+
+  return PrimaryHitDistance[pixelCoordinate];
+}
+
+void geometryResolverStoreDlssNrControlMask(
+  uvec2 pixelCoordinate,
+  vec4 dlssControlMask)
+{
+  DlssNrControlMask[pixelCoordinate] = dlssControlMask;
+}
+
+// Returns the packed alpha blend surface that the primary pass starts every pixel with.
+uint4 geometryResolverCreateInitialAlphaBlendSurface(uvec2 pixelCoordinate)
+{
+  RNG randomState = createRNG(pixelCoordinate, cb.frameIdx);
+  AlphaBlendSurface alphaBlendSurface = AlphaBlendSurface.createEmpty();
+  alphaBlendSurface.randomThreshold = getNextSampleBlueNoise(randomState);
+  return alphaBlendSurface.pack(cb.alphaBlendSurfacePackMult);
+}
+
+// Returns the alpha blend surface stored at the pixel.
+// Returns the initial surface while the primary pass has stored none.
+// The initial surface goes through pack() too, because update and finalize compare its quantized random threshold.
+AlphaBlendSurface geometryResolverLoadAlphaBlendSurface(uvec2 pixelCoordinate, bool alphaBlendSurfaceStored)
+{
+  uint4 packedAlphaBlendSurface;
+  if (alphaBlendSurfaceStored)
+  {
+    packedAlphaBlendSurface = AlphaBlendGBuffer[pixelCoordinate];
+  }
+  else
+  {
+    packedAlphaBlendSurface = geometryResolverCreateInitialAlphaBlendSurface(pixelCoordinate);
+  }
+
+  return AlphaBlendSurface.createFromPacked(packedAlphaBlendSurface, cb.alphaBlendSurfacePackMult);
+}
+
+uint8_t primaryRayMaskToObjectMask(uint8_t rayMask, bool isViewModel)
+{
+  if (isViewModel)
+  {
+    rayMask &= ~OBJECT_MASK_ALL_PLAYER_MODEL;
+  }
+  else
+  {
+    rayMask = (rayMask & ~OBJECT_MASK_ALL_VIEWMODEL);
+
+    if (cb.enablePlayerModelPrimaryShadows)
+    {
+      rayMask = rayMask | OBJECT_MASK_ALL_PLAYER_MODEL;
+    }
+  }
+
+  return rayMask;
+}
+
+// Geometry Resolver Functions
+
+// Mirrors minimalRayInteractionReadFromGBuffer for the writable primary GBuffer textures.
+MinimalRayInteraction gbufferReadPrimaryMinimalRayInteraction(
+  ivec2 pixelCoordinate, float encodedConeRadius, Ray primaryRay)
+{
+  GBufferMemoryMinimalRayInteraction memory;
+  memory.encodedViewDirection = float2(0.0f, 0.0f);
+  memory.encodedConeRadius = float16_t(encodedConeRadius);
+
+  // Only a negative cone radius marks a stored view direction, see minimalRayInteractionCreate.
+  if (memory.encodedConeRadius < float16_t(0.0f))
+  {
+    memory.encodedViewDirection = PrimaryViewDirection[pixelCoordinate];
+  }
+
+  return minimalRayInteractionCreate(memory, primaryRay);
+}
+
+vec4 gbufferLoadPortalRotation(PortalSpace2BitsType portalSpace)
+{
+  if (portalSpace != PORTAL_SPACE_PORTAL_0 && portalSpace != PORTAL_SPACE_PORTAL_1)
+  {
+    return getIdentityQuaternion();
+  }
+
+  const uint8_t entryRayPortalIndex = uint8_t(portalSpace - PORTAL_SPACE_PORTAL_0);
+  const uint8_t opposingRayPortalIndex = getOpposingRayPortalIndex(entryRayPortalIndex);
+  const RayPortalHitInfo rayPortalHitInfo = cb.rayPortalHitInfos[uint(opposingRayPortalIndex)];
+  if (!rayPortalHitInfoIsActive(rayPortalHitInfo))
+  {
+    return getIdentityQuaternion();
+  }
+
+  return rayPortalHitInfo.encodedPortalToOpposingPortalDirection.unpackRotation();
+}

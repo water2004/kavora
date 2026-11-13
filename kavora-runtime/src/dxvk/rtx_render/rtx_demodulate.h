@@ -25,10 +25,25 @@
 #include "../dxvk_include.h"
 
 #include "../spirv/spirv_code_buffer.h"
-#include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_option.h"
 
 namespace dxvk {
+
+  using DemodulateResources = FrameResourceView<
+    &RaytracingFrame::m_compositeOutputExtent, &RaytracingFrame::m_sharedFlags,
+    &RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness,
+    &RaytracingFrame::m_primaryLinearViewZ, &RaytracingFrame::m_primaryAlbedo,
+    &RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughness,
+    &RaytracingFrame::m_secondaryLinearViewZ, &RaytracingFrame::m_secondaryAlbedo,
+    &RaytracingFrame::m_indirectRadianceHitDistance, &RaytracingFrame::m_sparseRenderingPixelSamplingRate,
+    &RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords, &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+    &RaytracingFrame::m_primaryBaseReflectivity, &RaytracingFrame::m_secondaryBaseReflectivity,
+    &RaytracingFrame::m_primaryDirectDiffuseRadiance, &RaytracingFrame::m_primaryDirectSpecularRadiance,
+    &RaytracingFrame::m_raytraceArgs, &RaytracingFrame::m_primaryIndirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryIndirectSpecularRadiance, &RaytracingFrame::m_secondaryCombinedDiffuseRadiance,
+    &RaytracingFrame::m_secondaryCombinedSpecularRadiance, &RaytracingFrame::m_primarySpecularAlbedo,
+    &RaytracingFrame::m_secondarySpecularAlbedo>;
 
   class RtxContext;
 
@@ -41,7 +56,7 @@ namespace dxvk {
 
     void dispatch(
       RtxContext* ctx, 
-      const Resources::RaytracingOutput& rtOutput);
+      DemodulateResources resources);
 
     void showImguiSettings();
 

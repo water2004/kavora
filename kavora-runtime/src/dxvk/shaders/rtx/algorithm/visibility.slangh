@@ -20,14 +20,17 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #pragma once
-#include "rtx/algorithm/clouds.slangh"
+import "rtx/algorithm/clouds.slang";
 
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/concept/surface/surface.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
 #include "rtx/utility/packing.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve_portal.slangh"
+#include "rtx/algorithm/resolve_medium.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
+
+import "rtx/algorithm/visibility_material.slang";
 
 static const uint visibilityModeNone = 0;
 static const uint visibilityModeAccurateHitDistance = (1 << 0);        // Return the closest hit and not just any opaque hit
@@ -183,7 +186,7 @@ vec3 handleVisibilityVertex<let VisibilityMode : uint>(Ray ray, RayHitInfo rayHi
         return vec3(0.0f);
       }
     
-      const SubsurfaceMaterial subsurfaceMaterial = subsurfaceMaterialCreate(opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction);
+      const SubsurfaceMaterial subsurfaceMaterial = decodeSubsurfaceMaterial(opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction);
     
       // Approximate the attenuation with assumption that input and output rays are on the same line and the volume is isotropic
       const float baseReflectivity = calcBt709Luminance(opaqueSurfaceMaterialInteraction.baseReflectivity);
@@ -218,9 +221,9 @@ vec3 handleVisibilityVertex<let VisibilityMode : uint>(Ray ray, RayHitInfo rayHi
 
       // Approximate the attenuation distance based on the triangle normal
       const float thickness = translucentSurfaceMaterialInteractionGetThinWallThickness(translucentSurfaceMaterialInteraction);
-      const float attenuationDistance = abs(evalThinAttenuationDistance(thickness, surfaceInteraction.geometryNormal, ray.direction));
-      const vec3 attenuationCoefficient = transmittanceToAttenuationCoefficient(translucentSurfaceMaterialInteraction.transmittanceColor, 1.0);
-      const vec3 volumeAttenuation = evalBeerLambertAttenuation(attenuationCoefficient, attenuationDistance);
+      const vec3 volumeAttenuation = thinTransparentVisibilityAttenuation(
+        thickness, surfaceInteraction.geometryNormal, ray.direction,
+        translucentSurfaceMaterialInteraction.transmittanceColor);
 
       return volumeAttenuation;
     }
@@ -243,68 +246,57 @@ float getRayPortalTransparency(
   RayPortalHitInfo portal,
   out float t)
 {
-  // Compute the ray-plane intersection.
-  // Treat rays coming from behind the portal as not intersecting with it.
-  const float NdotD = dot(ray.direction, portal.normal);
-  t = dot(portal.centroid - ray.origin, portal.normal) / NdotD;
-  if (isinf(t) || isnan(t))
-  {
-    t = -1.0;
-  }
-  
-  if (0 <= t && t <= ray.tMax && NdotD < 0)
-  {
-    const vec3 p = ray.origin + ray.direction * t;
-    const vec3 cToP = p - portal.centroid.xyz;
-    vec2 uv;
-    uv.x = dot(cToP, portal.xAxis.xyz) * portal.inverseHalfWidth;
-    uv.y = dot(cToP, portal.yAxis.xyz) * portal.inverseHalfHeight;
+  const RayPortalPlaneIntersection intersection = intersectRayPortalPlane(
+    ray.origin, ray.direction, ray.tMax, portal.centroid.xyz, portal.normal,
+    portal.xAxis.xyz, portal.yAxis.xyz, portal.inverseHalfWidth,
+    portal.inverseHalfHeight);
+  t = intersection.t;
 
-    if (max(abs(uv.x), abs(uv.y)) < 1.0)
+  if (intersection.intersects)
+  {
+    const vec2 uv = intersection.uv;
+    // Create a Surface for the intersection with the Portal
+    // Note: This is a rather ad-hoc way of creating a Surface/Surface Interaction as doing a full Surface deserialization just for
+    // visibility rays is probably too costly. As such though this code may break in the future if the way Surface Interactions
+    // are constructed changes, so it is rather fragile and ideally a better way to do this should be devised. With Slang generics this
+    // can be improved such that it can use duck typing rather than having things accidently read uninitialized members and cause bugs
+    // silently (note that we leave the other values in these structs uninitialized so they will cause bugs faster if a regression happens).
+    // Also note that this does not set up texture gradients properly so this will always likely sample from the lowest mip level
+    // which is also probably not great for performance.
+
+    Surface surface = (Surface)0;
+    surface.spriteSheetRows = portal.spriteSheetRows;
+    surface.spriteSheetCols = portal.spriteSheetCols;
+    surface.spriteSheetFPS = portal.spriteSheetFPS;
+
+    SurfaceInteraction surfaceInteraction = SurfaceInteraction();
+    surfaceInteraction.textureCoordinates = uv * 0.5f + 0.5f;
+    surfaceInteraction.textureGradientX = vec2(0.0f);
+    surfaceInteraction.textureGradientY = vec2(0.0f);
+
+    applyPortalTextureTransform(portal, surfaceInteraction.textureCoordinates);
+    // Note: No spritesheet adjustment done here as this is skipped for Surfaces using a Ray Portal material anyways
+    // as it is done in the Surface Material Interaction construction instead.
+
+    // Calculate the transparency from the Portal's material
+
+    RayPortalSurfaceMaterial rayPortalSurfaceMaterial;
+    rayPortalSurfaceMaterial.samplerIndex = portal.samplerIndex;
+    rayPortalSurfaceMaterial.samplerIndex2 = portal.samplerIndex2;
+    rayPortalSurfaceMaterial.maskTextureIndex = portal.maskTextureIndex;
+    rayPortalSurfaceMaterial.maskTextureIndex2 = portal.maskTextureIndex2;
+    rayPortalSurfaceMaterial.rotationSpeed = uint16BitsToHalf(portal.rotationSpeed);
+    rayPortalSurfaceMaterial.emissiveIntensity = uint16BitsToHalf(portal.emissiveIntensity);
+    rayPortalSurfaceMaterial.rayPortalIndex = portal.rayPortalIndex;
+
+    const RayPortalSurfaceMaterialInteraction rayPortalSurfaceMaterialInteraction = rayPortalSurfaceMaterialInteractionCreate(rayPortalSurfaceMaterial, surface, surfaceInteraction);
+
+    if (!rayPortalSurfaceMaterialInteraction.isInsidePortal)
     {
-      // Create a Surface for the intersection with the Portal
-      // Note: This is a rather ad-hoc way of creating a Surface/Surface Interaction as doing a full Surface deserialization just for
-      // visibility rays is probably too costly. As such though this code may break in the future if the way Surface Interactions
-      // are constructed changes, so it is rather fragile and ideally a better way to do this should be devised. With Slang generics this
-      // can be improved such that it can use duck typing rather than having things accidently read uninitialized members and cause bugs
-      // silently (note that we leave the other values in these structs uninitialized so they will cause bugs faster if a regression happens).
-      // Also note that this does not set up texture gradients properly so this will always likely sample from the lowest mip level
-      // which is also probably not great for performance.
-
-      Surface surface = (Surface)0;
-      surface.spriteSheetRows = portal.spriteSheetRows;
-      surface.spriteSheetCols = portal.spriteSheetCols;
-      surface.spriteSheetFPS = portal.spriteSheetFPS;
-
-      SurfaceInteraction surfaceInteraction = SurfaceInteraction();
-      surfaceInteraction.textureCoordinates = uv * 0.5f + 0.5f;
-      surfaceInteraction.textureGradientX = vec2(0.0f);
-      surfaceInteraction.textureGradientY = vec2(0.0f);
-
-      applyPortalTextureTransform(portal, surfaceInteraction.textureCoordinates);
-      // Note: No spritesheet adjustment done here as this is skipped for Surfaces using a Ray Portal material anyways
-      // as it is done in the Surface Material Interaction construction instead.
-
-      // Calculate the transparency from the Portal's material
-
-      RayPortalSurfaceMaterial rayPortalSurfaceMaterial;
-      rayPortalSurfaceMaterial.samplerIndex = portal.samplerIndex;
-      rayPortalSurfaceMaterial.samplerIndex2 = portal.samplerIndex2;
-      rayPortalSurfaceMaterial.maskTextureIndex = portal.maskTextureIndex;
-      rayPortalSurfaceMaterial.maskTextureIndex2 = portal.maskTextureIndex2;
-      rayPortalSurfaceMaterial.rotationSpeed = uint16BitsToHalf(portal.rotationSpeed);
-      rayPortalSurfaceMaterial.emissiveIntensity = uint16BitsToHalf(portal.emissiveIntensity);
-      rayPortalSurfaceMaterial.rayPortalIndex = portal.rayPortalIndex;
-      
-      const RayPortalSurfaceMaterialInteraction rayPortalSurfaceMaterialInteraction = rayPortalSurfaceMaterialInteractionCreate(rayPortalSurfaceMaterial, surface, surfaceInteraction);
-
-      if (!rayPortalSurfaceMaterialInteraction.isInsidePortal)
-      {
-        return 0.0f;
-      }
-
-      return saturate(1.0f - rayPortalSurfaceMaterialInteraction.mask.a);
+      return 0.0f;
     }
+
+    return saturate(1.0f - rayPortalSurfaceMaterialInteraction.mask.a);
   }
 
   return 0.0f;
@@ -430,7 +422,8 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
       if (!clearOpaqueHitAttenuation)
       {
         result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
-          visibilityRay.direction, rayQuery.CommittedRayT());
+          visibilityRay.direction, rayQuery.CommittedRayT(), CloudWeatherSampler, CloudBaseSampler,
+          CloudDetailSampler);
       }
 
       // If we already went through a portal, add the path segment before the portal
@@ -441,7 +434,8 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
     }
 
     result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
-      visibilityRay.direction, visibilityRay.tMax);
+      visibilityRay.direction, visibilityRay.tMax, CloudWeatherSampler, CloudBaseSampler,
+      CloudDetailSampler);
 
     if (expectedRayPortalIndex != invalidRayPortalIndex)
     {

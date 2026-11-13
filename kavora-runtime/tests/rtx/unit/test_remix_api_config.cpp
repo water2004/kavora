@@ -11,6 +11,7 @@
 
 #include "../../../src/dxvk/rtx_render/rtx_remix_api_config.h"
 #include "../../../src/dxvk/rtx_render/rtx_option_manager.h"
+#include "../../../src/util/util_string.h"
 
 namespace dxvk {
   Logger Logger::s_instance("test_remix_api_config.log");
@@ -116,7 +117,7 @@ namespace {
       std::ofstream file(path);
       file << "rtx.apiconfigtest.amount = 30\n";
     }
-    const std::string filename = path.u8string();
+    const std::string filename(str::utf8Bytes(path.u8string()));
     remixapi_ConfigLayerHandle first = nullptr;
     require(api::acquireLayer(filename.c_str(), -1.0f, 0.0f, &first) == REMIXAPI_ERROR_CODE_SUCCESS, "acquire clamps negative priority safely");
     resolve();

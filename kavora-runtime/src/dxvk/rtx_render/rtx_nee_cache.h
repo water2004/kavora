@@ -26,6 +26,7 @@
 
 #include "../spirv/spirv_code_buffer.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_option.h"
 #include "rtx/algorithm/nee_cache_data.h"
 
@@ -36,12 +37,20 @@ namespace dxvk {
   class NeeCachePass : public RtxPass {
 
   public:
+
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_neeCache,
+      &RaytracingFrame::m_neeCacheSample,
+      &RaytracingFrame::m_neeCacheTask
+    >;
+
     NeeCachePass(dxvk::DxvkDevice* device);
     ~NeeCachePass();
 
     void dispatch(
       RtxContext* ctx, 
-      const Resources::RaytracingOutput& rtOutput);
+      DispatchResources resources);
 
     void showImguiSettings();
 

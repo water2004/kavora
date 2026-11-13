@@ -1,0 +1,553 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+import "rtx/algorithm/cloud_sky.slang";
+import "rtx/pass/gbuffer/gbuffer_motion.slang";
+#include "rtx/pass/gbuffer/gbuffer_debug.slangh"
+#include "rtx/pass/gbuffer/gbuffer_guides_output.slangh"
+#include "rtx/algorithm/render_target_motion.slangh"
+#include "rtx/algorithm/camera_transport.slangh"
+#include "rtx/algorithm/rtxdi/rtxdi_temporal_history.h"
+#include "rtx/pass/nrc/nrc_integrator_utilities.slangh"
+#include "rtx/pass/ray_reconstruction/specular_motion.slangh"
+#include "rtx/pass/post_fx/post_fx_motion_blur_geometry_flags.slangh"
+
+// Writes the per-pixel guides and the selected material's compacted G-buffer slot.
+
+// A split optical path owns the specular guide until the reflection is resolved.
+void resolveRRSpecularMotion(uvec2 pixel, bool primarySurface, vec2 motion)
+{
+  if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && !primarySurface &&
+      RayReconstructionSpecularMotion[pixel].x == kRRSpecularMotionPending && validRRSpecularMotion(motion))
+  {
+    RayReconstructionSpecularMotion[pixel] = motion;
+  }
+}
+
+void geometryResolverOutputRawAovs(uvec2 pixelCoordinate, vec4 worldPosition, vec4 texcoords, vec4 normal) {
+  if (cb.rawAovMask & kRawAovWorldPosition) {
+    PrimaryWorldPositionRaw[pixelCoordinate] = worldPosition;
+  }
+  if (cb.rawAovMask & kRawAovTexcoords) {
+    PrimaryTexcoordsRaw[pixelCoordinate] = texcoords;
+  }
+  if (cb.rawAovMask & kRawAovNormal) {
+    PrimaryNormalF32[pixelCoordinate] = normal;
+  }
+}
+
+void geometryResolverOutputMiss<
+  let PRIMARY_SURFACE : bool,
+  let SELECTED_INTEGRATION_SURFACE : bool>(
+  uvec2 pixelCoordinate, uvec2 compactedCoordinate, bool alphaBlendSurfaceStored = true, float cloudDistance = 0.0f)
+{
+  // Every pixel writes its per-pixel outputs. Only a pixel with a slot also stores a GBuffer.
+  const bool storesGBuffer = hasGBufferSlot(compactedCoordinate);
+  const float missHitDistance = -1.0f;
+
+  if (PRIMARY_SURFACE)
+  {
+    float depth = cb.clearColorDepth;
+    float2 motion;
+    if (cloudDistance > 0.0f)
+    {
+      const VirtualHitProjection cloud = projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, cloudDistance, cb.volumeArgs.clouds.previousWindDelta);
+      depth = saturate(cloud.depth);
+      motion = cloud.screenSpaceMotion;
+    }
+    else
+    {
+      motion = calcMotionVectorForRayMiss(cb.camera, pixelCoordinate);
+    }
+    PrimaryScreenSpaceMotionVector[pixelCoordinate] = motion;
+    PrimarySurfaceFlags[pixelCoordinate] = 0;
+    PrimaryDisocclusionThresholdMix[pixelCoordinate] = 0;
+    PrimaryDepth[pixelCoordinate] = depth;
+
+    // PSR misses clear the initial hit's raw AOV values.
+    geometryResolverOutputRawAovs(pixelCoordinate, vec4(0.0f), vec4(0.0f), vec4(0.0f));
+
+    if (cb.enableDlssNrControlMask)
+    {
+      geometryResolverStoreDlssNrControlMask(pixelCoordinate, 1.0f.rrrr);
+    }
+
+    // RR requires zeroed out input guide buffers for misses
+    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
+    {
+      PrimaryPerceptualRoughness[pixelCoordinate] = 0.f;
+      PrimaryDepthDLSSRR[pixelCoordinate] = depth;
+      PrimaryWorldShadingNormalDLSSRR[pixelCoordinate] = vec4(0.0f);
+    }
+
+    if (storesGBuffer)
+    {
+      PrimaryHitDistance[compactedCoordinate] = missHitDistance;
+
+      // Note: Always write to stochastic buffers in the primary surface case.
+      writeMissToGBuffer(
+        pixelCoordinate, pixelCoordinate, compactedCoordinate, true,
+        cb.writePrimaryDenoisingNormal, cb.writePrimaryVirtualMotionVector, cb.primaryDirectNrd.missLinearViewZ,
+        PrimaryConeRadius, PrimaryLinearViewZ,
+        PrimaryVirtualMotionVector,
+        PrimaryVirtualWorldShadingNormalPerceptualRoughness,
+        PrimaryVirtualWorldShadingNormalPerceptualRoughnessDenoising,
+        PrimaryAlbedo, PrimaryBaseReflectivity, aliasedData0.PrimaryWorldPositionWorldTriangleNormal);
+
+      if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+      {
+        PrimaryWorldPositionWorldTriangleNormalCompacted[compactedCoordinate] = asfloat(0x7F800000).xxxx;
+      }
+    }
+    else
+    {
+      // These are the per-pixel outputs that writeMissToGBuffer carries.
+      PrimaryLinearViewZ[pixelCoordinate] = cb.primaryDirectNrd.missLinearViewZ;
+      aliasedData0.PrimaryWorldPositionWorldTriangleNormal[pixelCoordinate] = asfloat(0x7F800000).xxxx;
+    }
+
+    if (GBUFFER_FEATURE_STOCHASTIC_ALPHA && cb.enableStochasticAlphaBlend)
+    {
+      AlphaBlendSurface alphaBlendSurface = geometryResolverLoadAlphaBlendSurface(pixelCoordinate, alphaBlendSurfaceStored);
+      alphaBlendSurface.finalize(0);
+      AlphaBlendGBuffer[pixelCoordinate] = alphaBlendSurface.pack(cb.alphaBlendSurfacePackMult);
+    }
+  }
+  else if (storesGBuffer)
+  {
+    SecondaryHitDistance[compactedCoordinate] = missHitDistance;
+
+    // Note: Only write to stochastic buffers if this is the selected surface in the secondary surface case.
+    writeMissToGBuffer(
+      pixelCoordinate, compactedCoordinate, compactedCoordinate, SELECTED_INTEGRATION_SURFACE,
+      cb.writeSecondaryDenoisingGuides, cb.writeSecondaryDenoisingGuides, cb.secondaryCombinedNrd.missLinearViewZ,
+      SecondaryConeRadius, SecondaryLinearViewZ,
+      SecondaryVirtualMotionVector,
+      SecondaryVirtualWorldShadingNormalPerceptualRoughness,
+      SecondaryVirtualWorldShadingNormalPerceptualRoughnessDenoising,
+      SecondaryAlbedo, SecondaryBaseReflectivity, SecondaryWorldPositionWorldTriangleNormal);
+  }
+
+#if ENABLE_NRC
+  if (storesGBuffer)
+  {
+    Nrc::invalidateNrcQueryData(pixelCoordinate, compactedCoordinate);
+  }
+#endif
+}
+
+void geometryResolverOutputMissDynamic(
+  bool primarySurface, bool selectedIntegrationSurface, uvec2 pixelCoordinate, uvec2 compactedCoordinate)
+{
+  if (primarySurface)
+  {
+    if (selectedIntegrationSurface)
+    {
+      geometryResolverOutputMiss<true, true>(pixelCoordinate, compactedCoordinate);
+    }
+    else
+    {
+      geometryResolverOutputMiss<true, false>(pixelCoordinate, compactedCoordinate);
+    }
+  }
+  else
+  {
+    if (selectedIntegrationSurface)
+    {
+      geometryResolverOutputMiss<false, true>(pixelCoordinate, compactedCoordinate);
+    }
+    else
+    {
+      geometryResolverOutputMiss<false, false>(pixelCoordinate, compactedCoordinate);
+    }
+  }
+}
+
+void geometryResolverWriteDlssNrControlMask(
+  uvec2 pixelCoordinate,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+{
+  vec4 dlssControlMask = 1.0f.rrrr;
+
+  if (polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction) == surfaceMaterialTypeOpaque)
+  {
+    const OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+      opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+
+    dlssControlMask = unorm4x8ToFloat4x32(opaqueSurfaceMaterialInteraction.dlssControlMask);
+  }
+
+  geometryResolverStoreDlssNrControlMask(pixelCoordinate, dlssControlMask);
+}
+
+// `projection` is projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, virtualHitDistance, virtualMotion).
+void geometryResolverOutputSurface<
+  let PRIMARY_SURFACE : bool,
+  let SELECTED_INTEGRATION_SURFACE : bool>(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  Ray ray, RayInteraction rayInteraction,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  vec3 radiance, vec3 attenuation, vec4 accumulatedRotation,
+  uint mediumState, float virtualHitDistance, bool directionAltered,
+  vec3 virtualMotion, VirtualHitProjection projection,
+  bool useAlternateDisocclusionThreshold, bool isViewModel, bool decalCandidateSeen = true,
+  bool alphaBlendSurfaceStored = true)
+{
+  // Every pixel writes its per-pixel outputs. Only a pixel with a slot also stores a GBuffer.
+  const bool storesGBuffer = hasGBufferSlot(compactedCoordinate);
+
+  // Output Attenuation (Primary/secondary surface coherent)
+
+  const uint encodedAttenuation = packSceneAttenuation(attenuation, cb.enableRaytracedRenderTarget);
+
+  if (storesGBuffer)
+  {
+    if (PRIMARY_SURFACE)
+    {
+      imageStore(PrimaryAttenuation, compactedCoordinate, encodedAttenuation);
+    }
+    else
+    {
+      imageStore(SecondaryAttenuation, compactedCoordinate, encodedAttenuation);
+    }
+  }
+
+  // Output Linear View Z (Primary/secondary surface coherent)
+
+  if (PRIMARY_SURFACE)
+  {
+    imageStore(PrimaryDepth, pixelCoordinate, projection.depth);
+    imageStore(PrimaryLinearViewZ, pixelCoordinate, projection.linearViewZ);
+
+    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
+    {
+      PrimaryDepthDLSSRR[pixelCoordinate] = projection.depth;
+      const GBufferMemoryPolymorphicSurfaceMaterialInteraction rrMaterial =
+        gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+      const vec3 rrNormal = rrVirtualNormal(vec3(rrMaterial.worldShadingNormal), accumulatedRotation,
+        directionAltered && cb.enableCalculateVirtualShadingNormals);
+      PrimaryWorldShadingNormalDLSSRR[pixelCoordinate] = vec4(rrNormal, 0.0f);
+    }
+
+    if (storesGBuffer)
+    {
+      imageStore(PrimaryHitDistance, compactedCoordinate, virtualHitDistance);
+    }
+
+    // Set value of 10000.f that forces RR to discard history.
+    // Set the log value of 10000.f since RR uses log scale. RR prepass will revert the log operation after blurring the values.
+    const float kDLSSRRDisocclusionThresholdValue =
+      cb.setLogValueForDisocclusionMaskForDLSSRR
+      ? 9.2103403719762 // == log(10000.f)
+      : 10000.f;
+    const float kDisocclusionThresholdValue =
+      GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR
+      ? kDLSSRRDisocclusionThresholdValue
+      : 1.f;
+    const bool discardRRHistory =
+      projection.cameraHistory < 0 || surface.hasMaterialChanged ||
+      (cb.invalidateHistoryForAnimatedWater && (surface.isAnimatedWater ||
+        (rayInteraction.materialType == surfaceMaterialTypeTranslucent && polymorphicSurfaceMaterialInteraction.isAnimatedWater)));
+
+    // Note: Fully use an alternate disocclusion threshold when specified, done by setting the mix value to 1.0 (this mixes
+    // between the standard and alternate disocclusion threshold specified in the denoiser's settings).
+    const float disocclusionThresholdMix = (discardRRHistory || useAlternateDisocclusionThreshold) ? kDisocclusionThresholdValue : 0.0f;
+
+    // Note: May seem overkill to store a bool like this, but the denoiser expects an input unorm texture to lerp between the standard
+    // and alternate disocclusion threshold so it must be expanded and stored to a texture like this at some point.
+    imageStore(PrimaryDisocclusionThresholdMix, pixelCoordinate, disocclusionThresholdMix);
+  }
+  else if (storesGBuffer)
+  {
+    imageStore(SecondaryLinearViewZ, compactedCoordinate, projection.linearViewZ);
+    imageStore(SecondaryHitDistance, compactedCoordinate, virtualHitDistance);
+  }
+
+  // Output Motion Vector (Primary/secondary surface coherent)
+  // Note: Technically part of the Surface Interaction, just not something we'd want to deserialize in other passes which would mean we'd need yet
+  // another structure for this. To avoid that, just output it like this for now.
+
+  if (PRIMARY_SURFACE)
+  {
+    if (storesGBuffer && cb.writePrimaryVirtualMotionVector)
+    {
+      imageStore(PrimaryVirtualMotionVector, compactedCoordinate, vec4(virtualMotion, projection.cameraHistory));
+    }
+
+    // Write out screen-space motion.
+    PrimaryScreenSpaceMotionVector[pixelCoordinate] = projection.screenSpaceMotion;
+
+    const float luminance = calcBt709Luminance(radiance);
+    const bool isRadianceOutput = luminance > 0.0f;
+
+    // Write out screen-space static bit in surface flags
+    MotionBlurSurfaceFlags motionBlurSurfaceFlags;
+    motionBlurSurfaceFlags.isViewModel = isViewModel;
+    motionBlurSurfaceFlags.isStatic = surface.isStatic;
+    motionBlurSurfaceFlags.isEmissive = isRadianceOutput;
+    motionBlurSurfaceFlagsWriteToGBuffer(motionBlurSurfaceFlags, ivec2(pixelCoordinate), PrimarySurfaceFlags);
+  }
+  else if (storesGBuffer && cb.writeSecondaryDenoisingGuides)
+  {
+    imageStore(SecondaryVirtualMotionVector, compactedCoordinate, vec4(virtualMotion, projection.cameraHistory));
+  }
+
+  // Under the compacted GBuffer the albedo guides are built here for every pixel, rather than by prepare RR.
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+#ifdef GBUFFER_PSR
+    guidesAccumulateAlbedo<PRIMARY_SURFACE>(
+      pixelCoordinate, gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction),
+      attenuation, accumulatedRotation, directionAltered);
+#else
+    // The primary pass outputs only first hits, whose guides no other surface adds into.
+    if (PRIMARY_SURFACE)
+    {
+      guidesWriteFirstHit(
+        pixelCoordinate, decalCandidateSeen,
+        gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction),
+        polymorphicSurfaceMaterialInteractionEvalEmissiveRadiance(polymorphicSurfaceMaterialInteraction),
+        attenuation, accumulatedRotation, directionAltered);
+    }
+#endif
+  }
+
+  if (PRIMARY_SURFACE && cb.enableDlssNrControlMask)
+  {
+    geometryResolverWriteDlssNrControlMask(pixelCoordinate, polymorphicSurfaceMaterialInteraction);
+  }
+
+  if (GBUFFER_FEATURE_STOCHASTIC_ALPHA && cb.enableStochasticAlphaBlend && PRIMARY_SURFACE)
+  {
+    //Write opaque objects' geometry hash
+    AlphaBlendSurface alphaBlendSurface = geometryResolverLoadAlphaBlendSurface(pixelCoordinate, alphaBlendSurfaceStored);
+    alphaBlendSurface.finalize(surface.hashPacked);
+    AlphaBlendGBuffer[pixelCoordinate] = alphaBlendSurface.pack(cb.alphaBlendSurfacePackMult);
+  }
+
+  // Written at every pixel, because RTXDI reads the previous frame's value at reprojected pixels that may have been inactive.
+  if (cb.shadowTerminatorArgs.enableOffset)
+  {
+    if (PRIMARY_SURFACE || SELECTED_INTEGRATION_SURFACE)
+    {
+      SharedTerminatorFix[pixelCoordinate] = surfaceInteraction.shadowTerminatorOffset;
+    }
+  }
+
+  // RTXDI's spatial reuse and the Remix API read the primary shading normal at inactive pixels too.
+  if (PRIMARY_SURFACE && cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    const GBufferMemoryPolymorphicSurfaceMaterialInteraction materialMemory =
+      gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+    PrimaryWorldShadingNormalDense[pixelCoordinate] =
+      float2x32ToSnorm2x16(sphereDirectionToSignedOctahedral(materialMemory.worldShadingNormal));
+  }
+
+  // Raw AOVs use dense coordinates even when the lighting GBuffer is compacted.
+  if (PRIMARY_SURFACE && cb.rawAovMask) {
+    geometryResolverOutputRawAovs(pixelCoordinate,
+      vec4(surfaceInteraction.position, 1.0f), vec4(surfaceInteraction.textureCoordinates, 0.0f, 1.0f),
+      vec4(surfaceInteraction.triangleNormal, 1.0f));
+  }
+
+  if (!storesGBuffer)
+  {
+    // These are the per-pixel outputs that the serialization below carries.
+    if (PRIMARY_SURFACE)
+    {
+      PrimaryPerceptualRoughness[pixelCoordinate] =
+        gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).perceptualRoughness;
+      aliasedData0.PrimaryWorldPositionWorldTriangleNormal[pixelCoordinate] =
+        vec4(gBufferMemoryMinimalSurfaceInteractionCreate(surfaceInteraction).encodedWorldPositionWorldTriangleTBN);
+    }
+
+    geometryResolverOutputSurfaceDebugView<PRIMARY_SURFACE>(pixelCoordinate, compactedCoordinate, virtualMotion, polymorphicSurfaceMaterialInteraction);
+    return;
+  }
+
+  // Serialize out the Ray Interaction (Primary surface coherent, secondary surface stochastic)
+
+  if (PRIMARY_SURFACE)
+  {
+    minimalRayInteractionWriteToGBuffer(
+      rayInteraction, directionAltered, ivec2(compactedCoordinate),
+      PrimaryViewDirection, PrimaryConeRadius);
+  }
+  else if (SELECTED_INTEGRATION_SURFACE)
+  {
+    minimalRayInteractionWriteToGBuffer(
+      rayInteraction, directionAltered, ivec2(compactedCoordinate),
+      SecondaryViewDirection, SecondaryConeRadius);
+  }
+
+  // Serialize out the Surface Interaction (Primary surface coherent, secondary surface stochastic)
+
+  if (PRIMARY_SURFACE)
+  {
+    minimalSurfaceInteractionWriteToGBuffer(
+      surfaceInteraction, ivec2(pixelCoordinate), ivec2(compactedCoordinate),
+      aliasedData0.PrimaryWorldPositionWorldTriangleNormal,
+      PrimaryPositionError);
+
+    if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+    {
+      PrimaryWorldPositionWorldTriangleNormalCompacted[compactedCoordinate] =
+        vec4(gBufferMemoryMinimalSurfaceInteractionCreate(surfaceInteraction).encodedWorldPositionWorldTriangleTBN);
+    }
+  }
+  else if (SELECTED_INTEGRATION_SURFACE)
+  {
+    minimalSurfaceInteractionWriteToGBuffer(
+      surfaceInteraction, ivec2(compactedCoordinate), ivec2(compactedCoordinate),
+      SecondaryWorldPositionWorldTriangleNormal,
+      SecondaryPositionError);
+  }
+
+  // Serialize out the Medium Material Index
+  // Note: This is done to share the medium material index with subsequent integration passes as they need to
+  // know which medium the path is currently traveling through.
+
+  if (SELECTED_INTEGRATION_SURFACE)
+  {
+    imageStore(SharedMediumState, compactedCoordinate, mediumState);
+  }
+
+  // Serialize out the Surface Material Interaction
+
+  if (PRIMARY_SURFACE)
+  {
+    // Primary shading guides remain coherent even when the reflection lobe owns the shared material.
+    polymorphicSurfaceMaterialInteractionWriteToGBuffer(
+      polymorphicSurfaceMaterialInteraction, ivec2(pixelCoordinate),
+      ivec2(compactedCoordinate), ivec2(pixelCoordinate), true, SELECTED_INTEGRATION_SURFACE, cb.writePrimaryDenoisingNormal,
+      surface, surfaceInteraction, rayInteraction.surfaceIndex,
+      directionAltered, accumulatedRotation,
+      PrimaryWorldShadingNormal, PrimaryPerceptualRoughness,
+      PrimaryVirtualWorldShadingNormalPerceptualRoughness, PrimaryVirtualWorldShadingNormalPerceptualRoughnessDenoising,
+      PrimaryAlbedo, PrimaryBaseReflectivity,
+      SharedMaterialData0, SharedMaterialData1, SharedTextureCoord, SharedSurfaceIndex, SharedSubsurfaceData, SharedSubsurfaceDiffusionProfileData);
+  }
+  else
+  {
+    // Note: Only write to stochastic buffers if this is the selected surface in the secondary surface case.
+    polymorphicSurfaceMaterialInteractionWriteToGBuffer(
+      polymorphicSurfaceMaterialInteraction, ivec2(pixelCoordinate),
+      ivec2(compactedCoordinate), ivec2(compactedCoordinate), SELECTED_INTEGRATION_SURFACE, SELECTED_INTEGRATION_SURFACE, cb.writeSecondaryDenoisingGuides,
+      surface, surfaceInteraction, rayInteraction.surfaceIndex,
+      directionAltered, accumulatedRotation,
+      SecondaryWorldShadingNormal, SecondaryPerceptualRoughness,
+      SecondaryVirtualWorldShadingNormalPerceptualRoughness, SecondaryVirtualWorldShadingNormalPerceptualRoughnessDenoising,
+      SecondaryAlbedo, SecondaryBaseReflectivity,
+      SharedMaterialData0, SharedMaterialData1, SharedTextureCoord, SharedSurfaceIndex, SharedSubsurfaceData, SharedSubsurfaceDiffusionProfileData);
+  }
+
+  geometryResolverOutputSurfaceDebugView<PRIMARY_SURFACE>(pixelCoordinate, compactedCoordinate, virtualMotion, polymorphicSurfaceMaterialInteraction);
+}
+
+void geometryResolverOutputSurfaceDynamic(
+  bool primarySurface, bool selectedIntegrationSurface, uvec2 pixelCoordinate, uvec2 compactedCoordinate,
+  Ray ray, RayInteraction rayInteraction,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  vec3 radiance, vec3 attenuation, vec4 accumulatedRotation,
+  uint mediumState, float virtualHitDistance, float apparentHitDistance, bool directionAltered,
+  bool useAlternateDisocclusionThreshold, bool isViewModel, bool viewModelOpticalPath,
+  bool renderTargetPath, bool cameraHistoryValid, vec3 previousScreenPoint)
+{
+  // Note: Virtual hit distance and motion account for the ray traversing ray portals and PSR interactions.
+  vec3 virtualMotion = quaternionTransformVector(accumulatedRotation, surfaceInteraction.motion, true);
+  if (renderTargetPath) {
+    const Ray cameraRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate, false);
+    if (!cameraHistoryValid) {
+      previousScreenPoint = cameraGetPreviousWorldPosition(cb.camera) +
+        cameraScreenUVToPrevDirection(cb.camera, vec2(-2.0f, 0.5f), false).worldDirection * max(virtualHitDistance, 1.0f);
+    }
+    virtualMotion = previousScreenPoint - rayEvaluate(cameraRay, virtualHitDistance);
+  }
+  else if (viewModelOpticalPath)
+  {
+    virtualMotion = projectViewModelOpticalMotion(cb.camera, pixelCoordinate, apparentHitDistance, accumulatedRotation, surfaceInteraction.position, surfaceInteraction.motion);
+  }
+  VirtualHitProjection projection = projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, apparentHitDistance, virtualMotion);
+  if (apparentHitDistance != virtualHitDistance)
+  {
+    // Lighting and atmosphere use the traced path length.
+    const Ray cameraRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate, false);
+    projection.linearViewZ = cameraWorldPosToLinearViewZ(cb.camera, rayEvaluate(cameraRay, virtualHitDistance));
+  }
+  if (renderTargetPath) {
+    projection.cameraHistory = cameraHistoryValid
+      ? (surface.isStatic ? kTemporalHistoryStaticCamera : kTemporalHistoryMovingCamera)
+      : kTemporalHistoryRejected;
+    if (!cameraHistoryValid) {
+      projection.screenSpaceMotion = vec2(-2.0f * float(cb.camera.resolution.x), 0.0f);
+    }
+  }
+
+  resolveRRSpecularMotion(pixelCoordinate, primarySurface, projection.screenSpaceMotion);
+
+  if (primarySurface)
+  {
+    if (selectedIntegrationSurface)
+    {
+      geometryResolverOutputSurface<true, true>(
+        pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
+        polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
+        mediumState, virtualHitDistance, directionAltered,
+        virtualMotion, projection,
+        useAlternateDisocclusionThreshold, isViewModel);
+    }
+    else
+    {
+      geometryResolverOutputSurface<true, false>(
+        pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
+        polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
+        mediumState, virtualHitDistance, directionAltered,
+        virtualMotion, projection,
+        useAlternateDisocclusionThreshold, isViewModel);
+    }
+  }
+  else
+  {
+    if (selectedIntegrationSurface)
+    {
+      geometryResolverOutputSurface<false, true>(
+        pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
+        polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
+        mediumState, virtualHitDistance, directionAltered,
+        virtualMotion, projection,
+        useAlternateDisocclusionThreshold, isViewModel);
+    }
+    else
+    {
+      geometryResolverOutputSurface<false, false>(
+        pixelCoordinate, compactedCoordinate, ray, rayInteraction, surface, surfaceInteraction,
+        polymorphicSurfaceMaterialInteraction, radiance, attenuation, accumulatedRotation,
+        mediumState, virtualHitDistance, directionAltered,
+        virtualMotion, projection,
+        useAlternateDisocclusionThreshold, isViewModel);
+    }
+  }
+}

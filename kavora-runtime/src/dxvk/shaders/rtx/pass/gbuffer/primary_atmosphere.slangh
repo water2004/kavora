@@ -2,7 +2,8 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/path_storage.slangh"
-#include "rtx/algorithm/atmosphere.slangh"
+import "rtx/algorithm/atmosphere.slang";
+#include "rtx/algorithm/volume_lighting.slangh"
 
 uint primaryAtmosphereOffset(uint2 pixel)
 {

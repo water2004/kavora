@@ -21,6 +21,8 @@
 */
 #pragma once
 
+import "rtx/utility/lat_long_projection.slang";
+
 // Light Constants
 
 static const float lightWeightEpsilon = 1e-10f;

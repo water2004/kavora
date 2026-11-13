@@ -12,36 +12,90 @@ This document provides an overview for the general structure, standards and conv
 Use explicit-width storage and preserve the CPU/GPU field layout when adding
 parameters. Each pass keeps its descriptor indices alongside its bindings.
 
-The Meson `raytrace_layout_checks` target reflects a probe for `RaytraceArgs`.
-`display_color_layout_checks` reflects `SRGBDitherArgs` from the real output
-shader. Both use the production scalar-layout and matrix options and generate
-C++ assertions for sizes, field offsets and array strides. The owning C++
-translation units enforce the assertions at build time. Resource encodings,
-image access modes and history lifetime belong to each pass's contract.
+Meson reflects `RaytraceArgs` through a build-only probe. The composite,
+Ray Reconstruction, dome compositor, night sky and display color checks
+reflect their production entry points. The display color check also verifies
+descriptor bindings for both variants. These targets use the production
+scalar-layout and matrix options and generate C++ assertions for sizes,
+field offsets and array strides. The owning C++ translation units enforce
+the assertions at build time. Resource encodings, image access modes and
+history lifetime belong to each pass's contract.
 
 ### Visual effect boundaries
 
 Keep the entry point responsible for descriptor bindings, dispatch coordinates,
-and output writes. Put an effect's calculations in a `.slangh` file with named
-inputs and outputs. Keep its existing slot, access mode, coordinate space and
+and output writes. Put an effect's calculations behind named inputs and outputs.
+Use a Slang `module` and `import` for calculations with independent inputs.
+Keep each resource's slot, access mode, coordinate space and
 encoding when changing the calculation. Use `[ForceInline]` on helpers whose
 boundary must disappear in the release shader, and compare the emitted SPIR-V
 when moving work across that boundary.
 
+Keep textual includes for dual C++/Slang layout headers, descriptor bindings
+and shader variants that use caller-defined preprocessor symbols. For a shared
+parameter type used by several modules, import the module that owns its Slang
+declaration so every consumer uses the same type. The host still reads the
+layout from the corresponding C++ header.
+
+`common_bindings.slangh` owns shared descriptor declarations. The G-buffer
+entries include the implementation for the stage they dispatch.
+
+| G-buffer stage | Owner | Inputs and outputs |
+| --- | --- | --- |
+| Primary resolve | [`gbuffer_primary.slangh`](pass/gbuffer/gbuffer_primary.slangh) | Camera ray and first intersection in. First-hit material, guides and PSR candidates out. |
+| Decals | [`gbuffer_decals.slangh`](pass/gbuffer/gbuffer_decals.slangh) | Ray cone and first-hit geometry in. Blended material out. The primary pass can call the same decal operations before publishing the first hit. |
+| PSR setup | [`gbuffer_psr_prepare.slangh`](pass/gbuffer/gbuffer_psr_prepare.slangh) | First-hit material and guides in. Reflection and transmission seeds out. |
+| PSR resolve | [`gbuffer_psr.slangh`](pass/gbuffer/gbuffer_psr.slangh) | A reflection or transmission seed in. Resolved optical surface and guides out. The entry manages its work queue. |
+
+[`gbuffer_storage.slangh`](pass/gbuffer/gbuffer_storage.slangh) maps screen
+pixels to compacted slots and owns shared buffer encodings.
+[`gbuffer_output.slangh`](pass/gbuffer/gbuffer_output.slangh) publishes the hit
+or miss and calls the [motion projection module](pass/gbuffer/gbuffer_motion.slang).
+Diagnostics and radiance-cache updates are local to the G-buffer stages.
+`ray_resolve.slang` owns the shared traversal loop. Each pass specializes
+its traversal and hit policy at compile time.
+[`resolve_ordered.slangh`](algorithm/resolve_ordered.slangh) decides whether
+the nearest hit ends that loop or advances the ray.
+[`resolve_unordered.slangh`](algorithm/resolve_unordered.slangh) accumulates
+particles and selects decals along a ray segment. Visibility shares the
+[portal transition rules](algorithm/resolve_portal.slangh) directly.
+
+Indirect lighting is organized in [`pass/integrate`](pass/integrate).
+[`indirect_path.slangh`](pass/integrate/indirect_path.slangh) starts the path
+from the G-buffer, drives the traversal loop and publishes its radiance.
+Ray Query and TraceRay both call [`indirect_vertex.slangh`](pass/integrate/indirect_vertex.slangh)
+to integrate a hit. NRC, SHaRC, ReSTIR GI and NEE each own the state and
+resource accesses specific to their integration with the path.
+
+The pinned RTXDI volumetrics headers include the local camera, froxel and
+spherical-harmonics headers. The camera header imports the same camera module
+as Kavora's passes.
+
 | Effect | Calculation owner | Contract |
 | --- | --- | --- |
-| Final color grading | [`display_color_grade.slangh`](pass/srgb_dither/display_color_grade.slangh) | Linear post-tonemap RGB and grading values in. Linear graded RGB out. The entry point owns sRGB conversion and dither. |
-| Cloud shape and motion | [`cloud_density.slangh`](utility/cloud_density.slangh) | World position and frame cloud parameters yield density. The same density feeds view rays, light visibility and the sky map. |
-| Cloud sky contribution | [`cloud_sky_transport.slangh`](pass/clouds/cloud_sky_transport.slangh) | Extinction, step length, albedo and incident radiance update the accumulated radiance and transmittance. The entry point owns the ray grid and termination. |
-| Cloud light and visibility | [`clouds.slangh`](algorithm/clouds.slangh) | A world-space ray segment yields cloud transmittance. A sample position, view direction and ambient radiance yield the incident cloud lighting. |
-| Fog cache sampling | [`fog_froxel_sampling.slangh`](algorithm/fog_froxel_sampling.slangh) | Uses the frame's volume cameras and supplied radiance volumes to evaluate incident light. `atmosphere.slangh` owns the joint fog, cloud and medium integration. |
-| Stars, galaxy and meteors | [`night_sky.slangh`](pass/dome_composite/night_sky.slangh) | Night-sky parameters, star and galaxy maps, and the view direction with neighboring directions yield linear radiance. The dome compositor owns layer composition. |
-| End sky and planet | [`end_sky.slangh`](pass/dome_composite/end_sky.slangh) | End-sky parameters, background map and world direction yield linear radiance for the dome layer. |
-| Visible moon | [`caustica_moon.slangh`](pass/dome_composite/caustica_moon.slangh) | Projected disc coordinates, gradients, texture and phase yield the disc's radiance and coverage. Scene illumination comes from the directional light. |
-| Water normal motion | [`water_normal_coordinates.slangh`](concept/surface_material/water_normal_coordinates.slangh) | Sprite coordinates, time and motion or a texture transform produce the UVs for the material's existing normal layers. The material owns sampling, LOD and normal blending. |
-| Translucent interface optics | [`translucent_interface_optics.slangh`](concept/surface_material/translucent_interface_optics.slangh) | Material thickness, IOR, color and ray geometry yield the relative indices and thin-sheet transmittance. BSDF and PSR share this calculation. |
-| Thick-medium absorption | [`translucent_medium.slangh`](concept/surface_material/translucent_medium.slangh) | The current medium index yields RGB extinction per world unit. The ray segment applies distance and keeps track of its current medium. |
-| Reflection and transmission continuation | [`translucent_bsdf.slangh`](concept/surface_material/translucent_bsdf.slangh), [`translucent_psr.slangh`](concept/surface_material/translucent_psr.slangh) | A decoded material and incident ray select the direction and throughput. PSR also owns its integration guides and disocclusion policy. |
+| Final color grading | [`display_color_grade.slang`](pass/srgb_dither/display_color_grade.slang) | Linear post-tonemap RGB and grading values in. Linear graded RGB out. The entry point owns sRGB conversion and dither. |
+| Cloud shape and motion | [`cloud_density.slang`](utility/cloud_density.slang) | World position, selected cloud parameters, and weather, base, and detail samplers yield density. The same density feeds view rays, light visibility and the sky map. |
+| Cloud sky contribution | [`cloud_sky_transport.slang`](pass/clouds/cloud_sky_transport.slang) | Extinction, step length, albedo and incident radiance update the accumulated radiance and transmittance. The entry point owns the ray grid and termination. |
+| Cloud light and visibility | [`clouds.slang`](algorithm/clouds.slang) | Cloud parameters, a world-space ray and supplied cloud samplers yield transmittance or incident radiance. |
+| Cloud sky map | [`cloud_sky.slang`](algorithm/cloud_sky.slang) | Converts world-space directions to sky-map coordinates and combines supplied cloud radiance and transmittance with the background. |
+| Fog cache sampling | [`fog_radiance_cache.slang`](algorithm/fog_radiance_cache.slang) | Volume cameras, depth parameters and supplied radiance volumes yield cached fog radiance. |
+| Fog and ground mist | [`fog_medium.slang`](algorithm/fog_medium.slang) | World-space segments, medium parameters and a supplied noise texture yield extinction and scattering. The SDK adapter supplies heterogeneous base density. |
+| Atmosphere integration | [`atmosphere.slang`](algorithm/atmosphere.slang) | Integrates fog, clouds and medium extinction along a clipped ray. Receives samplers explicitly and specializes its fog provider at compile time. |
+| Stars, galaxy and meteors | [`night_sky.slang`](pass/dome_composite/night_sky.slang) | Night-sky parameters, star and galaxy maps, and the view direction with neighboring directions yield linear radiance. The dome compositor owns layer composition. |
+| End sky and planet | [`end_sky.slang`](pass/dome_composite/end_sky.slang) | End-sky parameters, background map and world direction yield linear radiance for the dome layer. |
+| Visible moon | [`lunar_surface.slang`](pass/dome_composite/lunar_surface.slang) | Projected disc coordinates, gradients, texture and phase yield the disc's radiance and coverage. Scene illumination comes from the directional light. |
+| Water normal motion | [`water_normal_coordinates.slang`](concept/surface_material/water_normal_coordinates.slang) | Sprite coordinates, time and motion or a texture transform produce the UVs for the material's existing normal layers. The material owns sampling, LOD and normal blending. |
+| Water simulation at a surface | [`water_surface.slang`](concept/surface_material/water_surface.slang) | The caller supplies the simulation textures, settings and footprint. The material gets wave height and slope, and the resolver owns any shore intersection. |
+| Portal and gateway emission | [`end_portal_material.slang`](concept/surface_material/end_portal_material.slang) | Samples the star layers using supplied textures, camera projection and time. The material resolves descriptor indices and selects the layer count. |
+| Enchantment glint | [`surface_glint.slang`](concept/surface_material/surface_glint.slang) | Texture, UVs, gradients, material color and animation settings produce additive radiance. |
+| Visibility through portals and thin media | [`visibility_material.slang`](algorithm/visibility_material.slang) | Ray and portal geometry yield intersection coordinates. Thin-sheet thickness, transmittance color and ray geometry yield attenuation. |
+| Reconstruction guides | [`gbuffer_guide_math.slang`](pass/gbuffer/gbuffer_guide_math.slang) | Evaluates guide roughness, opacity and reflectivity from material values. The G-buffer output code owns resource writes and feature variants. |
+| Parallax and relief visibility | [`parallax_occlusion.slang`](concept/surface_material/parallax_occlusion.slang) | The height texture, sampler, tangent-space ray, atlas bounds and parallax settings determine the displacement or visibility. The material owns texture indexing. |
+| Opaque lobe selection | [`opaque_lobe_sampling.slang`](concept/surface_material/opaque_lobe_sampling.slang) | Material properties, view direction and sampling thresholds determine lobe probabilities and the selected lobe. The integrator owns random-number consumption. |
+| Opaque BSDF | [`opaque_bsdf.slang`](concept/surface_material/opaque_bsdf.slang) | Decoded material, view and light directions, and supplied random samples determine throughput, PDFs and PSR. Thin film is selected at compile time. [`subsurface_material.slang`](concept/surface_material/subsurface_material.slang) owns subsurface decoding and classification. |
+| Translucent interface optics | [`material_optics.slang`](utility/material_optics.slang) | Material thickness, relative IOR, color and ray geometry determine attenuation and reflectivity. BSDF and PSR share this calculation. [`translucent_interface_optics.slang`](concept/surface_material/translucent_interface_optics.slang) resolves the boundary from the material, incident medium and material buffer. |
+| Thick-medium absorption | [`translucent_medium.slang`](concept/surface_material/translucent_medium.slang) | The current medium state and material buffer yield RGB extinction per world unit. The ray segment applies distance and keeps track of its current medium. |
+| Reflection and transmission continuation | [`translucent_bsdf.slang`](concept/surface_material/translucent_bsdf.slang), [`translucent_psr.slang`](concept/surface_material/translucent_psr.slang) | A decoded material, view direction, medium boundary and sampling settings determine direction and throughput. PSR also receives its disocclusion settings and produces reconstruction guides. |
 | Resolve attenuation and opacity | [`resolve_medium.slangh`](algorithm/resolve_medium.slangh), [`resolve_surface_approximations.slangh`](algorithm/resolve_surface_approximations.slangh) | Segment transport updates throughput and radiance once. Surface approximations report whether a hit contributed without becoming the integration surface. The resolver advances traversal. |
 
 To change an effect with the same data, edit its calculation owner. For
@@ -108,12 +162,14 @@ For files which contain various shared helper functions related to another file 
 
 The following extensions are used in most of the project for general purpose files declaring/defining types and functions in an organized manner.
 
-- `*.h` - Primary structure definitions due to the one pass compilation model causing issues when structures are defined after includes within a file. Only to be used for big structures shared across files, not tiny internal or helper structures only used within a file. Shared with CPU occasionally for memory and code consistency. Note these headers should only be included in their respective `*.slangh` file (with some exceptions for bindings/macro definition files, or aforementioned CPU-shared helpers). Additionally, other files do not need to include these and should only include the respective `*.slangh` file for the desired types and functionality provided by the implementation.
-- `*.slangh` - Implementations of struct "member" functions or other helper types and functions. These files are what should be included into others to bring in the functionality and types they offer.
+- `*.h` - Shared layouts, constants and bindings. C++ and Slang can compile the same declaration for a CPU/GPU layout. Keep types private to a Slang module in that module.
+- `*.slangh` - Textual shader includes. Use them where the caller's preprocessor definitions, shared descriptor declarations or an SDK include contract must be visible.
 
-The remainder of the extensions used on the other hand are used only for "pass" implementations, other functionality should be split into `.slangh` files. Additionally, note that the extensions in these cases are important for how the shader is compiled as otherwise indicating which shader stage to compile for would have to be done in another way.
+The stage suffixes identify pass entry points. A plain `.slang` file can be a
+pass entry point or an imported module. The shader build compiles imported
+modules through their entry points.
 
-- `*.slang` - Generic shader files, typically used when multiple types of shader stages will be generated via permutations (e.g. compute for ray query implementations and ray generation for trace ray implementations in the same file).
+- `*.slang` - Library modules and entry points that select a shader stage through variants, such as compute for ray query and ray generation for trace ray.
 - `*.comp.slang` - Compute shader files.
 - `*.rgen.slang` - Ray generation shader files.
 - `*.rchit.slang` - Ray closest hit shader files.
@@ -394,7 +450,11 @@ Algorithms are generally functions which implement commonly used algorithms for 
 
 ### Pass
 
-Passes are actual ray tracing or compute passes which invoke algorithms or perform other functions and make up the rendering pipeline. Typically they also are responsible for the various inputs and outputs a compute shader may be responsible to read or write data to. A list of the current passes in general order of execution is as follows:
+Pass entries own the shader's inputs and outputs and invoke the algorithms that
+operate on them. The host records them in
+[`RtxFramePipeline`](../../rtx_render/rtx_frame_pipeline.inl). See the lighting,
+reconstruction and display stages linked from its implementation for execution
+order and variant selection. Common passes include:
 
 - Froxel Radiance Cache (Volumetrics) - Handles lighting and filtering of the froxel radiance cache for usage in various volume-based lighting techniques. Invokes the volume integrator.
 - G-Buffer - Primarily invokes the geometry resolver, see the Algorithm second for more details.

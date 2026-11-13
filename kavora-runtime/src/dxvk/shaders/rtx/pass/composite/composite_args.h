@@ -22,7 +22,11 @@
 #pragma once
 
 #include "rtx/utility/shader_types.h"
+#ifdef __cplusplus
 #include "rtx/pass/volume_args.h"
+#else
+import "rtx/pass/volume_parameters.slang";
+#endif
 #include "rtx/pass/raytrace_args.h"
 #include "rtx/algorithm/accumulate.h"
 

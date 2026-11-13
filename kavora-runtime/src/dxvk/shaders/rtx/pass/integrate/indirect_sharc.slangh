@@ -1,0 +1,206 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/path_state.slangh"
+#include "rtx/utility/gbuffer_helpers.slangh"
+#include "rtx/pass/sharc/sharc_integrator_utilities.slangh"
+
+// Initializes SHaRC queries and training paths from the G-buffer.
+
+#if SHARC_UPDATE
+// Loads radiance integrated for a path prior to indirect integrate pass for a SHaRC update pass
+vec3 loadIntegratedRadiancePriorToIntegrateIndirect(
+  u16vec2 surfaceRadianceCoordinate,
+  u16vec2 compactedRadianceCoordinate,
+  GeometryFlags geometryFlags)
+{
+  // Direct lighting radiance
+  vec3 directLightingRadiance;
+  {
+    vec3 diffuseRadiance;
+    vec3 specularRadiance;
+
+    if (geometryFlags.primarySelectedIntegrationSurface)
+    {
+      diffuseRadiance = PrimaryDirectDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+      specularRadiance = PrimaryDirectSpecularLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+    }
+    else
+    {
+      diffuseRadiance = SecondaryCombinedDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+      specularRadiance = SecondaryCombinedSpecularLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+    }
+
+    directLightingRadiance = diffuseRadiance + specularRadiance;
+  }
+
+  const vec3 primarySurfaceRadiance = vec3(
+    RadianceCacheUpdateGBufferSurfaceRadianceRG[surfaceRadianceCoordinate],
+    RadianceCacheUpdateGBufferSurfaceRadianceB[surfaceRadianceCoordinate]);
+
+  // Cache radiance belongs to the surface, independently of its probability of being selected for integration.
+  return primarySurfaceRadiance + directLightingRadiance * SharedIntegrationSurfacePdf[compactedRadianceCoordinate];
+}
+#endif
+
+void initSharc(
+  inout PathState pathState,
+  u16vec2 compactedCoordinate,
+  u16vec2 sharcUpdatePixelCoordinate,
+  GeometryFlags geometryFlags,
+  vec3 primarySurfacePosition,
+  float16_t firstHitPerceptualRoughness,
+  bool firstSampledLobeIsOpacityTransmission)
+{
+#if ENABLE_SHARC
+  const uint2 primarySubsurface = SharedSubsurfaceData[compactedCoordinate];
+  const bool thinPrimary = geometryFlags.primarySelectedIntegrationSurface &&
+    uint16BitsToHalf(uint16_t(primarySubsurface.x)) > 0.h && ((primarySubsurface.y >> 8) & 0xff) == 0;
+  const MinimalSurfaceInteraction primaryGbuffer =
+    minimalSurfaceInteractionReadFromGBuffer(compactedCoordinate, PrimaryWorldPositionWorldTriangleNormal);
+  const bool primaryBackHemisphere = thinPrimary && dot(pathState.direction, primaryGbuffer.geometryNormal) < 0.f;
+#endif
+  // Initialize SHaRC state stored in path state
+#if SHARC_UPDATE
+  if (pathState.isSharcUpdate)
+  {
+    SharcInit(pathState.sharcState);
+  }
+#endif
+#if SHARC_QUERY
+  if (!pathState.isSharcUpdate)
+  {
+    // Secondary queries start with an empty footprint. Thin primary surfaces use an explicit lookup below.
+    pathState.prevPerceptualRoughness = 0.0f;
+
+    if (cb.sharcArgs.queryForThinOpaquePrimaryView && geometryFlags.primarySelectedIntegrationSurface)
+    {
+      const float thickness = uint16BitsToHalf(uint16_t(primarySubsurface.x));
+      const uint diffusionRadius = (primarySubsurface.y >> 8) & 0xff;
+      const float integrationSurfacePdf = SharedIntegrationSurfacePdf[compactedCoordinate];
+      if (thickness > 0.f && diffusionRadius == 0 && integrationSurfacePdf > 0.f && all(isfinite(primaryGbuffer.position)))
+      {
+        SharcHitData hit;
+        hit.positionWorld = Sharc::worldPosition(primarySurfacePosition);
+        hit.normalWorld = primaryGbuffer.geometryNormal;
+        hit.emissive = 0.f;
+        vec3 radiance;
+        RNG randomState = createRNGStream(pathState.pixelCoordinate, cb.frameIdx, RNGStream::IndirectLighting,
+          pathState.calculateRNGOffsetOnFirstBounce(0));
+        if (Sharc::queryPrimaryRadiance(cb.sharcArgs, hit, primaryBackHemisphere, randomState, radiance))
+        {
+          pathState.radiance = radiance / integrationSurfacePdf;
+          pathState.continuePath = false;
+        }
+      }
+    }
+  }
+#endif
+#if !ENABLE_SHARC
+  unused(pathState);
+#endif
+
+  // Process the primary hit for SHaRC
+  // make bounceIteration=0 to emulate primary hit
+  pathState.bounceIteration = 0;
+#if SHARC_UPDATE
+  if (pathState.isSharcUpdate)
+  {
+    pathState.radiance = loadIntegratedRadiancePriorToIntegrateIndirect(sharcUpdatePixelCoordinate, compactedCoordinate, geometryFlags);
+    pathState.throughput *= float16_t(SharedIntegrationSurfacePdf[compactedCoordinate]);
+
+    RNG randomState = createRNGStream(pathState.pixelCoordinate, cb.frameIdx, RNGStream::IndirectLighting,
+      pathState.calculateRNGOffsetOnFirstBounce(0));
+
+    if (!Sharc::onHitAfterDirectLighting(pathState, cb.sharcArgs, primarySurfacePosition, primaryGbuffer.geometryNormal, pathState.radiance, randomState, primaryBackHemisphere, thinPrimary))
+    {
+      pathState.continuePath = false;
+      return;
+    }
+  }
+#endif
+
+  Sharc::onBounceEnd(pathState, firstSampledLobeIsOpacityTransmission ? 0.h : firstHitPerceptualRoughness);
+  // after primary hit, increment bounce iteration
+  pathState.bounceIteration = 1;
+
+#if SHARC_QUERY
+  // The query path at the same pixel writes these debug views.
+  if (pathState.isSharcUpdate)
+  {
+    return;
+  }
+
+  if (cb.debugView == DEBUG_VIEW_SHARC_PRIMARY_HIT_CACHE_VIEW)
+  {
+    SharcParameters params = Sharc::createSharcParameters(cb.sharcArgs, primaryBackHemisphere);
+    SharcHitData hitData;
+    hitData.positionWorld = Sharc::worldPosition(primarySurfacePosition);
+    hitData.normalWorld = primaryGbuffer.geometryNormal;
+    hitData.emissive = vec3(0.0f);
+
+    vec3 debugColor = vec3(0.0f);
+    if (!SharcGetCachedRadiance(params, hitData, debugColor, true)) {
+      debugColor = vec3(0.0f);
+    }
+    storeInDebugView(pathState.pixelCoordinate, debugColor);
+  }
+
+  if (cb.debugView == DEBUG_VIEW_SHARC_HASH_GRID_COLORED_HASH)
+  {
+    HashGridParameters gridParameters;
+    gridParameters.cameraPosition = cb.sharcArgs.cameraPosition;
+    gridParameters.logarithmBase = SHARC_GRID_LOGARITHM_BASE;
+    gridParameters.sceneScale = cb.sharcArgs.sceneScale;
+    gridParameters.levelBias = SHARC_GRID_LEVEL_BIAS + (primaryBackHemisphere ? Sharc::kHemisphereLevelOffset : 0);
+
+    vec3 debugColor = HashGridDebugColoredHash(Sharc::worldPosition(primarySurfacePosition), primaryGbuffer.geometryNormal, gridParameters);
+    storeInDebugView(pathState.pixelCoordinate, debugColor);
+  }
+
+  if (cb.debugView == DEBUG_VIEW_SHARC_HASH_GRID_OCCUPANCY)
+  {
+    HashGridData hashGridData;
+    hashGridData.capacity = cb.sharcArgs.entriesNum;
+    hashGridData.hashEntriesBuffer = SharcHashEntriesBuffer;
+
+    vec3 debugColor = HashGridDebugOccupancy(pathState.pixelCoordinate, cb.camera.resolution, hashGridData);
+    storeInDebugView(pathState.pixelCoordinate, debugColor);
+  }
+
+  if (cb.debugView == DEBUG_VIEW_SHARC_BITS_OCCUPANCY_SAMPLE_NUM ||
+      cb.debugView == DEBUG_VIEW_SHARC_BITS_OCCUPANCY_RADIANCE)
+  {
+    SharcParameters params = Sharc::createSharcParameters(cb.sharcArgs, primaryBackHemisphere);
+    SharcHitData hitData;
+    hitData.positionWorld = Sharc::worldPosition(primarySurfacePosition);
+    hitData.normalWorld = primaryGbuffer.geometryNormal;
+    hitData.emissive = vec3(0.0f);
+
+    vec3 debugColor = cb.debugView == DEBUG_VIEW_SHARC_BITS_OCCUPANCY_SAMPLE_NUM
+      ? Sharc::debugBitsOccupancySampleNum(params, hitData)
+      : Sharc::debugBitsOccupancyRadiance(params, hitData);
+    storeInDebugView(pathState.pixelCoordinate, debugColor);
+  }
+#endif
+}

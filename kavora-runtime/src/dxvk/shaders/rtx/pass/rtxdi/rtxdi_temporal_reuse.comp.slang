@@ -47,7 +47,7 @@
 #include "rtx/concept/surface/surface.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
 #include "rtx/concept/light/light.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve.h"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi_temporal_history.slangh"
 #include "rtx/pass/rtxdi/rtxdi_best_light.slangh"

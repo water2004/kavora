@@ -345,7 +345,7 @@ namespace dxvk {
     m_lastCompositeOutput.reset();
   }
 
-  void DxvkReSTIRGIRayQuery::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
+  void DxvkReSTIRGIRayQuery::dispatch(RtxContext* ctx, DispatchResources resources) {
 
     if (!isActive()) {
       return;
@@ -354,7 +354,7 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "ReSTIR GI");
 
     const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
-    const auto& numRaysExtent = rtOutput.m_compositeOutputExtent;
+    const auto& numRaysExtent = resources.get<&RaytracingFrame::m_compositeOutputExtent>();
     VkExtent3D workgroups = util::computeBlockCount(numRaysExtent, VkExtent3D { 16, 8, 1 });
 
     ctx->bindCommonRayTracingResources();
@@ -364,28 +364,28 @@ namespace dxvk {
       ctx->setFramePassStage(RtxFramePassStage::ReSTIR_GI_TemporalReuse);
 
       // Inputs
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryWorldShadingNormal.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_primaryPerceptualRoughness.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_DISTANCE_INPUT, rtOutput.m_primaryHitDistance.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_ALBEDO_INPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_BASE_REFLECTIVITY_INPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_POSITION_INPUT, rtOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PREV_WORLD_POSITION_INPUT, rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read, rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_VIEW_DIRECTION_INPUT, rtOutput.m_primaryViewDirection.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_CONE_RADIUS_INPUT, rtOutput.m_primaryConeRadius.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_MVEC_INPUT, rtOutput.m_primaryVirtualMotionVector.view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryWorldShadingNormal>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PERCEPTUAL_ROUGHNESS_INPUT, resources.get<&RaytracingFrame::m_primaryPerceptualRoughness>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryHitDistance>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_BASE_REFLECTIVITY_INPUT, resources.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_POSITION_INPUT, resources.get<&RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PREV_WORLD_POSITION_INPUT, resources.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read, resources.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_VIEW_DIRECTION_INPUT, resources.get<&RaytracingFrame::m_primaryViewDirection>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_CONE_RADIUS_INPUT, resources.get<&RaytracingFrame::m_primaryConeRadius>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_MVEC_INPUT, resources.get<&RaytracingFrame::m_primaryVirtualMotionVector>().view(Resources::AccessType::Read), nullptr);
       ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_RADIANCE_INPUT, m_restirGIRadiance.view(Resources::AccessType::Read), nullptr);
       ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_GEOMETRY_INPUT, m_restirGIHitGeometry.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_POSITION_ERROR_INPUT, rtOutput.m_primaryPositionError.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_SURFACE_INDEX_INPUT, rtOutput.m_sharedSurfaceIndex.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DATA_INPUT, rtOutput.m_sharedSubsurfaceData.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, rtOutput.m_sharedSubsurfaceDiffusionProfileData.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_GRADIENTS_INPUT, rtOutput.m_rtxdiGradients.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_POSITION_ERROR_INPUT, resources.get<&RaytracingFrame::m_primaryPositionError>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_SURFACE_INDEX_INPUT, resources.get<&RaytracingFrame::m_sharedSurfaceIndex>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceData>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_GRADIENTS_INPUT, resources.get<&RaytracingFrame::m_rtxdiGradients>().view, nullptr);
 
       // Inputs / Outputs
       ctx->bindResourceBuffer(RESTIR_GI_REUSE_BINDING_RESERVOIR_INPUT_OUTPUT, DxvkBufferSlice(m_restirGIReservoirBuffer, 0, m_restirGIReservoirBuffer->info().size));
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_LAST_GBUFFER_INPUT_OUTPUT, rtOutput.m_gbufferLast.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_LAST_GBUFFER_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_gbufferLast>().view, nullptr);
 
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ReSTIRGITemporalReuseShader::getShader());
       ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
@@ -396,28 +396,28 @@ namespace dxvk {
       ctx->setFramePassStage(RtxFramePassStage::ReSTIR_GI_SpatialReuse);
 
       // Inputs
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryWorldShadingNormal.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_primaryPerceptualRoughness.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_DISTANCE_INPUT, rtOutput.m_primaryHitDistance.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_ALBEDO_INPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_BASE_REFLECTIVITY_INPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_POSITION_INPUT, rtOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PREV_WORLD_POSITION_INPUT, rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read, rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_VIEW_DIRECTION_INPUT, rtOutput.m_primaryViewDirection.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_CONE_RADIUS_INPUT, rtOutput.m_primaryConeRadius.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_MVEC_INPUT, rtOutput.m_primaryVirtualMotionVector.view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryWorldShadingNormal>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PERCEPTUAL_ROUGHNESS_INPUT, resources.get<&RaytracingFrame::m_primaryPerceptualRoughness>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryHitDistance>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_BASE_REFLECTIVITY_INPUT, resources.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_WORLD_POSITION_INPUT, resources.get<&RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_PREV_WORLD_POSITION_INPUT, resources.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read, resources.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_VIEW_DIRECTION_INPUT, resources.get<&RaytracingFrame::m_primaryViewDirection>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_CONE_RADIUS_INPUT, resources.get<&RaytracingFrame::m_primaryConeRadius>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_MVEC_INPUT, resources.get<&RaytracingFrame::m_primaryVirtualMotionVector>().view(Resources::AccessType::Read), nullptr);
       ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_RADIANCE_INPUT, m_restirGIRadiance.view(Resources::AccessType::Read), nullptr);
       ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_HIT_GEOMETRY_INPUT, m_restirGIHitGeometry.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_POSITION_ERROR_INPUT, rtOutput.m_primaryPositionError.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_SURFACE_INDEX_INPUT, rtOutput.m_sharedSurfaceIndex.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DATA_INPUT, rtOutput.m_sharedSubsurfaceData.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, rtOutput.m_sharedSubsurfaceDiffusionProfileData.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_GRADIENTS_INPUT, rtOutput.m_rtxdiGradients.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_POSITION_ERROR_INPUT, resources.get<&RaytracingFrame::m_primaryPositionError>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_SURFACE_INDEX_INPUT, resources.get<&RaytracingFrame::m_sharedSurfaceIndex>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceData>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_GRADIENTS_INPUT, resources.get<&RaytracingFrame::m_rtxdiGradients>().view, nullptr);
 
       // Inputs / Outputs
       ctx->bindResourceBuffer(RESTIR_GI_REUSE_BINDING_RESERVOIR_INPUT_OUTPUT, DxvkBufferSlice(m_restirGIReservoirBuffer, 0, m_restirGIReservoirBuffer->info().size));
-      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_LAST_GBUFFER_INPUT_OUTPUT, rtOutput.m_gbufferLast.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_REUSE_BINDING_LAST_GBUFFER_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_gbufferLast>().view, nullptr);
 
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ReSTIRGISpatialReuseShader::getShader());
       ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
@@ -429,26 +429,26 @@ namespace dxvk {
       ctx->setFramePassStage(RtxFramePassStage::ReSTIR_GI_FinalShading);
       ctx->bindCommonRayTracingResources();
 
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_MATERIAL_DATA0_INPUT, rtOutput.m_sharedMaterialData0.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_MATERIAL_DATA1_INPUT, rtOutput.m_sharedMaterialData1.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_TEXTURE_COORD_INPUT, rtOutput.m_sharedTextureCoord.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SURFACE_INDEX_INPUT, rtOutput.m_sharedSurfaceIndex.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SUBSURFACE_DATA_INPUT, rtOutput.m_sharedSubsurfaceData.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, rtOutput.m_sharedSubsurfaceDiffusionProfileData.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_MATERIAL_DATA0_INPUT, resources.get<&RaytracingFrame::m_sharedMaterialData0>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_MATERIAL_DATA1_INPUT, resources.get<&RaytracingFrame::m_sharedMaterialData1>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_TEXTURE_COORD_INPUT, resources.get<&RaytracingFrame::m_sharedTextureCoord>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SURFACE_INDEX_INPUT, resources.get<&RaytracingFrame::m_sharedSurfaceIndex>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SUBSURFACE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceData>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData>().view, nullptr);
 
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryWorldShadingNormal.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_primaryPerceptualRoughness.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_HIT_DISTANCE_INPUT, rtOutput.m_primaryHitDistance.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_ALBEDO_INPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_VIEW_DIRECTION_INPUT, rtOutput.m_primaryViewDirection.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_CONE_RADIUS_INPUT, rtOutput.m_primaryConeRadius.view, nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_WORLD_POSITION_INPUT, rtOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_POSITION_ERROR_INPUT, rtOutput.m_primaryPositionError.view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryWorldShadingNormal>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_INPUT, resources.get<&RaytracingFrame::m_primaryPerceptualRoughness>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryHitDistance>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_VIEW_DIRECTION_INPUT, resources.get<&RaytracingFrame::m_primaryViewDirection>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_CONE_RADIUS_INPUT, resources.get<&RaytracingFrame::m_primaryConeRadius>().view, nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_WORLD_POSITION_INPUT, resources.get<&RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_POSITION_ERROR_INPUT, resources.get<&RaytracingFrame::m_primaryPositionError>().view, nullptr);
 
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT_OUTPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::ReadWrite), nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectDiffuseRadiance.view(Resources::AccessType::ReadWrite), nullptr);
-      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_INDIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectSpecularRadiance.view(Resources::AccessType::ReadWrite), nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::ReadWrite), nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryIndirectDiffuseRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
+      ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_PRIMARY_INDIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryIndirectSpecularRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
 
       ctx->bindResourceBuffer(RESTIR_GI_FINAL_SHADING_BINDING_RESTIR_GI_RESERVOIR_OUTPUT, DxvkBufferSlice(m_restirGIReservoirBuffer, 0, m_restirGIReservoirBuffer->info().size));
       ctx->bindResourceView(RESTIR_GI_FINAL_SHADING_BINDING_BSDF_FACTOR2_OUTPUT, m_bsdfFactor2.view, nullptr);

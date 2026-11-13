@@ -135,7 +135,7 @@ namespace dxvk {
 
   void DxvkPathtracerIntegrateDirect::dispatch(
     RtxContext* ctx, 
-    const Resources::RaytracingOutput& rtOutput) {
+    DirectIntegrationResources resources) {
     ScopedGpuProfileZone(ctx, "Integrate Direct Raytracing");
     ctx->setFramePassStage(RtxFramePassStage::DirectIntegration);
 
@@ -153,82 +153,84 @@ namespace dxvk {
 
     // Inputs 
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_INTEGRATION_SURFACE_PDF_INPUT, rtOutput.m_sharedIntegrationSurfacePdf.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SHADOW_TERMINATOR_FIX_INPUT, rtOutput.getCurrentSharedTerminatorFix().view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MATERIAL_DATA0_INPUT, rtOutput.m_sharedMaterialData0.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MATERIAL_DATA1_INPUT, rtOutput.m_sharedMaterialData1.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_TEXTURE_COORD_INPUT, rtOutput.m_sharedTextureCoord.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SURFACE_INDEX_INPUT, rtOutput.m_sharedSurfaceIndex.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SUBSURFACE_DATA_INPUT, rtOutput.m_sharedSubsurfaceData.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, rtOutput.m_sharedSubsurfaceDiffusionProfileData.view, nullptr);
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_ACTIVE_PIXEL_COORDS_INPUT, optionalBufferSlice(rtOutput.m_sparseRenderingActivePixelCoords));
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_ACTIVE_PIXEL_COUNT_INPUT, optionalBufferSlice(rtOutput.m_sparseRenderingActivePixelCount));
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_INTEGRATION_SURFACE_PDF_INPUT, resources.get<&RaytracingFrame::m_sharedIntegrationSurfacePdf>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SHADOW_TERMINATOR_FIX_INPUT, resources.get<&RaytracingFrame::getCurrentSharedTerminatorFix>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MATERIAL_DATA0_INPUT, resources.get<&RaytracingFrame::m_sharedMaterialData0>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MATERIAL_DATA1_INPUT, resources.get<&RaytracingFrame::m_sharedMaterialData1>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_TEXTURE_COORD_INPUT, resources.get<&RaytracingFrame::m_sharedTextureCoord>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SURFACE_INDEX_INPUT, resources.get<&RaytracingFrame::m_sharedSurfaceIndex>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SUBSURFACE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceData>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_INPUT, resources.get<&RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData>().view, nullptr);
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_ACTIVE_PIXEL_COORDS_INPUT, optionalBufferSlice(resources.get<&RaytracingFrame::m_sparseRenderingActivePixelCoords>()));
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_ACTIVE_PIXEL_COUNT_INPUT, optionalBufferSlice(resources.get<&RaytracingFrame::m_sparseRenderingActivePixelCount>()));
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryWorldShadingNormal.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_primaryPerceptualRoughness.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_ALBEDO_INPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_VIEW_DIRECTION_INPUT, rtOutput.m_primaryViewDirection.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_CONE_RADIUS_INPUT, rtOutput.m_primaryConeRadius.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_WORLD_POSITION_WORLD_TRIANGLE_NORMAL_INPUT, rtOutput.getCompactedPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_POSITION_ERROR_INPUT, rtOutput.m_primaryPositionError.view, nullptr);
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_PRIMARY_RTXDI_RESERVOIR, rtOutput.m_rtxdiReservoirBuffer.slice(Resources::AccessType::ReadWrite, RtxOptions::useRTXDI()));
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryWorldShadingNormal>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_INPUT, resources.get<&RaytracingFrame::m_primaryPerceptualRoughness>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_VIEW_DIRECTION_INPUT, resources.get<&RaytracingFrame::m_primaryViewDirection>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_CONE_RADIUS_INPUT, resources.get<&RaytracingFrame::m_primaryConeRadius>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_WORLD_POSITION_WORLD_TRIANGLE_NORMAL_INPUT, resources.get<&RaytracingFrame::getCompactedPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_POSITION_ERROR_INPUT, resources.get<&RaytracingFrame::m_primaryPositionError>().view, nullptr);
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_PRIMARY_RTXDI_RESERVOIR, resources.get<&RaytracingFrame::m_rtxdiReservoirBuffer>().slice(Resources::AccessType::ReadWrite, RtxOptions::useRTXDI()));
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_secondaryWorldShadingNormal.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_secondaryPerceptualRoughness.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_ALBEDO_INPUT, rtOutput.m_secondaryAlbedo.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_VIEW_DIRECTION_INPUT, rtOutput.m_secondaryViewDirection.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_CONE_RADIUS_INPUT, rtOutput.m_secondaryConeRadius.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_WORLD_POSITION_WORLD_TRIANGLE_NORMAL_INPUT, rtOutput.m_secondaryWorldPositionWorldTriangleNormal.view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_secondaryWorldShadingNormal>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_PERCEPTUAL_ROUGHNESS_INPUT, resources.get<&RaytracingFrame::m_secondaryPerceptualRoughness>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_VIEW_DIRECTION_INPUT, resources.get<&RaytracingFrame::m_secondaryViewDirection>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_CONE_RADIUS_INPUT, resources.get<&RaytracingFrame::m_secondaryConeRadius>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_WORLD_POSITION_WORLD_TRIANGLE_NORMAL_INPUT, resources.get<&RaytracingFrame::m_secondaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read), nullptr);
 
     // Inputs / Outputs
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_FLAGS_INPUT_OUTPUT, rtOutput.m_sharedFlags.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MEDIUM_STATE_INPUT_OUTPUT, rtOutput.m_sharedMediumState.view, nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT_OUTPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::ReadWrite), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_BASE_REFLECTIVITY_INPUT_OUTPUT, rtOutput.m_secondaryBaseReflectivity.view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_FLAGS_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SHARED_MEDIUM_STATE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_sharedMediumState>().view, nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_BASE_REFLECTIVITY_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_secondaryBaseReflectivity>().view(Resources::AccessType::ReadWrite), nullptr);
 
     // Outputs
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_DIRECT_DIFFUSE_LOBE_RADIANCE_OUTPUT, rtOutput.m_primaryDirectDiffuseRadiance.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_DIRECT_SPECULAR_LOBE_RADIANCE_OUTPUT, rtOutput.m_primaryDirectSpecularRadiance.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_COMBINED_DIFFUSE_LOBE_RADIANCE_OUTPUT, rtOutput.m_secondaryCombinedDiffuseRadiance.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_COMBINED_SPECULAR_LOBE_RADIANCE_OUTPUT, rtOutput.m_secondaryCombinedSpecularRadiance.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_DIRECT_DIFFUSE_LOBE_RADIANCE_OUTPUT, resources.get<&RaytracingFrame::m_primaryDirectDiffuseRadiance>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_DIRECT_SPECULAR_LOBE_RADIANCE_OUTPUT, resources.get<&RaytracingFrame::m_primaryDirectSpecularRadiance>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_COMBINED_DIFFUSE_LOBE_RADIANCE_OUTPUT, resources.get<&RaytracingFrame::m_secondaryCombinedDiffuseRadiance>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_COMBINED_SPECULAR_LOBE_RADIANCE_OUTPUT, resources.get<&RaytracingFrame::m_secondaryCombinedSpecularRadiance>().view(Resources::AccessType::Write), nullptr);
     const bool rtxdiIlluminanceAllocated = ctx->getResourceManager().areRtxdiIlluminanceResourcesAllocated();
     ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_PRIMARY_RTXDI_ILLUMINANCE_OUTPUT,
       rtxdiIlluminanceAllocated
-      ? rtOutput.getCurrentRtxdiIlluminance().view(Resources::AccessType::Write)
+      ? resources.get<&RaytracingFrame::getCurrentRtxdiIlluminance>().view(Resources::AccessType::Write)
       : nullptr, nullptr);
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE, DxvkBufferSlice(rtOutput.m_neeCache, 0, rtOutput.m_neeCache->info().size));
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE_SAMPLE, DxvkBufferSlice(rtOutput.m_neeCacheSample, 0, rtOutput.m_neeCacheSample->info().size));
-    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE_TASK, DxvkBufferSlice(rtOutput.m_neeCacheTask, 0, rtOutput.m_neeCacheTask->info().size));
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_NEE_CACHE_THREAD_TASK, rtOutput.m_neeCacheThreadTask.view, nullptr);
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCache>(), 0, resources.get<&RaytracingFrame::m_neeCache>()->info().size));
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE_SAMPLE, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCacheSample>(), 0, resources.get<&RaytracingFrame::m_neeCacheSample>()->info().size));
+    ctx->bindResourceBuffer(INTEGRATE_DIRECT_BINDING_NEE_CACHE_TASK, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCacheTask>(), 0, resources.get<&RaytracingFrame::m_neeCacheTask>()->info().size));
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_NEE_CACHE_THREAD_TASK, resources.get<&RaytracingFrame::m_neeCacheThreadTask>().view, nullptr);
 
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_RAY_ORIGIN_DIRECTION_OUTPUT, rtOutput.m_indirectRayOriginDirection.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_THROUGHPUT_CONE_RADIUS_OUTPUT, rtOutput.m_indirectThroughputConeRadius.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_FIRST_HIT_PERCEPTUAL_ROUGHNESS_OUTPUT, rtOutput.m_indirectFirstHitPerceptualRoughness.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_RAY_ORIGIN_DIRECTION_OUTPUT, resources.get<&RaytracingFrame::m_indirectRayOriginDirection>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_THROUGHPUT_CONE_RADIUS_OUTPUT, resources.get<&RaytracingFrame::m_indirectThroughputConeRadius>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_FIRST_HIT_PERCEPTUAL_ROUGHNESS_OUTPUT, resources.get<&RaytracingFrame::m_indirectFirstHitPerceptualRoughness>().view(Resources::AccessType::Write), nullptr);
 
     // Aliased resources
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_POSITION_ERROR_INPUT, rtOutput.m_secondaryPositionError.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_FIRST_SAMPLED_LOBE_DATA_OUTPUT, rtOutput.m_indirectFirstSampledLobeData.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_SECONDARY_POSITION_ERROR_INPUT, resources.get<&RaytracingFrame::m_secondaryPositionError>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(INTEGRATE_DIRECT_BINDING_INDIRECT_FIRST_SAMPLED_LOBE_DATA_OUTPUT, resources.get<&RaytracingFrame::m_indirectFirstSampledLobeData>().view(Resources::AccessType::Write), nullptr);
 
-    const VkExtent3D& rayDims = rtOutput.m_compositeOutputExtent;
+    const VkExtent3D& rayDims = resources.get<&RaytracingFrame::m_compositeOutputExtent>();
 
     const bool ommEnabled = RtxOptions::getEnableOpacityMicromap();
 
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { INTEGRATE_DIRECT_THREADS_DISPATCH_WIDTH, INTEGRATE_DIRECT_THREADS_DISPATCH_HEIGHT, 1 });
 
     // Under sparse rendering the launch covers the global active-pixel list instead of the screen grid.
-    const bool compactedLaunch = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+    const bool compactedLaunch = resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode != SparseRenderingMode::Off;
 
     switch (RtxOptions::renderPassIntegrateDirectRaytraceMode()) {
     case RaytraceMode::RayQuery:
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getComputeShader());
-      SparseRendering::dispatchCompactedConsumer(*ctx, rtOutput, workgroups);
+      SparseRendering::dispatchCompactedConsumer(*ctx,
+        resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode,
+        resources.get<&RaytracingFrame::m_sparseRenderingDispatchIndirectArgs>(), workgroups);
       break;
     case RaytraceMode::RayQueryRayGen:
       ctx->bindRaytracingPipelineShaders(getPipelineShaders(true, ommEnabled));
       if (compactedLaunch) {
-        ctx->traceRaysIndirect(rtOutput.m_sparseRenderingTraceRaysIndirectArgs, 0);
+        ctx->traceRaysIndirect(resources.get<&RaytracingFrame::m_sparseRenderingTraceRaysIndirectArgs>(), 0);
       } else {
         ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
       }

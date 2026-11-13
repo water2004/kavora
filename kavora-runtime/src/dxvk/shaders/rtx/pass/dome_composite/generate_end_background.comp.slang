@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: LGPL-3.0-or-later */
-#include "rtx/pass/dome_composite/caustica_end.slangh"
+import "rtx/pass/dome_composite/caustica_end.slang";
+#include "rtx/utility/shader_types.slangh"
+#include "rtx/utility/math.slangh"
 
 layout(r11f_g11f_b10f, binding = 0)
 RWTexture2D<float4> EndBackground;

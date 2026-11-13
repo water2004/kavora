@@ -1,0 +1,1081 @@
+/*
+* Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/resolve.h"
+#include "rtx/algorithm/resolve_medium.slangh"
+#include "rtx/algorithm/resolve_surface_approximations.slangh"
+#include "rtx/algorithm/view_distance.slangh"
+#include "rtx/concept/billboard.slangh"
+#include "rtx/concept/ray/ray.slangh"
+#include "rtx/concept/surface/surface.slangh"
+#include "rtx/concept/surface_material/surface_material.slangh"
+#include "rtx/concept/light/light_helper.slangh"
+#include "rtx/utility/froxel.slangh"
+#include "rtx/utility/math.slangh"
+#include "rtx/utility/packing.slangh"
+import "rtx/algorithm/atmosphere.slang";
+
+#ifndef GBUFFER_FEATURE_OBJECT_PICKING
+#define GBUFFER_FEATURE_OBJECT_PICKING 1
+#endif
+
+// In testing, going from 3 to 4 bins made a large difference. Going from 4 to 5 or 5 to 6 changed only a few pixels.
+// It was hard to produce visible differences by going above 6.
+static const uint numDecalResolveBins = 4;
+
+#ifndef UNORDERED_RESOLVE_WBOIT
+// Finds the lowest bin in terms of distance and outputs its index as well as other associated information.
+void findLowestBin(
+  mat4 binnedRadiancesAndAttenuation, vec4 binDistances,
+  inout uint lowestIndex, inout float lowestDistance, inout vec4 lowestRadianceAndAttenuation)
+{
+  // Find the lowest distance and the index associated with it in the bins
+
+  lowestIndex = 0;
+  lowestDistance = binDistances.x;
+
+  for (uint i = 1; i < 4; ++i)
+  {
+    const float currentDistance = selectComponent(binDistances, i);
+
+    if (currentDistance < lowestDistance)
+    {
+      lowestDistance = currentDistance;
+      lowestIndex = i;
+    }
+  }
+
+  // Extract the radiance and attenuation based on the index
+
+  lowestRadianceAndAttenuation = selectColumn(binnedRadiancesAndAttenuation, lowestIndex);
+}
+#endif
+
+static RNG resolveVertexUnorderedRng = createRNGAnywhere(cb.frameIdx, 555);
+
+uint selectDecalBin(
+  inout MemoryDecalMaterialInteraction bins[numDecalResolveBins],
+  inout uint orders[numDecalResolveBins],
+  float opacity,
+  uint decalSortKey)
+{
+  for (uint i = 0; i < numDecalResolveBins; ++i)
+  {
+    if (orders[i] == uintMax)
+    {
+      return i;
+    }
+  }
+
+  uint result = 0;
+  float lowestOpacity = float16Max;
+  for (uint i = 0; i < numDecalResolveBins; ++i)
+  {
+    const float storedOpacity = decalMaterialInteractionExtractOpacity(bins[i].packed);
+    if (storedOpacity < lowestOpacity)
+    {
+      result = i;
+      lowestOpacity = storedOpacity;
+    }
+  }
+
+  // Consume one sample only when all bins are occupied.
+  const float threshold = 0.1f * getNextSampleBlueNoise(resolveVertexUnorderedRng) + 0.025f;
+  if (lowestOpacity < threshold && lowestOpacity < opacity && opacity > threshold)
+  {
+    return result;
+  }
+  if (opacity <= threshold)
+  {
+    return uintMax;
+  }
+
+  uint lowestSortOrder = uintMax;
+  for (uint i = 0; i < numDecalResolveBins; ++i)
+  {
+    if (orders[i] < lowestSortOrder)
+    {
+      lowestSortOrder = orders[i];
+      result = i;
+    }
+  }
+  return lowestSortOrder < decalSortKey ? result : uintMax;
+}
+
+// Unordered resolve rays need to be a little bit longer than the regular resolve ray that generated the hitT.
+// In some cases, there is a blended surface very close to a wall, and using the original hitT results in
+// Z-fighting between the blended surface and the wall.
+// The value has been determined experimentally.
+static const float kUnorderedResolveRayLengthening = 1.001;
+
+// Translates the ray mask for the main TLAS into the ray mask for the unordered TLAS.
+uint8_t convertPrimaryRayMaskToUnordered(uint8_t primaryRayMask, uint8_t unorderedRayMask)
+{
+  return (primaryRayMask & OBJECT_MASK_ALL_DYNAMIC) | unorderedRayMask;
+}
+
+// For handling blending between unordered interactions (i.e. particles), we will be using this technique:
+//  https://casual-effects.blogspot.com/2014/03/weighted-blended-order-independent.html
+//  With a small addition to handle emissive interactions roughly correctly
+float oitDepthWeight(float hitT, float tMax)
+{
+  float z = saturate(hitT / tMax);
+  return exp(-cb.wboitDepthWeightTuning * z);
+}
+
+float resolveVertexUnorderedParticles<
+  let RAY_FLAGS : uint>(
+  uint8_t resolveMode, Ray ray, uint rayMask,
+  PortalSpace2BitsType portalSpace,
+  bool useIntersectionBillboards,
+#ifdef RAY_TRACING_PRIMARY_RAY
+  u16vec2 pixelCoordinate,
+  vec4 accumulatedRotation,
+#endif
+  float accumulatedHitDistance,
+  float pathSelectionProbability,
+  inout vec3 radianceAttenuation, inout vec3 emissiveRadiance,
+  out uint numInteractions,
+  out int surfaceIndex,
+  inout bool decalCandidateSeen,
+  uint mediumState = SURFACE_INDEX_INVALID)
+{
+  surfaceIndex = -1;
+
+  float opacityTransmittance = 1.0f;
+
+  const bool separateUnorderedApproximations = packedFlagGet(resolveMode, resolveModeSeparateUnorderedApproximations);
+
+  if (!separateUnorderedApproximations)
+  {
+    numInteractions = 0;
+    return 1.0f;
+  }
+
+  const float3 mediumExtinction = translucentMediumExtinction(mediumState, surfaceMaterials);
+
+  if (useIntersectionBillboards)
+  {
+    rayMask &= OBJECT_MASK_UNORDERED_ALL_INTERSECTION_PRIMITIVE | OBJECT_MASK_ALL_DYNAMIC;
+  }
+  else
+  {
+    rayMask &= OBJECT_MASK_UNORDERED_ALL_GEOMETRY | OBJECT_MASK_ALL_DYNAMIC;
+  }
+
+  RayQuery<RAY_FLAGS> rayQuery = RayQuery<RAY_FLAGS>();
+  {
+    RayDesc rayDesc;
+    rayDesc.Origin = ray.origin;
+    rayDesc.Direction = ray.direction;
+    rayDesc.TMin = 0;
+    rayDesc.TMax = ray.tMax;
+    rayQuery.TraceRayInline(unorderedTLAS, RAY_FLAGS, rayMask, rayDesc);
+  }
+
+  numInteractions = 0;
+
+#ifdef UNORDERED_RESOLVE_WBOIT
+  float3 alphaColorSum = 0..xxx;
+  float alphaWeightSum = 0.0f;
+  float alphaTransProd = 1.0f;
+#else
+  mat4 binnedRadiancesAndAttenuation = mat4(
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+  );
+  vec4 binDistances = vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+#endif
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+  const uint kMaxUnorderedResolveSteps = 128;
+#else
+  const uint kMaxUnorderedResolveSteps = 32;
+#endif
+
+  uint step = 0;
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+  float foregroundDistance = floatMax;
+  uint2 foregroundGuide = uint2(0, FG_FOREGROUND_INVALID_DEPTH);
+#endif
+  for (; step < kMaxUnorderedResolveSteps && rayQuery.Proceed(); step++)
+  {
+    RayHitInfo rayHitInfo;
+    RayInteraction rayInteraction;
+    SurfaceInteraction surfaceInteraction;
+
+    const bool isTriangle = (RAY_FLAGS & RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES) || rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE;
+    uint sourceVertexIndex = 0;
+
+    if (isTriangle)
+    {
+      RAY_HIT_INFO_CREATE_RAY_QUERY_CANDIDATE(rayHitInfo, rayQuery)
+
+      rayInteraction = rayInteractionCreate(ray, rayHitInfo);
+    }
+    else
+    {
+      MemoryBillboard billboard = billboards[rayQuery.CandidateInstanceID()];
+      sourceVertexIndex = billboard.flags >> billboardSourceVertexShift;
+
+      float3 normal;
+
+      if (packedFlagGet(billboard.flags, billboardFlagIsBeam))
+      {
+        float3 xAxis = cross(billboard.yAxis, ray.direction);
+
+        float xLength = length(xAxis);
+        if (xLength > 0)
+        {
+          billboard.xAxis = xAxis / xLength;
+        }
+
+        normal = cross(billboard.xAxis, billboard.yAxis);
+      }
+#ifdef RAY_TRACING_PRIMARY_RAY
+      else if (!packedFlagGet(billboard.flags, billboardFlagIsCameraFacing))
+      {
+        billboard.xAxis = quaternionTransformVector(quaternionInverse(accumulatedRotation), billboard.xAxis);
+        billboard.yAxis = quaternionTransformVector(quaternionInverse(accumulatedRotation), billboard.yAxis);
+
+        normal = normalize(cross(billboard.xAxis, billboard.yAxis));
+      }
+#endif
+      else
+      {
+        normal = normalize(cross(billboard.xAxis, billboard.yAxis));
+
+        const float3 virtualCameraPosition = ray.origin - ray.direction * accumulatedHitDistance;
+        const float3 reorientedNormal = normalize(virtualCameraPosition - billboard.center);
+
+        if (dot(normal, reorientedNormal) < 0.0)
+        {
+          normal = -normal;
+        }
+
+        const vec4 rotationQuat = quaternionCreateOrientation(normal, reorientedNormal);
+
+        billboard.xAxis = quaternionTransformVector(rotationQuat, billboard.xAxis);
+        billboard.yAxis = quaternionTransformVector(rotationQuat, billboard.yAxis);
+        normal = reorientedNormal;
+      }
+
+      const float NdotD = dot(ray.direction, normal);
+      float t = dot(billboard.center - ray.origin, normal) / NdotD;
+      if (isinf(t) || isnan(t))
+      {
+        t = -1.0;
+      }
+
+      if (0 > t || t > ray.tMax)
+      {
+        continue;
+      }
+
+      vec3 p = ray.origin + ray.direction * t;
+      vec3 cToP = p - billboard.center.xyz;
+      vec2 uv;
+      uv.x = dot(cToP, billboard.xAxis) * billboard.inverseHalfWidth;
+      uv.y = dot(cToP, billboard.yAxis) * billboard.inverseHalfHeight;
+
+      if (max(abs(uv.x), abs(uv.y)) >= 1.0)
+      {
+        continue;
+      }
+
+      uv = uv.x * billboard.xAxisUV + uv.y * billboard.yAxisUV + billboard.centerUV;
+
+      vec4 vertexColor;
+      vertexColor.x = unorm8ToF32(uint8_t(billboard.vertexColor >> 16));
+      vertexColor.y = unorm8ToF32(uint8_t(billboard.vertexColor >> 8));
+      vertexColor.z = unorm8ToF32(uint8_t(billboard.vertexColor));
+      vertexColor.w = unorm8ToF32(uint8_t(billboard.vertexColor >> 24));
+
+      rayHitInfo.hitDistance = t;
+
+      rayInteraction.surfaceIndex = billboard.surfaceIndexAndMaterialType & CUSTOM_INDEX_SURFACE_MASK;
+      rayInteraction.hitDistance = t;
+      rayInteraction.barycentricCoordinates = 0;
+      rayInteraction.primitiveIndex = 0;
+      rayInteraction.isViewModel = false;
+      rayInteraction.frontHit = NdotD < 0;
+      rayInteraction.materialType = (billboard.surfaceIndexAndMaterialType >> CUSTOM_INDEX_MATERIAL_TYPE_BIT) & surfaceMaterialTypeMask;
+
+      float coneRadius = ray.coneRadius + ray.spreadAngle * t;
+      float textureGradientFactor = 4.0f;
+      vec2 dUVRatio = vec2(coneRadius * textureGradientFactor * vec2(billboard.inverseHalfWidth, billboard.inverseHalfHeight));
+
+      surfaceInteraction.position = p;
+      surfaceInteraction.positionError = 0;
+      surfaceInteraction.geometryNormal = normal;
+      calcBillboardTangents(billboard, normal, surfaceInteraction.geometryTangent, surfaceInteraction.geometryBitangent);
+      surfaceInteraction.motion = 0;
+      surfaceInteraction.textureCoordinates = uv;
+      surfaceInteraction.textureGradientX = dUVRatio.x * billboard.xAxisUV;
+      surfaceInteraction.textureGradientY = dUVRatio.y * billboard.yAxisUV;
+      surfaceInteraction.vertexColor = vertexColor;
+    }
+
+    const Surface surface = surfaces[uint(rayInteraction.surfaceIndex)];
+
+    // Decals are left to the deferred decal pass, which only needs to know one may cover the surface.
+    if (isTriangle && surfaceIsDecal(surface))
+    {
+      decalCandidateSeen = true;
+      continue;
+    }
+
+    if (isTriangle)
+    {
+      surfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+    }
+    else
+    {
+      surfaceInteraction.textureCoordinateBounds = surfaceTextureCoordinateBounds(surface, sourceVertexIndex);
+    }
+
+    if (!evalViewDistance(cb.viewDistanceArgs, cb.isZUp, cb.camera, surfaceInteraction.position) || isSurfaceClipped(surface, surfaceInteraction))
+    {
+      continue;
+    }
+
+    const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
+    const uint8_t polymorphicType = rayInteraction.materialType;
+
+    float currentRadianceAttenuation = 1.0f;
+    vec3 currentEmissiveRadiance = vec3(0.0f);
+    bool handledInteraction = false;
+
+    if (polymorphicType == surfaceMaterialTypeOpaque)
+    {
+      const OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+
+      const OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+        opaqueSurfaceMaterialInteractionCreate(opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction);
+
+      evaluateOpaqueApproximations(
+        resolveMode | resolveModeForceOpacityLightingApprox,
+        surface, surfaceInteraction, opaqueSurfaceMaterialInteraction, portalSpace,
+        vec3(1.0f), currentRadianceAttenuation, currentEmissiveRadiance);
+      handledInteraction = true;
+    }
+    else if (polymorphicType == surfaceMaterialTypeTranslucent)
+    {
+      const TranslucentSurfaceMaterial translucentSurfaceMaterial = translucentSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+
+      // Evaluate the material to retain its sampler feedback for texture streaming.
+      translucentSurfaceMaterialInteractionCreate(translucentSurfaceMaterial, surface, surfaceInteraction, rayInteraction);
+      handledInteraction = true;
+    }
+
+    if (!handledInteraction)
+    {
+      continue;
+    }
+
+    const float softBlendFactor = saturate((ray.tMax - rayHitInfo.hitDistance) / (ray.tMax * uint16BitsToF32(cb.particleSoftnessFactor)));
+    const float blendFactor = surface.isParticle ? softBlendFactor : 1.0f;
+
+    currentRadianceAttenuation = mix(1.0f, currentRadianceAttenuation, blendFactor);
+    opacityTransmittance *= currentRadianceAttenuation;
+    currentEmissiveRadiance = mix(vec3(0.0f), currentEmissiveRadiance, blendFactor);
+
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+    // A particle can own the guide when it hides the surface behind it.
+    if (push.writeFgForegroundGuide && rayInteraction.isViewModel && surface.isParticle &&
+        portalSpace == PORTAL_SPACE_NONE && currentRadianceAttenuation <= 1.0f / 255.0f &&
+        rayHitInfo.hitDistance < foregroundDistance)
+    {
+      const vec3 pos = surfaceInteraction.position;
+      const vec4 clip = mul(cb.camera.worldToProjectionJittered, vec4(pos, 1.0f));
+      const vec2 previousNDC = cameraWorldPosToPrevNDC(cb.camera, pos + surfaceInteraction.motion);
+      const vec2 ndc = cameraPixelCoordinateToNDC(cb.camera, pixelCoordinate);
+      const vec2 motion = cameraCalcMotionVectorPixel(cb.camera, ndc, previousNDC);
+      const float depth = clip.z / clip.w;
+      if (all(isfinite(motion)) && depth >= 0.0f && depth <= 1.0f)
+      {
+        foregroundDistance = rayHitInfo.hitDistance;
+        foregroundGuide = uint2(f32tof16(motion.x) | (f32tof16(motion.y) << 16), asuint(depth));
+      }
+    }
+#endif
+
+    if (any(currentEmissiveRadiance > 0.0f))
+    {
+      surfaceIndex = rayInteraction.surfaceIndex;
+    }
+
+#ifdef UNORDERED_RESOLVE_WBOIT
+    float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
+
+    float w = oitDepthWeight(rayHitInfo.hitDistance, ray.tMax);
+
+    float3 src = currentEmissiveRadiance * float3(radianceAttenuation) * volumeAttenuation;
+
+    float alphaVal = saturate(1.f - currentRadianceAttenuation);
+
+    float3 Ci = src * alphaVal;
+    alphaColorSum  += Ci * w;
+    alphaWeightSum += alphaVal * w;
+    alphaTransProd *= (1.f - alphaVal);
+#else
+    uint lowestIndex;
+    float lowestDistance;
+    vec4 lowestRadianceAndAttenuation;
+
+    findLowestBin(
+      binnedRadiancesAndAttenuation, binDistances,
+      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
+
+    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
+
+    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
+    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
+
+    writeColumn(binnedRadiancesAndAttenuation, vec4(currentEmissiveRadiance, currentRadianceAttenuation), lowestIndex);
+    writeComponent(binDistances, rayHitInfo.hitDistance, lowestIndex);
+#endif
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+#ifndef GBUFFER_PSR
+#if GBUFFER_FEATURE_OBJECT_PICKING
+    if (numInteractions == 0 && cb.enableObjectPicking)
+    {
+      InterlockedCompareStore(
+        PrimaryObjectPicking[pixelCoordinate],
+        OBJECT_PICKING_INVALID,
+        surface.objectPickingValue);
+    }
+#endif
+#endif
+#endif
+
+    numInteractions += 1;
+  }
+
+  // Candidates past the step budget went unvisited, so one of them may be a decal.
+  if (step == kMaxUnorderedResolveSteps)
+  {
+    decalCandidateSeen = true;
+  }
+
+  if (numInteractions == 0)
+  {
+    return 1.0f;
+  }
+
+#ifdef GBUFFER_FG_FOREGROUND_GUIDE
+  if (foregroundGuide.y != FG_FOREGROUND_INVALID_DEPTH
+#ifdef GBUFFER_PRIMARY_CONTINUATION
+      && FgForegroundGuide[pixelCoordinate].y == FG_FOREGROUND_INVALID_DEPTH
+#endif
+     )
+  {
+    FgForegroundGuide[pixelCoordinate] = foregroundGuide;
+  }
+#endif
+
+#ifdef UNORDERED_RESOLVE_WBOIT
+  if (alphaWeightSum > 0.f)
+  {
+    float3 alphaAvg = alphaColorSum / alphaWeightSum;
+    float coverage = cb.wboitEnergyLossCompensation * saturate(1.0f - alphaTransProd);
+    emissiveRadiance += alphaAvg * coverage;
+  }
+
+  radianceAttenuation *= alphaTransProd;
+#else
+  for (uint i = 0; i < 4 ; ++i)
+  {
+    uint lowestIndex;
+    float lowestDistance;
+    vec4 lowestRadianceAndAttenuation;
+
+    findLowestBin(
+      binnedRadiancesAndAttenuation, binDistances,
+      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
+
+    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
+
+    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
+    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
+
+    writeColumn(binnedRadiancesAndAttenuation, vec4(0.0f, 0.0f, 0.0f, 1.0f), lowestIndex);
+    writeComponent(binDistances, float16Max, lowestIndex);
+  }
+#endif
+
+  emissiveRadiance *= 1.0f / pathSelectionProbability;
+  return opacityTransmittance;
+}
+
+// Handles unordered Resolve operations within the resolve loop which do not depend on the typical ordered execution
+// for the resolve logic.
+void resolveVertexUnordered<
+  let RAY_FLAGS : uint,
+  let ENABLE_DECALS : bool,
+  let ENABLE_PARTICLES : bool>(
+  uint8_t resolveMode, Ray ray, uint rayMask,
+  PortalSpace2BitsType portalSpace,
+  bool useIntersectionBillboards,
+#ifdef RAY_TRACING_PRIMARY_RAY
+  u16vec2 pixelCoordinate,
+  vec4 accumulatedRotation,
+#endif
+  float accumulatedHitDistance,
+  float pathSelectionProbability,
+  inout vec3 radianceAttenuation, inout vec3 emissiveRadiance,
+  out uint numInteractions,
+  inout bool decalEncountered,
+  inout uint4 decalMemory,
+  inout f16vec3 decalEmissiveRadiance,
+  inout int surfaceIndex,
+  uint mediumState = SURFACE_INDEX_INVALID)
+{
+  // Early out if approximations are not desired to be separated out
+
+  const bool separateUnorderedApproximations = packedFlagGet(resolveMode, resolveModeSeparateUnorderedApproximations);
+
+  if (!separateUnorderedApproximations)
+  {
+    surfaceIndex = -1;
+    numInteractions = 0;
+    return;
+  }
+
+  const float3 mediumExtinction = translucentMediumExtinction(mediumState, surfaceMaterials);
+
+  uint rayFlags = RAY_FLAG_CULL_OPAQUE;
+
+  if (useIntersectionBillboards)
+    rayMask &= OBJECT_MASK_UNORDERED_ALL_INTERSECTION_PRIMITIVE | OBJECT_MASK_ALL_DYNAMIC;
+  else
+    rayMask &= OBJECT_MASK_UNORDERED_ALL_GEOMETRY | OBJECT_MASK_ALL_DYNAMIC;
+
+  // Loop over each non-opaque object in the ray's path
+
+  RayQuery<RAY_FLAGS> rayQuery = RayQuery<RAY_FLAGS>();
+  {
+    RayDesc rayDesc;
+    rayDesc.Origin = ray.origin;
+    rayDesc.Direction = ray.direction;
+    rayDesc.TMin = 0;
+    rayDesc.TMax = ray.tMax;
+    rayQuery.TraceRayInline(unorderedTLAS, RAY_FLAGS, rayMask, rayDesc);
+  }
+
+  // Note: The number of actual relevant hits along the unordered traversal.
+  numInteractions = 0;
+
+#ifdef UNORDERED_RESOLVE_WBOIT
+  float3 alphaColorSum = 0..xxx;
+  float alphaWeightSum = 0.0f;
+  float alphaTransProd = 1.0f;
+#else
+  // Note: Initialize bins to completely transparent with no radiance to be added in at an impossibly low distance. This
+  // ensures these filler items are pulled out first in sorted order, giving the incoming elements a few iterations to populate
+  // the bins.
+  mat4 binnedRadiancesAndAttenuation = mat4(
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+    vec4(0.0f, 0.0f, 0.0f, 1.0f),
+  );
+  vec4 binDistances = vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+#endif
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+  MemoryDecalMaterialInteraction binnedDecals[numDecalResolveBins];
+  uint binnedDecalSortOrder[numDecalResolveBins] = {uintMax, uintMax, uintMax, uintMax};
+  uint maxSortOrder = 0;
+  // TODO[REMIX-3080] Unusued for now, will be needed for normal blending
+  // f16mat3 worldToDecalTangent = f16mat3(0);
+  const uint kMaxUnorderedResolveSteps = 128;
+#else
+  float minDecalSample = -1.f;
+  uint maxOpaqueSortOrder = 0;
+  uint sampledSortOrder = 0;
+  const uint kMaxUnorderedResolveSteps = 32;
+#endif
+
+  for (uint step=0 ; step<kMaxUnorderedResolveSteps && rayQuery.Proceed() ; step++)
+  {
+    RayHitInfo rayHitInfo;
+    RayInteraction rayInteraction;
+    SurfaceInteraction surfaceInteraction;
+
+    // Note: Using template parameter here, which should eliminate this branch for gbuffer (since we dont use intersection AABBs there in most cases).
+    const bool isTriangle = (RAY_FLAGS & RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES) || rayQuery.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE;
+    uint sourceVertexIndex = 0;
+
+    if (isTriangle)
+    {
+      RAY_HIT_INFO_CREATE_RAY_QUERY_CANDIDATE(rayHitInfo, rayQuery)
+
+      // Create a Ray Interaction from the hit info
+
+      rayInteraction = rayInteractionCreate(ray, rayHitInfo);
+    }
+    else
+    {
+      MemoryBillboard billboard = billboards[rayQuery.CandidateInstanceID()];
+      sourceVertexIndex = billboard.flags >> billboardSourceVertexShift;
+
+      float3 normal;
+
+      if (packedFlagGet(billboard.flags, billboardFlagIsBeam))
+      {
+        // Find the orientation of a cylinder section along the Y axis that provides the largest
+        // angle between the section plane and the incoming ray.
+        float3 xAxis = cross(billboard.yAxis, ray.direction);
+
+        // Use the normalized cross product as the X axis. If the ray is parallel to the Y axis,
+        // just keep the existing X axis because it doesn't matter - there will be no intersection.
+        float xLength = length(xAxis);
+        if (xLength > 0)
+          billboard.xAxis = xAxis / xLength;
+
+        normal = cross(billboard.xAxis, billboard.yAxis);
+      }
+#ifdef RAY_TRACING_PRIMARY_RAY
+      else if (!packedFlagGet(billboard.flags, billboardFlagIsCameraFacing))
+      {
+        // For primary rays, just rotate the billboard using the accumulatedRotation.
+        // Note: multiplying on the left because we need the inverse transform
+        billboard.xAxis = quaternionTransformVector(quaternionInverse(accumulatedRotation), billboard.xAxis);
+        billboard.yAxis = quaternionTransformVector(quaternionInverse(accumulatedRotation), billboard.yAxis);
+
+        normal = normalize(cross(billboard.xAxis, billboard.yAxis));
+      }
+#endif
+      else
+      {
+        // For secondary rays, we don't have the accumulatedRotation, so get creative:
+        // reorient the billboard so that it faces the virtual camera, i.e. the image of the camera
+        // below the surface where the ray originated from. Do not use the ray origin for the
+        // virtual camera position because that results in heavy distortions of particle shapes
+        // in reflections.
+
+        // Original normal
+        normal = normalize(cross(billboard.xAxis, billboard.yAxis));
+
+        const float3 virtualCameraPosition = ray.origin - ray.direction * accumulatedHitDistance;
+        const float3 reorientedNormal = normalize(virtualCameraPosition - billboard.center);
+
+        // If the new normal is facing the opposite direction, just flip it, because
+        // rotation becomes unstable near the opposite pole. We don't care much for the exact particle
+        // rotation in reflections etc. but stability is desirable.
+        if (dot(normal, reorientedNormal) < 0.0)
+          normal = -normal;
+
+        // Find a quaternion that transforms the original normal into the new one.
+        const vec4 rotationQuat = quaternionCreateOrientation(normal, reorientedNormal);
+
+        // Use that quaternion to rotate the billboard.
+        // This is more predictable than re-creating a basis just from the normal.
+        billboard.xAxis = quaternionTransformVector(rotationQuat, billboard.xAxis);
+        billboard.yAxis = quaternionTransformVector(rotationQuat, billboard.yAxis);
+        normal = reorientedNormal;
+      }
+
+      // Compute the ray-plane intersection.
+      const float NdotD = dot(ray.direction, normal);
+      float t = dot(billboard.center - ray.origin, normal) / NdotD;
+      if (isinf(t) || isnan(t)) t = -1.0;
+
+      if (0 > t || t > ray.tMax)
+        continue;
+
+      vec3 p = ray.origin + ray.direction * t;
+      vec3 cToP = p - billboard.center.xyz;
+      vec2 uv;
+      uv.x = dot(cToP, billboard.xAxis) * billboard.inverseHalfWidth;
+      uv.y = dot(cToP, billboard.yAxis) * billboard.inverseHalfHeight;
+
+      if (max(abs(uv.x), abs(uv.y)) >= 1.0)
+        continue;
+
+      uv = uv.x * billboard.xAxisUV + uv.y * billboard.yAxisUV + billboard.centerUV;
+
+      vec4 vertexColor;
+      vertexColor.x = unorm8ToF32(uint8_t(billboard.vertexColor >> 16));
+      vertexColor.y = unorm8ToF32(uint8_t(billboard.vertexColor >> 8));
+      vertexColor.z = unorm8ToF32(uint8_t(billboard.vertexColor));
+      vertexColor.w = unorm8ToF32(uint8_t(billboard.vertexColor >> 24));
+
+      rayHitInfo.hitDistance = t;
+
+      rayInteraction.surfaceIndex = billboard.surfaceIndexAndMaterialType & CUSTOM_INDEX_SURFACE_MASK;
+      rayInteraction.hitDistance = t;
+      rayInteraction.barycentricCoordinates = 0;
+      rayInteraction.primitiveIndex = 0;
+      rayInteraction.isViewModel = false;
+      rayInteraction.frontHit = NdotD < 0;
+      rayInteraction.materialType = (billboard.surfaceIndexAndMaterialType >> CUSTOM_INDEX_MATERIAL_TYPE_BIT) & surfaceMaterialTypeMask;
+
+      // Calculate texture gradient
+      float coneRadius = ray.coneRadius + ray.spreadAngle * t;
+      float textureGradientFactor = 4.0f; // This factor is based on experiment
+      vec2 dUVRatio = vec2(coneRadius * textureGradientFactor * vec2(billboard.inverseHalfWidth, billboard.inverseHalfHeight));
+
+      surfaceInteraction.position = p;
+      surfaceInteraction.positionError = 0;
+      surfaceInteraction.geometryNormal = normal;
+      calcBillboardTangents(billboard, normal, surfaceInteraction.geometryTangent, surfaceInteraction.geometryBitangent);
+      surfaceInteraction.motion = 0;
+      surfaceInteraction.textureCoordinates = uv;
+      surfaceInteraction.textureGradientX = dUVRatio.x * billboard.xAxisUV;
+      surfaceInteraction.textureGradientY = dUVRatio.y * billboard.yAxisUV;
+      surfaceInteraction.vertexColor = vertexColor;
+    }
+
+    const Surface surface = surfaces[uint(rayInteraction.surfaceIndex)];
+
+    const bool isDecal = isTriangle && surfaceIsDecal(surface);
+
+#ifndef RAY_TRACING_PRIMARY_RAY
+    // Back-facing opaque decals never contribute.
+    // Primary rays still create their materials, because material creation writes sampler feedback and debug views.
+    if (ENABLE_DECALS && isDecal && rayInteraction.materialType == surfaceMaterialTypeOpaque && !rayInteraction.frontHit)
+    {
+      continue;
+    }
+#endif
+
+    if (isTriangle)
+    {
+      surfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+    }
+
+    if (!isTriangle)
+    {
+      surfaceInteraction.textureCoordinateBounds = surfaceTextureCoordinateBounds(surface, sourceVertexIndex);
+    }
+
+    // Test the hit surface against view distance and ignored surface clipping
+
+    if (!evalViewDistance(cb.viewDistanceArgs, cb.isZUp, cb.camera, surfaceInteraction.position) || isSurfaceClipped(surface, surfaceInteraction))
+    {
+      // Note: Iteration skipped, we unfortunately cannot break the loop here as the hits are processed
+      // in an undefined order rather than from closest to furthest like they are in the usual resovle loop,
+      // so there may still be more unordered hits to resolve.
+      continue;
+    }
+
+    // Create a Surface Material and Surface Material Interaction from the Surface
+
+    const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
+
+    const uint8_t polymorphicType = rayInteraction.materialType;
+
+    // Handle special approximation logic for specific material types
+
+    // Note: Current iteration's radiance attenuation and emissive radiance separated out for manual unordered blending logic.
+    float currentRadianceAttenuation = 1.0f;
+    vec3 currentEmissiveRadiance = vec3(0.0f);
+
+    bool handledInteraction = false;
+
+    if (polymorphicType == surfaceMaterialTypeOpaque)
+    {
+      const OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+      const OpaqueMaterialSample materialSample = opaqueSurfaceMaterialPrepare<true>(
+        opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction);
+      const float opacity = opaqueSurfaceMaterialResolvedOpacity(opaqueSurfaceMaterial, surface, materialSample);
+      bool storeDecal = false;
+      uint decalSortKey = 0;
+#ifdef RAY_TRACING_PRIMARY_RAY
+      uint decalBin = uintMax;
+#endif
+
+      if (ENABLE_DECALS && isDecal && opacity > 0.001f && rayInteraction.frontHit)
+      {
+        decalSortKey = (uint(surface.decalSortOrder) << 24) + ((rayHitInfo.geometryIndex & 0xff) << 16) + (rayHitInfo.primitiveIndex & 0xffff);
+#ifdef RAY_TRACING_PRIMARY_RAY
+        decalBin = selectDecalBin(binnedDecals, binnedDecalSortOrder, opacity, decalSortKey);
+        storeDecal = decalBin != uintMax;
+        if (decalSortKey > maxSortOrder)
+        {
+          surfaceIndex = rayInteraction.surfaceIndex;
+          maxSortOrder = decalSortKey;
+        }
+#else
+        // Every accepted candidate participates in the reservoir, including candidates that are not retained.
+        const float rngValue = pow(getNextSampleBlueNoise(resolveVertexUnorderedRng), 1.f / opacity);
+        storeDecal = minDecalSample < 0.f ||
+          (opacity > 0.95f && decalSortKey > sampledSortOrder) ||
+          (decalSortKey > maxOpaqueSortOrder && rngValue < minDecalSample);
+        if (storeDecal)
+        {
+          surfaceIndex = rayInteraction.surfaceIndex;
+          sampledSortOrder = decalSortKey;
+          minDecalSample = rngValue;
+        }
+        if (opacity > 0.95f && decalSortKey > maxOpaqueSortOrder)
+        {
+          maxOpaqueSortOrder = decalSortKey;
+        }
+#endif
+        decalEncountered = true;
+        handledInteraction = true;
+      }
+
+      const bool shadeParticle = ENABLE_PARTICLES && !isDecal;
+      // Diagnostic texture views inspect candidates even when they do not contribute to the final material.
+      if (storeDecal || shadeParticle || shaderDebugView(cb.debugView) != DEBUG_VIEW_DISABLED)
+      {
+        const OpaqueSurfaceMaterialInteraction material = opaqueSurfaceMaterialInteractionCreatePrepared(
+          opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction, materialSample);
+        if (storeDecal)
+        {
+          const MemoryDecalMaterialInteraction memory = decalMaterialInteractionPack(decalMaterialInteractionCreate(material));
+#ifdef RAY_TRACING_PRIMARY_RAY
+          binnedDecalSortOrder[decalBin] = decalSortKey;
+          binnedDecals[decalBin] = memory;
+#else
+          decalMemory = memory.packed;
+          decalEmissiveRadiance = memory.emissiveRadiance;
+#endif
+        }
+        if (shadeParticle)
+        {
+          evaluateOpaqueApproximations(
+            resolveMode | resolveModeForceOpacityLightingApprox,
+            surface, surfaceInteraction, material, portalSpace,
+            vec3(1.0f), currentRadianceAttenuation, currentEmissiveRadiance);
+          handledInteraction = true;
+        }
+      }
+    }
+    else if (ENABLE_PARTICLES && polymorphicType == surfaceMaterialTypeTranslucent)
+    {
+      const TranslucentSurfaceMaterial translucentSurfaceMaterial = translucentSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+
+      // Evaluate the material to retain its sampler feedback for texture streaming.
+      translucentSurfaceMaterialInteractionCreate(translucentSurfaceMaterial, surface, surfaceInteraction, rayInteraction);
+      handledInteraction = true;
+    }
+
+    if (ENABLE_PARTICLES && !isDecal && handledInteraction)
+    {
+      // Calculate a blend softening factor
+      // Note: This is done to avoid raster particles handled by this seprated logic from clipping in ugly ways against geometry by
+      // fading out portions of particles closer to walls. Only done for Surfaces labeled as particles.
+
+      const float softBlendFactor = saturate((ray.tMax - rayHitInfo.hitDistance) / (ray.tMax * uint16BitsToF32(cb.particleSoftnessFactor)));
+      const float blendFactor = surface.isParticle ? softBlendFactor : 1.0f;
+
+      currentRadianceAttenuation = mix(1.0f, currentRadianceAttenuation, blendFactor);
+      currentEmissiveRadiance = mix(vec3(0.0f), currentEmissiveRadiance, blendFactor);
+
+      if (any(currentEmissiveRadiance) > 0)
+      {
+        surfaceIndex = rayInteraction.surfaceIndex;
+      }
+
+#ifdef UNORDERED_RESOLVE_WBOIT
+      float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
+
+      // depth weight for this hit
+      float w = oitDepthWeight(rayHitInfo.hitDistance, ray.tMax);
+
+      float3 src = currentEmissiveRadiance * float3(radianceAttenuation) * volumeAttenuation;
+
+      // Extinction-based alpha
+      float alphaVal = saturate(1.f - currentRadianceAttenuation);
+
+      // premultiplied color
+      float3 Ci = src * alphaVal;
+      alphaColorSum  += Ci * w;
+      alphaWeightSum += alphaVal * w;
+      alphaTransProd *= (1.f - alphaVal);
+#else
+     // Find the lowest item in the bins
+      uint lowestIndex;
+      float lowestDistance;
+      vec4 lowestRadianceAndAttenuation;
+
+      findLowestBin(
+        binnedRadiancesAndAttenuation, binDistances,
+        lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
+
+      // Note: Volume attenuation calculated only for the current ray start to the current hit surface, not accumulated
+      // into the attenuation as this will be handled later by the ordered resolve logic (and we do not want to incorrectly
+      // accumulate volume radiance multiple times for overlapping unordered segments).
+      const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
+
+      emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
+      // Hack: This is done as a workaround for a compiler bug (REMIX-1551), should be revertex back to what it was originally to avoid
+      // increased register pressure in resolving.
+      radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
+      // radianceAttenuation *= lowestRadianceAndAttenuation.a;
+
+      writeColumn(binnedRadiancesAndAttenuation, vec4(currentEmissiveRadiance, currentRadianceAttenuation), lowestIndex);
+      writeComponent(binDistances, rayHitInfo.hitDistance, lowestIndex);
+#endif
+    }
+
+    if (!handledInteraction)
+    {
+      continue;
+    }
+
+    // Do picking (in non PSR primary rays) only, and also make sure to do it here to include decals
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+#ifndef GBUFFER_PSR
+#if GBUFFER_FEATURE_OBJECT_PICKING
+    if (numInteractions == 0 && cb.enableObjectPicking)
+    {
+      // Write only if was OBJECT_PICKING_INVALID, i.e. write the very first resolveVertexUnordered
+      // Object picking for alpha blended
+      InterlockedCompareStore(
+        PrimaryObjectPicking[pixelCoordinate],
+        OBJECT_PICKING_INVALID,    // compare to
+        surface.objectPickingValue // value to write, if equal
+      );
+    }
+#endif
+#endif
+#endif
+
+    // Increment the hit count after a successful hit
+
+    numInteractions += 1;
+  }
+
+  // Early out in the special case of nothing being hit
+  // Note: This is a fairly common case since often rays travel unobstructed by particles or other intermediate objects, so having
+  // a path to skip the somewhat costly bin flushing logic below results in a small performance improvement.
+
+  if (numInteractions == 0)
+  {
+    return;
+  }
+
+  if (ENABLE_PARTICLES)
+  {
+#ifdef UNORDERED_RESOLVE_WBOIT
+  if (alphaWeightSum > 0.f)
+  {
+    float3 alphaAvg = alphaColorSum / alphaWeightSum;
+    float coverage = cb.wboitEnergyLossCompensation * saturate(1.0f - alphaTransProd);
+    emissiveRadiance += alphaAvg * coverage;
+  }
+
+  radianceAttenuation *= alphaTransProd;
+#else
+  // Flush the bins by iterating through them and finding the lowest for each
+  // Note: This has to be done as there will be remaining items in the bins (up to 4) which need to be accumulated in most cases after
+  // the main loop finishes.
+
+  for (uint i = 0; i < 4 ; ++i)
+  {
+    // Find the lowest item in the bins
+
+    uint lowestIndex;
+    float lowestDistance;
+    vec4 lowestRadianceAndAttenuation;
+
+    findLowestBin(
+      binnedRadiancesAndAttenuation, binDistances,
+      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
+
+    // Accumulate the lowest bin into the radiance and attenuation
+
+    // Note: Volume attenuation calculated only for the current ray start to the current hit surface, not accumulated
+    // into the attenuation as this will be handled later by the ordered resolve logic (and we do not want to incorrectly
+    // accumulate volume radiance multiple times for overlapping unordered segments).
+    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
+
+    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
+    // Hack: This is done as a workaround for a compiler bug (REMIX-1551), should be revertex back to what it was originally to avoid
+    // increased register pressure in resolving.
+    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
+    // radianceAttenuation *= lowestRadianceAndAttenuation.a;
+
+    // Invalidate the lowest bin
+
+    // Note: Invalid entry written in to safely be added if hit (in cases where fewer than 4 particle iterations
+    // were done), but designed to always compare as further away from any valid item.
+    writeColumn(binnedRadiancesAndAttenuation, vec4(0.0f, 0.0f, 0.0f, 1.0f), lowestIndex);
+    writeComponent(binDistances, float16Max, lowestIndex);
+  }
+#endif
+  }
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+  if (ENABLE_DECALS && decalEncountered)
+  {
+    DecalMaterialInteraction decalMaterialInteractionComposited;
+    // draw decals from bottom to top (same order as the drawcalls are sent in)
+    for (uint i = 0; i < numDecalResolveBins; ++i)
+    {
+      // find lowest decalSortOrder in bins to draw first
+      uint sortOrder = uintMax;
+      uint lowBin = 0;
+      for (uint j = 0; j < numDecalResolveBins; ++j)
+      {
+        if (sortOrder > binnedDecalSortOrder[j])
+        {
+          lowBin = j;
+          sortOrder = binnedDecalSortOrder[j];
+        }
+      }
+      if (sortOrder == uintMax)
+      {
+        break;
+      }
+      if (i == 0)
+      {
+        decalMaterialInteractionComposited = decalMaterialInteractionUnpack(binnedDecals[lowBin]);
+      }
+      else
+      {
+        DecalMaterialInteraction decalMaterialInteraction = decalMaterialInteractionUnpack(binnedDecals[lowBin]);
+        // TODO[REMIX-3080] need to adapt the normal blending to not be transforming into and out of the tangent space with every blend.
+        // instead, should get the lowest decal's normal in its tangent space, transform each normal into that tangent space, and only go back to world space at the end.
+        decalMaterialInteractionBlend(decalMaterialInteraction, decalMaterialInteractionComposited);
+        // decalMaterialInteractionComposited = decalMaterialInteraction;
+      }
+      binnedDecalSortOrder[lowBin] = uintMax;
+    }
+    // write it to output values
+    MemoryDecalMaterialInteraction memory = decalMaterialInteractionPack(decalMaterialInteractionComposited);
+    decalMemory = memory.packed;
+    decalEmissiveRadiance = memory.emissiveRadiance;
+  }
+#endif
+
+  emissiveRadiance *= 1.0f / pathSelectionProbability;
+  // Scaled in full precision. Every reader rounds it to half precision anyway.
+  decalEmissiveRadiance = f16vec3(vec3(decalEmissiveRadiance) * (1.0f / pathSelectionProbability));
+}

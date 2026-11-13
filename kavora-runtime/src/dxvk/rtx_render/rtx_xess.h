@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_options.h"
 #include "rtx_common_object.h"
 
@@ -45,6 +46,12 @@ namespace dxvk {
   class DxvkXeSS : public RtxPass, public CommonDeviceObject {
 
   public:
+    using XeSSDispatchResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_compositeOutput,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_primaryDepth,
+      &RaytracingFrame::m_compositeOutputExtent>;
 
     struct XessOptions {
       friend class DxvkXeSS;
@@ -75,7 +82,7 @@ namespace dxvk {
     void dispatch(
       Rc<DxvkContext> renderContext,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      XeSSDispatchResources resources,
       bool resetHistory);
 
     // Public methods needed by RTX context
@@ -138,7 +145,7 @@ namespace dxvk {
     void dispatch(
       Rc<DxvkContext> renderContext,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      XeSSDispatchResources resources,
       bool resetHistory) {
     }
 

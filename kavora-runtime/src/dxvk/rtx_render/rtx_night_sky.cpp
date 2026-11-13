@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "rtx_night_sky.h"
+#include "night_sky_layout_asserts.h"
 #include "rtx_asset_data_manager.h"
 #include "rtx_context.h"
 #include "rtx_shader_manager.h"

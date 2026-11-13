@@ -190,7 +190,7 @@ namespace dxvk {
 
   void NRDContext::prepareResources(
     Rc<DxvkContext> ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+    const VkExtent3D& renderExtent) {
 
     if (!m_cbData) {
       m_cbData = std::make_unique<RtxStagingDataAlloc>(
@@ -200,8 +200,8 @@ namespace dxvk {
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     }
 
-    const uint16_t width = static_cast<uint16_t>(rtOutput.m_compositeOutputExtent.width);
-    const uint16_t height = static_cast<uint16_t>(rtOutput.m_compositeOutputExtent.height);
+    const uint16_t width = static_cast<uint16_t>(renderExtent.width);
+    const uint16_t height = static_cast<uint16_t>(renderExtent.height);
 
     bool bCreateDenoiser = m_denoiser != m_settings.m_denoiserDesc.denoiser ||
       m_settings.m_commonSettings.resourceSize[0] != width ||
@@ -250,14 +250,14 @@ namespace dxvk {
 
         createPipelines();
 
-        createResources(ctx, rtOutput);
+        createResources(ctx);
 
         m_settings.m_resetHistory = true;
       }
     }
 
     if (m_settings.m_commonSettings.enableValidation && !m_validationTex.isValid()) {
-      m_validationTex = Resources::createImageResource(ctx, "nrd validation texture", rtOutput.m_compositeOutputExtent, VK_FORMAT_R32G32B32A32_SFLOAT);
+      m_validationTex = Resources::createImageResource(ctx, "nrd validation texture", renderExtent, VK_FORMAT_R32G32B32A32_SFLOAT);
     }
   }
 
@@ -302,9 +302,7 @@ namespace dxvk {
     return samplerInfo;
   }
 
-  void NRDContext::createResources(
-    Rc<DxvkContext> ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+  void NRDContext::createResources(Rc<DxvkContext> ctx) {
     const nrd::InstanceDesc& instanceDesc = nrd::dispatch.GetInstanceDesc(*m_denoiserInstance);
 
     DxvkImageCreateInfo desc;
@@ -628,7 +626,7 @@ namespace dxvk {
     Rc<DxvkContext> ctx,
     DxvkBarrierSet& barriers,
     const SceneManager& sceneManager,
-    const Resources::RaytracingOutput& rtOutput,
+    const VkExtent3D& renderExtent,
     const DxvkDenoise::Input& inputs,
     const DxvkDenoise::Output& outputs) {
     if (m_hNRD == NULL) {
@@ -640,9 +638,9 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "NRD");
     static_cast<RtxContext*>(ctx.ptr())->setFramePassStage(RtxFramePassStage::NRD);
 
-    prepareResources(ctx, rtOutput);
+    prepareResources(ctx, renderExtent);
 
-    updateNRDSettings(sceneManager, inputs, rtOutput);
+    updateNRDSettings(sceneManager, inputs, renderExtent);
 
     std::vector<Rc<DxvkImageView>> pInputs, pOutputs;
     if (m_settings.m_denoiserDesc.denoiser == nrd::Denoiser::REFERENCE) {
@@ -840,7 +838,7 @@ namespace dxvk {
   void NRDContext::updateNRDSettings(
     const SceneManager& sceneManager,
     const DxvkDenoise::Input& inputs,
-    const Resources::RaytracingOutput& rtOutput) {
+    const VkExtent3D& renderExtent) {
 
     if (m_settings.m_denoiserDesc.denoiser != nrd::Denoiser::REFERENCE) {
       // Don't allow adaptive scaling for direct light in ReBlur
@@ -858,8 +856,8 @@ namespace dxvk {
     {
       const auto& camera = sceneManager.getCamera();
 
-      const uint16_t width = static_cast<uint16_t>(rtOutput.m_compositeOutputExtent.width);
-      const uint16_t height = static_cast<uint16_t>(rtOutput.m_compositeOutputExtent.height);
+      const uint16_t width = static_cast<uint16_t>(renderExtent.width);
+      const uint16_t height = static_cast<uint16_t>(renderExtent.height);
 
       m_settings.m_commonSettings.resourceSizePrev[0] = width;
       m_settings.m_commonSettings.resourceSizePrev[1] = height;

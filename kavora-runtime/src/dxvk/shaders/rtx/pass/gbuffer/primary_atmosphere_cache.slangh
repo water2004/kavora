@@ -4,8 +4,10 @@
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.h"
 #include "rtx/pass/gbuffer/primary_intersection.slangh"
 #include "rtx/utility/brdf.slangh"
-#include "rtx/concept/surface_material/translucent_medium.slangh"
-#include "rtx/algorithm/atmosphere.slangh"
+import "rtx/concept/surface_material/translucent_medium.slang";
+import "rtx/algorithm/atmosphere.slang";
+import "rtx/algorithm/fog_radiance_cache.slang";
+#include "rtx/algorithm/volume_lighting.slangh"
 #include "rtx/algorithm/view_distance.slangh"
 
 uint atmosphereColumnStride()

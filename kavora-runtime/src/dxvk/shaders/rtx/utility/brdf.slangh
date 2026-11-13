@@ -24,7 +24,9 @@
 #include "rtx/utility/math.slangh"
 #include "rtx/utility/color.slangh"
 #include "rtx/utility/sampling.slangh"
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
+import "rtx/utility/material_optics.slang";
 
 // Surface/Volume Material Constants
 
@@ -34,10 +36,8 @@ static const float materialHighPrecisionEpsilon = 1e-30f;
 static const float materialHighPrecisionMaximum = 1e30f; // Note: A safe maximum below the limit of 32 bit floats to treat as near-infinity to prevent overflows.
 static const float materialMinimumRoughness = float(1e-4); // Note: Similarly just above denormal limit
 static const vec3 materialBaseReflectivityDielectric = vec3(0.04, 0.04, 0.04);
-static const float materialIoRVacuum = float(1.0);
 // Note: Set to mimic some sort of plastic-ey layer, not sure what an actual thin film's IoR is like but this works fine.
 static const float materialIoRThinFilmLayer = float(1.5);
-static const vec3 materialTangentSpaceNormal = vec3(0.0, 0.0, 1.0);
 static const float materialSssEpsilon = 0.002f;
 
 // Surface/Volume Material Parameterization Helpers
@@ -148,15 +148,6 @@ float baseReflectivityToIoR(float incidentIoR, float baseReflectivity)
   return incidentIoR / (2.0f / (baseReflectivity2 + float(1.0f)) - float(1.0f));
 }
 
-// Calculates the attenuation coefficient (otherwise known as the extinction coefficient) from a given color and a
-// distance through the surface that color is measured at assuming attenuation by Beer's law.
-// [Burley 2015, "Extending the Disney BRDF to a BSDF with Integrated Subsurface Scattering"]
-vec3 transmittanceToAttenuationCoefficient(vec3 transmittanceColor,
-                                           float transmittanceMeasurementDistance)
-{
-  return vec3(-log(transmittanceColor)) / float(transmittanceMeasurementDistance);
-}
-
 // Calculates the single-scattering albedo from a perceived multi-scattering albedo color and phase anisotropy
 // (assuming a view at a semi-infinite volumetric medium on the same side as a uniform light source).
 // [Kulla 2017, "Revisiting Physically Based Shading at Imageworks"]
@@ -196,79 +187,6 @@ vec3 evalHammonDiffuse(vec3 albedo,
   const float multi = float(0.1159) * isotropicRoughness;
 
   return albedo * (vec3(single, single, single) + albedo * multi);
-}
-
-// Fresnel (F): Schlick Approximation
-// [Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"]
-// Note: This can be used for both dielectrics and conductors
-vec3 evalOpaqueSchlickFresnel(vec3 baseReflectivity,
-                                 float /* v.h */ outputDirectionDotMicrofacetNormal)
-{
-  // Note: Unreal Engine implements Fresnel with an adjustment to f90 as described in "Crash Course in BRDF Implementation"
-  // to allow for a "shadowing" effect to be applied by artists by using base reflectivity values below something physically plausible.
-  // This however despite being fairly commonly seen in BRDF implementations is fairly dubious as realistically only pure metals will
-  // have this control (dielectrics will pull it back to the standard dielectric base reflectivity used in the material model), and artists
-  // need to actually be aware of this to actually utilize it (which is not often the case unless specifically called out).
-  // As such, the standard Schlick Fresnel is implemented here as nothing in Remix (well Portal RTX at least) actually explicitly utilizes this
-  // non-physically based shadowing feature art wise.
-
-  return baseReflectivity + (vec3(1.0f) - baseReflectivity) * invClampPow5(outputDirectionDotMicrofacetNormal);
-}
-
-// Fresnel (F): Schlick Approximation
-// [Schlick 1994, "An Inexpensive BRDF Model for Physically-Based Rendering"]
-// Note: This is only intended to be used for dielectrics when coming from a less dense to a more dense medium (not the other way
-// around as this function will not adjust for TIR's influence on the Fresnel response properly) during BRDF evaluation (hence the
-// monochromatic fresnel and base reflectivity) as translucent conductors are impossible. This function therefore is generally not
-// meant to be called when dealing with more general purpose material evaluations that can happen from either inside or outside of
-// a denser medium and the more general purpose evalTranslucentSchlickFresnelTIR should be called instead in these cases, but it is
-// fine to call if you know that this will always be called from the outside of a denser medium.
-float evalTranslucentSchlickFresnel(float baseReflectivity,
-                                    float /* v.h */ outputDirectionDotMicrofacetNormal)
-{
-  return float(baseReflectivity) + float(float(1.0) - baseReflectivity) * invClampPow5(outputDirectionDotMicrofacetNormal);
-}
-
-// Calculates the cosine of the refracted angle given the cosine of an incident angle relative to a normal.
-bool evalRefractionCosineAngle(float relativeRefractiveIndex,
-                               float /* v.h */ outputDirectionDotMicrofacetNormal,
-                               inout float refractionDirectionDotMicrofacetNormal)
-{
-  const float sinSquaredAngle = square(float(relativeRefractiveIndex)) * (1.f - square(outputDirectionDotMicrofacetNormal));
-  const float cosAngle = sqrt(1.f - sinSquaredAngle);
-
-  if (sinSquaredAngle > 1.f)
-  {
-    return false;
-  }
-
-  refractionDirectionDotMicrofacetNormal = cosAngle;
-
-  return true;
-}
-
-// Fresnel (F): TIR-Enhanced Schlick Approximation
-// https://seblagarde.wordpress.com/2013/04/29/memo-on-fresnel-equations/
-// Note: This is only intended to be used for dielectrics during BRDF/BTDF evaluation (hence the monochromatic
-// fresnel and base reflectivity) as translucent conductors are impossible.
-float evalTranslucentSchlickFresnelTIR(float baseReflectivity,
-                                           float relativeRefractiveIndex,
-                                           float /* v.h */ outputDirectionDotMicrofacetNormal)
-{
-  float modifiedOutputDirectionDotMicrofacetNormal = outputDirectionDotMicrofacetNormal;
-
-  if (relativeRefractiveIndex > 1.f)
-  {
-    if (!evalRefractionCosineAngle(
-      relativeRefractiveIndex,
-      outputDirectionDotMicrofacetNormal,
-      modifiedOutputDirectionDotMicrofacetNormal
-    )) {
-       return 1.f;
-    }
-  }
-
-  return evalTranslucentSchlickFresnel(baseReflectivity, modifiedOutputDirectionDotMicrofacetNormal);
 }
 
 // Normal Distribution (D): Anisotropic GGX
@@ -480,62 +398,12 @@ float evalGGXBoundedVisibleNormalDistributionSamplePdf(vec2 anisotropicRoughness
     k);
 }
 
-// Calculates Beer-Lambert attenuation at a specified distance through a medium with a specified attenuation coefficient.
-float3 evalBeerLambertAttenuation(in const float3 attenuationCoefficient, in const float distance)
-{
-  return exp(-attenuationCoefficient * distance);
-}
-
 // Calculates Beer-Lambert attenuation at an infinite distance through a medium with a specified attenuation coefficient.
 float3 evalBeerLambertInfiniteAttenuation(in const float3 attenuationCoefficient)
 {
   // Note: Return a per-channel attenuation of 0 if any attenuation is desired due to infinite attenuation
   // distance, otherwise return 1.
   return mix(float3(0.0f), float3(1.0f), attenuationCoefficient == float3(0.0f, 0.0f, 0.0f));
-}
-
-// Evaluates the distance of transmitted light through a thin surface based on the thickness and normal
-// and a normalized ray direction
-float evalThinAttenuationDistance(in const float thickness, in const vec3 normal, in const vec3 direction)
-{
-  // Note: Calculated based on the known thickness of the thin surface which represents the desired
-  // magnitude of the direction vector scaled by some distance value projected on to the normal. Since projection
-  // onto the normal vector (assuming both are normalized) is just a dot product, solving this for distance
-  // scalar is trivial. This assumes the normal is always pointing in the opposite direction of the refracting
-  // vector into the surface and that the normal and direction are not parallel (this case should be handled
-  // externally).
-  return thickness / dot(-normal, direction);
-}
-
-// Evaluates the geometric series 1 + x^2 + x^4 + ... where x < 1
-vec3 evalThinGeometricSeries(in const vec3 x)
-{
-  return float(1.0) / (float(1.0) - square(x));
-}
-
-// Evaluate the throughput of a sum of an infinite series of internal reflections in a thin surface under
-// the assumption that the majority of these events in a reflected direction happen very close to the point
-// of initial reflection (and thus can be combined into it)
-// [Kulla 2017, "Revisiting Physically Based Shading at Imageworks"]
-vec3 evalThinReflectionGeometricSeriesThroughput(in const float outsideFresnel,
-                                                    in const float insideFresnel,
-                                                    in const vec3 attenuation)
-{
-  return outsideFresnel +
-         insideFresnel * square(attenuation) * (float(1.0) - outsideFresnel) * (float(1.0) - insideFresnel) *
-         evalThinGeometricSeries(attenuation * insideFresnel);
-}
-
-// Evaluate the throughput of a sum of an infinite series of internal reflections in a thin surface under
-// the assumption that the majority of these events in a transmission direction happen very close to the point
-// of initial transmission (and thus can be combined into it)
-// [Kulla 2017, "Revisiting Physically Based Shading at Imageworks"]
-vec3 evalThinTransmissionGeometricSeriesThroughput(in const float outsideFresnel,
-                                                      in const float insideFresnel,
-                                                      in const vec3 attenuation)
-{
-  return attenuation * (float(1.0f) - outsideFresnel) * (float(1.0f) - insideFresnel) *
-         evalThinGeometricSeries(attenuation * insideFresnel);
 }
 
 // Fresnel Amplitude Coefficients (For S and P polarized light)

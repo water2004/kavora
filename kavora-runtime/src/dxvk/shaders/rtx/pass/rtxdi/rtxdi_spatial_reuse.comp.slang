@@ -37,6 +37,7 @@
 //!>       RTXDI_ENABLE_BSDF_DETAIL=0
 
 //!end-variants
+import "rtx/utility/cloud_density.slang";
 
 #define USE_32BIT_RAY_DIRECTION 1
 #define RAB_HAS_CURRENT_GBUFFER 1
@@ -65,7 +66,7 @@
 #include "rtx/concept/surface/surface.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
 #include "rtx/concept/light/light.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve.h"
 #include "rtx/algorithm/visibility.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
 #if RTXDI_ENABLE_BSDF_DETAIL

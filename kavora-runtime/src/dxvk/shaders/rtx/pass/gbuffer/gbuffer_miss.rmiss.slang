@@ -70,7 +70,7 @@
 // Note: Needed for empty extra args structure.
 #include "rtx/algorithm/resolve.h"
 
-#include "rtx/algorithm/geometry_resolver.slangh"
+#include "rtx/pass/gbuffer/gbuffer_primary.slangh"
 
 [shader("miss")]
 void main(inout GeometryResolverState rayPayload : SV_RayPayload)

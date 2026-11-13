@@ -25,7 +25,7 @@
 #include "rtx/concept/ray_portal/ray_portal.slangh"
 #include "rtx/utility/packing.slangh"
 #include "rtx/algorithm/camera_transport.slangh"
-#include "rtx/concept/surface_material/translucent_medium_state.slangh"
+import "rtx/concept/surface_material/translucent_medium_state.slang";
 #include "rtx/utility/common.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi_reservoir_pages.slangh"
 #include "rtxdi/RtxdiHelpers.slangh"
@@ -220,7 +220,6 @@ struct GeometryResolverState : IBasePayloadState
       set { _accumulatedRotation = f16vec4(newValue); }
   }
 
-#ifdef RAY_PIPELINE
   bool shouldReorder(out uint coherenceHints, out uint numCoherenceHints)
   {
     coherenceHints = 0;
@@ -228,7 +227,6 @@ struct GeometryResolverState : IBasePayloadState
 
     return false;
   }
-#endif // defined(RAY_PIPELINE)
 
   // True if any PSR (reflection or transmission) is being performed for this pixel.
   bool performedAnyPSR()
@@ -440,14 +438,12 @@ struct GeometryPSRResolverState : IBasePayloadState
       set { _accumulatedRotation = f16vec4(newValue); }
   }
 
-#ifdef RAY_PIPELINE
   bool shouldReorder(out uint coherenceHints, out uint numCoherenceHints)
   {
     coherenceHints = 0;
     numCoherenceHints = 0;
     return false;
   }
-#endif // defined(RAY_PIPELINE)
 };
 
 // Data that is passed from the primary rays pass into the Reflection and Transmission PSR passes

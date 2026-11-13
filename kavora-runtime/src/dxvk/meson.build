@@ -209,6 +209,8 @@ dxvk_src = files([
   'rtx_render/rtx_composite.h',
   'rtx_render/rtx_context.cpp',
   'rtx_render/rtx_context.h',
+  'rtx_render/rtx_frame_pipeline.h',
+  'rtx_render/rtx_frame_resources.h',
   'rtx_render/rtx_gpu_crash.cpp',
   'rtx_render/rtx_gpu_crash.h',
   'rtx_render/rtx_debug_view.cpp',
@@ -246,6 +248,7 @@ dxvk_src = files([
   'shaders/rtx/utility/height_fog.h',
   'shaders/rtx/utility/volume_integral.h',
   'shaders/rtx/pass/cloud_args.h',
+  'shaders/rtx/concept/camera/volume_camera.h',
   'shaders/rtx/pass/cloud_noise.h',
   'shaders/rtx/pass/clouds/cloud_sky_binding_indices.h',
   'rtx_render/rtx_gpu_crash_recorder.cpp',
@@ -586,11 +589,30 @@ display_color_layout_checks = custom_target(
   depfile: 'display_color_layout.d',
   depend_files: shader_layout_flags,
   command: [python_interpreter, shader_layout_generator,
-    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'cb', '4'] + shader_layout_includes,
+    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'cb', '4'] + shader_layout_includes + ['--validate-srgb-dither'],
 )
 
+frame_pass_layout_checks = []
+foreach contract : [
+  ['composite', 'composite/composite.comp.slang', 'cb', '16', []],
+  ['ray_reconstruction', 'ray_reconstruction/prepare_ray_reconstruction.comp.slang', 'cb', '16', []],
+  ['dome_composite', 'dome_composite/dome_composite.comp.slang', 'cb', '16', []],
+  ['night_sky', 'dome_composite/dome_composite.comp.slang', 'night', '16', ['-DDOME_NIGHT_SKY']],
+]
+  name = contract[0]
+  frame_pass_layout_checks += custom_target(
+    name + '_layout_checks',
+    input: 'shaders/rtx/pass/' + contract[1],
+    output: name + '_layout_asserts.h',
+    depfile: name + '_layout.d',
+    depend_files: shader_layout_flags,
+    command: [python_interpreter, shader_layout_generator, slang_compiler,
+      '@INPUT@', '@OUTPUT@', '@DEPFILE@', contract[2], contract[3]] + shader_layout_includes + contract[4],
+  )
+endforeach
+
 dxvk_lib = static_library('dxvk', dxvk_src, dxvk_version,
-  [generated_dxvk_shaders, rtx_shaders, dxvk_generated_embedded_files, raytrace_layout_checks, display_color_layout_checks],
+  [generated_dxvk_shaders, rtx_shaders, dxvk_generated_embedded_files, raytrace_layout_checks, display_color_layout_checks] + frame_pass_layout_checks,
   link_with           : [ util_lib, spirv_lib, usd_plugins ], 
   dependencies        : [ dxvk_deps ],
   include_directories : [ dxvk_include_path, dxvk_shader_include_path, rtxdi_include_path, remix_api_include_path, rtxcr_include_path, submodules_include_path ],

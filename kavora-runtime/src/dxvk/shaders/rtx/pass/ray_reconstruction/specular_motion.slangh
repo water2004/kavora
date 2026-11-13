@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 
 // The dense RG16F guide is initialized by Primary Rays and resolved before NGX.
 static const float kRRSpecularMotionUnset = -65504.0f;

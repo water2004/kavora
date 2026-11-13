@@ -173,6 +173,17 @@ PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteractionCreat
   }
 }
 
+[ForceInline]
+TranslucentLobeSampling translucentLobeSampling(RaytraceArgs args)
+{
+  return {
+    { uint16BitsToF32(args.translucentSpecularLobeSamplingProbabilityZeroThreshold),
+      uint16BitsToF32(args.minTranslucentSpecularLobeSamplingProbability) },
+    { uint16BitsToF32(args.translucentTransmissionLobeSamplingProbabilityZeroThreshold),
+      uint16BitsToF32(args.minTranslucentTransmissionLobeSamplingProbability) }
+  };
+}
+
 void polymorphicSurfaceMaterialInteractionCalcSample(
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   inout RNG randomState,
@@ -206,16 +217,21 @@ void polymorphicSurfaceMaterialInteractionCalcSample(
     const OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
 
     opaqueSurfaceMaterialInteractionCalcSample(
-      opaqueSurfaceMaterialInteraction, lobeRandom, randomState, tangentToWorldSpaceQuaternion, minimalRayInteraction,
+      opaqueSurfaceMaterialInteraction, opaqueLobeSampling(cb), lobeRandom, randomState,
+      tangentToWorldSpaceQuaternion, minimalRayInteraction.viewDirection,
       surfaceMaterialInteractionSample, surfaceMaterialInteractionLobeSample,
       insideMedium, penetrateSurface);
 
     break;
   case uint(surfaceMaterialTypeTranslucent):
     const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+    const uint waterMediumIndex = cb.waterMediumMaterialIndex;
+    const TranslucentInterface boundary = translucentInterface(translucentSurfaceMaterialInteraction,
+      medium, waterMediumIndex, surfaceMaterials);
 
     translucentSurfaceMaterialInteractionCalcSample(
-      translucentSurfaceMaterialInteraction, lobeRandom, tangentToWorldSpaceQuaternion, minimalRayInteraction,
+      translucentSurfaceMaterialInteraction, lobeRandom, tangentToWorldSpaceQuaternion, minimalRayInteraction.viewDirection,
+      boundary, waterMediumIndex, translucentLobeSampling(cb),
       surfaceMaterialInteractionSample, surfaceMaterialInteractionLobeSample,
       medium, penetrateSurface);
 
@@ -252,8 +268,8 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
   case uint(surfaceMaterialTypeOpaque):
     const OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
 
-    opaqueSurfaceMaterialInteractionCalcPSRSample(
-      opaqueSurfaceMaterialInteraction, minimalRayInteraction,
+    opaqueSurfaceMaterialInteractionCalcPSRSample<kOpaqueThinFilm>(
+      opaqueSurfaceMaterialInteraction, minimalRayInteraction.viewDirection, cb.psrrNormalDetailThreshold,
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
       diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
       insideMedium, penetrateSurface);
@@ -263,9 +279,17 @@ void polymorphicSurfaceMaterialInteractionCalcPSRSample(
   case uint(surfaceMaterialTypeTranslucent):
     const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
     const float random = getNextSampleBlueNoise(randomState);
+    const uint waterMediumIndex = cb.waterMediumMaterialIndex;
+    const TranslucentInterface boundary = translucentInterface(translucentSurfaceMaterialInteraction,
+      medium, waterMediumIndex, surfaceMaterials);
+    const TranslucentPsrHistory history = {
+      cb.enableDLSSRR != 0, cb.invalidateHistoryForAnimatedWater != 0,
+      cb.psrrNormalDetailThreshold, cb.pstrNormalDetailThreshold
+    };
 
     translucentSurfaceMaterialInteractionCalcPSRSample(
-      translucentSurfaceMaterialInteraction, random, minimalRayInteraction,
+      translucentSurfaceMaterialInteraction, random, minimalRayInteraction.viewDirection,
+      boundary, waterMediumIndex, translucentLobeSampling(cb), history,
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
       diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
       medium, penetrateSurface);

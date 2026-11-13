@@ -32,7 +32,7 @@
 #include "rtx/utility/geometry_flags.slangh"
 #include "rtx/utility/demodulate_helpers.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/concept/ray/ray_helper.slangh"
 #include "rtx/concept/surface/surface.slangh"

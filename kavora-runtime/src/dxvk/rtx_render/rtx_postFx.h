@@ -26,6 +26,7 @@
 #include "dxvk_context.h"
 #include "rtx_objectpicking.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 
 #include "../spirv/spirv_code_buffer.h"
 #include "../util/util_matrix.h"
@@ -37,6 +38,14 @@ namespace dxvk {
 
   class DxvkPostFx {
   public:
+    using MotionBlurResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_postFxIntermediateTexture,
+      &RaytracingFrame::m_primarySurfaceFlags,
+      &RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture1,
+      &RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture2,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_primaryLinearViewZ>;
     enum class InversionMode : uint32_t {
       Invert = 0,
       ThresholdInvert,
@@ -53,7 +62,7 @@ namespace dxvk {
       Rc<DxvkSampler> linearSampler,
       const uvec2& mainCameraResolution,
       const uint32_t frameIdx,
-      const Resources::RaytracingOutput& rtOutput,
+      MotionBlurResources resources,
       const bool cameraCutDetected);
 
     // Lens effects phase (chromatic aberration + vignette). Runs after tonemapping
@@ -65,9 +74,16 @@ namespace dxvk {
       const Resources::AliasedResource& color,
       const Resources::AliasedResource& scratch);
 
+    using HighlightResources = FrameResourceView<
+      &RaytracingFrame::m_primaryObjectPicking,
+      &RaytracingFrame::m_primaryLinearViewZ,
+      &RaytracingFrame::m_compositeOutput,
+      &RaytracingFrame::m_postFxIntermediateTexture>;
+
     void dispatchHighlighting(
       Rc<RtxContext> ctx,
-      const Resources::RaytracingOutput& rtOutput,
+      HighlightResources resources,
+      float missLinearViewZ,
       std::vector<uint32_t>&& objectPickingValuesToHighlight,
       const std::optional<Vector2i>& pixelToHighlight,
       HighlightColor color);

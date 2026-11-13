@@ -28,6 +28,42 @@ namespace dxvk {
   class DxvkPipelineManager;
   class DxvkRayReconstruction : public DxvkDLSS {
   public:
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_primaryAttenuation,
+      &RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness,
+      &RaytracingFrame::m_primaryDisocclusionThresholdMix,
+      &RaytracingFrame::m_secondaryAlbedo,
+      &RaytracingFrame::m_secondarySpecularAlbedo,
+      &RaytracingFrame::m_secondaryAttenuation,
+      &RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughness,
+      &RaytracingFrame::m_sharedFlags,
+      &RaytracingFrame::m_primaryWorldShadingNormalDLSSRR,
+      &RaytracingFrame::m_primaryDepthDLSSRR,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_compositeOutput,
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_primaryAlbedo,
+      &RaytracingFrame::m_primaryAlbedoDLSSRR,
+      &RaytracingFrame::m_primarySpecularAlbedo,
+      &RaytracingFrame::m_primarySpecularAlbedoDLSSRR,
+      &RaytracingFrame::m_primaryPerceptualRoughness,
+      &RaytracingFrame::m_rayReconstructionSpecularMotion,
+      &RaytracingFrame::m_primaryDisocclusionMaskForRR>;
+
+    struct DispatchConstants {
+      VkExtent3D compositeOutputExtent;
+      uint32_t enableRaytracedRenderTarget;
+      uint32_t debugView;
+      vec4 debugKnob;
+      uint32_t frameIdx;
+      const SparseRenderingArgs& sparseRenderingArgs;
+    };
+
+    struct DispatchSettings {
+      bool resetHistory = false;
+      float frameTimeMilliseconds = 16.0f;
+    };
+
     // Note: Values must match NVSDK_NGX_RayReconstruction_Hint_Render_Preset in nvsdk_ngx_defs_dlssd.h.
     // Presets A/B/C were removed in the SDK and G+ are unused, so only the valid presets are exposed here.
     enum class RayReconstructionPreset : uint32_t {
@@ -48,9 +84,9 @@ namespace dxvk {
     void dispatch(
       Rc<RtxContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
-      bool resetHistory = false,
-      float frameTimeMilliseconds = 16.0f);
+      DispatchResources resources,
+      const DispatchConstants& constants,
+      const DispatchSettings& settings);
 
     void release();
 

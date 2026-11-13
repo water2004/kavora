@@ -38,27 +38,43 @@
 
 namespace dxvk {
   namespace {
-    class SRGBDitherShader : public ManagedShader {
-      SHADER_SOURCE(SRGBDitherShader, VK_SHADER_STAGE_COMPUTE_BIT, srgb_dither)
+    template<uint32_t Slot, VkDescriptorType Type, VkImageViewType View, Resources::AccessType Access>
+    struct ImageBinding {
+      static DxvkResourceSlot descriptor() {
+        constexpr auto write = Access == Resources::AccessType::Read ? VK_ACCESS_NONE_KHR : VK_ACCESS_SHADER_WRITE_BIT;
+        return { Slot, Type, View, write };
+      }
+
+      static const Resources::Resource& resource(const Resources::AliasedResource& image) {
+        return image.resource(Access);
+      }
+
+      static void bind(RtxContext& ctx, const Rc<DxvkImageView>& view) {
+        ctx.bindResourceView(Slot, view, nullptr);
+      }
+    };
+
+    using BlueNoise = ImageBinding<SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+      VK_IMAGE_VIEW_TYPE_2D_ARRAY, Resources::AccessType::Read>;
+    using FinalColor = ImageBinding<SRGB_DITHER_COLOR_INPUT_OUTPUT, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      VK_IMAGE_VIEW_TYPE_2D, Resources::AccessType::ReadWrite>;
+
+    class SRGBDitherBindings : public ManagedShader {
+    public:
+      static std::vector<DxvkResourceSlot> getResourceSlots() {
+        return { BlueNoise::descriptor(), FinalColor::descriptor() };
+      }
 
       PUSH_CONSTANTS(SRGBDitherArgs)
+    };
 
-      BEGIN_PARAMETER()
-        TEXTURE2DARRAY(SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT)
-        RW_TEXTURE2D(SRGB_DITHER_COLOR_INPUT_OUTPUT)
-      END_PARAMETER()
+    class SRGBDitherShader : public SRGBDitherBindings {
+      SHADER_SOURCE(SRGBDitherShader, VK_SHADER_STAGE_COMPUTE_BIT, srgb_dither)
     };
     PREWARM_SHADER_PIPELINE(SRGBDitherShader);
 
-    class SRGBDitherInversionShader : public ManagedShader {
+    class SRGBDitherInversionShader : public SRGBDitherBindings {
       SHADER_SOURCE(SRGBDitherInversionShader, VK_SHADER_STAGE_COMPUTE_BIT, srgb_dither_inversion)
-
-      PUSH_CONSTANTS(SRGBDitherArgs)
-
-      BEGIN_PARAMETER()
-        TEXTURE2DARRAY(SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT)
-        RW_TEXTURE2D(SRGB_DITHER_COLOR_INPUT_OUTPUT)
-      END_PARAMETER()
     };
   }
 
@@ -78,7 +94,7 @@ namespace dxvk {
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
-    const Resources::Resource& inoutColorBuffer = color.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inoutColorBuffer = FinalColor::resource(color);
 
     const VkExtent3D workgroups = util::computeBlockCount(inoutColorBuffer.view->imageInfo().extent, VkExtent3D{ 16, 16, 1 });
 
@@ -95,8 +111,8 @@ namespace dxvk {
     }
     pushArgs.frameIndex = RtxOptions::rngSeedWithFrameIndex() ? ctx->getDevice()->getCurrentFrameId() : 0;
 
-    ctx->bindResourceView(SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT, ctx->getResourceManager().getBlueNoiseTexture(ctx), nullptr);
-    ctx->bindResourceView(SRGB_DITHER_COLOR_INPUT_OUTPUT, inoutColorBuffer.view, nullptr);
+    BlueNoise::bind(*ctx, ctx->getResourceManager().getBlueNoiseTexture(ctx));
+    FinalColor::bind(*ctx, inoutColorBuffer.view);
 
     const float inversion = DxvkPostFx::inversionAmount();
     if (inversion > 0.0f) {

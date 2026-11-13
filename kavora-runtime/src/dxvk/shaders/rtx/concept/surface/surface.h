@@ -29,7 +29,7 @@
 
 #include "surface_shared.h"
 #include "rtx/utility/packing.slangh"
-#include "rtx/utility/atlas_mip_bounds.h"
+import "rtx/utility/atlas_coordinates.slang";
 
 struct Surface
 {
@@ -620,58 +620,3 @@ struct GBufferMemoryMinimalSurfaceInteraction
   vec4 encodedWorldPositionWorldTriangleTBN;
   float positionError;
 };
-
-struct AtlasSampleRegion
-{
-  vec2 origin;
-  vec2 extent;
-  vec2 minimum;
-  vec2 maximum;
-  bool enabled;
-
-  vec2 wrap(vec2 coordinates)
-  {
-    if (!enabled)
-    {
-      return coordinates;
-    }
-    const vec2 wrapped = origin + frac((coordinates - origin) / extent) * extent;
-    return clamp(wrapped, minimum, maximum);
-  }
-};
-
-// Bounds have zero extent when a surface does not opt into atlas wrapping.
-AtlasSampleRegion atlasSampleRegionCreate(vec4 bounds, vec2 textureSize, float mip = 0.f)
-{
-  AtlasSampleRegion region = {};
-  region.origin = bounds.xy;
-  region.extent = bounds.zw - bounds.xy;
-  region.enabled = all(region.extent > 0.f) && all(isfinite(bounds));
-  if (region.enabled)
-  {
-    region.minimum = vec2(AtlasSampling::firstCenter(bounds.x, textureSize.x, mip),
-      AtlasSampling::firstCenter(bounds.y, textureSize.y, mip));
-    region.maximum = vec2(AtlasSampling::lastCenter(bounds.z, textureSize.x, mip),
-      AtlasSampling::lastCenter(bounds.w, textureSize.y, mip));
-  }
-  return region;
-}
-
-vec2 wrapAtlasCoordinates(vec2 coordinates, vec4 bounds, vec2 textureSize, float mip = 0.f)
-{
-  return atlasSampleRegionCreate(bounds, textureSize, mip).wrap(coordinates);
-}
-
-vec2 packAtlasBounds(vec4 bounds)
-{
-  const uint lo = f32tof16(bounds.x) | (f32tof16(bounds.y) << 16);
-  const uint hi = f32tof16(bounds.z) | (f32tof16(bounds.w) << 16);
-  return asfloat(uint2(lo, hi));
-}
-
-vec4 unpackAtlasBounds(vec2 packed)
-{
-  const uint2 bits = asuint(packed);
-  return vec4(f16tof32(bits.x & 0xffff), f16tof32(bits.x >> 16),
-    f16tof32(bits.y & 0xffff), f16tof32(bits.y >> 16));
-}

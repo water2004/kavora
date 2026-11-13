@@ -15,6 +15,6 @@ The current runtime's ray-segment and multiple-scattering integrators remain.
 
 Modified shader source in water2004/dxvk-remix:
   src/dxvk/shaders/rtx/utility/cloud_noise.slangh
-  src/dxvk/shaders/rtx/utility/cloud_density.slangh
+  src/dxvk/shaders/rtx/utility/cloud_density.slang
   src/dxvk/shaders/rtx/pass/clouds/generate_cloud_noise.comp.slang
   src/dxvk/shaders/rtx/pass/clouds/generate_cloud_weather.comp.slang

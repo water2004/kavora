@@ -34,6 +34,12 @@
 
 namespace dxvk::str {
 
+  // NV-DXVK start: Keep UTF-8 byte strings at legacy API boundaries.
+  inline std::string_view utf8Bytes(std::u8string_view text) {
+    return { reinterpret_cast<const char*>(text.data()), text.size() };
+  }
+  // NV-DXVK end
+
   std::string fromws(const WCHAR *ws);
 
   void tows(const char* mbs, WCHAR* wcs, size_t wcsLen);

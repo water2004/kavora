@@ -22,7 +22,7 @@
 #pragma once
 
 #include "dxvk_context.h"
-#include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_types.h"
 #include "../dxvk_include.h"
 #include "rtx_options.h"
@@ -32,6 +32,24 @@ struct RaytraceArgs;
 struct CompositeArgs;
 
 namespace dxvk {
+  using CompositeResources = FrameResourceView<
+    &RaytracingFrame::m_raytraceArgs, &RaytracingFrame::m_sharedFlags,
+    &RaytracingFrame::m_sharedRadianceRG, &RaytracingFrame::m_sharedRadianceB,
+    &RaytracingFrame::m_primaryAttenuation, &RaytracingFrame::m_primarySpecularAlbedo,
+    &RaytracingFrame::m_primaryLinearViewZ, &RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness,
+    &RaytracingFrame::m_secondaryAttenuation, &RaytracingFrame::m_secondaryAlbedo,
+    &RaytracingFrame::m_secondarySpecularAlbedo, &RaytracingFrame::m_primaryDirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryDirectSpecularRadiance, &RaytracingFrame::m_primaryIndirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryIndirectSpecularRadiance, &RaytracingFrame::m_secondaryCombinedDiffuseRadiance,
+    &RaytracingFrame::m_secondaryCombinedSpecularRadiance, &RaytracingFrame::m_bsdfFactor,
+    &RaytracingFrame::m_sparseRenderingPixelSamplingRate, &RaytracingFrame::m_alphaBlendGBuffer,
+    &RaytracingFrame::m_sparseRenderingActivePixelMask, &RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords,
+    &RaytracingFrame::m_sparseRenderingCompactedPixelIndices, &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+    &RaytracingFrame::m_primarySurfaceFlags, &RaytracingFrame::m_primaryAlbedo,
+    &RaytracingFrame::m_compositeOutput, &RaytracingFrame::m_primaryCoverage,
+    &RaytracingFrame::m_alphaBlendRadiance, &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+    &RaytracingFrame::m_rayReconstructionSpecularMotion, &RaytracingFrame::m_controlMask,
+    &RaytracingFrame::m_compositeOutputExtent>;
   class Config;
   class SceneManager;
   class DxvkDevice;
@@ -59,7 +77,7 @@ namespace dxvk {
     void dispatch(
       Rc<RtxContext> ctx,
       SceneManager& sceneManager,
-      const Resources::RaytracingOutput& rtOutput,
+      CompositeResources resources,
       const Settings& setting);
 
     void showImguiSettings();

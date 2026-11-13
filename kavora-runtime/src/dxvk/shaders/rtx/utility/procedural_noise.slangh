@@ -27,6 +27,8 @@
 // Note: This include must be under the "noise.slangh" include as it depends on Remix noise algorithms.
 #include "rtx/external/simplex_noise.slangh"
 
+import "rtx/utility/value_noise_sampling.slang";
+
 // Fractal Brownian Motion
 
 interface IFractalNoiseSource<TCoordinate>
@@ -81,8 +83,6 @@ float4 valueNoiseLutSample<let useTricubicFiltering : bool>(float3 texelPosition
 {
   const float3 inverseValueNoiseResolution = float3(1.0f / VALUE_NOISE_RESOLUTION);
 
-  float4 s;
-
   // Note: For some purposes trilinearly filtered value noise samples work fine, but for others not so much.
   // For instance, aliasing artifacts appear when raymarching through the volumetric density field when using turbulent fractal
   // noise sourced from trilinearly filtered value noise, but these artifacts do not appear when using tricubic filtering or non-turbulent
@@ -91,13 +91,10 @@ float4 valueNoiseLutSample<let useTricubicFiltering : bool>(float3 texelPosition
   // samples total), so keep this in mind when using value noise heavily, and perhaps consider using the trilinear version whenever possible
   // to avoid performance issues.
   if (useTricubicFiltering) {
-    s = TricubicSample(ValueNoiseSampler, texelPosition, inverseValueNoiseResolution);
-  } else {
-    s = ValueNoiseSampler.SampleLevel(texelPosition * inverseValueNoiseResolution, 0);
+    return unormF32ToSnormF32(TricubicSample(ValueNoiseSampler, texelPosition, inverseValueNoiseResolution));
   }
 
-  // Note: Convert unorm to snorm as is expected for signed value noise.
-  return unormF32ToSnormF32(s);
+  return sampleLinearValueNoise(ValueNoiseSampler, texelPosition);
 }
 
 float valueNoise4D<let useTricubicFiltering : bool>(float4 x)

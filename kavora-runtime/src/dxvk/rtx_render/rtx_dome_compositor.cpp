@@ -5,6 +5,7 @@
 #include "rtx_context.h"
 #include "rtx_shader_manager.h"
 #include "rtx/pass/dome_composite/dome_composite_args.h"
+#include "dome_composite_layout_asserts.h"
 #include <rtx_shaders/dome_composite.h>
 #include <rtx_shaders/dome_composite_night.h>
 #include <rtx_shaders/dome_composite_end.h>

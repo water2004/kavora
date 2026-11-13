@@ -26,6 +26,7 @@
 
 #include "rtx_option.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "../util/util_export_macros.h"
 
 namespace nrc {
@@ -33,6 +34,16 @@ namespace nrc {
 }
 
 namespace dxvk {
+  using NrcResolveFrame = FrameResourceView<
+    &RaytracingFrame::m_raytraceArgs,
+    &RaytracingFrame::m_sharedFlags,
+    &RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords,
+    &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+    &RaytracingFrame::m_primaryIndirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryIndirectSpecularRadiance,
+    &RaytracingFrame::m_indirectRadianceHitDistance,
+    &RaytracingFrame::m_gpuPrintBuffer>;
+
   class RtxContext;
   class DxvkDevice;
   class NrcContext;
@@ -184,11 +195,11 @@ namespace dxvk {
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
     // To be called after both query and training PT passes completed to get a resolved radiance output
-    void dispatchTrainingAndResolve(RtxContext& ctx,  const Resources::RaytracingOutput& rtOutput);
+    void dispatchTrainingAndResolve(RtxContext& ctx, NrcResolveFrame frame);
 
     // Invoked after the command list has been submitted.
     // The command queue must be the same one that was used to execute all the previous command lists
-    void onFrameEnd(Resources::RaytracingOutput& rtOutput);
+    void onFrameEnd();
 
     void showImguiSettings(DxvkContext& ctx);
 
@@ -237,7 +248,7 @@ namespace dxvk {
     bool isEnabled() const override;
     bool initialize(DxvkDevice& device);
     void releaseResources();
-    void dispatchResolve(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatchResolve(RtxContext& ctx, NrcResolveFrame frame);
     void copyNumberOfTrainingRecords(RtxContext& ctx);
     void readAndResetNumberOfTrainingRecords();
     void calculateActiveTrainingDimensions(float frameTimeMilliseconds, bool forceReset);

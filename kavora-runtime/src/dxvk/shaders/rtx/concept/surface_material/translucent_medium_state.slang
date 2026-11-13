@@ -1,0 +1,30 @@
+// SPDX-FileCopyrightText: Copyright (c) Kavora contributors
+// SPDX-License-Identifier: MIT
+module translucent_medium_state;
+
+// A ray carries a constant material index or the extinction sampled on entry.
+// Vacuum uses SURFACE_INDEX_INVALID. The PSR payload has room for 25 bits.
+public static const uint mediumStateBitCount = 25;
+public static const uint mediumStateMask = (1u << mediumStateBitCount) - 1u;
+public static const uint mediumStateSampledBit = 1u << 24;
+
+uint packMediumExtinctionChannel(float extinction)
+{
+  // Unsigned float with the half exponent and the three highest mantissa bits.
+  // Clamp to the largest finite value and round the discarded mantissa.
+  const uint halfBits = f32tof16(min(extinction, 61440.0f)) & 0x7fffu;
+  return (halfBits + 0x40u) >> 7;
+}
+
+public uint packMediumExtinction(float3 extinction)
+{
+  return mediumStateSampledBit | packMediumExtinctionChannel(extinction.x) |
+    (packMediumExtinctionChannel(extinction.y) << 8) |
+    (packMediumExtinctionChannel(extinction.z) << 16);
+}
+
+public float3 unpackMediumExtinction(uint state)
+{
+  const uint3 channels = (state >> uint3(0, 8, 16)) & 0xffu;
+  return float3(f16tof32(channels.x << 7), f16tof32(channels.y << 7), f16tof32(channels.z << 7));
+}

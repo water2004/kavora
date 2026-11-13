@@ -1,0 +1,211 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/path_state.slangh"
+#include "rtx/utility/gbuffer_helpers.slangh"
+#include "rtx/pass/nrc/nrc_integrator_utilities.slangh"
+
+// Connects indirect paths to NRC's update and query state.
+
+NrcProgressState updateNrcOnHit(
+  inout PathState pathState,
+  SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+{
+  NrcProgressState nrcProgressState = NrcProgressState::Continue;
+
+#if ENABLE_NRC
+
+  const vec3 prevThroughput = pathState.throughput;
+
+  nrcProgressState = Nrc::updateNrcOnHit(pathState.pixelCoordinate, pathState.nrcPixelIndex, pathState.isNrcUpdate,
+    surfaceInteraction.position, polymorphicSurfaceMaterialInteraction, -pathState.direction,
+    pathState.bounceIteration, pathState.segmentHitDistance, false, cb.nrcArgs,
+    pathState.throughput, pathState.radiance, pathState.nrcPathState);
+
+  // Update the total throughput when NRC resets it
+  if (pathState.isNrcUpdate && all(pathState.throughput == 1.0f))
+  {
+    pathState.throughputFullPath *= prevThroughput;
+  }
+
+#else
+
+  unused(pathState);
+
+#endif
+
+  return nrcProgressState;
+}
+
+#if ENABLE_NRC
+// Loads radiance integrated for a path prior to indirect integrate pass for an NRC update pass
+vec3 loadIntegratedRadiancePriorToIntegrateIndirect(
+  u16vec2 nrcPixelCoordinate,
+  u16vec2 compactedRadianceCoordinate,
+  PathState pathState,
+  GeometryFlags geometryFlags)
+{
+  // Reload integrated radiance up to this point for training paths as that is what NRC expects.
+  // NRC does not care about nor manage the path state radiance for query paths.
+  // In query paths, it is up to the path tracer to manage it, so we skip reloading it here and
+  // preserve default non-NRC behavior of the integrator
+  if (pathState.isNrcQuery)
+  {
+    return vec3(0.f);
+  }
+  // Direct lighting radiance
+  vec3 directLightingRadiance;
+  {
+    vec3 diffuseRadiance;
+    vec3 specularRadiance;
+
+    if (geometryFlags.primarySelectedIntegrationSurface)
+    {
+      diffuseRadiance = PrimaryDirectDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+      specularRadiance = PrimaryDirectSpecularLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+    }
+    else
+    {
+      diffuseRadiance = SecondaryCombinedDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+      specularRadiance = SecondaryCombinedSpecularLobeRadianceHitDistance[compactedRadianceCoordinate].xyz;
+    }
+
+    directLightingRadiance = diffuseRadiance + specularRadiance;
+  }
+
+  const vec3 primarySurfaceRadiance = vec3(
+    RadianceCacheUpdateGBufferSurfaceRadianceRG[nrcPixelCoordinate],
+    RadianceCacheUpdateGBufferSurfaceRadianceB[nrcPixelCoordinate]);
+
+  return primarySurfaceRadiance + directLightingRadiance;
+}
+#endif
+
+// Initializes NRC state for the begining of Indirect path resolve.
+// Sets pathState.continuePath to false if the path should terminate
+void initNrc(
+  inout PathState pathState,
+  u16vec2 compactedRadianceCoordinate,
+  bool isNrcUpdate,
+  GeometryFlags geometryFlags,
+  float firstSampledSolidAnglePdf,
+  bool firstSampledLobeIsOpacityTransmission)
+{
+#if ENABLE_NRC
+  pathState.isNrcUpdate = isNrcUpdate;
+
+  if (isNrcUpdate)
+  {
+    pathState.throughputFullPath = vec3(1.0f);
+  }
+
+  // Cache the coordinate since it's calculated
+  const u16vec2 nrcPixelCoordinate = pathState.pixelCoordinate;
+
+  // Reload NRC path state
+  NrcProgressState prevHitNrcProgressState;
+
+  // The GBuffer stored the path state at the NRC pixel index, which for a query path is its compacted slot.
+  if (isNrcUpdate)
+  {
+    // Note: NrcPathData0 is unused for isNrcUpdate
+    pathState.nrcPathState = Nrc::loadNrcPathState(pathState.nrcPixelIndex, !isNrcUpdate, prevHitNrcProgressState, NrcPathData0, NrcUpdatePathData1);
+  }
+  else
+  {
+    pathState.nrcPathState = Nrc::loadNrcPathState(pathState.nrcPixelIndex, isNrcUpdate, prevHitNrcProgressState, NrcPathData0, NrcPathData1);
+  }
+
+  // Gbuffer pass writes out final path info for query paths with NrcProgressState::TerminateImmediately on primary hit,
+  // and we don't pass all the data needed to do so from GBuffer pass, so disable duplicatively writing it again
+  pathState.writeFinalPathInfo = isNrcUpdate || prevHitNrcProgressState != NrcProgressState::TerminateImmediately;
+
+  if (cb.debugView == DEBUG_VIEW_NRC_UPDATE_IS_UNBIASED && isNrcUpdate)
+  {
+    storeInDebugView(nrcPixelCoordinate, NrcGetFlag(pathState.nrcPathState.packedData, nrcPathFlagIsUnbiased));
+  }
+
+  // Handle Nrc progress state from primary surface hit at this time
+  if (prevHitNrcProgressState == NrcProgressState::TerminateImmediately ||
+      prevHitNrcProgressState == NrcProgressState::TerminateAfterDirectLighting)
+  {
+    // Invalidate Direct Lighting contribution if NRC asked for it.
+    // Note: This is not a common scenario since it is undesirable to sample the cache at vertex 0.
+    //   This can however happen for debug cases, such as when visualizing the cache at vertex 0.
+    //   The reason this state resolve is delayed to indirect pass is that because Direct Lighting pass is aliased
+    //   for both training and query paths and both of which can possibly end up with a different progress state
+    if (prevHitNrcProgressState == NrcProgressState::TerminateImmediately &&
+        // Training paths do not use the following buffers after the indirect pass so there is no need to clear them
+        pathState.isNrcQuery)
+    {
+      PrimaryDirectDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate] = vec4(vec3(0), kEmptyPixelHitDistance);
+      PrimaryDirectSpecularLobeRadianceHitDistance[compactedRadianceCoordinate] = vec4(vec3(0), kEmptyPixelHitDistance);
+      SecondaryCombinedDiffuseLobeRadianceHitDistance[compactedRadianceCoordinate] = vec4(vec3(0), kEmptyPixelHitDistance);
+      SecondaryCombinedSpecularLobeRadianceHitDistance[compactedRadianceCoordinate] = vec4(vec3(0), kEmptyPixelHitDistance);
+    }
+
+    pathState.continuePath = false;
+    return;
+  }
+
+  pathState.radiance += loadIntegratedRadiancePriorToIntegrateIndirect(nrcPixelCoordinate, compactedRadianceCoordinate, pathState, geometryFlags);
+
+  // ToDo: obsolete comment?
+  // Note: Remix PT separates throughput prior to GBuffer hit and after, so thus NRC doesn't change it on a GBuffer hit for training paths.
+  // Therefore, default non-NRC behavior applies to it - we keep the one already initialized in the PathState
+
+  NrcSetBrdfPdf(pathState.nrcPathState, firstSampledSolidAnglePdf);
+  if (firstSampledLobeIsOpacityTransmission)
+  {
+    NrcSetFlag(pathState.nrcPathState.packedData, nrcPathFlagPreviousHitWasDeltaLobe);
+  }
+#else
+  unused(pathState);
+#endif
+}
+
+void writeToNrcOutputsAfterIntegration(PathState pathState)
+{
+#if ENABLE_NRC
+  Nrc::setNrcMode(pathState.isNrcUpdate);
+
+  // Cache the coordinate since it's calculated
+  const u16vec2 pixelCoordinate = pathState.pixelCoordinate;
+
+  const NrcContext nrcContext = Nrc::createNrcContext(pathState.nrcPixelIndex);
+
+  // Sanitize the inputs since they occasionally have NaNs
+  Nrc::sanitizeNrcInputs(pathState.isNrcUpdate, cb.nrcArgs, pathState.throughput, pathState.radiance);
+
+  // Note: A path had a bounce index increased when it exits, so it is the same case
+  // as if a new indirect hit was hit when debug registering radiance on NRC hit
+  Nrc::debugRegisterNrcRadiance(pixelCoordinate, pathState.isNrcUpdate,
+    pathState.bounceIteration, pathState.radiance, pathState.throughput, false, cb.debugView);
+
+  if (pathState.writeFinalPathInfo)
+  {
+    NrcWriteFinalPathInfo(nrcContext, pathState.nrcPathState, pathState.throughput, pathState.radiance);
+  }
+#endif
+}

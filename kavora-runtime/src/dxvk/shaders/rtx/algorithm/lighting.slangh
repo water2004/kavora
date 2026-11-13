@@ -24,7 +24,7 @@
 #include "rtx/utility/noise.slangh"
 #include "rtx/utility/gbuffer_helpers.slangh"
 #include "rtx/utility/gpu_printing.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/concept/surface/surface.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
@@ -239,7 +239,7 @@ bool sampleLightAdvancedRIS(
       MinimalRayInteraction minimalRayInteraction;
       minimalRayInteraction.viewDirection = viewDirection;
       const vec3 inputDirection = normalize(candidateSample.position - surfaceInteraction.position);
-      const SurfaceMaterialInteractionSplitWeight splitWeight = opaqueSurfaceMaterialInteractionCalcApproxProjectedWeight(opaqueSurfaceMaterialInteraction, minimalRayInteraction, inputDirection);
+      const SurfaceMaterialInteractionSplitWeight splitWeight = opaqueSurfaceMaterialInteractionCalcApproxProjectedWeight(opaqueSurfaceMaterialInteraction, minimalRayInteraction.viewDirection, inputDirection);
       // Note: Only divide by the light sample's PDF if it is non-zero (as it may be zero when sampling a light from a specific location is impossible).
       const float lightThroughput = candidateSample.solidAnglePdf > 0.0f ? 1.0f / candidateSample.solidAnglePdf : 0.0f;
       const float targetPdf = calcBt709Luminance(candidateSample.radiance * (

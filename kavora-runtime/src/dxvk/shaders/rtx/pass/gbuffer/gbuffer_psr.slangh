@@ -1,0 +1,726 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/resolve_ordered.slangh"
+#include "rtx/algorithm/resolve_unordered.slangh"
+#include "rtx/algorithm/ray_traversal_bindings.slangh"
+
+import "rtx/pass/gbuffer/gbuffer_motion.slang";
+#include "rtx/pass/gbuffer/gbuffer_output.slangh"
+#include "rtx/pass/gbuffer/gbuffer_shading_cache.slangh"
+#include "rtx/algorithm/geometry_resolver_state.slangh"
+#include "rtx/algorithm/nee_cache_light.slangh"
+#include "rtx/concept/surface/appearance_lighting.slangh"
+
+// Decodes a PSR continuation, shades its path and publishes its final surface.
+
+static const uint8_t psrTypeReflection = uint8_t(0);
+static const uint8_t psrTypeTransmission = uint8_t(1);
+
+// Note: Logic grouped into function to make loop count termination more unified with non-PSR continuation cases in calling logic.
+void geometryPSRResolverEvaluateContinuation(
+  inout GeometryPSRResolverState geometryPSRResolverState, uint8_t psrType,
+  MinimalRayInteraction minimalRayInteraction, PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  inout SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionReflectionPSRSample,
+  inout SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionTransmissionPSRSample,
+  inout vec3 diffuseLayerWeight,
+  inout uint transmissionMedium,
+  inout bool penetrateSurface,
+  inout bool useReflectionPSRSample,
+  inout bool useTransmissionPSRSample,
+  inout bool isLastBounce)
+{
+  // Check for PSR Resolver termination
+
+  bool shouldTerminate = false;
+  isLastBounce = false;
+
+  if (psrType == psrTypeReflection)
+  {
+    shouldTerminate = geometryPSRResolverState.bounceIteration > cb.psrrMaxBounces;
+    isLastBounce = geometryPSRResolverState.bounceIteration >= cb.psrrMaxBounces;
+  }
+  else if (psrType == psrTypeTransmission)
+  {
+    shouldTerminate = geometryPSRResolverState.bounceIteration > cb.pstrMaxBounces;
+    isLastBounce = geometryPSRResolverState.bounceIteration >= cb.pstrMaxBounces;
+  }
+
+  // We currently don't support reflections off of POM
+  if (!cb.pomEnablePSR && polymorphicSurfaceMaterialInteractionHasHeightTexture(polymorphicSurfaceMaterialInteraction))
+  {
+    shouldTerminate = true;
+  }
+
+  if (shouldTerminate)
+  {
+    useReflectionPSRSample = false;
+    useTransmissionPSRSample = false;
+
+    return;
+  }
+
+  // Attempt to sample new PSR information
+
+  // Note: Selected integration surface not relevant when evaluating a PSR path, only used on the first hit. Random state not
+  // needed either in this case as the RNG is only used for doing this stochastic selection.
+  RNG dummyRandomState = createRNG(uvec2(0, 0), 0);
+  bool dummyReflectionSelectedIntegrationSurface;
+  float dummySelectedIntegrationSurfacePdf;
+
+  polymorphicSurfaceMaterialInteractionCalcPSRSample(
+    polymorphicSurfaceMaterialInteraction, dummyRandomState, minimalRayInteraction,
+    surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
+    diffuseLayerWeight, dummyReflectionSelectedIntegrationSurface, dummySelectedIntegrationSurfacePdf,
+    transmissionMedium, penetrateSurface);
+
+  // Calculate transmission related PSR flags
+
+  const bool pstrOutgoingSplitApproximation = cb.enablePSTROutgoingSplitApproximation;
+  const bool pstrSecondaryIncidentSplitApproximation = cb.enablePSTRSecondaryIncidentSplitApproximation;
+
+  // Table of transmission-related flag cases:
+  // Inside Medium | Penetrate Surface | Meaning
+  // --------------+-------------------+--------
+  // True          | False             | TIR case
+  // False         | True              | Inside->Outside Transmission Exception (Decent quality except around TIR borders when enabled)
+  // True          | True              | Outside->Inside Transmission Exception (Less high quality in multi-layered transmission when enabled but good for many layers of windows)
+  // False         | False             | Impossible state for transmission logic typically, not something that needs to be worried about.
+  // Note: Inside medium flag describes the state of the sampled ray, for example if the ray is currently inside a medium and a transmission event is sampled,
+  // it will be set to false upon reaching this point.
+  const bool tirSampleCase = geometryPSRResolverState.insideMedium && !penetrateSurface;
+  const bool insideOutsideTransmissionCase = transmissionMedium == SURFACE_INDEX_INVALID && penetrateSurface && pstrOutgoingSplitApproximation;
+  const bool outsideInsideTransmissionCase = transmissionMedium != SURFACE_INDEX_INVALID && penetrateSurface && pstrSecondaryIncidentSplitApproximation;
+  const bool betweenMedia = penetrateSurface && geometryPSRResolverState.insideMedium &&
+    transmissionMedium != SURFACE_INDEX_INVALID && transmissionMedium != geometryPSRResolverState.mediumState;
+
+  // Determine which PSR sample information should be used (if any) for PSR continuation
+
+  // Note: PSR continuation follows reflection events when no path splits occur (typical opaque mirrorlike reflection),
+  // follows transmission TIR, as well as making an expection on the no splitting rule by following transmission on
+  // surface-exiting or entering translucency interactions (when requested). Note this will cause incorrect looking darkening
+  // near the TIR boundary on glass as well as missing translucent reflections past the first translucent hit, but it will
+  // significantly improve quality when dealing with single glass layers. Additionally note that the first hit where a split
+  // occured is already handled on translucent surfaces by a split of reflections and transmission, this logic is only concerned
+  // with the continuation path the PSR takes. Finally, note that this logic is the same between if the psrType is reflection
+  // or transmission because both Reflection and Transmission PSR follow the same rules essentially, allowing Reflection PSR
+  // to follow transmission events just the same when approximations are requested.
+
+  // Note: Reflection and transmission PSR should be mutually exclusive with this setup.
+  useReflectionPSRSample =
+    surfaceMaterialInteractionReflectionPSRSample.performPSR &&
+    !surfaceMaterialInteractionTransmissionPSRSample.performPSR;
+  useTransmissionPSRSample =
+    surfaceMaterialInteractionTransmissionPSRSample.performPSR &&
+    (tirSampleCase || insideOutsideTransmissionCase || outsideInsideTransmissionCase || betweenMedia);
+}
+
+void geometryPSRResolverVertex(
+  EmptyExtraArgs extraArgs, RayHitInfo rayHitInfo,
+  inout GeometryPSRResolverState geometryPSRResolverState)
+{
+  // Setup resolve state
+  uint8_t psrType = geometryPSRResolverState.isTransmissionPSR ? psrTypeTransmission : psrTypeReflection;
+
+  // Note: Emissives are fine to approximate even on primary rays (since lighting rarely
+  // matters on them), and non-emissive opacity particles should be lit with the lighting approximation.
+  const uint8_t resolveMode =
+    resolveModeAlteredDirectionNotify |
+    resolveModeEmissiveOpacityTransmissionApprox |
+    resolveModeDecalMaterialBlending |
+    (cb.enableSeparateUnorderedApproximations ? resolveModeSeparateUnorderedApproximations : 0);
+  vec3 radianceAttenuation = vec3(1.0f, 1.0f, 1.0f);
+  vec3 emissiveRadiance = vec3(0);
+
+  // Handle Unordered Resolving
+  // Note: Done before resolveVertex so attenuation from unordered objects
+  // between the origin and the hit point can be accumulated in advance.
+
+  Ray unorderedResolveRay;
+  unorderedResolveRay.origin = geometryPSRResolverState.origin;
+  unorderedResolveRay.coneRadius = geometryPSRResolverState.coneRadius;
+  unorderedResolveRay.spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
+  unorderedResolveRay.direction = geometryPSRResolverState.direction;
+  unorderedResolveRay.tMax = rayHitInfo.hasHit ? rayHitInfo.hitDistance * kUnorderedResolveRayLengthening : floatMax;
+
+  uint numUnorderedInteractions = 0;
+  uint8_t unorderedRayMask = convertPrimaryRayMaskToUnordered(geometryPSRResolverState.rayMask, OBJECT_MASK_ALL_UNORDERED);
+
+  geometryPSRResolverState.decalEncountered = false;
+
+  uint4 decalMemory = 0;
+  f16vec3 decalEmissiveRadiance = f16vec3(0.0h);
+  int surfaceIndex;
+  resolveVertexUnordered<RAY_FLAG_CULL_OPAQUE, true, true>(
+    resolveMode, unorderedResolveRay,
+    unorderedRayMask, geometryPSRResolverState.portalSpace,
+    /* useIntersectionBillboards = */ cb.enableBillboardOrientationCorrection,
+    u16vec2(65535, 65535),
+    geometryPSRResolverState.accumulatedRotation, geometryPSRResolverState.accumulatedHitDistance, 1.0f,
+    radianceAttenuation, emissiveRadiance,
+    numUnorderedInteractions,
+    geometryPSRResolverState.decalEncountered, decalMemory, decalEmissiveRadiance, surfaceIndex,
+    geometryPSRResolverState.mediumState);
+
+  // Note: Add to the number of unordered interactions in the debug view based on the number of unordered interactions in resolving.
+  if (gbufferDebugViewEnabled && (cb.debugView == DEBUG_VIEW_PRIMARY_UNORDERED_INTERACTIONS || cb.debugView == DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS))
+  {
+    accumulateInDebugViewAdd(geometryPSRResolverState.pixelCoordinate, numUnorderedInteractions);
+  }
+
+  // Invoke the Resolve Vertex function
+
+  Ray ray;
+  RayInteraction rayInteraction;
+  Surface surface;
+  SurfaceInteraction surfaceInteraction;
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction;
+  bool isRaytracedRenderTarget = false;
+
+  bool isStochasticAlphaBlend = false; // note, not actually used here
+  uint8_t firstRayPortal = invalidRayPortalIndex;
+
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+  const bool evaluatePomSilhouette = cb.pomSilhouettesBehindTranslucency &&
+    geometryPSRResolverState.continueResolving && geometryPSRResolverState.isTransmissionPSR &&
+    geometryPSRResolverState.insideMedium && !geometryPSRResolverState.pomSilhouetteTested;
+#else
+  const bool evaluatePomSilhouette = false;
+#endif
+
+  VertexMaterialContext materialContext;
+  resolveVertex<GeometryPSRResolverState, VertexMaterialContext>(
+    resolveMode,
+    rayHitInfo, geometryPSRResolverState,
+    materialContext,
+    ray, rayInteraction,
+    surface, surfaceInteraction,
+    polymorphicSurfaceMaterialInteraction,
+    radianceAttenuation, emissiveRadiance,
+    decalMemory, decalEmissiveRadiance,
+    cb.screenSpacePixelSpreadHalfAngle,
+    isStochasticAlphaBlend, firstRayPortal,
+    geometryPSRResolverState.pomOpaqueSurfaceEncountered,
+    isRaytracedRenderTarget, geometryPSRResolverState.mediumState,
+    false, false, false, false, evaluatePomSilhouette);
+
+#ifdef RESOLVE_POM_TRANSMISSION_SILHOUETTES
+  // Probe only within the relief interval and only once per transmission path.
+  if (evaluatePomSilhouette && !geometryPSRResolverState.continueResolving &&
+      geometryPSRResolverState.pomOpaqueSurfaceEncountered && rayInteractionHasHit(rayInteraction) &&
+      surfaceInteraction.pomRayDistance > rayInteraction.coneRadius)
+  {
+    geometryPSRResolverState.pomSilhouetteTested = true;
+    RayDesc silhouetteRay;
+    silhouetteRay.Origin = surfaceInteraction.position +
+      calculateRayOffset(surfaceInteraction.positionError, -surfaceInteraction.triangleNormal);
+    silhouetteRay.Direction = ray.direction;
+    silhouetteRay.TMin = 0.0f;
+    silhouetteRay.TMax = surfaceInteraction.pomRayDistance;
+
+    RayQuery<RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(topLevelAS, 0,
+      geometryPSRResolverState.rayMask & (OBJECT_MASK_OPAQUE | OBJECT_MASK_ALL_DYNAMIC), silhouetteRay);
+    while (query.Proceed()) {}
+
+    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
+      geometryPSRResolverState.origin = silhouetteRay.Origin;
+      geometryPSRResolverState.continueResolving = true;
+      if (!query.CommittedTriangleFrontFace()) {
+        const float distance = query.CommittedRayT();
+        const vec3 exitPosition = silhouetteRay.Origin + ray.direction * distance;
+        geometryPSRResolverState.origin = exitPosition +
+          calculateRayOffset(calculatePositionError(exitPosition), ray.direction);
+        geometryPSRResolverState.segmentHitDistance += distance;
+        geometryPSRResolverState.coneRadius += ray.spreadAngle * distance;
+
+        // Resolve already integrated the segment up to the original triangle.
+        resolveAtmosphere(silhouetteRay.Origin, ray.direction, distance,
+          portalSpaceToVolumeHint(geometryPSRResolverState.portalSpace),
+          radianceAttenuation, emissiveRadiance, geometryPSRResolverState.mediumState);
+      }
+    }
+  }
+#endif
+
+
+  if (rayInteractionHasHit(rayInteraction) && !geometryPSRResolverState.continueResolving)
+  {
+    applyThinOpaqueRayPolicy(polymorphicSurfaceMaterialInteraction, false,
+      geometryPSRResolverState.isTransmissionPSR || geometryPSRResolverState.insideMedium);
+  }
+
+  // Accumulate Segment Hit Distance
+  // Note: Only accumulate hit distance if the current ray interaction was not a miss.
+
+  vec3 skyRadiance = vec3(0.f);
+
+  if (rayInteractionHasHit(rayInteraction))
+  {
+    geometryPSRResolverState.accumulatedHitDistance += geometryPSRResolverState.segmentHitDistance;
+    // Snell's law scales ray divergence perpendicular to the plane of incidence by n_in / n_out.
+    geometryPSRResolverState.apparentHitDistance +=
+      geometryPSRResolverState.segmentHitDistance * geometryPSRResolverState.refractionScale;
+  }
+  else
+  {
+    skyRadiance = sampleBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler);
+
+    emissiveRadiance += skyRadiance * radianceAttenuation;
+  }
+
+  // Note: Emissive radiance handled first so objects with opacity do not attenuate themselves.
+  geometryPSRResolverState.radiance += emissiveRadiance * geometryPSRResolverState.attenuation;
+  geometryPSRResolverState.attenuation *= radianceAttenuation;
+
+  // Check if resolving should continue, and if a surface was hit
+
+  if (geometryPSRResolverState.continueResolving)
+  {
+    return;
+  }
+
+  if (!rayInteractionHasHit(rayInteraction))
+  {
+    // NRC is only used for paths that are fully integrated
+    if (geometryPSRResolverState.selectedIntegrationSurface)
+    {
+      updateNrcOnGBufferMiss(geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate);
+    }
+
+    // The state includes the shared radiance loaded before this PSR lobe.
+    SharedRadianceRG[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.rg;
+    SharedRadianceB[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.b;
+
+    const uvec2 pixel = geometryPSRResolverState.pixelCoordinate;
+    geometryResolverOutputMissDynamic(
+      geometryPSRResolverState.primarySurface, geometryPSRResolverState.selectedIntegrationSurface,
+      geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate);
+
+    if (geometryPSRResolverState.viewModelOpticalPath)
+    {
+      const vec2 motion = projectViewModelOpticalMiss(cb.camera, pixel, ray.direction, geometryPSRResolverState.accumulatedRotation);
+      if (geometryPSRResolverState.primarySurface)
+      {
+        PrimaryScreenSpaceMotionVector[pixel] = motion;
+      }
+      else
+      {
+        resolveRRSpecularMotion(pixel, false, motion);
+      }
+    }
+    else if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && !geometryPSRResolverState.primarySurface)
+    {
+      resolveRRSpecularMotion(pixel, false, calcMotionVectorForRayMiss(cb.camera, pixel));
+    }
+
+    if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && geometryPSRResolverState.renderTargetPath &&
+        geometryPSRResolverState.primarySurface) {
+      const float distance = geometryPSRResolverState.renderTargetScreenDistance;
+      vec3 previousScreenPoint;
+      const bool valid = projectCameraScreenPoint(geometryPSRResolverState.renderTargetTriangle,
+        geometryPSRResolverState.renderTargetTile, vec4(ray.direction, 0.0f), previousScreenPoint);
+      const Ray cameraRay = rayCreatePrimaryFromPixel(cb.camera, pixel, false);
+      const vec3 motion = previousScreenPoint - rayEvaluate(cameraRay, distance);
+      const VirtualHitProjection projection = projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixel, distance, valid ? motion : vec3(0.0f));
+      const vec2 screenMotion = valid ? projection.screenSpaceMotion : vec2(-2.0f * float(cb.camera.resolution.x), 0.0f);
+      PrimaryDepth[pixel] = projection.depth;
+      PrimaryLinearViewZ[pixel] = projection.linearViewZ;
+      PrimaryScreenSpaceMotionVector[pixel] = screenMotion;
+      if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR) {
+        PrimaryDepthDLSSRR[pixel] = projection.depth;
+        if (!valid) {
+          PrimaryDisocclusionThresholdMix[pixel] = cb.setLogValueForDisocclusionMaskForDLSSRR ? 9.21034037f : 10000.0f;
+        }
+      }
+    }
+
+    return;
+  }
+
+  if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && cb.enableRaytracedRenderTarget && isRaytracedRenderTarget) {
+    const uint maxBounces = geometryPSRResolverState.isTransmissionPSR ? cb.pstrMaxBounces : cb.psrrMaxBounces;
+    if (geometryPSRResolverState.bounceIteration >= maxBounces) {
+      if (geometryPSRResolverState.selectedIntegrationSurface) {
+        updateNrcOnGBufferMiss(geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate);
+      }
+      SharedRadianceRG[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.rg;
+      SharedRadianceB[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.b;
+      geometryResolverOutputMissDynamic(
+        geometryPSRResolverState.primarySurface, geometryPSRResolverState.selectedIntegrationSurface,
+        geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate);
+      return;
+    }
+
+    const float coverage = saturate(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).opacity);
+    RNG cameraRng = createRNG(geometryPSRResolverState.pixelCoordinate,
+      cb.frameIdx + geometryPSRResolverState.bounceIteration);
+    const bool throughCamera = coverage >= 1.0f || getNextSampleBlueNoise(cameraRng) < coverage;
+    const Ray continuation = throughCamera
+      ? rayCreateRenderTarget(cb.renderTargetCamera, surfaceInteraction.textureCoordinates, ray)
+      : rayCreateDirection(rayInteraction, surfaceInteraction, ray, ray.direction, true);
+    geometryPSRResolverState.origin = continuation.origin;
+    geometryPSRResolverState.direction = continuation.direction;
+    geometryPSRResolverState.coneRadius = continuation.coneRadius;
+    geometryPSRResolverState.continuePSRResolving = true;
+    geometryPSRResolverState.viewModelOpticalPath = false;
+    if (throughCamera) {
+      const OpaqueSurfaceMaterial material = opaqueSurfaceMaterialCreate(surfaceMaterials[surface.surfaceMaterialIndex]);
+      const float gain = material.emissiveIntensity > 0.0h ? float(material.emissiveIntensity) : 1.0f;
+      geometryPSRResolverState.attenuation = min(float3(geometryPSRResolverState.attenuation) * gain, 65408.0f);
+      if (!geometryPSRResolverState.renderTargetPath) {
+        geometryPSRResolverState.renderTargetScreenDistance = geometryPSRResolverState.accumulatedHitDistance;
+      }
+      geometryPSRResolverState.renderTargetPath = true;
+      geometryPSRResolverState.renderTargetTriangle.x = SURFACE_INDEX_INVALID;
+      geometryPSRResolverState.mediumState = cb.startInMediumMaterialIndex;
+      geometryPSRResolverState.insideMedium = geometryPSRResolverState.mediumState != SURFACE_INDEX_INVALID;
+      geometryPSRResolverState.accumulatedRotation = getIdentityQuaternion();
+    }
+    return;
+  }
+
+  // Evaluate PSR continuation logic
+
+  SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionReflectionPSRSample;
+  SurfaceMaterialInteractionPSRSample surfaceMaterialInteractionTransmissionPSRSample;
+  vec3 diffuseLayerWeight = vec3(0.0f);
+  uint transmissionMedium = geometryPSRResolverState.mediumState;
+  bool penetrateSurface = false;
+  bool useReflectionPSRSample = false;
+  bool useTransmissionPSRSample = false;
+  bool isLastBounce = false;
+
+  geometryPSRResolverEvaluateContinuation(
+    geometryPSRResolverState, psrType,
+    rayInteraction, polymorphicSurfaceMaterialInteraction,
+    surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
+    diffuseLayerWeight, transmissionMedium, penetrateSurface, useReflectionPSRSample, useTransmissionPSRSample, isLastBounce);
+
+  // GBuffer surface radiance - emissive + diffuse layer (i.e. all except
+  // Integrate Direct and Indirect Lighting).
+  vec3 gbufferSurfaceRadiance = vec3(0);
+
+  // Add non-direct lighting radiance contributions at the GBuffer hit
+  {
+    // Add in Emissive contribution
+
+    const vec3 materialEmissiveRadiance = polymorphicSurfaceMaterialInteractionEvalEmissiveRadiance(polymorphicSurfaceMaterialInteraction);
+
+    geometryPSRResolverState.radiance += materialEmissiveRadiance * geometryPSRResolverState.attenuation;
+
+    gbufferSurfaceRadiance += materialEmissiveRadiance;
+
+    // Approximate the diffuse layer contribution
+
+    // Note: This code needs to come before the PSR attenuation is factored in otherwise the reflection or transmission attenuation will improperly
+    // modulate the diffuse layer contribution.
+    vec3 diffuseLayerRadiance = approximateDiffuseLayerRadiance(
+      surfaceInteraction, polymorphicSurfaceMaterialInteraction.shadingNormal, geometryPSRResolverState.portalSpace, diffuseLayerWeight);
+
+    gbufferSurfaceRadiance += diffuseLayerRadiance;
+
+    diffuseLayerRadiance *= geometryPSRResolverState.attenuation;
+
+    geometryPSRResolverState.radiance += diffuseLayerRadiance;
+  }
+
+  // Update NRC when a final GBuffer hit occurs.
+  // Note: any path termination handling is delayed to indirect pass
+  if (!(useReflectionPSRSample || useTransmissionPSRSample))
+  {
+    // NRC is only used for paths that are fully integrated
+    if (geometryPSRResolverState.selectedIntegrationSurface)
+    {
+      RNG randomState = createRNG(geometryPSRResolverState.pixelCoordinate, cb.frameIdx);
+
+      // Note: radiance and throughput gets reset by NRC for training paths
+      updateNrcOnGBufferHitTrainingAndQueryPaths(geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate,
+        geometryPSRResolverState.direction, geometryPSRResolverState.accumulatedHitDistance,
+        surfaceInteraction, polymorphicSurfaceMaterialInteraction, gbufferSurfaceRadiance, randomState);
+
+      updateSharcOnGBufferHit(geometryPSRResolverState.pixelCoordinate, geometryPSRResolverState.compactedCoordinate,
+        gbufferSurfaceRadiance);
+    }
+  }
+
+  if (surface.isSelfLit)
+  {
+    geometryPSRResolverState.radiance += geometryPSRResolverState.attenuation *
+      selfLitAppearanceRadiance(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo);
+  }
+
+  // Handle PSR continuation or output a surface otherwise
+
+  if (useReflectionPSRSample)
+  {
+    geometryPSRResolverState.viewModelOpticalPath = geometryPSRResolverState.viewModelOpticalPath && rayInteraction.isViewModel;
+    // Set PSR resolver state information from the reflection sample for the next iteration
+
+    // Note: Penetrate surface flag always known to be false for reflection events.
+    const Ray sampledRay = rayCreateDirection(
+      rayInteraction, surfaceInteraction, ray, surfaceMaterialInteractionReflectionPSRSample.inputDirection, false);
+
+    geometryPSRResolverState.origin = sampledRay.origin;
+    geometryPSRResolverState.coneRadius = sampledRay.coneRadius;
+    geometryPSRResolverState.direction = sampledRay.direction;
+    geometryPSRResolverState.attenuation *= surfaceMaterialInteractionReflectionPSRSample.attenuation;
+    geometryPSRResolverState.continuePSRResolving = true;
+    geometryPSRResolverState.accumulatedRotation =
+      quaternionMultiply(geometryPSRResolverState.accumulatedRotation, surfaceMaterialInteractionReflectionPSRSample.vectorTransform, true);
+
+    // Note: Set the common alternate disocclusion threshold flag if reflection PSR requests it.
+    if (surfaceMaterialInteractionReflectionPSRSample.useAlternateDisocclusionThreshold)
+    {
+      geometryPSRResolverState.useAlternateDisocclusionThreshold = true;
+    }
+  }
+  else if (useTransmissionPSRSample)
+  {
+    geometryPSRResolverState.mediumState = transmissionMedium;
+    geometryPSRResolverState.insideMedium = transmissionMedium != SURFACE_INDEX_INVALID;
+    geometryPSRResolverState.viewModelOpticalPath = geometryPSRResolverState.viewModelOpticalPath && rayInteraction.isViewModel;
+    // Set PSR resolver state information from the transmission sample for the next iteration
+
+    Ray sampledRay = rayCreateDirection(
+      rayInteraction, surfaceInteraction, ray, surfaceMaterialInteractionTransmissionPSRSample.inputDirection, penetrateSurface);
+#ifdef WATER_SIM_SAMPLE
+    if (penetrateSurface && hasWaterTransmissionOffset(polymorphicSurfaceMaterialInteraction)) {
+      offsetWaterTransmissionRay(sampledRay, ray, surfaceInteraction.position,
+        surfaceInteraction.triangleNormal, geometryPSRResolverState.rayMask);
+    }
+#endif
+
+    geometryPSRResolverState.origin = sampledRay.origin;
+    geometryPSRResolverState.coneRadius = sampledRay.coneRadius;
+    geometryPSRResolverState.direction = sampledRay.direction;
+    geometryPSRResolverState.attenuation *= surfaceMaterialInteractionTransmissionPSRSample.attenuation;
+    geometryPSRResolverState.continuePSRResolving = true;
+    if (geometryPSRResolverState.isTransmissionPSR)
+    {
+      geometryPSRResolverState.refractionScale *= surfaceMaterialInteractionTransmissionPSRSample.relativeRefractiveIndex;
+    }
+    geometryPSRResolverState.accumulatedRotation =
+      quaternionMultiply(geometryPSRResolverState.accumulatedRotation, surfaceMaterialInteractionTransmissionPSRSample.vectorTransform, true);
+
+    // Note: Set the common alternate disocclusion threshold flag if transmission PSR requests it.
+    if (surfaceMaterialInteractionTransmissionPSRSample.useAlternateDisocclusionThreshold)
+    {
+      geometryPSRResolverState.useAlternateDisocclusionThreshold = true;
+    }
+  }
+  else // Note: This case happens either when no PSR continuation is desired or if the max PSR bounce count was hit.
+  {
+    const bool renderTargetPath = GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && geometryPSRResolverState.renderTargetPath;
+    vec3 previousScreenPoint = vec3(0.0f);
+    const bool cameraHistoryValid = renderTargetPath && projectCameraScreenPoint(
+      geometryPSRResolverState.renderTargetTriangle, geometryPSRResolverState.renderTargetTile,
+      vec4(surfaceInteraction.position + surfaceInteraction.motion, 1.0f), previousScreenPoint);
+    // Output the resolved Surface
+
+    // Note: directionAltered set to true as PSR will almost always alter the ray direction.
+    geometryResolverOutputSurfaceDynamic(
+      geometryPSRResolverState.primarySurface, geometryPSRResolverState.selectedIntegrationSurface,
+      geometryPSRResolverState.pixelCoordinate,
+      geometryPSRResolverState.compactedCoordinate,
+      ray, rayInteraction,
+      surface, surfaceInteraction,
+      polymorphicSurfaceMaterialInteraction,
+      geometryPSRResolverState.radiance, geometryPSRResolverState.attenuation,
+      geometryPSRResolverState.accumulatedRotation, geometryPSRResolverState.mediumState,
+      renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.accumulatedHitDistance,
+      renderTargetPath ? geometryPSRResolverState.renderTargetScreenDistance : geometryPSRResolverState.apparentHitDistance, true,
+      geometryPSRResolverState.useAlternateDisocclusionThreshold,
+      geometryPSRResolverState.isViewModelSurface || rayInteraction.isViewModel,
+      geometryPSRResolverState.viewModelOpticalPath, renderTargetPath, cameraHistoryValid, previousScreenPoint);
+
+    // Output Emissive Radiance
+
+    SharedRadianceRG[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.rg;
+    SharedRadianceB[geometryPSRResolverState.pixelCoordinate] = geometryPSRResolverState.radiance.b;
+  }
+
+  if (rayInteraction.isViewModel)
+  {
+    geometryPSRResolverState.isViewModelSurface = true;
+  }
+
+  // If this is the last bounce, ignore translucent geometry (e.g. glass)
+  // so that we don't end up with a translucent surface in the G-buffer.
+  // That results in ReSTIR GI not working on some parts of detailed glass objects,
+  // and therefore producing excessive noise.
+  if (isLastBounce)
+  {
+    geometryPSRResolverState.rayMask &= ~OBJECT_MASK_TRANSLUCENT;
+  }
+}
+
+struct InitialPSRData
+{
+  GbufferPSRData continuation;
+  GeometryFlags geometryFlags;
+};
+
+bool loadInitialPSRData(ivec2 pixelCoordinate, bool isTransmissionPSR, out InitialPSRData initial)
+{
+  // Every mode can read the flags at the pixel.
+  // The compacted GBuffer reads them from its dense copy.
+  // With sparse rendering off, the flags are stored by pixel because nothing is compacted.
+  initial.geometryFlags = geometryResolverReadFlags(uvec2(pixelCoordinate));
+
+  if (
+    uint(!isTransmissionPSR) * uint(!initial.geometryFlags.performPSRR) +
+    uint(isTransmissionPSR) * uint(!initial.geometryFlags.performPSTR)
+  )
+  {
+    return false;
+  }
+
+  if (isTransmissionPSR)
+  {
+    initial.continuation = loadTransmissionPSRData(pixelCoordinate);
+  }
+  else
+  {
+    initial.continuation = loadReflectionPSRData(pixelCoordinate);
+  }
+
+  if (!all(!isinf(asfloat(initial.continuation.origin))))
+  {
+    // The last lobe to read the continuation replaces it with the depth of the PSR surface it started from.
+    // See geometryResolverStorePSRContinuation.
+    if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off &&
+        (isTransmissionPSR || !initial.geometryFlags.performPSTR))
+    {
+      const VirtualHitProjection projection =
+        projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, uvec2(pixelCoordinate), PrimaryLinearViewZ[pixelCoordinate], vec3(0.0f));
+
+      PrimaryLinearViewZ[pixelCoordinate] = projection.linearViewZ;
+      PrimaryDepth[pixelCoordinate] = projection.depth;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+GeometryPSRResolverState decodeInitialPSRState(InitialPSRData initial, bool isTransmissionPSR)
+{
+  GeometryPSRResolverState geometryPSRResolverState;
+  geometryPSRResolverState._encodedFlags = 0;
+  unpackPSRData(initial.continuation, geometryPSRResolverState);
+  geometryPSRResolverState.renderTargetTriangle = uint2(SURFACE_INDEX_INVALID, 0);
+  geometryPSRResolverState.renderTargetTile = vec2(0.0f);
+  geometryPSRResolverState.renderTargetScreenDistance = 0.0f;
+  if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET &&
+      (initial.continuation.mediumStateAndGeometryFlags & kPSRRenderTargetPath))
+  {
+    geometryPSRResolverState.renderTargetPath = true;
+    geometryPSRResolverState.renderTargetTriangle = initial.continuation.encodedAccumulatedRotation;
+    geometryPSRResolverState.renderTargetTile = asfloat(initial.continuation.origin.xy);
+    geometryPSRResolverState.origin = cameraGetWorldPosition(cb.renderTargetCamera);
+    geometryPSRResolverState.accumulatedRotation = getIdentityQuaternion();
+  }
+  if (isTransmissionPSR)
+  {
+    // Note: performPSTR == true implicitly in this path, always indicate that transmission PSR is the primary surface
+    // when it is in use.
+    geometryPSRResolverState.primarySurface = true;
+
+    // Don't show the player model in transmission PSR unless it's also shown in primary space.
+    // Sometimes, the invisible player model clips through a window, and the gun sticking through a window looks wrong.
+    if (!cb.enablePlayerModelInPrimarySpace && geometryPSRResolverState.portalSpace == PORTAL_SPACE_NONE)
+      geometryPSRResolverState.rayMask &= ~OBJECT_MASK_PLAYER_MODEL;
+  }
+  else
+  {
+    // Note: performPSRR == true implicitly in this path due to it being checked before this function is called,
+    // therefore reflection PSR is the primary surface in all cases other than if PSTR is being used. This is done
+    // to allow for the transmission side of glass to have higher quality as the primary surface is allowed to use
+    // RTXDI.
+    geometryPSRResolverState.primarySurface = !initial.geometryFlags.performPSTR;
+
+    // Always show the player model in reflections
+    geometryPSRResolverState.rayMask |= OBJECT_MASK_ALL_PLAYER_MODEL;
+  }
+
+  return geometryPSRResolverState;
+}
+
+GeometryPSRResolverState geometryPSRResolverBegin(ivec2 pixelCoordinate, bool isTransmissionPSR, InitialPSRData initial)
+{
+  GeometryPSRResolverState geometryPSRResolverState = decodeInitialPSRState(initial, isTransmissionPSR);
+  geometryPSRResolverState.compactedCoordinate = u16vec2(loadGBufferStoreCoordinate(uvec2(pixelCoordinate)));
+  geometryPSRResolverState.bounceIteration = 0;
+  geometryPSRResolverState.coneRadius = geometryResolverLoadPSRConeRadius(uvec2(pixelCoordinate));
+  geometryPSRResolverState.segmentHitDistance = 0.0f;
+  geometryPSRResolverState.continueResolving = true;
+  geometryPSRResolverState.continuePSRResolving = true;
+  geometryPSRResolverState.isViewModelSurface = false;
+  geometryPSRResolverState.decalEncountered = false;
+  geometryPSRResolverState.isTransmissionPSR = isTransmissionPSR;
+  geometryPSRResolverState.pomOpaqueSurfaceEncountered = false;
+  geometryPSRResolverState.pomSilhouetteTested = false;
+
+  geometryPSRResolverState.accumulatedHitDistance = geometryResolverLoadPSRHitDistance(
+    uvec2(pixelCoordinate), !geometryPSRResolverState.primarySurface);
+  geometryPSRResolverState.apparentHitDistance = geometryPSRResolverState.accumulatedHitDistance;
+  const vec2 projectionSeed = PrimaryScreenSpaceMotionVector[pixelCoordinate];
+  geometryPSRResolverState.refractionScale = isTransmissionPSR ? projectionSeed.x : 1.0f;
+  geometryPSRResolverState.viewModelOpticalPath = projectionSeed.y != 0.0f;
+  geometryPSRResolverState.renderTargetScreenDistance = geometryPSRResolverState.accumulatedHitDistance;
+
+  if (geometryPSRResolverState.primarySurface)
+  {
+    geometryPSRResolverState.useAlternateDisocclusionThreshold = PrimaryDisocclusionThresholdMix[pixelCoordinate] != 0;
+    geometryPSRResolverState.selectedIntegrationSurface = initial.geometryFlags.primarySelectedIntegrationSurface;
+  }
+  else
+  {
+    geometryPSRResolverState.useAlternateDisocclusionThreshold = false; // doesn't matter
+    geometryPSRResolverState.selectedIntegrationSurface = !initial.geometryFlags.primarySelectedIntegrationSurface;
+  }
+
+  geometryPSRResolverState.radiance = vec3(SharedRadianceRG[pixelCoordinate], SharedRadianceB[pixelCoordinate]);
+
+  return geometryPSRResolverState;
+}
+void geometryPSRResolverEnd(GeometryPSRResolverState geometryPSRResolverState)
+{
+  // If this is the surface that will be used for integration, remember its view model flag and portal space.
+
+  if (geometryPSRResolverState.selectedIntegrationSurface)
+  {
+    // Rematerialize geometryFlags to reduce live state in the resolve loop
+    GeometryFlags geometryFlags = geometryResolverReadFlags(uvec2(geometryPSRResolverState.pixelCoordinate));
+
+    // Update the flags and store
+    geometryFlags.isViewModel = geometryPSRResolverState.isViewModelSurface;
+    geometryFlags.portalSpace = geometryPSRResolverState.portalSpace;
+    geometryFlags.pomOpaqueSurfaceEncountered = geometryPSRResolverState.pomOpaqueSurfaceEncountered;
+    geometryFlags.objectMask = primaryRayMaskToObjectMask(geometryPSRResolverState.rayMask, geometryPSRResolverState.isViewModelSurface);
+
+    geometryResolverWriteFlags(geometryFlags, uvec2(geometryPSRResolverState.pixelCoordinate), geometryPSRResolverState.compactedCoordinate);
+  }
+}

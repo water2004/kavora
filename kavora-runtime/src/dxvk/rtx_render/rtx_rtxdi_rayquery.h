@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_options.h"
 
 struct RaytraceArgs;
@@ -34,15 +35,83 @@ namespace dxvk {
 
   public:
 
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_bsdfFactor,
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_gbufferLast,
+      &RaytracingFrame::m_primaryAlbedo,
+      &RaytracingFrame::m_primaryAlbedoDLSSRR,
+      &RaytracingFrame::m_primaryBaseReflectivity,
+      &RaytracingFrame::m_primaryConeRadius,
+      &RaytracingFrame::m_primaryHitDistance,
+      &RaytracingFrame::m_primaryLinearViewZ,
+      &RaytracingFrame::m_primaryPerceptualRoughness,
+      &RaytracingFrame::m_primaryPositionError,
+      &RaytracingFrame::m_primaryRtxdiTemporalPosition,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_primaryViewDirection,
+      &RaytracingFrame::m_primaryVirtualMotionVector,
+      &RaytracingFrame::m_primaryWorldShadingNormal,
+      &RaytracingFrame::m_primaryWorldShadingNormalDense,
+      &RaytracingFrame::m_raytraceArgs,
+      &RaytracingFrame::m_reprojectionConfidence,
+      &RaytracingFrame::m_rtxdiBestLights,
+      &RaytracingFrame::m_rtxdiReservoirBuffer,
+      &RaytracingFrame::m_sharedFlags,
+      &RaytracingFrame::m_sharedFlagsDense,
+      &RaytracingFrame::m_sharedSubsurfaceData,
+      &RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData,
+      &RaytracingFrame::m_sharedSurfaceIndex,
+      &RaytracingFrame::m_sparseRenderingActivePixelCoords,
+      &RaytracingFrame::m_sparseRenderingActivePixelCount,
+      &RaytracingFrame::m_sparseRenderingCompactedPixelIndices,
+      &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+      &RaytracingFrame::m_sparseRenderingDispatchIndirectArgs,
+      &RaytracingFrame::getCompactedPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getCurrentSharedTerminatorFix,
+      &RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getPreviousSharedTerminatorFix
+    >;
+
+
+    using GradientDispatchResources = FrameResourceView<
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_primaryConeRadius,
+      &RaytracingFrame::m_primaryHitDistance,
+      &RaytracingFrame::m_primaryPositionError,
+      &RaytracingFrame::m_primaryRtxdiTemporalPosition,
+      &RaytracingFrame::m_primaryVirtualMotionVector,
+      &RaytracingFrame::m_raytraceArgs,
+      &RaytracingFrame::m_rtxdiBestLights,
+      &RaytracingFrame::m_rtxdiGradients,
+      &RaytracingFrame::m_rtxdiReservoirBuffer,
+      &RaytracingFrame::m_sharedFlags,
+      &RaytracingFrame::m_sharedFlagsDense,
+      &RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getCurrentRtxdiIlluminance,
+      &RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getPreviousRtxdiIlluminance
+    >;
+
+    using ConfidenceDispatchResources = FrameResourceView<
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_primaryHitDistance,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_rtxdiGradients,
+      &RaytracingFrame::getCurrentRtxdiConfidence,
+      &RaytracingFrame::getPreviousRtxdiConfidence
+    >;
+
     DxvkRtxdiRayQuery(DxvkDevice* device);
     ~DxvkRtxdiRayQuery() = default;
 
-    void dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
-    void dispatchGradient(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
-    void dispatchConfidence(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatch(RtxContext* ctx, DispatchResources resources);
+    void dispatchGradient(RtxContext* ctx, GradientDispatchResources resources);
+    void dispatchConfidence(RtxContext* ctx, ConfidenceDispatchResources resources);
 
     void showImguiSettings();
-    void setRaytraceArgs(Resources::RaytracingOutput& rtOutput) const;
+    void setRaytraceArgs(RaytraceArgs& args, const Resources::AliasedResource& bestLights) const;
     bool getEnableDenoiserConfidence(RtxContext& ctx) const;
     // Returns true if denoiser gradient calculation is enabled and actually consumed downstream
     // (NRD primary denoiser or ReSTIR GI lighting validation).

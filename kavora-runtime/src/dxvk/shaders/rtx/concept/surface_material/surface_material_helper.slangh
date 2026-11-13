@@ -21,6 +21,9 @@
 */
 #pragma once
 
+import "rtx/concept/surface_material/material_scattering.slang";
+import "rtx/concept/surface_material/subsurface_material.slang";
+
 // Surface Material Interaction Constants
 
 // Note: Fallback values for materials with no such common properties when serializing out to the "GBuffer".
@@ -30,53 +33,6 @@ static const vec3 surfaceMaterialInteractionSerializationDataFallbackShadingNorm
 static const vec3 surfaceMaterialInteractionSerializationDataFallbackAlbedo = vec3(0.f);
 static const vec3 surfaceMaterialInteractionSerializationDataFallbackBaseReflectivity = vec3(0.f);
 static const float surfaceMaterialInteractionSerializationDataFallbackPerceptualRoughness = 1.0f;
-
-// Surface Material Interaction Helper Structures
-
-struct SurfaceMaterialInteractionLobeInformation
-{
-  bool diffuseReflectionPresent;
-  bool specularReflectionPresent;
-  bool diffuseTransmissionPresent;
-  bool specularTransmissionPresent;
-
-  bool specularReflectionDirac;
-  bool specularTransmissionDirac;
-};
-
-struct SurfaceMaterialInteractionLobeSample
-{
-  uint8_t lobe;
-  float pdf;
-};
-
-struct SurfaceMaterialInteractionSplitWeight
-{
-  // Note: Only Diffuse and Specular reflection weights needed as weights are never evaluated separately on transmission lobes
-  vec3 diffuseReflectionWeight;
-  vec3 specularReflectionWeight;
-  vec3 diffuseTransmissionWeight;
-};
-
-struct SurfaceMaterialInteractionSample
-{
-  vec3 inputDirection;
-  // Note: Throughput represents (weight / solidAnglePdf) * (n.l), otherwise known as projectedWeight / solidAnglePdf to allow for
-  // algebraic cancelling. Weight never directly needed from sampling operations, only when evaluating the BSDF weight directly (which
-  // there is a function for).
-  vec3 throughput;
-  float solidAnglePdf;
-};
-
-struct SurfaceMaterialInteractionPSRSample
-{
-  bool performPSR;
-  bool useAlternateDisocclusionThreshold;
-  vec3 inputDirection;
-  vec3 attenuation;
-  vec4 vectorTransform;
-  float relativeRefractiveIndex;
-};
 
 // Surface Material Interaction Helper Functions
 
@@ -100,32 +56,6 @@ bool surfaceMaterialInteractionTextureReadHelper(
   textureSample = textureRead(textureIndex, samplerIndex, surfaceInteraction, lodBias);
 
   return true;
-}
-
-void adjustProbabilityValue(inout float value, float zeroThreshold, float minProbability)
-{
-  // Clamp the probability to zero if it is below the threshold
-
-  if (value <= zeroThreshold)
-  {
-    value = 0.0f;
-
-    return;
-  }
-
-  // Clamp any probabilities to the minimum if they are below it
-
-  value = max(value, minProbability);
-}
-
-bool isSubsurfaceDiffusionProfileMaterial(OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction)
-{
-  return opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction.maxSampleRadius > 0.0h;
-}
-
-bool isThinOpaqueSubsurfaceMaterial(OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction)
-{
-  return opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction.measurementDistance > 0.0h && !isSubsurfaceDiffusionProfileMaterial(opaqueSurfaceMaterialInteraction);
 }
 
 SubsurfaceMaterialInteraction subSurfaceMaterialReadHelper(

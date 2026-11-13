@@ -260,7 +260,7 @@ namespace dxvk {
     nrc::Status status = nrc::vulkan::Initialize(globalSettings);
     if (status != nrc::Status::OK) {
       ONCE(Logger::err(str::format("[RTX Neural Radiance Cache] Failed to initialize NRC. Dependencies: ",
-        path.u8string(), ". Reason: ", getNrcStatusErrorMessage(status))));
+        str::utf8Bytes(path.u8string()), ". Reason: ", getNrcStatusErrorMessage(status))));
       return status;
     }
 

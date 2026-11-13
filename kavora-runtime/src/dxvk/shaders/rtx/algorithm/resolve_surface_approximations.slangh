@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/algorithm/resolve.h"
+#include "rtx/algorithm/volume_lighting.slangh"
 #include "rtx/concept/surface_material/surface_material.slangh"
 
 // Classifies material hits that contribute opacity or emission without
@@ -51,8 +52,6 @@ bool evaluateOpaqueApproximations(
   // to accomodate some processes optimize around the fact that opaque approximations only result in monochromatic attenuation.
   vec3 incomingRadianceAttenuation, inout float outgoingRadianceAttenuation, inout vec3 emissiveRadiance)
 {
-  const Camera camera = cb.camera;
-  const VolumeArgs volumeArgs = cb.volumeArgs;
   const float opacity = opaqueSurfaceMaterialInteraction.opacity;
 
   // Handle lighting approximations
@@ -70,7 +69,7 @@ bool evaluateOpaqueApproximations(
   {
     const uint froxelVolumeHint = portalSpaceToVolumeHint(portalSpace);
 
-    const vec3 accumulatedOutgoingRadiance = evalVolumetricNEE(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, volumeArgs,
+    const vec3 accumulatedOutgoingRadiance = evalVolumetricNEE(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, cb.volumeArgs,
       surfaceInteraction, opaqueSurfaceMaterialInteraction.shadingNormal, froxelVolumeHint);
 
     // Note: Volume radiance cache assumes isotropic scattering (no directionality), but we want something closer to a "diffuse" distribution for
@@ -80,8 +79,6 @@ bool evaluateOpaqueApproximations(
     // Finally, albedo has opacity baked into it already so it does not need to be multiplied in here.
     emissiveRadiance += opaqueSurfaceMaterialInteraction.albedo * accumulatedOutgoingRadiance * incomingRadianceAttenuation;
   }
-#else
-  const bool opacityLightingApprox = false;
 #endif
 
   // Handle typical emissive and attenuation approximations
@@ -103,38 +100,6 @@ bool evaluateOpaqueApproximations(
     outgoingRadianceAttenuation *= 1.0f - opacity;
     // Todo: Potentially evaluate ambient here too like we do for emission? Doesn't depend on light direction or anything
     // either, but ideally we want to get rid of the ambient term some day so we'll skip it for now.
-
-    return true;
-  }
-
-  // Note: If no approximation was handled, treat as a hit where relevant.
-  return false;
-}
-
-bool evaluateTranslucentApproximations(
-  uint8_t resolveMode,
-  Surface surface, SurfaceInteraction surfaceInteraction,
-  TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction,
-  vec3 incomingRadianceAttenuation, inout float outgoingRadianceAttenuation, inout vec3 emissiveRadiance)
-{
-  unused(outgoingRadianceAttenuation);
-  unused(emissiveRadiance);
-
-  // Handle typical attenuation approximations
-
-  const bool translucencyTransmissionApprox = packedFlagGet(resolveMode, resolveModeTranslucencyTransmissionApprox);
-
-  if (translucencyTransmissionApprox)
-  {
-    // Todo: Accumulate emission into emissive radiance on entry hit.
-    // Todo: Attenuate by fresnel factor on entry/exit points.
-    // Todo: Handle volume attenuation by adding in attenuation on the exiting hit of transmission and
-    // blindly having the ray go right through translucent objects like we did in the previous Aperture renderer.
-    // Note thin translucency can be approximated perfectly and uses a slightly different path. Note this will require
-    // returning to f16vec3 attenuation fully which will not play well with the current implementation of how the unordered
-    // approximations are handled, so it may require packing the color down into fewer bits or perhaps doing things
-    // differently (a fully ordered approach would solve a lot of this complexity and make the translucency approximations much
-    // easier to evaluate.)
 
     return true;
   }

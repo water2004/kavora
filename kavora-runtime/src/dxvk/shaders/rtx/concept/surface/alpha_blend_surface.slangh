@@ -24,7 +24,8 @@
 // Note: surface.h must be first include to define required structures
 #include "rtx/utility/common.slangh"
 #include "rtx/utility/packing.slangh"
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 
 struct AlphaBlendSurface
 {

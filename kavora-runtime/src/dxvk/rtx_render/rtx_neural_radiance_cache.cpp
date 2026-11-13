@@ -1128,7 +1128,7 @@ namespace dxvk {
   // Resolves radiance for the queried paths during path tracing
   void NeuralRadianceCache::dispatchResolve(
     RtxContext& ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+    NrcResolveFrame frame) {
 
     ScopedGpuProfileZone(&ctx, "NRC: Resolve");
 
@@ -1136,7 +1136,7 @@ namespace dxvk {
 
     // Under sparse rendering the SDK resolves query paths at their compacted slots, which scrambles the screen-space
     // debug view. Remix's resolve below covers every mode per pixel then, so the debug view only gets cleared here.
-    const bool queryPathsAreCompacted = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+    const bool queryPathsAreCompacted = frame.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode != SparseRenderingMode::Off;
 
     // Run a debug resolve mode when enabled
     if (NrcOptions::enableDebugResolveMode()) {
@@ -1186,17 +1186,18 @@ namespace dxvk {
       ctx.bindResourceBuffer(NRC_RESOLVE_BINDING_NRC_TRAINING_PATH_INFO_INPUT, m_nrcCtx->getBufferSlice(ctx, nrc::BufferIdx::TrainingPathInfo));
       ctx.bindResourceBuffer(NRC_RESOLVE_BINDING_NRC_DEBUG_TRAINING_PATH_INFO_INPUT_OUTPUT, m_nrcCtx->getBufferSlice(ctx, nrc::BufferIdx::DebugTrainingPathInfo));
 
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, rtOutput.m_sparseRenderingActiveLocalPixelCoords.view, nullptr);
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_TILE_ACTIVE_COUNTS_INPUT, rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_SHARED_FLAGS_INPUT, frame.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords>().view, nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_TILE_ACTIVE_COUNTS_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
       ctx.bindResourceBuffer(NRC_RESOLVE_BINDING_RAYTRACE_ARGS_INPUT, DxvkBufferSlice(raytraceArgsBuffer, 0, raytraceArgsBuffer->info().size));
 
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_PRIMARY_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectDiffuseRadiance.view(Resources::AccessType::ReadWrite), nullptr);
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_PRIMARY_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectSpecularRadiance.view(Resources::AccessType::ReadWrite), nullptr);
-      ctx.bindResourceView(NRC_RESOLVE_BINDING_INDIRECT_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, rtOutput.m_indirectRadianceHitDistance.view(Resources::AccessType::ReadWrite), nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_PRIMARY_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, frame.get<&RaytracingFrame::m_primaryIndirectDiffuseRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_PRIMARY_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, frame.get<&RaytracingFrame::m_primaryIndirectSpecularRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
+      ctx.bindResourceView(NRC_RESOLVE_BINDING_INDIRECT_RADIANCE_HIT_DISTANCE_INPUT_OUTPUT, frame.get<&RaytracingFrame::m_indirectRadianceHitDistance>().view(Resources::AccessType::ReadWrite), nullptr);
 
       ctx.bindResourceView(NRC_RESOLVE_BINDING_DEBUG_VIEW_TEXTURE_OUTPUT, debugView.getDebugOutput(), nullptr);
-      ctx.bindResourceBuffer(NRC_RESOLVE_BINDING_GPU_PRINT_BUFFER_OUTPUT, DxvkBufferSlice(rtOutput.m_gpuPrintBuffer, 0, rtOutput.m_gpuPrintBuffer.ptr() ? rtOutput.m_gpuPrintBuffer->info().size : 0));
+      const auto& gpuPrintBuffer = frame.get<&RaytracingFrame::m_gpuPrintBuffer>();
+      ctx.bindResourceBuffer(NRC_RESOLVE_BINDING_GPU_PRINT_BUFFER_OUTPUT, DxvkBufferSlice(gpuPrintBuffer, 0, gpuPrintBuffer.ptr() ? gpuPrintBuffer->info().size : 0));
     }
 
     const uint32_t kMaxFramesToAccumulate = 300;
@@ -1242,7 +1243,7 @@ namespace dxvk {
     pushArgs.useNrcResolvedRadianceResult = NrcOptions::enableNrcResolver();
 
     if (pushArgs.useNrcResolvedRadianceResult) {
-      m_nrcCtx->resolve(ctx, rtOutput.m_indirectRadianceHitDistance.view(Resources::AccessType::ReadWrite));
+      m_nrcCtx->resolve(ctx, frame.get<&RaytracingFrame::m_indirectRadianceHitDistance>().view(Resources::AccessType::ReadWrite));
     }
 
     ctx.setPushConstantBank(DxvkPushConstantBank::RTX);
@@ -1266,7 +1267,7 @@ namespace dxvk {
 
   void NeuralRadianceCache::dispatchTrainingAndResolve(
     RtxContext& ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+    NrcResolveFrame frame) {
     if (!isActive()) {
       return;
     }
@@ -1316,10 +1317,10 @@ namespace dxvk {
       copyNumberOfTrainingRecords(ctx);
     }
 
-    dispatchResolve(ctx, rtOutput);
+    dispatchResolve(ctx, frame);
   }
 
-  void NeuralRadianceCache::onFrameEnd(Resources::RaytracingOutput& rtOutput) {
+  void NeuralRadianceCache::onFrameEnd() {
     if (!isActive()) {
       return;
     }

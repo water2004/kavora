@@ -28,6 +28,7 @@
 #include "rtx_options.h"
 #include "rtx/pass/tonemap/tonemapping.h"
 #include "rtx/pass/ray_reconstruction/ray_reconstruction.h"
+#include "ray_reconstruction_layout_asserts.h"
 #include "dxvk_device.h"
 #include "rtx_dlss.h"
 #include "dxvk_scoped_annotation.h"
@@ -134,9 +135,9 @@ namespace dxvk {
   void DxvkRayReconstruction::dispatch(
       Rc<RtxContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
-      bool resetHistory,
-      float frameTimeMilliseconds) {
+      DispatchResources resources,
+      const DispatchConstants& frameConstants,
+      const DispatchSettings& dispatchSettings) {
     ScopedGpuProfileZone(ctx, "Ray Reconstruction");
     ctx->setFramePassStage(RtxFramePassStage::DLSSRR);
 
@@ -158,46 +159,51 @@ namespace dxvk {
     SceneManager& sceneManager = device()->getCommon()->getSceneManager();
     DebugView& debugView = ctx->getDevice()->getCommon()->metaDebugView();
 
+    const auto& primaryDisocclusionThresholdMix = resources.get<&RaytracingFrame::m_primaryDisocclusionThresholdMix>();
+    const auto& primaryWorldShadingNormalDLSSRR = resources.get<&RaytracingFrame::m_primaryWorldShadingNormalDLSSRR>();
+    const auto& compositeOutput = resources.get<&RaytracingFrame::m_compositeOutput>();
+    const auto& primaryDisocclusionMaskForRR = resources.get<&RaytracingFrame::m_primaryDisocclusionMaskForRR>();
+
     // prepare DLSS-RR inputs
-    VkExtent3D workgroups = util::computeBlockCount(rtOutput.m_compositeOutputExtent, VkExtent3D { 16, 16, 1 });
+    VkExtent3D workgroups = util::computeBlockCount(frameConstants.compositeOutputExtent, VkExtent3D { 16, 16, 1 });
 
     // Geometry and material guides describe the same resolved primary PSR surface.
-    const auto* motionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVector;
-    auto depthInput = &rtOutput.m_primaryDepthDLSSRR.resource(Resources::AccessType::Read);
+    const auto* motionVectorInput = &resources.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>();
+    auto depthInput = &resources.get<&RaytracingFrame::m_primaryDepthDLSSRR>().resource(Resources::AccessType::Read);
     
     // The compacted GBuffer's albedo sources are compacted, so DLSS-RR reads the dense copies instead.
-    const bool compactedGBuffer = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+    const bool compactedGBuffer = frameConstants.sparseRenderingArgs.mode != SparseRenderingMode::Off;
     const Resources::Resource& diffuseAlbedoGuide = compactedGBuffer
-      ? rtOutput.m_primaryAlbedoDLSSRR
-      : rtOutput.m_primaryAlbedo;
+      ? resources.get<&RaytracingFrame::m_primaryAlbedoDLSSRR>()
+      : resources.get<&RaytracingFrame::m_primaryAlbedo>();
     const Resources::Resource& specularAlbedoGuide = compactedGBuffer
-      ? rtOutput.m_primarySpecularAlbedoDLSSRR
-      : rtOutput.m_primarySpecularAlbedo.resource(Resources::AccessType::ReadWrite);
+      ? resources.get<&RaytracingFrame::m_primarySpecularAlbedoDLSSRR>()
+      : resources.get<&RaytracingFrame::m_primarySpecularAlbedo>().resource(Resources::AccessType::ReadWrite);
 
     // The compacted GBuffer writes the guides in their final form,
     // so this pass only has work for the disocclusion mask blur and debug views.
     const bool preparePassHasWork =
-      rtOutput.m_raytraceArgs.sparseRenderingArgs.mode == SparseRenderingMode::Off ||
+      !compactedGBuffer ||
       enableDisocclusionMaskBlur() ||
-      rtOutput.m_raytraceArgs.debugView != DEBUG_VIEW_DISABLED;
+      frameConstants.debugView != DEBUG_VIEW_DISABLED;
 
     if (preparePassHasWork) {
       ScopedGpuProfileZone(ctx, "Prepare DLSS");
 
       RayReconstructionArgs constants = { };
-      constants.enableRaytracedRenderTarget = rtOutput.m_raytraceArgs.enableRaytracedRenderTarget;
+      constants.enableRaytracedRenderTarget = frameConstants.enableRaytracedRenderTarget;
       constants.camera = sceneManager.getCamera().getShaderConstants();
-      constants.debugView = rtOutput.m_raytraceArgs.debugView;
-      constants.debugKnob = rtOutput.m_raytraceArgs.debugKnob;
+      constants.debugView = frameConstants.debugView;
+      constants.debugKnob = frameConstants.debugKnob;
       constants.enableDemodulateRoughness = demodulateRoughness() ? 1 : 0;
       constants.upscalerRoughnessDemodulationMultiplier = upscalerRoughnessDemodulationMultiplier();
       constants.upscalerRoughnessDemodulationOffset = upscalerRoughnessDemodulationOffset();
-      constants.frameIdx = rtOutput.m_raytraceArgs.frameIdx;
+      constants.frameIdx = frameConstants.frameIdx;
       constants.enableDisocclusionMaskBlur = enableDisocclusionMaskBlur();
       constants.disocclusionMaskBlurRadius = disocclusionMaskBlurRadius();
       constants.rcpSquaredDisocclusionMaskBlurGaussianWeightSigma = 1.0f / (disocclusionMaskBlurNormalizedGaussianWeightSigma() * disocclusionMaskBlurNormalizedGaussianWeightSigma());
       constants.enableReSTIRGI = RtxOptions::useReSTIRGI();
-      constants.sparseRenderingArgs = rtOutput.m_raytraceArgs.sparseRenderingArgs;
+      constants.sparseRenderingArgs = frameConstants.sparseRenderingArgs;
 
       ctx->updateBuffer(m_constants, 0, sizeof(constants), &constants);
       ctx->getCommandList()->trackResource<DxvkAccess::Read>(m_constants);
@@ -207,23 +213,23 @@ namespace dxvk {
       ctx->bindResourceBuffer(RAY_RECONSTRUCTION_CONSTANTS_INPUT, DxvkBufferSlice(m_constants, 0, m_constants->info().size));
 
       // Primary data
-      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_ATTENUATION_INPUT, rtOutput.m_primaryAttenuation.view, nullptr);
-      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
-      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_DISOCCLUSION_MASK_INPUT, rtOutput.m_primaryDisocclusionThresholdMix.view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_ATTENUATION_INPUT, resources.get<&RaytracingFrame::m_primaryAttenuation>().view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_DISOCCLUSION_MASK_INPUT, primaryDisocclusionThresholdMix.view, nullptr);
 
       // Secondary data
-      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_ALBEDO_INPUT, rtOutput.m_secondaryAlbedo.view, nullptr);
-      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_SPECULAR_ALBEDO_INPUT, rtOutput.m_secondarySpecularAlbedo.view(Resources::AccessType::Read), nullptr);
-      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_ATTENUATION_INPUT, rtOutput.m_secondaryAttenuation.view, nullptr);
-      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_secondaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondaryAlbedo>().view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_SPECULAR_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondarySpecularAlbedo>().view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_ATTENUATION_INPUT, resources.get<&RaytracingFrame::m_secondaryAttenuation>().view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
 
-      ctx->bindResourceView(RAY_RECONSTRUCTION_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
       // DLSSRR data
-      ctx->bindResourceView(RAY_RECONSTRUCTION_NORMALS_DLSSRR_INPUT, rtOutput.m_primaryWorldShadingNormalDLSSRR.view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_NORMALS_DLSSRR_INPUT, primaryWorldShadingNormalDLSSRR.view(Resources::AccessType::Read), nullptr);
       ctx->bindResourceView(RAY_RECONSTRUCTION_DEPTHS_INPUT, depthInput->view, nullptr);
       ctx->bindResourceView(RAY_RECONSTRUCTION_MOTION_VECTOR_INPUT, motionVectorInput->view, nullptr);
       // Color fed into DLSS-RR (composite output), for the input-color debug view.
-      ctx->bindResourceView(RAY_RECONSTRUCTION_INPUT_COLOR_INPUT, rtOutput.m_compositeOutput.view(Resources::AccessType::Read), nullptr);
+      ctx->bindResourceView(RAY_RECONSTRUCTION_INPUT_COLOR_INPUT, compositeOutput.view(Resources::AccessType::Read), nullptr);
 
       // Inputs/Outputs
 
@@ -235,9 +241,9 @@ namespace dxvk {
       ctx->bindResourceView(RAY_RECONSTRUCTION_DEBUG_VIEW_OUTPUT, debugView.getDebugOutput(), nullptr);
       // The disocclusion mask is left out when Ray Reconstruction will not read it.
       // See Resources::needsDisocclusionMaskForRR.
-      const Rc<DxvkImageView> disocclusionMaskOutput = rtOutput.m_primaryDisocclusionMaskForRR.empty()
+      const Rc<DxvkImageView> disocclusionMaskOutput = primaryDisocclusionMaskForRR.empty()
         ? nullptr
-        : rtOutput.m_primaryDisocclusionMaskForRR.view(Resources::AccessType::Write);
+        : primaryDisocclusionMaskForRR.view(Resources::AccessType::Write);
       ctx->bindResourceView(RAY_RECONSTRUCTION_PRIMARY_DISOCCLUSION_MASK_OUTPUT, disocclusionMaskOutput, nullptr);
 
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, PrepareRayReconstructionShader::getShader());
@@ -255,18 +261,18 @@ namespace dxvk {
       float motionVectorScale[2] = { 1.f, 1.f };
 
       NGXRayReconstructionContext::NGXBuffers buffers = {};
-      buffers.pUnresolvedColor = &rtOutput.m_compositeOutput.resource(Resources::AccessType::Read);
-      buffers.pResolvedColor = &rtOutput.m_finalOutput.resource(Resources::AccessType::Write);
+      buffers.pUnresolvedColor = &compositeOutput.resource(Resources::AccessType::Read);
+      buffers.pResolvedColor = &resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::Write);
       buffers.pMotionVectors = motionVectorInput;
       buffers.pDepth = depthInput;
       buffers.pDiffuseAlbedo = &diffuseAlbedoGuide;
       buffers.pSpecularAlbedo = &specularAlbedoGuide;
-      buffers.pNormals = &rtOutput.m_primaryWorldShadingNormalDLSSRR.resource(Resources::AccessType::Read);
-      buffers.pRoughness = &rtOutput.m_primaryPerceptualRoughness;
-      buffers.pSpecularMotion = &rtOutput.m_rayReconstructionSpecularMotion;
+      buffers.pNormals = &primaryWorldShadingNormalDLSSRR.resource(Resources::AccessType::Read);
+      buffers.pRoughness = &resources.get<&RaytracingFrame::m_primaryPerceptualRoughness>();
+      buffers.pSpecularMotion = &resources.get<&RaytracingFrame::m_rayReconstructionSpecularMotion>();
       buffers.pDisocclusionMask = enableDisocclusionMaskBlur()
-        ? &rtOutput.m_primaryDisocclusionMaskForRR.resource(Resources::AccessType::Read)
-        : &rtOutput.m_primaryDisocclusionThresholdMix;
+        ? &primaryDisocclusionMaskForRR.resource(Resources::AccessType::Read)
+        : &primaryDisocclusionThresholdMix;
 
       // The same selected resources drive NGX evaluation, synchronization and lifetime tracking.
       const Resources::Resource* const pInputs[] = {
@@ -332,13 +338,13 @@ namespace dxvk {
       m_rayReconstructionContext->setViewToProjectionMatrix(camera.getViewToProjection());
 
       NGXRayReconstructionContext::NGXSettings settings;
-      settings.resetAccumulation = resetHistory;
+      settings.resetAccumulation = dispatchSettings.resetHistory;
       settings.preExposure = mPreExposure;
       settings.jitterOffset[0] = jitterOffset[0];
       settings.jitterOffset[1] = jitterOffset[1];
       settings.motionVectorScale[0] = motionVectorScale[0];
       settings.motionVectorScale[1] = motionVectorScale[1];
-      settings.frameTimeMilliseconds = frameTimeMilliseconds;
+      settings.frameTimeMilliseconds = dispatchSettings.frameTimeMilliseconds;
 
       {
         ScopedGpuProfileZone(ctx, "RR NGX Evaluate");

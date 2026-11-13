@@ -25,6 +25,7 @@
 #include "../dxvk_include.h"
 
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx/pass/particles/dust_particles_binding_indices.h"
 
 namespace dxvk {
@@ -32,6 +33,12 @@ namespace dxvk {
   class RtxContext;
 
   class RtxDustParticles {
+  public:
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_primaryDepth,
+      &RaytracingFrame::m_finalOutput>;
+
+  private:
     Rc<DxvkBuffer> m_particles;
 
     RTX_OPTION("rtx.dust", bool, enable, false, "Enables dust particle simulation and rendering.");
@@ -60,6 +67,6 @@ namespace dxvk {
     
     void showImguiSettings();
 
-    void simulateAndDraw(RtxContext* ctx, DxvkContextState& dxvkCtxState, const Resources::RaytracingOutput& rtOutput);
+    void simulateAndDraw(RtxContext* ctx, DxvkContextState& dxvkCtxState, DispatchResources resources);
   };
 }

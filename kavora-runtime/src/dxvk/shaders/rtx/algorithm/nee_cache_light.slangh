@@ -21,6 +21,7 @@
 */
 #pragma once
 
+#include "rtx/algorithm/resolve_surface_approximations.slangh"
 #include "rtx/concept/light/light_helper.slangh"
 #include "rtx/concept/light/light.slangh"
 #include "rtx/pass/instance_definitions.h"
@@ -430,9 +431,9 @@ struct NEECacheUtils
     rayInteraction.coneRadius = 0;
     rayInteraction.viewDirection = viewDirection;
 
-    float diffuseSolidAnglePdf  = opaqueSurfaceMaterialInteractionCalcDiffuseReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, rayInteraction, inputDirection);
+    float diffuseSolidAnglePdf  = opaqueSurfaceMaterialInteractionCalcDiffuseReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, rayInteraction.viewDirection, inputDirection);
     float specularSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcSpecularReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, tangentFrame);
-    float diffuseTransmissionSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcDiffuseTransmissionSolidAnglePdf(opaqueSurfaceMaterialInteraction, rayInteraction, inputDirection);
+    float diffuseTransmissionSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcDiffuseTransmissionSolidAnglePdf(opaqueSurfaceMaterialInteraction, rayInteraction.viewDirection, inputDirection);
 
     vec2 misWeight;
     misWeight.x = saturate(lightSampleSolidAnglePDF / (lightSampleSolidAnglePDF + diffuseSolidAnglePdf + diffuseTransmissionSolidAnglePdf));
@@ -454,7 +455,7 @@ struct NEECacheUtils
   {
     float diffuseReflectionProbability, specularReflectionProbability, opacityTransmissionProbability, diffuseTransmissionProbability = 0.0f;
     bool isValid = opaqueSurfaceMaterialInteractionCalcLobeProbability(
-      opaqueSurfaceMaterialInteraction, viewDirection,
+      opaqueSurfaceMaterialInteraction, viewDirection, opaqueLobeSampling(cb),
       diffuseReflectionProbability, specularReflectionProbability, opacityTransmissionProbability, diffuseTransmissionProbability);
 
     MinimalRayInteraction minimalRayInteraction;
@@ -462,12 +463,12 @@ struct NEECacheUtils
     float totalPdf = 0;
     if (firstSampledLobeIsSpecular)
     {
-      float diffuseSolidAnglePdf  = opaqueSurfaceMaterialInteractionCalcDiffuseReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, minimalRayInteraction, sampleDirection);
+      float diffuseSolidAnglePdf  = opaqueSurfaceMaterialInteractionCalcDiffuseReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, minimalRayInteraction.viewDirection, sampleDirection);
       totalPdf = diffuseReflectionProbability * diffuseSolidAnglePdf + specularReflectionProbability * firstSampledSolidAnglePdf;
     }
     else
     {
-      float specularSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcSpecularReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, minimalRayInteraction, sampleDirection);
+      float specularSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcSpecularReflectionSolidAnglePdf(opaqueSurfaceMaterialInteraction, minimalRayInteraction.viewDirection, sampleDirection);
       totalPdf = diffuseReflectionProbability * firstSampledSolidAnglePdf + specularReflectionProbability * specularSolidAnglePdf;
     }
     return totalPdf;

@@ -188,27 +188,27 @@ namespace dxvk {
     Rc<DxvkSampler> linearSampler,
     const PostFxArgs& postFxArgs,
     const VkExtent3D& workgroups,
-    const Resources::RaytracingOutput& rtOutput,
+    DxvkPostFx::MotionBlurResources resources,
     const Resources::Resource& motionBlurInputTexture,
     const Resources::Resource& motionBlurOutputTexture)
   {
     ScopedGpuProfileZone(ctx, "PostFx Motion Blur");
 
     dispatchMotionBlurPrefilterPass(ctx,
-                                    rtOutput.m_primarySurfaceFlags,
-                                    rtOutput.m_primarySurfaceFlagsIntermediateTexture1.resource(Resources::AccessType::Write),
+                                    resources.get<&RaytracingFrame::m_primarySurfaceFlags>(),
+                                    resources.get<&RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture1>().resource(Resources::AccessType::Write),
                                     false);
 
     dispatchMotionBlurPrefilterPass(ctx,
-                                    rtOutput.m_primarySurfaceFlagsIntermediateTexture1.resource(Resources::AccessType::Read),
-                                    rtOutput.m_primarySurfaceFlagsIntermediateTexture2.resource(Resources::AccessType::Write),
+                                    resources.get<&RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture1>().resource(Resources::AccessType::Read),
+                                    resources.get<&RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture2>().resource(Resources::AccessType::Write),
                                     true);
 
     ctx->pushConstants(0, sizeof(postFxArgs), &postFxArgs);
 
-    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_SCREEN_SPACE_MOTION_INPUT, rtOutput.m_primaryScreenSpaceMotionVector.view, nullptr);
-    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_SURFACE_FLAGS_INPUT, rtOutput.m_primarySurfaceFlagsIntermediateTexture2.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
+    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_SCREEN_SPACE_MOTION_INPUT, resources.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>().view, nullptr);
+    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_SURFACE_FLAGS_INPUT, resources.get<&RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture2>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(POST_FX_MOTION_BLUR_PRIMARY_LINEAR_VIEW_Z_INPUT, resources.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
     ctx->bindResourceView(POST_FX_MOTION_BLUR_BLUE_NOISE_TEXTURE_INPUT, ctx->getResourceManager().getBlueNoiseTexture(ctx), nullptr);
     ctx->bindResourceView(POST_FX_MOTION_BLUR_INPUT, motionBlurInputTexture.view, nullptr);
     ctx->bindResourceView(POST_FX_MOTION_BLUR_OUTPUT, motionBlurOutputTexture.view, nullptr);
@@ -267,7 +267,7 @@ namespace dxvk {
     Rc<DxvkSampler> linearSampler,
     const uvec2& mainCameraResolution,
     const uint32_t frameIdx,
-    const Resources::RaytracingOutput& rtOutput,
+    MotionBlurResources resources,
     const bool cameraCutDetected)
   {
     if (!enable()) {
@@ -282,7 +282,7 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "PostFx Motion Blur");
     ctx->setFramePassStage(RtxFramePassStage::PostFX);
 
-    const Resources::Resource& inOutColorTexture = rtOutput.m_finalOutput.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inOutColorTexture = resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::ReadWrite);
     const VkExtent3D& inputSize = inOutColorTexture.image->info().extent;
     const VkExtent3D workgroups = util::computeBlockCount(inputSize, VkExtent3D { POST_FX_TILE_SIZE , POST_FX_TILE_SIZE, 1 } );
 
@@ -306,13 +306,13 @@ namespace dxvk {
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
     const Resources::Resource& postFxIntermediateTexture =
-      rtOutput.m_postFxIntermediateTexture.resource(Resources::AccessType::Write);
+      resources.get<&RaytracingFrame::m_postFxIntermediateTexture>().resource(Resources::AccessType::Write);
     dispatchMotionBlurInternal(
       ctx,
       nearestSampler, linearSampler,
       postFxArgs,
       workgroups,
-      rtOutput,
+      resources,
       inOutColorTexture, postFxIntermediateTexture);
 
     // Copy the blurred result back into the final output so downstream passes can read it.
@@ -320,7 +320,7 @@ namespace dxvk {
       inOutColorTexture.image,
       { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
       { 0, 0, 0 },
-      rtOutput.m_postFxIntermediateTexture.image(Resources::AccessType::Read),
+      resources.get<&RaytracingFrame::m_postFxIntermediateTexture>().image(Resources::AccessType::Read),
       { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
       { 0, 0, 0 },
       inputSize);
@@ -402,12 +402,14 @@ namespace dxvk {
 
   void DxvkPostFx::dispatchHighlighting(
     Rc<RtxContext> ctx,
-    const Resources::RaytracingOutput& rtOutput,
+    HighlightResources resources,
+    float missLinearViewZ,
     std::vector<uint32_t>&& objectPickingValuesToHighlight,
     const std::optional<Vector2i>& pixelToHighlight,
     HighlightColor color) {
     static_assert(sizeof(ObjectPickingValue) == sizeof(objectPickingValuesToHighlight[0]));
-    if (!rtOutput.m_primaryObjectPicking.isValid()) {
+    const auto& objectPicking = resources.get<&RaytracingFrame::m_primaryObjectPicking>();
+    if (!objectPicking.isValid()) {
       return;
     }
     if (objectPickingValuesToHighlight.empty() && !pixelToHighlight) {
@@ -415,7 +417,7 @@ namespace dxvk {
     }
     ScopedGpuProfileZone(ctx, "PostFx Highlight");
 
-    const Resources::Resource& inOutColorTexture = rtOutput.m_compositeOutput.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inOutColorTexture = resources.get<&RaytracingFrame::m_compositeOutput>().resource(Resources::AccessType::ReadWrite);
     const VkExtent3D& inputSize = inOutColorTexture.image->info().extent;
 
     const auto workgroups = util::computeBlockCount(inputSize, VkExtent3D { POST_FX_TILE_SIZE , POST_FX_TILE_SIZE, 1 });
@@ -474,17 +476,17 @@ namespace dxvk {
         color == HighlightColor::FromVariable ? packColor(g_customHighlightColor[0], g_customHighlightColor[1], g_customHighlightColor[2]) :
         packColor(255, 255, 255);
       args.valuesToHighlightCountPow = valuesToHighlightCountPow;
-      args.missLinearViewZ = rtOutput.m_raytraceArgs.primaryDirectMissLinearViewZ;
+      args.missLinearViewZ = missLinearViewZ;
     }
 
     ctx->pushConstants(0, sizeof(args), &args);
 
     const Resources::Resource* lastOutput =
-      &rtOutput.m_postFxIntermediateTexture.resource(Resources::AccessType::Write);
+      &resources.get<&RaytracingFrame::m_postFxIntermediateTexture>().resource(Resources::AccessType::Write);
 
     ctx->bindResourceView(POST_FX_HIGHLIGHT_INPUT, inOutColorTexture.view, nullptr);
-    ctx->bindResourceView(POST_FX_HIGHLIGHT_OBJECT_PICKING_INPUT, rtOutput.m_primaryObjectPicking.view, nullptr);
-    ctx->bindResourceView(POST_FX_HIGHLIGHT_PRIMARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
+    ctx->bindResourceView(POST_FX_HIGHLIGHT_OBJECT_PICKING_INPUT, objectPicking.view, nullptr);
+    ctx->bindResourceView(POST_FX_HIGHLIGHT_PRIMARY_LINEAR_VIEW_Z_INPUT, resources.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
     ctx->bindResourceView(POST_FX_HIGHLIGHT_OUTPUT, lastOutput->view, nullptr);
     ctx->bindResourceBuffer(POST_FX_HIGHLIGHT_VALUES, DxvkBufferSlice(m_highlightingValues, 0, m_highlightingValues->info().size));
 
@@ -497,7 +499,7 @@ namespace dxvk {
         inOutColorTexture.image,
         { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
         { 0, 0, 0 },
-        rtOutput.m_postFxIntermediateTexture.image(Resources::AccessType::Read),
+        resources.get<&RaytracingFrame::m_postFxIntermediateTexture>().image(Resources::AccessType::Read),
         { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
         { 0, 0, 0 },
         inputSize);

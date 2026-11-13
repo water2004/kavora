@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define RAY_PIPELINE 1
+import "rtx/utility/cloud_density.slang";
+import "rtx/algorithm/fog_froxel_sampling.slang";
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
@@ -17,7 +19,8 @@ layout(binding = GBUFFER_BINDING_SKYPROBE)
 SamplerCube<float3> SkyProbe;
 
 #include "rtx/pass/gbuffer/atmosphere_call.slangh"
-#include "rtx/algorithm/atmosphere.slangh"
+import "rtx/algorithm/atmosphere.slang";
+#include "rtx/algorithm/volume_lighting.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 
 [shader("callable")]
@@ -26,8 +29,9 @@ void main(inout AtmosphereCallData data)
   const float3 ambient = cb.volumeArgs.clouds.enable
     ? sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, LinearWrapSampler, cb.volumeArgs.sceneUpDirection) * 0.5f
     : float3(0);
-  const AtmosphereSegment segment = integrateAtmosphereSegment(cb.volumeArgs, VolumeFilteredRadianceY,
-    VolumeFilteredRadianceCoCg, data.origin, data.direction, data.distance, ambient, data.volumeHint, data.mediumExtinction);
+  const AtmosphereSegment segment = integrateAtmosphereSegment<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg,
+    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, data.origin, data.direction, data.distance, ambient, data.volumeHint, data.mediumExtinction);
   data.radiance = segment.radiance;
   data.transmittance = segment.transmittance;
 }

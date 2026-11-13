@@ -4,7 +4,8 @@
  */
 #pragma once
 
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 #include "rtx/concept/surface_material/opaque_surface_material_blending.slangh"
 #include "rtx/utility/texture.slangh"
 

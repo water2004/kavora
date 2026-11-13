@@ -1,0 +1,255 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_output.slangh"
+#include "rtx/pass/gbuffer/gbuffer_shading_cache.slangh"
+#include "rtx/pass/gbuffer/primary_intersection.slangh"
+#include "rtx/algorithm/geometry_resolver_state.slangh"
+
+// Samples optical lobes from the first-hit G-buffer and writes PSR seeds.
+
+void geometryPSRPreparePass(ivec2 pixelCoordinate) {
+  GeometryFlags geometryFlags = geometryFlagsReadFromGBuffer(pixelCoordinate, SharedFlags);
+
+  const bool candidatePSRR = geometryFlags.performPSRR;
+  const bool candidatePSTR = geometryFlags.performPSTR;
+  if (!(candidatePSRR || candidatePSTR))
+  {
+    return;
+  }
+
+  // Primary misses have no first-hit material state to sample from.
+  if (PrimaryConeRadius[pixelCoordinate] == 0.0f)
+  {
+    geometryFlags.performPSRR = false;
+    geometryFlags.performPSTR = false;
+    geometryFlags.primarySelectedIntegrationSurface = true;
+    geometryFlags.secondarySurfaceMask = false;
+    geometryFlagsWriteToGBuffer(geometryFlags, pixelCoordinate, SharedFlags);
+    return;
+  }
+
+  // Match the jittered primary ray used to populate the GBuffer. Non-serialized
+  // view directions are reconstructed from this ray during GBuffer decode.
+  const Ray primaryRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate);
+
+  const MinimalRayInteraction minimalRayInteraction =
+    gbufferReadPrimaryMinimalRayInteraction(pixelCoordinate, PrimaryConeRadius[pixelCoordinate], primaryRay);
+
+  GBufferMemoryPolymorphicSurfaceMaterialInteraction surfaceMaterialInteractionMemory;
+  surfaceMaterialInteractionMemory.worldShadingNormal =
+    signedOctahedralToSphereDirection(snorm2x16ToFloat2x32(PrimaryWorldShadingNormal[pixelCoordinate]));
+  surfaceMaterialInteractionMemory.perceptualRoughness = PrimaryPerceptualRoughness[pixelCoordinate];
+  surfaceMaterialInteractionMemory.albedo = f16vec3(PrimaryAlbedo[pixelCoordinate].rgb);
+  const vec4 reflectivity = PrimaryBaseReflectivity[pixelCoordinate];
+  surfaceMaterialInteractionMemory.baseReflectivity = f16vec3(reflectivity.rgb);
+  surfaceMaterialInteractionMemory.waterContact = reflectivity.a > 0.5f;
+  surfaceMaterialInteractionMemory.data0 = SharedMaterialData0[pixelCoordinate].x;
+  surfaceMaterialInteractionMemory.data1 = SharedMaterialData1[pixelCoordinate].x;
+
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction =
+    polymorphicSurfaceMaterialInteractionCreate(surfaceMaterialInteractionMemory);
+
+  if (polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction) == surfaceMaterialTypeOpaque)
+  {
+    if (cb.sssArgs.enableThinOpaque || cb.sssArgs.enableDiffusionProfile)
+    {
+      const SubsurfaceMaterialInteraction subsurfaceMaterialInteraction =
+        subSurfaceMaterialReadHelper(
+          SharedSubsurfaceData[pixelCoordinate],
+          SharedSubsurfaceDiffusionProfileData[pixelCoordinate]);
+
+      polymorphicSurfaceMaterialInteraction.fdata5 = subsurfaceMaterialInteraction.measurementDistance;
+      polymorphicSurfaceMaterialInteraction.i32data0 = subsurfaceMaterialInteraction.packedTransmittanceColor;
+      polymorphicSurfaceMaterialInteraction.i32data1 = subsurfaceMaterialInteraction.packedSingleScatteringAlbedo;
+      polymorphicSurfaceMaterialInteraction.bdata1 = subsurfaceMaterialInteraction.volumetricAnisotropy;
+      polymorphicSurfaceMaterialInteraction.bdata2 = subsurfaceMaterialInteraction.maxSampleRadius;
+    }
+    else
+    {
+      polymorphicSurfaceMaterialInteraction.fdata5 = 0.0f;
+      polymorphicSurfaceMaterialInteraction.idata0 = 0;
+      polymorphicSurfaceMaterialInteraction.i32data0 = 0;
+      polymorphicSurfaceMaterialInteraction.i32data1 = 0;
+      polymorphicSurfaceMaterialInteraction.bdata1 = 0;
+      polymorphicSurfaceMaterialInteraction.bdata2 = 0;
+    }
+  }
+
+  RNG randomState = createRNG(pixelCoordinate, cb.frameIdx);
+  SurfaceMaterialInteractionPSRSample reflectionPSRSample;
+  SurfaceMaterialInteractionPSRSample transmissionPSRSample;
+  vec3 diffuseLayerWeight = vec3(0.0f);
+  bool reflectionSelectedIntegrationSurface = false;
+  float selectedIntegrationSurfacePdf = 1.0f;
+  uint transmissionMediumState = cb.startInMediumMaterialIndex;
+  bool pstrPenetrateSurface = false;
+
+  polymorphicSurfaceMaterialInteractionCalcPSRSample(
+    polymorphicSurfaceMaterialInteraction, randomState, minimalRayInteraction,
+    reflectionPSRSample, transmissionPSRSample,
+    diffuseLayerWeight, reflectionSelectedIntegrationSurface, selectedIntegrationSurfacePdf,
+    transmissionMediumState, pstrPenetrateSurface);
+
+  const bool performPSRR = candidatePSRR && reflectionPSRSample.performPSR;
+  const bool performPSTR = candidatePSTR && transmissionPSRSample.performPSR;
+
+  // Matches the early out in approximateDiffuseLayerRadiance.
+  const bool hasDiffuseLayer = !all(diffuseLayerWeight <= 0.0f);
+
+  MinimalSurfaceInteraction minimalSurfaceInteraction;
+  vec3 attenuation;
+
+  // Loaded before storeReflectionPSRData, which aliases the world position.
+  if (hasDiffuseLayer || performPSRR || performPSTR)
+  {
+    GBufferMemoryMinimalSurfaceInteraction surfaceInteractionMemory;
+    surfaceInteractionMemory.encodedWorldPositionWorldTriangleTBN =
+      aliasedData0.PrimaryWorldPositionWorldTriangleNormal[pixelCoordinate];
+    surfaceInteractionMemory.positionError = PrimaryPositionError[pixelCoordinate];
+    minimalSurfaceInteraction = minimalSurfaceInteractionCreate(surfaceInteractionMemory);
+
+    attenuation = unpackSceneAttenuation(PrimaryAttenuation[pixelCoordinate], cb.enableRaytracedRenderTarget);
+  }
+
+  // Without a diffuse layer the radiance would be stored back unchanged.
+  if (hasDiffuseLayer)
+  {
+    SurfaceInteraction surfaceInteraction;
+    surfaceInteraction.position = minimalSurfaceInteraction.position;
+    surfaceInteraction.positionError = minimalSurfaceInteraction.positionError;
+    surfaceInteraction.shadowTerminatorOffset = minimalSurfaceInteraction.shadowTerminatorOffset;
+    surfaceInteraction.geometryNormal = minimalSurfaceInteraction.geometryNormal;
+    surfaceInteraction.geometryTangent = minimalSurfaceInteraction.geometryTangent;
+    surfaceInteraction.geometryBitangent = minimalSurfaceInteraction.geometryBitangent;
+
+    vec3 radiance = vec3(SharedRadianceRG[pixelCoordinate], SharedRadianceB[pixelCoordinate]);
+    const vec3 diffuseLayerRadiance = approximateDiffuseLayerRadiance(
+      surfaceInteraction,
+      polymorphicSurfaceMaterialInteraction.shadingNormal,
+      geometryFlags.portalSpace,
+      diffuseLayerWeight) * attenuation;
+
+    radiance += diffuseLayerRadiance;
+
+    SharedRadianceRG[pixelCoordinate] = radiance.rg;
+    SharedRadianceB[pixelCoordinate] = radiance.b;
+  }
+
+  // The primary pass already stored a PDF of 1 for every pixel that reaches this pass.
+  if (selectedIntegrationSurfacePdf != 1.0f)
+  {
+    SharedIntegrationSurfacePdf[pixelCoordinate] = selectedIntegrationSurfacePdf;
+  }
+
+  geometryFlags.performPSRR = performPSRR;
+  geometryFlags.performPSTR = performPSTR;
+
+  if (geometryFlags.hasSecondarySurface())
+  {
+    geometryFlags.primarySelectedIntegrationSurface = !reflectionSelectedIntegrationSurface;
+    geometryFlags.secondarySurfaceMask = true;
+  }
+  else
+  {
+    geometryFlags.primarySelectedIntegrationSurface = true;
+    geometryFlags.secondarySurfaceMask = false;
+  }
+
+  if (!geometryFlags.performedAnyPSR())
+  {
+    geometryResolverOutputMiss<false, false>(pixelCoordinate, pixelCoordinate);
+    geometryFlagsWriteToGBuffer(geometryFlags, pixelCoordinate, SharedFlags);
+    return;
+  }
+
+  // The first-hit GBuffer may encode serialized view direction in the sign bit of
+  // PrimaryConeRadius. PSR resolving consumes this texture as a raw cone radius.
+  PrimaryConeRadius[pixelCoordinate] = minimalRayInteraction.coneRadius;
+
+  const uint packedGeometryFlags = geometryFlagsEncode(geometryFlags);
+  bool useAlternateDisocclusionThreshold = false;
+  const vec4 accumulatedRotation =
+    gbufferLoadPortalRotation(geometryFlags.portalSpace);
+
+  if (performPSRR)
+  {
+    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && performPSTR)
+    {
+      RayReconstructionSpecularMotion[pixelCoordinate] = kRRSpecularMotionPending.xx;
+    }
+    const Ray sampledRay = rayCreateDirection(
+      minimalRayInteraction, minimalSurfaceInteraction, primaryRay,
+      reflectionPSRSample.inputDirection, false);
+    const vec4 vectorTransform =
+      quaternionMultiply(accumulatedRotation, reflectionPSRSample.vectorTransform, true);
+    // Reflections retain the camera medium; unpackPSRData also derives insideMedium from this index.
+    const GbufferPSRData psrData = packPSRData(
+      sampledRay, cb.startInMediumMaterialIndex,
+      attenuation * reflectionPSRSample.attenuation,
+      vectorTransform,
+      packedGeometryFlags);
+
+    storeReflectionPSRData(psrData, pixelCoordinate);
+    useAlternateDisocclusionThreshold =
+      useAlternateDisocclusionThreshold || reflectionPSRSample.useAlternateDisocclusionThreshold;
+  }
+
+  if (performPSTR)
+  {
+    Ray sampledRay = rayCreateDirection(
+      minimalRayInteraction, minimalSurfaceInteraction, primaryRay,
+      transmissionPSRSample.inputDirection, pstrPenetrateSurface);
+#ifdef WATER_SIM_SAMPLE
+    if (pstrPenetrateSurface && hasWaterTransmissionOffset(polymorphicSurfaceMaterialInteraction)) {
+      offsetWaterTransmissionRay(sampledRay, primaryRay, minimalSurfaceInteraction.position,
+        minimalSurfaceInteraction.geometryNormal, primaryRayMask());
+    }
+#endif
+    const vec4 vectorTransform =
+      quaternionMultiply(accumulatedRotation, transmissionPSRSample.vectorTransform, true);
+    const GbufferPSRData psrData = packPSRData(
+      sampledRay, transmissionMediumState,
+      attenuation * transmissionPSRSample.attenuation,
+      vectorTransform,
+      packedGeometryFlags);
+
+    storeTransmissionPSRData(psrData, pixelCoordinate);
+    useAlternateDisocclusionThreshold =
+      useAlternateDisocclusionThreshold || transmissionPSRSample.useAlternateDisocclusionThreshold;
+  }
+
+  geometryResolverStorePSRProjectionSeed(pixelCoordinate,
+    performPSTR ? transmissionPSRSample.relativeRefractiveIndex : 1.0f, geometryFlags.isViewModel);
+  SecondaryHitDistance[pixelCoordinate] = PrimaryHitDistance[pixelCoordinate];
+  PrimaryDisocclusionThresholdMix[pixelCoordinate] = useAlternateDisocclusionThreshold ? 1.0f : 0.0f;
+
+  if (!geometryFlags.secondarySurfaceMask)
+  {
+    geometryResolverOutputMiss<false, false>(pixelCoordinate, pixelCoordinate);
+  }
+
+  geometryFlagsWriteToGBuffer(geometryFlags, pixelCoordinate, SharedFlags);
+}
+
+// Consuming a continuation clears its aliased storage. Keep the packed copy until shading begins.

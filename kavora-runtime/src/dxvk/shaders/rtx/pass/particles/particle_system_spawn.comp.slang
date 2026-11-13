@@ -32,7 +32,7 @@
 #include "rtx/utility/packing.slangh"
 #include "rtx/utility/gbuffer_helpers.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
     
 layout(binding = PARTICLE_SYSTEM_BINDING_SPAWN_CONTEXT_PARTICLE_MAPPING_INPUT)
 StructuredBuffer<uint16_t> SpawnContextParticleMapping;

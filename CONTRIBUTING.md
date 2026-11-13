@@ -9,10 +9,10 @@ adaptation notices. See [the license overview](LICENSES/README.md).
 The release target is Windows x64. Install:
 
 - A 64-bit JDK 25, with `JAVA_HOME` pointing to it.
-- Visual Studio's Desktop development with C++ workload and a Windows SDK.
+- Visual Studio's Desktop development with C++ workload, C++20 support and a Windows SDK.
   The native scripts locate the toolchain through `vswhere`.
 - Meson 1.8.2 or newer, Ninja and Python 3.9 or newer for the native build.
-- The Vulkan SDK and Slang 2026.20.
+- The Vulkan SDK and [Slang 2026.20](https://github.com/shader-slang/slang/releases/tag/v2026.20).
 - Git and network access for pinned submodules, Packman and Maven dependencies.
 
 Run all commands below from the repository root. Exit any client launched from

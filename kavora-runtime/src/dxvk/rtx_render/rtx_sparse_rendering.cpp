@@ -519,10 +519,11 @@ namespace dxvk {
     return nrcIsActive && isActive();
   }
 
-  void SparseRendering::dispatchCompactedConsumer(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, const VkExtent3D& workgroups) {
-    if (rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off) {
+  void SparseRendering::dispatchCompactedConsumer(RtxContext& ctx, SparseRenderingMode mode,
+    const Rc<DxvkBuffer>& dispatchIndirectArgs, const VkExtent3D& workgroups) {
+    if (mode != SparseRenderingMode::Off) {
       ctx.bindDrawBuffers(
-        DxvkBufferSlice(rtOutput.m_sparseRenderingDispatchIndirectArgs, 0, sizeof(VkDispatchIndirectCommand)),
+        DxvkBufferSlice(dispatchIndirectArgs, 0, sizeof(VkDispatchIndirectCommand)),
         DxvkBufferSlice());
       ctx.dispatchIndirect(0);
     } else {
@@ -540,7 +541,7 @@ namespace dxvk {
     CompactActivePixelsShader::getShader();
   }
 
-  void SparseRendering::dispatch(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
+  void SparseRendering::dispatch(RtxContext& ctx, DispatchResources frame) {
     if (!isActive()) {
       return;
     }
@@ -549,12 +550,12 @@ namespace dxvk {
 
     ctx.bindCommonRayTracingResources();
 
-    dispatchActivePixelSamplingRate(ctx, rtOutput);
-    dispatchActivePixelMask(ctx, rtOutput);
-    dispatchCompactActivePixels(ctx, rtOutput);
+    dispatchActivePixelSamplingRate(ctx, frame);
+    dispatchActivePixelMask(ctx, frame);
+    dispatchCompactActivePixels(ctx, frame);
   }
 
-  void SparseRendering::dispatchActivePixelSamplingRate(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
+  void SparseRendering::dispatchActivePixelSamplingRate(RtxContext& ctx, DispatchResources frame) {
     ScopedGpuProfileZone(&ctx, "Sparse Pixel Sampling Rate");
 
     ctx.bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ActivePixelSamplingRateShader::getShader());
@@ -563,33 +564,33 @@ namespace dxvk {
     // Radiance cache update query-pixel reservoir, accumulated over active pixels. Only allocated while update-path
     // resampling is on, which is also the only case the shader touches it.
     Rc<DxvkImageView> updateQueryReservoirView = nullptr;
-    if (rtOutput.m_raytraceArgs.sparseRenderingArgs.resampledNrcTrainingPaths) {
+    if (frame.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.resampledNrcTrainingPaths) {
       updateQueryReservoirView = ctx.getCommonObjects()->metaNeuralRadianceCache().getTrainingQueryReservoir().view;
-    } else if (rtOutput.m_raytraceArgs.sparseRenderingArgs.resampledSharcUpdatePaths) {
+    } else if (frame.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.resampledSharcUpdatePaths) {
       updateQueryReservoirView = ctx.getCommonObjects()->metaSpatiallyHashedRadianceCache().getUpdateQueryReservoir().view;
     }
     ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_RADIANCE_CACHE_UPDATE_QUERY_RESERVOIR_INPUT_OUTPUT, updateQueryReservoirView, nullptr);
 
     // Outputs
-    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_PIXEL_SAMPLING_RATE_OUTPUT, rtOutput.m_sparseRenderingPixelSamplingRate.view, nullptr);
+    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_PIXEL_SAMPLING_RATE_OUTPUT, frame.get<&RaytracingFrame::m_sparseRenderingPixelSamplingRate>().view, nullptr);
 
-    const VkExtent3D& extent = rtOutput.m_compositeOutputExtent;
+    const VkExtent3D& extent = frame.get<&RaytracingFrame::m_compositeOutputExtent>();
     const VkExtent3D groupSize = { ACTIVE_PIXEL_MASK_THREADGROUP_SIZE_WIDTH, ACTIVE_PIXEL_MASK_THREADGROUP_SIZE_HEIGHT, 1u };
     const VkExtent3D workgroups = util::computeBlockCount(extent, groupSize);
     ctx.dispatch(workgroups.width, workgroups.height, workgroups.depth);
   }
 
-  void SparseRendering::dispatchActivePixelMask(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
+  void SparseRendering::dispatchActivePixelMask(RtxContext& ctx, DispatchResources frame) {
     ScopedGpuProfileZone(&ctx, "Active Pixel Mask");
 
     // Build per-tile bit masks recording the active pixels.
     ctx.bindShader(VK_SHADER_STAGE_COMPUTE_BIT, ActivePixelMaskShader::getShader());
 
     // Inputs
-    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_PIXEL_SAMPLING_RATE_INPUT, rtOutput.m_sparseRenderingPixelSamplingRate.view, nullptr);
+    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_PIXEL_SAMPLING_RATE_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingPixelSamplingRate>().view, nullptr);
 
     // Outputs
-    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_ACTIVE_PIXEL_MASK_OUTPUT, rtOutput.m_sparseRenderingActivePixelMask.view, nullptr);
+    ctx.bindResourceView(ACTIVE_PIXEL_MASK_BINDING_ACTIVE_PIXEL_MASK_OUTPUT, frame.get<&RaytracingFrame::m_sparseRenderingActivePixelMask>().view, nullptr);
 
     const VkExtent3D& maskExtent = m_activePixelMaskExtent;
     const VkExtent3D maskGroupSize = { ACTIVE_PIXEL_MASK_THREADGROUP_SIZE_WIDTH, ACTIVE_PIXEL_MASK_THREADGROUP_SIZE_HEIGHT, 1u };
@@ -597,34 +598,34 @@ namespace dxvk {
     ctx.dispatch(maskWorkgroups.width, maskWorkgroups.height, maskWorkgroups.depth);
   }
 
-  void SparseRendering::dispatchCompactActivePixels(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
+  void SparseRendering::dispatchCompactActivePixels(RtxContext& ctx, DispatchResources frame) {
     ScopedGpuProfileZone(&ctx, "Compact Active Pixels");
 
     ctx.bindShader(VK_SHADER_STAGE_COMPUTE_BIT, CompactActivePixelsShader::getShader());
 
     // Inputs
-    ctx.bindResourceView(COMPACT_ACTIVE_PIXELS_BINDING_ACTIVE_PIXEL_MASK_INPUT, rtOutput.m_sparseRenderingActivePixelMask.view, nullptr);
+    ctx.bindResourceView(COMPACT_ACTIVE_PIXELS_BINDING_ACTIVE_PIXEL_MASK_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingActivePixelMask>().view, nullptr);
 
     // Inputs/Outputs
     ctx.bindResourceBuffer(COMPACT_ACTIVE_PIXELS_BINDING_ACTIVE_PIXEL_COUNT_INPUT_OUTPUT,
-                           optionalBufferSlice(rtOutput.m_sparseRenderingActivePixelCount));
+                           optionalBufferSlice(frame.get<&RaytracingFrame::m_sparseRenderingActivePixelCount>()));
 
     // Outputs
     ctx.bindResourceView(COMPACT_ACTIVE_PIXELS_BINDING_ACTIVE_LOCAL_PIXEL_COORDS_OUTPUT,
-                         rtOutput.m_sparseRenderingActiveLocalPixelCoords.view, nullptr);
+                         frame.get<&RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords>().view, nullptr);
     ctx.bindResourceView(COMPACT_ACTIVE_PIXELS_BINDING_COMPACTED_PIXEL_INDICES_OUTPUT,
-                         rtOutput.m_sparseRenderingCompactedPixelIndices.view, nullptr);
+                         frame.get<&RaytracingFrame::m_sparseRenderingCompactedPixelIndices>().view, nullptr);
     ctx.bindResourceView(COMPACT_ACTIVE_PIXELS_BINDING_TILE_ACTIVE_COUNTS_OUTPUT,
-                         rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
+                         frame.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
 
     ctx.bindResourceBuffer(COMPACT_ACTIVE_PIXELS_BINDING_ACTIVE_PIXEL_COORDS_OUTPUT,
-                           optionalBufferSlice(rtOutput.m_sparseRenderingActivePixelCoords));
+                           optionalBufferSlice(frame.get<&RaytracingFrame::m_sparseRenderingActivePixelCoords>()));
     ctx.bindResourceBuffer(COMPACT_ACTIVE_PIXELS_BINDING_TRACE_RAYS_ARGS_OUTPUT,
-                           optionalBufferSlice(rtOutput.m_sparseRenderingTraceRaysIndirectArgs));
+                           optionalBufferSlice(frame.get<&RaytracingFrame::m_sparseRenderingTraceRaysIndirectArgs>()));
     ctx.bindResourceBuffer(COMPACT_ACTIVE_PIXELS_BINDING_DISPATCH_ARGS_OUTPUT,
-                           optionalBufferSlice(rtOutput.m_sparseRenderingDispatchIndirectArgs));
+                           optionalBufferSlice(frame.get<&RaytracingFrame::m_sparseRenderingDispatchIndirectArgs>()));
 
-    const VkExtent3D extent = rtOutput.m_compositeOutputExtent;
+    const VkExtent3D extent = frame.get<&RaytracingFrame::m_compositeOutputExtent>();
     const VkExtent3D tileSize = { COMPACT_ACTIVE_PIXELS_TILE_SIZE_X, COMPACT_ACTIVE_PIXELS_TILE_SIZE_Y, 1 };
     const VkExtent3D workgroups = util::computeBlockCount(extent, tileSize);
 

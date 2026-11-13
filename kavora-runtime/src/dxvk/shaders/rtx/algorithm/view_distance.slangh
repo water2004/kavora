@@ -22,7 +22,7 @@
 #pragma once
 
 #include "rtx/utility/noise.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/pass/view_distance_args.h"
 
 #include "rtx/external/simplex_noise.slangh"

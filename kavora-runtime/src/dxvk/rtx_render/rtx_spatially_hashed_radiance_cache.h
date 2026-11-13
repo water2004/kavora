@@ -138,9 +138,9 @@ namespace dxvk {
     static bool checkIsSupported(const DxvkDevice* device);
 
     // To be called between PT update and query passes
-    void dispatch(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatch(RtxContext& ctx);
 
-    void onFrameEnd(Resources::RaytracingOutput& rtOutput);
+    void onFrameEnd();
 
     // This must be called after onFrameBegin() in a frame
     void setRaytraceArgs(RtxContext& ctx, RaytraceArgs& constants);
@@ -182,7 +182,6 @@ namespace dxvk {
 
     bool isEnabled() const override;
     void releaseResources();
-    void dispatchResolve(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
 
     void copyUpdateCounters(RtxContext& ctx);
     void readAndResetUpdateCounters();

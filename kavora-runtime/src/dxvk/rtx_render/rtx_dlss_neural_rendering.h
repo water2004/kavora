@@ -22,8 +22,17 @@
 #pragma once
 
 #include "rtx_dlss.h"
+#include "rtx_frame_resources.h"
 
 namespace dxvk {
+
+  using DlssNeuralRenderingFrame = FrameResourceView<
+    &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+    &RaytracingFrame::m_primaryDepth,
+    &RaytracingFrame::m_primaryDepthDLSSRR,
+    &RaytracingFrame::m_neuralRenderingInput,
+    &RaytracingFrame::m_neuralRenderingOutput,
+    &RaytracingFrame::m_controlMask>;
 
   class NGXNeuralRenderingContext;
 
@@ -39,7 +48,7 @@ namespace dxvk {
     bool dispatch(
       Rc<RtxContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      DlssNeuralRenderingFrame frame,
       bool resetHistory,
       bool useRayReconstructionGuides);
 

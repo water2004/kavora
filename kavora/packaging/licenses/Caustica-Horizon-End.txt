@@ -17,7 +17,7 @@ clock. The reference's procedural noise is used without external textures.
 Its separate display-fog pass and renderer framework are not incorporated.
 
 Modified shader source:
-  kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/caustica_end.slangh
+  kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/caustica_end.slang
   kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/generate_end_background.comp.slang
 
 These shader sources remain LGPL-3.0-or-later. The modified native runtime and build instructions are included in this

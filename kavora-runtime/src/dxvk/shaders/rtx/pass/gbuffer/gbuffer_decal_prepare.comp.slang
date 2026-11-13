@@ -49,8 +49,8 @@
 #include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
-#include "rtx/concept/camera/camera.slangh"
-#include "rtx/algorithm/geometry_resolver.slangh"
+import "rtx/concept/camera/camera.slang";
+#include "rtx/pass/gbuffer/gbuffer_decals.slangh"
 
 [shader("compute")]
 [numthreads(16, 8, 1)]

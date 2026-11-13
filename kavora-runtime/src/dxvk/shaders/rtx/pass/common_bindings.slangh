@@ -29,7 +29,8 @@
 
 #include "rtx/pass/raytrace_args.h"
 #include "rtx/concept/surface/surface.h"
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 #include "rtx/concept/volume/volume.h"
 #include "rtx/concept/volume_material/volume_material.h"
 #include "rtx/concept/light/light.h"

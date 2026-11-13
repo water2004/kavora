@@ -727,7 +727,7 @@ namespace dxvk {
   }
 
   void DxvkPathtracerGbuffer::dispatchPrimaryTraversal(
-    RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
+    RtxContext* ctx, const VkExtent3D& rayDims, const VolumeArgs& volume) {
     const RaytraceMode raytraceMode = RtxOptions::renderPassGBufferRaytraceMode();
     if (raytraceMode >= RaytraceMode::Count) {
       assert(false && "Invalid RaytraceMode in DxvkPathtracerGbuffer::dispatchPrimaryTraversal");
@@ -738,9 +738,7 @@ namespace dxvk {
     }
     ctx->setFramePassStage(RtxFramePassStage::GBufferPrimaryRays);
     ctx->bindCommonRayTracingResources();
-    const VkExtent3D& rayDims = rtOutput.m_compositeOutputExtent;
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
-    const auto& volume = rtOutput.m_raytraceArgs.volumeArgs;
     ensurePathBuffers(rayDims, volume.enable || volume.clouds.enable,
       volume.fogIntegrationMode == 1 ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE,
       volume.fogIntegrationMode == 1 ? GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY : GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY);
@@ -807,14 +805,14 @@ namespace dxvk {
   }
 
   void DxvkPathtracerGbuffer::dispatch(
-    RtxContext* ctx, 
-    const Resources::RaytracingOutput& rtOutput) {
+    RtxContext* ctx, DispatchResources frame) {
     ScopedGpuProfileZone(ctx, "Gbuffer Raytracing");
     ctx->setFramePassStage(RtxFramePassStage::GBufferPrimaryRays);
+    const auto& args = frame.get<&RaytracingFrame::m_raytraceArgs>();
 
     // With sparse rendering, inactive pixels have no compacted slot,
     // so the PSR payload and the outputs that inactive pixels write in place of a GBuffer are dense.
-    const bool compactedGBuffer = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+    const bool compactedGBuffer = args.sparseRenderingArgs.mode != SparseRenderingMode::Off;
 
     // Bind resources
 
@@ -837,8 +835,8 @@ namespace dxvk {
 
     // These resources give each pixel's slot in the compacted GBuffer. They are null when sparse rendering is inactive,
     // in which case DXVK substitutes a null descriptor.
-    ctx->bindResourceView(GBUFFER_BINDING_COMPACTED_PIXEL_INDICES_INPUT, rtOutput.m_sparseRenderingCompactedPixelIndices.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_TILE_ACTIVE_COUNTS_INPUT, rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_COMPACTED_PIXEL_INDICES_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingCompactedPixelIndices>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_TILE_ACTIVE_COUNTS_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
 
     const RtxGlobalVolumetrics& globalVolumetrics = ctx->getCommonObjects()->metaGlobalVolumetrics();
     ctx->bindResourceView(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT, globalVolumetrics.getFilteredRadianceY().view, nullptr);
@@ -856,114 +854,114 @@ namespace dxvk {
 
     // Output resources
 
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_FLAGS_OUTPUT, rtOutput.m_sharedFlags.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_RADIANCE_RG_OUTPUT, rtOutput.m_sharedRadianceRG.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_RADIANCE_B_OUTPUT, rtOutput.m_sharedRadianceB.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_INTEGRATION_SURFACE_PDF_OUTPUT, rtOutput.m_sharedIntegrationSurfacePdf.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MATERIAL_DATA0_OUTPUT, rtOutput.m_sharedMaterialData0.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MATERIAL_DATA1_OUTPUT, rtOutput.m_sharedMaterialData1.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MEDIUM_STATE_OUTPUT, rtOutput.m_sharedMediumState.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_BIAS_CURRENT_COLOR_MASK_OUTPUT, rtOutput.m_sharedBiasCurrentColorMask.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_TEXTURE_COORD_OUTPUT, rtOutput.m_sharedTextureCoord.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SURFACE_INDEX_OUTPUT, rtOutput.m_sharedSurfaceIndex.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SUBSURFACE_DATA_OUTPUT, rtOutput.m_sharedSubsurfaceData.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_OUTPUT, rtOutput.m_sharedSubsurfaceDiffusionProfileData.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_FLAGS_OUTPUT, frame.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_RADIANCE_RG_OUTPUT, frame.get<&RaytracingFrame::m_sharedRadianceRG>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_RADIANCE_B_OUTPUT, frame.get<&RaytracingFrame::m_sharedRadianceB>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_INTEGRATION_SURFACE_PDF_OUTPUT, frame.get<&RaytracingFrame::m_sharedIntegrationSurfacePdf>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MATERIAL_DATA0_OUTPUT, frame.get<&RaytracingFrame::m_sharedMaterialData0>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MATERIAL_DATA1_OUTPUT, frame.get<&RaytracingFrame::m_sharedMaterialData1>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_MEDIUM_STATE_OUTPUT, frame.get<&RaytracingFrame::m_sharedMediumState>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_BIAS_CURRENT_COLOR_MASK_OUTPUT, frame.get<&RaytracingFrame::m_sharedBiasCurrentColorMask>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_TEXTURE_COORD_OUTPUT, frame.get<&RaytracingFrame::m_sharedTextureCoord>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SURFACE_INDEX_OUTPUT, frame.get<&RaytracingFrame::m_sharedSurfaceIndex>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SUBSURFACE_DATA_OUTPUT, frame.get<&RaytracingFrame::m_sharedSubsurfaceData>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SUBSURFACE_DIFFUSION_PROFILE_DATA_OUTPUT, frame.get<&RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData>().view, nullptr);
 
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ATTENUATION_OUTPUT, rtOutput.m_primaryAttenuation.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_SHADING_NORMAL_OUTPUT, rtOutput.m_primaryWorldShadingNormal.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_OUTPUT, rtOutput.m_primaryPerceptualRoughness.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ATTENUATION_OUTPUT, frame.get<&RaytracingFrame::m_primaryAttenuation>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_SHADING_NORMAL_OUTPUT, frame.get<&RaytracingFrame::m_primaryWorldShadingNormal>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_PERCEPTUAL_ROUGHNESS_OUTPUT, frame.get<&RaytracingFrame::m_primaryPerceptualRoughness>().view, nullptr);
     // Temporarily holds the PSR continuation hit distance with the compacted GBuffer.
     // See geometryResolverStorePSRContinuation.
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_LINEAR_VIEW_Z_OUTPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ALBEDO_OUTPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_BASE_REFLECTIVITY_OUTPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_MVEC_OUTPUT, rtOutput.m_primaryVirtualMotionVector.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_OUTPUT, rtOutput.m_primaryScreenSpaceMotionVector.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_FG_FOREGROUND_GUIDE, rtOutput.m_fgForegroundGuide.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_OUTPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_LINEAR_VIEW_Z_OUTPUT, frame.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ALBEDO_OUTPUT, frame.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_BASE_REFLECTIVITY_OUTPUT, frame.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_MVEC_OUTPUT, frame.get<&RaytracingFrame::m_primaryVirtualMotionVector>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SCREEN_SPACE_MOTION_OUTPUT, frame.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_FG_FOREGROUND_GUIDE, frame.get<&RaytracingFrame::m_fgForegroundGuide>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_OUTPUT, frame.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_DENOISING_OUTPUT,
-      rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.empty()
+      frame.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising>().empty()
         ? nullptr
-        : rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_HIT_DISTANCE_OUTPUT, rtOutput.m_primaryHitDistance.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIEW_DIRECTION_OUTPUT, rtOutput.m_primaryViewDirection.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_CONE_RADIUS_OUTPUT, rtOutput.m_primaryConeRadius.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_POSITION_ERROR_OUTPUT, rtOutput.m_primaryPositionError.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SHADOW_TERMINATOR_FIX_OUTPUT, rtOutput.getCurrentSharedTerminatorFix().view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SURFACE_FLAGS_OUTPUT, rtOutput.m_primarySurfaceFlags.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DISOCCLUSION_THRESHOLD_MIX_OUTPUT, rtOutput.m_primaryDisocclusionThresholdMix.view, nullptr);
+        : frame.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_HIT_DISTANCE_OUTPUT, frame.get<&RaytracingFrame::m_primaryHitDistance>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_VIEW_DIRECTION_OUTPUT, frame.get<&RaytracingFrame::m_primaryViewDirection>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_CONE_RADIUS_OUTPUT, frame.get<&RaytracingFrame::m_primaryConeRadius>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_POSITION_ERROR_OUTPUT, frame.get<&RaytracingFrame::m_primaryPositionError>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SHARED_SHADOW_TERMINATOR_FIX_OUTPUT, frame.get<&RaytracingFrame::getCurrentSharedTerminatorFix>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SURFACE_FLAGS_OUTPUT, frame.get<&RaytracingFrame::m_primarySurfaceFlags>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DISOCCLUSION_THRESHOLD_MIX_OUTPUT, frame.get<&RaytracingFrame::m_primaryDisocclusionThresholdMix>().view, nullptr);
     // Temporarily holds the PSR continuation cone radius with the compacted GBuffer.
     // See geometryResolverStorePSRContinuation.
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DEPTH_OUTPUT, rtOutput.m_primaryDepth.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_OBJECT_PICKING_OUTPUT, rtOutput.m_primaryObjectPicking.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DEPTH_OUTPUT, frame.get<&RaytracingFrame::m_primaryDepth>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_OBJECT_PICKING_OUTPUT, frame.get<&RaytracingFrame::m_primaryObjectPicking>().view, nullptr);
 
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_RAW_OUTPUT, rtOutput.m_primaryWorldPositionRaw.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_TEXCOORDS_RAW_OUTPUT,     rtOutput.m_primaryTexcoordsRaw.view,     nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_NORMAL_F32_OUTPUT,        rtOutput.m_primaryNormalF32.view,        nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_COVERAGE_OUTPUT,          rtOutput.m_primaryCoverage.view,         nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_RAW_OUTPUT, frame.get<&RaytracingFrame::m_primaryWorldPositionRaw>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_TEXCOORDS_RAW_OUTPUT,     frame.get<&RaytracingFrame::m_primaryTexcoordsRaw>().view,     nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_NORMAL_F32_OUTPUT,        frame.get<&RaytracingFrame::m_primaryNormalF32>().view,        nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_COVERAGE_OUTPUT,          frame.get<&RaytracingFrame::m_primaryCoverage>().view,         nullptr);
 
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_ATTENUATION_OUTPUT, rtOutput.m_secondaryAttenuation.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_WORLD_SHADING_NORMAL_OUTPUT, rtOutput.m_secondaryWorldShadingNormal.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_PERCEPTUAL_ROUGHNESS_OUTPUT, rtOutput.m_secondaryPerceptualRoughness.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_LINEAR_VIEW_Z_OUTPUT, rtOutput.m_secondaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_ALBEDO_OUTPUT, rtOutput.m_secondaryAlbedo.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_BASE_REFLECTIVITY_OUTPUT, rtOutput.m_secondaryBaseReflectivity.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_ATTENUATION_OUTPUT, frame.get<&RaytracingFrame::m_secondaryAttenuation>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_WORLD_SHADING_NORMAL_OUTPUT, frame.get<&RaytracingFrame::m_secondaryWorldShadingNormal>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_PERCEPTUAL_ROUGHNESS_OUTPUT, frame.get<&RaytracingFrame::m_secondaryPerceptualRoughness>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_LINEAR_VIEW_Z_OUTPUT, frame.get<&RaytracingFrame::m_secondaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_ALBEDO_OUTPUT, frame.get<&RaytracingFrame::m_secondaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_BASE_REFLECTIVITY_OUTPUT, frame.get<&RaytracingFrame::m_secondaryBaseReflectivity>().view(Resources::AccessType::Write), nullptr);
     // The secondary motion vector is unbound when NRD will not read it,
     // because the compacted GBuffer then puts the dense copy of PSR slot 1 in its memory.
     ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIRTUAL_MVEC_OUTPUT,
-      rtOutput.m_raytraceArgs.writeSecondaryDenoisingGuides
-        ? rtOutput.m_secondaryVirtualMotionVector.view(Resources::AccessType::Write)
+      args.writeSecondaryDenoisingGuides
+        ? frame.get<&RaytracingFrame::m_secondaryVirtualMotionVector>().view(Resources::AccessType::Write)
         : nullptr, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_OUTPUT, rtOutput.m_secondaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_DENOISING_OUTPUT, rtOutput.m_secondaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_HIT_DISTANCE_OUTPUT, rtOutput.m_secondaryHitDistance.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIEW_DIRECTION_OUTPUT, rtOutput.m_secondaryViewDirection.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_CONE_RADIUS_OUTPUT, rtOutput.m_secondaryConeRadius.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_POSITION_ERROR_OUTPUT, rtOutput.m_secondaryPositionError.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_WORLD_POSITION_OUTPUT, rtOutput.m_secondaryWorldPositionWorldTriangleNormal.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_ALPHA_BLEND_GBUFFER_OUTPUT, rtOutput.m_alphaBlendGBuffer.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_OUTPUT, frame.get<&RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_DENOISING_OUTPUT, frame.get<&RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughnessDenoising>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_HIT_DISTANCE_OUTPUT, frame.get<&RaytracingFrame::m_secondaryHitDistance>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_VIEW_DIRECTION_OUTPUT, frame.get<&RaytracingFrame::m_secondaryViewDirection>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_CONE_RADIUS_OUTPUT, frame.get<&RaytracingFrame::m_secondaryConeRadius>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_POSITION_ERROR_OUTPUT, frame.get<&RaytracingFrame::m_secondaryPositionError>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_SECONDARY_WORLD_POSITION_OUTPUT, frame.get<&RaytracingFrame::m_secondaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_ALPHA_BLEND_GBUFFER_OUTPUT, frame.get<&RaytracingFrame::m_alphaBlendGBuffer>().view, nullptr);
 
-    ctx->bindResourceView(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_0, rtOutput.m_gbufferPSRData[0].view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_OUTPUT, rtOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_0, frame.get<&RaytracingFrame::m_gbufferPSRData>()[0].view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_OUTPUT, frame.get<&RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Write), nullptr);
 
     ctx->bindResourceView(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_1,
       compactedGBuffer
-        ? rtOutput.m_gbufferPSRData1Dense.view(Resources::AccessType::Write)
-        : rtOutput.m_gbufferPSRData[1].view(Resources::AccessType::Write), nullptr);
+        ? frame.get<&RaytracingFrame::m_gbufferPSRData1Dense>().view(Resources::AccessType::Write)
+        : frame.get<&RaytracingFrame::m_gbufferPSRData>()[1].view(Resources::AccessType::Write), nullptr);
 
     // Note: m_gbufferPSRData[1..2] are aliased with radiance textures that are used later as integrator outputs.
     ctx->bindResourceView(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_2,
       compactedGBuffer
-        ? rtOutput.m_gbufferPSRData2Dense.view(Resources::AccessType::Write)
-        : rtOutput.m_gbufferPSRData[2].view(Resources::AccessType::Write), nullptr);
+        ? frame.get<&RaytracingFrame::m_gbufferPSRData2Dense>().view(Resources::AccessType::Write)
+        : frame.get<&RaytracingFrame::m_gbufferPSRData>()[2].view(Resources::AccessType::Write), nullptr);
     // The RTXDI reservoir buffer's scratch page, which is idle until RTXDI initial sampling.
-    ctx->bindResourceBuffer(GBUFFER_BINDING_TRANSMISSION_PSR_DATA_STORAGE, rtOutput.m_transmissionPSRData.slice(Resources::AccessType::Write));
+    ctx->bindResourceBuffer(GBUFFER_BINDING_TRANSMISSION_PSR_DATA_STORAGE, frame.get<&RaytracingFrame::m_transmissionPSRData>().slice(Resources::AccessType::Write));
 
     // Bind necessary buffers for DLSS-RR. 
     // Note: RR uses different PSR rules compared to other uses, and its resolves are resolved in an another shader.
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT, rtOutput.m_primaryDepthDLSSRR.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_RR_SPECULAR_MOTION, rtOutput.m_rayReconstructionSpecularMotion.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT, rtOutput.m_primaryWorldShadingNormalDLSSRR.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_DEPTH_DLSSRR_OUTPUT, frame.get<&RaytracingFrame::m_primaryDepthDLSSRR>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_RR_SPECULAR_MOTION, frame.get<&RaytracingFrame::m_rayReconstructionSpecularMotion>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_NORMAL_DLSSRR_OUTPUT, frame.get<&RaytracingFrame::m_primaryWorldShadingNormalDLSSRR>().view(Resources::AccessType::Write), nullptr);
 
     // With sparse rendering, the GBuffer also writes the flags densely for the passes that read them by pixel.
     ctx->bindResourceView(GBUFFER_BINDING_SHARED_FLAGS_DENSE_OUTPUT,
       compactedGBuffer
-        ? rtOutput.m_sharedFlagsDense.view(Resources::AccessType::Write)
+        ? frame.get<&RaytracingFrame::m_sharedFlagsDense>().view(Resources::AccessType::Write)
         : nullptr, nullptr);
 
     // With sparse rendering, the GBuffer writes these dense guides at every pixel instead of the RR prepare pass.
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ALBEDO_DLSSRR_OUTPUT, rtOutput.m_primaryAlbedoDLSSRR.view, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SPECULAR_ALBEDO_DLSSRR_OUTPUT, rtOutput.m_primarySpecularAlbedoDLSSRR.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_ALBEDO_DLSSRR_OUTPUT, frame.get<&RaytracingFrame::m_primaryAlbedoDLSSRR>().view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_SPECULAR_ALBEDO_DLSSRR_OUTPUT, frame.get<&RaytracingFrame::m_primarySpecularAlbedoDLSSRR>().view, nullptr);
 
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_COMPACTED_OUTPUT,
       compactedGBuffer
-        ? rtOutput.m_primaryWorldPositionWorldTriangleNormalCompacted.view(Resources::AccessType::Write)
+        ? frame.get<&RaytracingFrame::m_primaryWorldPositionWorldTriangleNormalCompacted>().view(Resources::AccessType::Write)
         : nullptr, nullptr);
     ctx->bindResourceView(GBUFFER_BINDING_PRIMARY_WORLD_SHADING_NORMAL_DENSE_OUTPUT,
       compactedGBuffer
-        ? rtOutput.m_primaryWorldShadingNormalDense.view
+        ? frame.get<&RaytracingFrame::m_primaryWorldShadingNormalDense>().view
         : nullptr, nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_DLSS_NR_CONTROL_MASK_OUTPUT, rtOutput.m_controlMask.view, nullptr);
+    ctx->bindResourceView(GBUFFER_BINDING_DLSS_NR_CONTROL_MASK_OUTPUT, frame.get<&RaytracingFrame::m_controlMask>().view, nullptr);
 
     // Bind necessary resources for Neural Radiance Cache
     NeuralRadianceCache& nrc = ctx->getCommonObjects()->metaNeuralRadianceCache();
@@ -973,31 +971,31 @@ namespace dxvk {
     SpatiallyHashedRadianceCache& sharc = ctx->getCommonObjects()->metaSpatiallyHashedRadianceCache();
     sharc.bindGBufferPathTracingResources(*ctx);
   
-    const VkExtent3D& rayDims = rtOutput.m_compositeOutputExtent;
+    const VkExtent3D& rayDims = frame.get<&RaytracingFrame::m_compositeOutputExtent>();
 
     const bool nrcEnabled = nrc.isActive();
     const bool sharcEnabled = sharc.isActive();
     const bool serEnabled = RtxOptions::isShaderExecutionReorderingInPathtracerGbufferEnabled();
     const bool ommEnabled = RtxOptions::getEnableOpacityMicromap();
-    const bool includePortals = RtxOptions::rayPortalModelTextureHashes().size() > 0 || rtOutput.m_raytraceArgs.numActiveRayPortals > 0;
+    const bool includePortals = RtxOptions::rayPortalModelTextureHashes().size() > 0 || args.numActiveRayPortals > 0;
     const bool wboitEnabled = RtxOptions::wboitEnabled();
-    const bool psrEnabled = rtOutput.m_raytraceArgs.enablePSRR || rtOutput.m_raytraceArgs.enablePSTR;
-    const bool debugViewEnabled = rtOutput.m_raytraceArgs.debugView != 0;
+    const bool psrEnabled = args.enablePSRR || args.enablePSTR;
+    const bool debugViewEnabled = args.debugView != 0;
     const bool usePipelineDefaultFeatureVariant =
-      rtOutput.m_raytraceArgs.enableRaytracedRenderTarget ||
-      rtOutput.m_raytraceArgs.enableStochasticAlphaBlend;
+      args.enableRaytracedRenderTarget ||
+      args.enableStochasticAlphaBlend;
     const uint32_t pipelineFeatureVariant = selectGbufferFeatureVariant(
       debugViewEnabled,
-      rtOutput.m_raytraceArgs.enableObjectPicking,
+      args.enableObjectPicking,
       psrEnabled,
-      rtOutput.m_raytraceArgs.enableDLSSRR,
+      args.enableDLSSRR,
       usePipelineDefaultFeatureVariant);
     const bool deferUnorderedDecals =
-      rtOutput.m_raytraceArgs.enableSeparateUnorderedApproximations &&
-      rtOutput.m_raytraceArgs.enableDecalMaterialBlending;
+      args.enableSeparateUnorderedApproximations &&
+      args.enableDecalMaterialBlending;
     const uint32_t decalPrepareVariantKey = getGbufferDecalPrepareVariantKey(
       debugViewEnabled,
-      rtOutput.m_raytraceArgs.enableObjectPicking);
+      args.enableObjectPicking);
     // Keep radiance cache updates on the original inline PSR sampling path. They depend
     // on knowing whether the current GBuffer hit is the final integrated
     // surface, which PSR prepare defers to a later pass.
@@ -1008,20 +1006,19 @@ namespace dxvk {
       psrEnabled &&
       !nrcEnabled &&
       !sharcEnabled &&
-      !rtOutput.m_raytraceArgs.enableRaytracedRenderTarget &&
-      rtOutput.m_raytraceArgs.sparseRenderingArgs.mode == SparseRenderingMode::Off;
+      !args.enableRaytracedRenderTarget &&
+      args.sparseRenderingArgs.mode == SparseRenderingMode::Off;
     const uint32_t rayQueryFeatureVariant = selectGbufferRayQueryFeatureVariant(
       debugViewEnabled,
-      rtOutput.m_raytraceArgs.enableObjectPicking,
+      args.enableObjectPicking,
       psrEnabled,
       usePSRPrepare,
-      rtOutput.m_raytraceArgs.enableRaytracedRenderTarget,
-      rtOutput.m_raytraceArgs.enableStochasticAlphaBlend);
+      args.enableRaytracedRenderTarget,
+      args.enableStochasticAlphaBlend);
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
     const RaytraceMode raytraceMode = RtxOptions::renderPassGBufferRaytraceMode();
 
     auto logPass = [&](const bool isPSRPass, const size_t shaderHash) {
-      const auto& args = rtOutput.m_raytraceArgs;
       DxvkHashState state;
       state.add(shaderHash);
       state.add(rayDims.width);
@@ -1091,7 +1088,7 @@ namespace dxvk {
     GbufferPushConstants pushArgs = {};
     pushArgs.usePSRPrepare = usePSRPrepare;
     pushArgs.skipSERReorder = skipSERReorder();
-    pushArgs.writeFgForegroundGuide = rtOutput.m_fgForegroundGuide.isValid();
+    pushArgs.writeFgForegroundGuide = frame.get<&RaytracingFrame::m_fgForegroundGuide>().isValid();
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
 
@@ -1133,7 +1130,7 @@ namespace dxvk {
     }
 
 
-    const auto& volume = rtOutput.m_raytraceArgs.volumeArgs;
+    const auto& volume = args.volumeArgs;
     const uint32_t atmosphereStride = volume.fogIntegrationMode == 1
       ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
     ensurePathBuffers(rayDims, raytraceMode != RaytraceMode::TraceRay && (volume.enable || volume.clouds.enable),
@@ -1225,7 +1222,7 @@ namespace dxvk {
           ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
         }
         // Render-target redirection uses the reflection limit in either lobe.
-        const uint32_t maxBounces = std::max(rtOutput.m_raytraceArgs.psrrMaxBounces, rtOutput.m_raytraceArgs.pstrMaxBounces);
+        const uint32_t maxBounces = std::max(args.psrrMaxBounces, args.pstrMaxBounces);
         for (uint32_t bounce = 1; bounce <= maxBounces; ++bounce) {
           ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_INPUT, DxvkBufferSlice(m_psrQueues[input], 0, queueBytes));
           ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_OUTPUT, DxvkBufferSlice(m_psrQueues[1 - input], 0, queueBytes));

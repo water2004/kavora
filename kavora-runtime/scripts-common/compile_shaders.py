@@ -48,22 +48,23 @@ args = parser.parse_args()
 # Set to True to generate Slang repro file when compiling shaders
 generateSlangRepro = False
 
-includePaths = ' '.join([f'-I{path}' for path in args.includes])
-slangDll = os.path.join(os.path.dirname(args.slangc), 'slang.dll')
+includePaths = [f'-I{path}' for path in args.includes]
+slangDll = os.path.join(os.path.dirname(args.slangc), 'slang-compiler.dll')
 
 tools = [args.glslang, args.slangc, slangDll, __file__, depfile.__file__,
-         os.path.join(os.path.dirname(__file__), 'shader_dependencies.py')]
+         os.path.join(os.path.dirname(__file__), 'shader_dependencies.py'),
+         os.path.join(os.path.dirname(__file__), 'slang_spirv_layout.py')]
 
 # Note: -Os (Optimize Size) used here as while one might typically expect optimizing for size to comprimise speed optimizations,
 # the glslang optimizer actually just enables more optimizations when this option is specified, meaning it is probably good to enable
 # always (assuming that data wouldn't help the actual driver compiler at least, and we've observed it to make a slight speedup overall):
 # https://github.com/KhronosGroup/glslang/blob/master/SPIRV/SpvTools.cpp#L213
-glslangFlags = '--quiet --target-env vulkan1.2 -Os'
+glslangFlags = ['--quiet', '--target-env', 'vulkan1.2', '-Os']
 
 # Note: Debug is used for Debug and DebugOptimized currently, so it does not disable optimizations persay
 # (as otherwise -Od should be passed and be mutually exclusive with -Os), just means to generate debug info.
 if args.debug:
-    glslangFlags += ' -g'
+    glslangFlags.append('-g')
 
 os.makedirs(args.output, exist_ok = True)
 dependencyCache = ShaderDependencyCache(os.path.join(args.output, '.shader-inputs.json'), tools)
@@ -100,12 +101,12 @@ class Task:
             #print(command)
             timeStart = time.time()
 
-            process = subprocess.Popen(command, shell = True, stdout = subprocess.PIPE, stderr = subprocess.PIPE)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             out, err = process.communicate()
 
             duration = time.time() - timeStart
 
-            commandName = os.path.basename(command.split(' ')[0])
+            commandName = os.path.basename(command[0])
             printFromThread(f'[{duration:5.2f}s] {commandName}: {self.getName()}')
 
             combinedOutput = (out + err).decode("utf-8").strip()
@@ -200,10 +201,10 @@ def createGlslangTask(inputFile):
     destFile = os.path.join(args.output, shaderName + destExtension)
     depFile = os.path.join(args.output, shaderName + ".d")
     task = createBasicTask(inputFile, destFile, destFile, depFile)
-    variableName = '' if args.binary else f'--vn {shaderName}'
+    variableName = [] if args.binary else ['--vn', shaderName]
 
-    command = f'{args.glslang} {glslangFlags} {includePaths} -V {variableName} -o {destFile} ' \
-            + f'--depfile {depFile} {inputFile}'
+    command = [args.glslang, *glslangFlags, *includePaths, '-V', *variableName, '-o', destFile,
+               '--depfile', depFile, inputFile]
     task.commands = [command]
     return task
 
@@ -214,7 +215,7 @@ def createSlangTask(inputFile, variantSpec):
     inputName, inputType = os.path.splitext(getShaderName(inputFile))
     variantName, variantType = os.path.splitext(variantSpec[0])
 
-    variantDefines = ' '.join([f'-D{x}' for x in variantSpec[1:]])
+    variantDefines = [f'-D{define}' for define in variantSpec[1:]]
     destFile = os.path.join(args.output, variantName + ".spv")
     headerFile = os.path.join(args.output, variantName + ".h")
     depFile = os.path.join(args.output, variantName + ".d")
@@ -225,25 +226,24 @@ def createSlangTask(inputFile, variantSpec):
     if variantName != inputName:
         task.customName = f'{os.path.basename(inputFile)} ({variantName})'
 
-    command1 = f'{args.slangc} -entry main -target spirv -zero-initialize -emit-spirv-directly -verbose-paths {includePaths} ' \
-            + f'-depfile {depFile} {inputFile} {variantDefines} ' \
-            + ' '.join(LAYOUT_FLAGS) + ' ' \
-            + f'-Wno-30081 '
+    command1 = [args.slangc, '-entry', 'main', '-target', 'spirv', '-zero-initialize',
+                '-emit-spirv-directly', '-verbose-paths', *includePaths, '-depfile', depFile,
+                inputFile, *variantDefines, *LAYOUT_FLAGS, '-Wno-30081']
 
     # Add SER capability only for variants that use Shader Execution Reordering
     if 'RT_SHADER_EXECUTION_REORDERING' in variantSpec:
-        command1 += f'-capability spvShaderInvocationReorderNV '
+        command1.extend(['-capability', 'spvShaderInvocationReorderNV'])
 
     if args.debug:
-        command1 += '-g2 '
+        command1.append('-g2')
     elif variantName in getattr(args, 'slang_debug_variants', []):
-        command1 += '-g1 -debug-info-include-source '
+        command1.extend(['-g1', '-debug-info-include-source'])
 
     if generateSlangRepro:
-      reproFile = os.path.join(args.output, variantName + ".slangRepro")
-      command1 += f'-dump-repro {reproFile}'
+        reproFile = os.path.join(args.output, variantName + ".slangRepro")
+        command1.extend(['-dump-repro', reproFile])
 
-    command1 += f'-o {destFile}'
+    command1.extend(['-o', destFile])
 
     # -binary switch just writes the SPV binary
     if args.binary:
@@ -257,7 +257,7 @@ def createSlangTask(inputFile, variantSpec):
         shader_xxd = os.path.join(script_dir, 'shader_xxd.py')
         task.inputs.append(shader_xxd)
         task.extraInputs.append(shader_xxd)
-        command2 = f'"{sys.executable}" {shader_xxd} -i {destFile} -o {headerFile}'
+        command2 = [sys.executable, shader_xxd, '-i', destFile, '-o', headerFile]
 
         task.commands = [command1, command2]
 
@@ -626,6 +626,12 @@ for root, dirs, files in os.walk(args.input):
                 tasks.append(task)
 
         elif name.endswith(".slang"):
+            # Slang library modules are compiled through their shader entry's imports.
+            with open(inputFile, encoding="utf-8-sig") as sourceFile:
+                isModule = any(re.match(r'^\s*(?:module|implementing)\s+\w+\s*;', line) for line in sourceFile)
+            if isModule:
+                continue
+
             variants = parseShaderVariants(inputFile)
 
             if len(variants) == 0:

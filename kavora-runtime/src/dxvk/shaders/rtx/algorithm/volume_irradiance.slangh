@@ -4,8 +4,8 @@
 #include "rtx/algorithm/volume_integrator_helpers.slangh"
 #include "rtx/algorithm/lighting.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
-#include "rtx/algorithm/resolve.slangh"
-#include "rtx/algorithm/clouds.slangh"
+#include "rtx/algorithm/resolve_medium.slangh"
+import "rtx/algorithm/clouds.slang";
 
 float3 volumeLightAttenuation(Ray ray)
 {

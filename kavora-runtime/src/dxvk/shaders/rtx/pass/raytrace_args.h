@@ -26,14 +26,18 @@
 #include "rtx/concept/camera/camera.h"
 #include "rtx/concept/ray_portal/ray_portal.h"
 #else
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/ray_portal/ray_portal.slangh"
 #endif
 
 #include "rtx/pass/nrd_args.h"
 #include "rtx/pass/nrc_args.h"
 #include "rtx/pass/sharc_args.h"
+#ifdef __cplusplus
 #include "rtx/pass/volume_args.h"
+#else
+import "rtx/pass/volume_parameters.slang";
+#endif
 #include "rtx/pass/material_args.h"
 #include "rtx/pass/view_distance_args.h"
 #include "rtx/concept/light/light_types.h"

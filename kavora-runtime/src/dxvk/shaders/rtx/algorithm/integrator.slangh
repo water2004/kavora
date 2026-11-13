@@ -33,7 +33,9 @@
 #include "rtx/concept/light/light.slangh"
 #include "rtx/algorithm/integrator_helpers.slangh"
 #include "rtx/algorithm/lighting.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve_ordered.slangh"
+#include "rtx/algorithm/resolve_unordered.slangh"
+#include "rtx/algorithm/ray_traversal_bindings.slangh"
 #include "rtx/algorithm/visibility.slangh"
 #include "rtx/algorithm/nee_cache.h"
 #include "rtx/algorithm/path_state.slangh"
@@ -258,7 +260,7 @@ void evaluateUnshadowedLight(
 
   evaluateUnshadowedLight(
     lightSample, opaqueSurfaceMaterialInteraction, inputDirection,
-    opaqueSurfaceMaterialInteractionCalcTangentFrame(opaqueSurfaceMaterialInteraction, minimalRayInteraction, inputDirection),
+    opaqueSurfaceMaterialInteractionCalcTangentFrame(opaqueSurfaceMaterialInteraction, minimalRayInteraction.viewDirection, inputDirection),
     diffuseLight, specularLight);
 }
 

@@ -24,6 +24,7 @@
 #include "dxvk_device.h"
 #include "rtx/pass/composite/composite_binding_indices.h"
 #include "rtx/pass/composite/composite_args.h"
+#include "composite_layout_asserts.h"
 #include "rtx/pass/raytrace_args.h"
 #include "rtx_shader_manager.h"
 #include <dxvk_scoped_annotation.h>
@@ -312,14 +313,14 @@ namespace dxvk {
   void CompositePass::dispatch(
     Rc<RtxContext> ctx,
     SceneManager& sceneManager,
-    const Resources::RaytracingOutput& rtOutput,
+    CompositeResources resources,
     const Settings& settings)
   {
     const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
 
     CompositeArgs compositeArgs = {};
-    compositeArgs.enableRaytracedRenderTarget = rtOutput.m_raytraceArgs.enableRaytracedRenderTarget;
-    compositeArgs.enableSeparatedDenoisers = rtOutput.m_raytraceArgs.enableSeparatedDenoisers;
+    compositeArgs.enableRaytracedRenderTarget = resources.get<&RaytracingFrame::m_raytraceArgs>().enableRaytracedRenderTarget;
+    compositeArgs.enableSeparatedDenoisers = resources.get<&RaytracingFrame::m_raytraceArgs>().enableSeparatedDenoisers;
 
     // Fill in accumulation args
     if (m_enableAccumulation) {
@@ -330,43 +331,43 @@ namespace dxvk {
 
     // Inputs
 
-    ctx->bindResourceView(COMPOSITE_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_SHARED_RADIANCE_RG_INPUT, rtOutput.m_sharedRadianceRG.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_SHARED_RADIANCE_B_INPUT, rtOutput.m_sharedRadianceB.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_SHARED_RADIANCE_RG_INPUT, resources.get<&RaytracingFrame::m_sharedRadianceRG>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_SHARED_RADIANCE_B_INPUT, resources.get<&RaytracingFrame::m_sharedRadianceB>().view, nullptr);
     
-    ctx->bindResourceView(COMPOSITE_PRIMARY_ATTENUATION_INPUT, rtOutput.m_primaryAttenuation.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_ATTENUATION_INPUT, resources.get<&RaytracingFrame::m_primaryAttenuation>().view, nullptr);
     
     // Note: Texture contains Base Reflectivity here (due to being before the demodulate pass)
 
-    ctx->bindResourceView(COMPOSITE_PRIMARY_SPECULAR_ALBEDO_INPUT, rtOutput.m_primarySpecularAlbedo.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_SPECULAR_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primarySpecularAlbedo>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_LINEAR_VIEW_Z_INPUT, resources.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
 
-    ctx->bindResourceView(COMPOSITE_SECONDARY_ATTENUATION_INPUT, rtOutput.m_secondaryAttenuation.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_SECONDARY_ALBEDO_INPUT, rtOutput.m_secondaryAlbedo.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_SECONDARY_SPECULAR_ALBEDO_INPUT, rtOutput.m_secondarySpecularAlbedo.view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_SECONDARY_ATTENUATION_INPUT, resources.get<&RaytracingFrame::m_secondaryAttenuation>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_SECONDARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_SECONDARY_SPECULAR_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondarySpecularAlbedo>().view(Resources::AccessType::Read), nullptr);
 
     // Note: These inputs may either be noisy or denoised depending on if the reference denoiser if enabled or if RayReconstruction is in use.
-    ctx->bindResourceView(COMPOSITE_PRIMARY_DIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_primaryDirectDiffuseRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_DIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_primaryDirectSpecularRadiance.view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_DIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryDirectDiffuseRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_DIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryDirectSpecularRadiance>().view(Resources::AccessType::Read), nullptr);
 
     const bool isIndirectRadianceHitDistanceUsed = compositeArgs.enableSeparatedDenoisers;
-    ctx->bindResourceView(COMPOSITE_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_primaryIndirectDiffuseRadiance.view(Resources::AccessType::Read, isIndirectRadianceHitDistanceUsed), nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_INDIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_primaryIndirectSpecularRadiance.view(Resources::AccessType::Read, isIndirectRadianceHitDistanceUsed), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryIndirectDiffuseRadiance>().view(Resources::AccessType::Read, isIndirectRadianceHitDistanceUsed), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_INDIRECT_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_primaryIndirectSpecularRadiance>().view(Resources::AccessType::Read, isIndirectRadianceHitDistanceUsed), nullptr);
 
-    ctx->bindResourceView(COMPOSITE_SECONDARY_COMBINED_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_secondaryCombinedDiffuseRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(COMPOSITE_SECONDARY_COMBINED_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_secondaryCombinedSpecularRadiance.view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_SECONDARY_COMBINED_DIFFUSE_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_secondaryCombinedDiffuseRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(COMPOSITE_SECONDARY_COMBINED_SPECULAR_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_secondaryCombinedSpecularRadiance>().view(Resources::AccessType::Read), nullptr);
 
     const DxvkReSTIRGIRayQuery& restirGI = ctx->getCommonObjects()->metaReSTIRGIRayQuery();
-    ctx->bindResourceView(COMPOSITE_BSDF_FACTOR_INPUT, rtOutput.m_bsdfFactor.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_BSDF_FACTOR_INPUT, resources.get<&RaytracingFrame::m_bsdfFactor>().view, nullptr);
     ctx->bindResourceView(COMPOSITE_BSDF_FACTOR2_INPUT, restirGI.getBsdfFactor2().view, nullptr);
-    ctx->bindResourceView(COMPOSITE_PIXEL_SAMPLING_RATE_INPUT, rtOutput.m_sparseRenderingPixelSamplingRate.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_ALPHA_GBUFFER_INPUT, rtOutput.m_alphaBlendGBuffer.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_ACTIVE_PIXEL_MASK_INPUT, rtOutput.m_sparseRenderingActivePixelMask.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, rtOutput.m_sparseRenderingActiveLocalPixelCoords.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_COMPACTED_PIXEL_INDICES_INPUT, rtOutput.m_sparseRenderingCompactedPixelIndices.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_TILE_ACTIVE_COUNTS_INPUT, rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_SURFACE_FLAGS_INPUT, rtOutput.m_primarySurfaceFlags.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PIXEL_SAMPLING_RATE_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingPixelSamplingRate>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_ALPHA_GBUFFER_INPUT, resources.get<&RaytracingFrame::m_alphaBlendGBuffer>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_ACTIVE_PIXEL_MASK_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingActivePixelMask>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_COMPACTED_PIXEL_INDICES_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingCompactedPixelIndices>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_TILE_ACTIVE_COUNTS_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_SURFACE_FLAGS_INPUT, resources.get<&RaytracingFrame::m_primarySurfaceFlags>().view, nullptr);
 
     // Note: Clamp to edge used to avoid interpolation to black on the edges of the view.
     Rc<DxvkSampler> linearSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
@@ -381,14 +382,14 @@ namespace dxvk {
 
     // Inputs/Outputs
 
-    ctx->bindResourceView(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT, rtOutput.m_primaryAlbedo.view, nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
     ctx->bindResourceView(COMPOSITE_ACCUMULATED_FINAL_OUTPUT_INPUT_OUTPUT, m_accumulatedFinalOutput.view, nullptr);
 
     // Outputs
 
-    ctx->bindResourceView(COMPOSITE_FINAL_OUTPUT, rtOutput.m_compositeOutput.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(COMPOSITE_PRIMARY_COVERAGE_OUTPUT, rtOutput.m_primaryCoverage.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_ALPHA_BLEND_RADIANCE_OUTPUT, rtOutput.m_alphaBlendRadiance.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(COMPOSITE_FINAL_OUTPUT, resources.get<&RaytracingFrame::m_compositeOutput>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(COMPOSITE_PRIMARY_COVERAGE_OUTPUT, resources.get<&RaytracingFrame::m_primaryCoverage>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_ALPHA_BLEND_RADIANCE_OUTPUT, resources.get<&RaytracingFrame::m_alphaBlendRadiance>().view(Resources::AccessType::Write), nullptr);
     ctx->bindResourceView(COMPOSITE_LAST_FINAL_OUTPUT, restirGI.isActive() ? restirGI.getLastCompositeOutput().view(Resources::AccessType::Write) : nullptr, nullptr);
     ctx->bindResourceView(COMPOSITE_BLUE_NOISE_TEXTURE, ctx->getResourceManager().getBlueNoiseTexture(ctx), nullptr);
     ctx->bindResourceView(COMPOSITE_VALUE_NOISE_SAMPLER, ctx->getResourceManager().getValueNoiseLut(ctx), nullptr);
@@ -406,9 +407,9 @@ namespace dxvk {
     DebugView& debugView = ctx->getDevice()->getCommon()->metaDebugView();
     ctx->bindResourceView(COMPOSITE_DEBUG_VIEW_OUTPUT, debugView.getDebugOutput(), nullptr);
     ctx->bindResourceView(COMPOSITE_RR_PRIMARY_MOTION_INPUT,
-      ctx->useRayReconstruction() ? rtOutput.m_primaryScreenSpaceMotionVector.view : nullptr, nullptr);
-    ctx->bindResourceView(COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT, rtOutput.m_rayReconstructionSpecularMotion.view, nullptr);
-    ctx->bindResourceView(COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT, rtOutput.m_controlMask.view, nullptr);
+      ctx->useRayReconstruction() ? resources.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>().view : nullptr, nullptr);
+    ctx->bindResourceView(COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_rayReconstructionSpecularMotion>().view, nullptr);
+    ctx->bindResourceView(COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT, resources.get<&RaytracingFrame::m_controlMask>().view, nullptr);
     const DomeLightArgs& domeLightArgs = sceneManager.getLightManager().getDomeLightArgs();
     ctx->bindResourceSampler(COMPOSITE_SKY_LIGHT_TEXTURE, linearSampler);
     if (domeLightArgs.active && domeLightArgs.textureIndex != BINDING_INDEX_INVALID) {
@@ -460,13 +461,13 @@ namespace dxvk {
     compositeArgs.pixelHighlightReuseStrength = 1.0 / pixelHighlightReuseStrength();
     compositeArgs.enableRtxdi = RtxOptions::useRTXDI();
     compositeArgs.enableReSTIRGI = RtxOptions::useReSTIRGI();
-    compositeArgs.sparseRenderingArgs = rtOutput.m_raytraceArgs.sparseRenderingArgs;
-    compositeArgs.volumeArgs = rtOutput.m_raytraceArgs.volumeArgs;
+    compositeArgs.sparseRenderingArgs = resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs;
+    compositeArgs.volumeArgs = resources.get<&RaytracingFrame::m_raytraceArgs>().volumeArgs;
     compositeArgs.useRayReconstruction = ctx->useRayReconstruction();
-    compositeArgs.enableCoverageAov = rtOutput.m_primaryCoverage.isValid() ? 1u : 0u;
+    compositeArgs.enableCoverageAov = resources.get<&RaytracingFrame::m_primaryCoverage>().isValid() ? 1u : 0u;
     compositeArgs.enhanceAlbedo = ctx->useRayReconstruction() && rayReconstruction.enableDetailEnhancement();
     compositeArgs.estimateRRSpecularMotionFromHitDistance = rayReconstruction.useSpecularHitDistance();
-    compositeArgs.enableDlssNrVolumetricControlMask = rtOutput.m_raytraceArgs.enableDlssNrVolumetricControlMask;
+    compositeArgs.enableDlssNrVolumetricControlMask = resources.get<&RaytracingFrame::m_raytraceArgs>().enableDlssNrVolumetricControlMask;
 
     NrdArgs primaryDirectNrdArgs;
     NrdArgs primaryIndirectNrdArgs;
@@ -479,13 +480,13 @@ namespace dxvk {
     const bool useDenoisedInputs = settings.isNRDPreCompositionDenoiserEnabled && !ctx->useRayReconstruction();
 
     compositeArgs.primaryDirectDenoiser = !useDenoisedInputs ? DENOISER_MODE_OFF :
-      rtOutput.m_raytraceArgs.primaryDirectNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
+      resources.get<&RaytracingFrame::m_raytraceArgs>().primaryDirectNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
     compositeArgs.primaryIndirectDenoiser = !useDenoisedInputs ? DENOISER_MODE_OFF :
-      rtOutput.m_raytraceArgs.primaryIndirectNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
+      resources.get<&RaytracingFrame::m_raytraceArgs>().primaryIndirectNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
     compositeArgs.secondaryCombinedDenoiser = !useDenoisedInputs ? DENOISER_MODE_OFF :
-      rtOutput.m_raytraceArgs.secondaryCombinedNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
+      resources.get<&RaytracingFrame::m_raytraceArgs>().secondaryCombinedNrd.isReblurEnabled ? DENOISER_MODE_REBLUR : DENOISER_MODE_RELAX;
 
-    compositeArgs.debugViewIdx = rtOutput.m_raytraceArgs.debugView;
+    compositeArgs.debugViewIdx = resources.get<&RaytracingFrame::m_raytraceArgs>().debugView;
 
     compositeArgs.compositePrimaryDirectDiffuse = compositePrimaryDirectDiffuse();
     compositeArgs.compositePrimaryDirectSpecular = compositePrimaryDirectSpecular();
@@ -529,14 +530,14 @@ namespace dxvk {
     compositeArgs.domeLightArgs = domeLightArgs;
     compositeArgs.skyBrightness = RtxOptions::skyBrightness();
 
-    const bool sparseRenderingEnabled = rtOutput.m_raytraceArgs.sparseRenderingArgs.mode != SparseRenderingMode::Off;
+    const bool sparseRenderingEnabled = resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode != SparseRenderingMode::Off;
 
     Rc<DxvkBuffer> cb = getCompositeConstantsBuffer();
     ctx->writeToBuffer(cb, 0, sizeof(CompositeArgs), &compositeArgs);
     ctx->getCommandList()->trackResource<DxvkAccess::Read>(cb);
 
     ctx->bindResourceBuffer(COMPOSITE_CONSTANTS_INPUT, DxvkBufferSlice(cb, 0, cb->info().size));
-    VkExtent3D workgroups = util::computeBlockCount(rtOutput.m_compositeOutputExtent, VkExtent3D { COMPOSITE_THREAD_GROUP_WIDTH, COMPOSITE_THREAD_GROUP_HEIGHT, 1 });
+    VkExtent3D workgroups = util::computeBlockCount(resources.get<&RaytracingFrame::m_compositeOutputExtent>(), VkExtent3D { COMPOSITE_THREAD_GROUP_WIDTH, COMPOSITE_THREAD_GROUP_HEIGHT, 1 });
 
     if (enableStochasticAlphaBlend()) {
       ScopedGpuProfileZone(ctx, "Composite Alpha Blend");

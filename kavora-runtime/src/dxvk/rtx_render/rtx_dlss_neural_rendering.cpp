@@ -78,7 +78,7 @@ namespace dxvk {
   bool DlssNeuralRendering::dispatch(
       Rc<RtxContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      DlssNeuralRenderingFrame frame,
       bool resetHistory,
       bool useRayReconstructionGuides) {
     ScopedGpuProfileZone(ctx, "DlssNeuralRendering");
@@ -103,10 +103,10 @@ namespace dxvk {
       return false;
     }
 
-    const Resources::Resource* pMotionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVector;
+    const Resources::Resource* pMotionVectorInput = &frame.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>();
     const Resources::Resource* pDepthInput = useRayReconstructionGuides
-      ? &rtOutput.m_primaryDepthDLSSRR.resource(Resources::AccessType::Read)
-      : &rtOutput.m_primaryDepth;
+      ? &frame.get<&RaytracingFrame::m_primaryDepthDLSSRR>().resource(Resources::AccessType::Read)
+      : &frame.get<&RaytracingFrame::m_primaryDepth>();
     {
       float jitterOffset[2];
       device()->getCommon()->getSceneManager().getCamera().getJittering(jitterOffset);
@@ -115,14 +115,14 @@ namespace dxvk {
       float motionVectorScale[2] = { 1.f, 1.f };
 
       std::vector<Rc<DxvkImageView>> pInputs = {
-        rtOutput.m_neuralRenderingInput.view(Resources::AccessType::Read),
+        frame.get<&RaytracingFrame::m_neuralRenderingInput>().view(Resources::AccessType::Read),
         pMotionVectorInput->view,
         pDepthInput->view,
-        rtOutput.m_controlMask.view,
+        frame.get<&RaytracingFrame::m_controlMask>().view,
       };
 
       std::vector<Rc<DxvkImageView>> pOutputs = {
-        rtOutput.m_neuralRenderingOutput.view(Resources::AccessType::Write)
+        frame.get<&RaytracingFrame::m_neuralRenderingOutput>().view(Resources::AccessType::Write)
       };
 
       for (auto input : pInputs) {
@@ -165,11 +165,11 @@ namespace dxvk {
 
       // Note: Add texture inputs added here to the pInputs array above to properly access the images.
       NGXNeuralRenderingContext::NGXNeuralRenderingBuffers buffers;
-      buffers.pInColor = &rtOutput.m_neuralRenderingInput.resource(Resources::AccessType::Read);
-      buffers.pOutColor = &rtOutput.m_neuralRenderingOutput.resource(Resources::AccessType::Write);
+      buffers.pInColor = &frame.get<&RaytracingFrame::m_neuralRenderingInput>().resource(Resources::AccessType::Read);
+      buffers.pOutColor = &frame.get<&RaytracingFrame::m_neuralRenderingOutput>().resource(Resources::AccessType::Write);
       buffers.pMotionVectors = pMotionVectorInput;
       buffers.pDepth = pDepthInput;
-      buffers.pControlMask = &rtOutput.m_controlMask;
+      buffers.pControlMask = &frame.get<&RaytracingFrame::m_controlMask>();
 
       NGXNeuralRenderingContext::NGXNeuralRenderingSettings settings = {};
       settings.jitterOffset[0] = jitterOffset[0];

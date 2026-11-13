@@ -24,7 +24,8 @@
 #include "rtx/pass/instance_culling/point_instancer_culling_binding_indices.h"
 #include "rtx/pass/instance_definitions.h"
 #include "rtx/concept/surface/surface.h"
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 
 // Constants
 layout(binding = POINT_INSTANCER_CULLING_BINDING_CONSTANTS)

@@ -7,13 +7,15 @@
 //!end-variants
 
 #include "rtx/pass/dome_composite/dome_composite_args.h"
+#include "rtx/pass/dome_composite/night_sky_args.h"
 #include "rtx/utility/math.slangh"
-#include "rtx/pass/dome_composite/caustica_moon.slangh"
+import "lunar_surface.slang";
+import "rtx/utility/lat_long_projection.slang";
 #if defined(DOME_NIGHT_SKY) || defined(DOME_END_SKY)
-#include "rtx/pass/dome_composite/night_sky.slangh"
+import "night_sky.slang";
 #endif
 #ifdef DOME_END_SKY
-#include "rtx/pass/dome_composite/end_sky.slangh"
+import "end_sky.slang";
 #endif
 
 layout(binding = DOME_COMPOSITE_SOURCE)
@@ -93,7 +95,7 @@ void main(uint2 pixel : SV_DispatchThreadID) {
     source = DomeSource.SampleLevel(sourceUV, 0);
   }
 #ifdef DOME_END_SKY
-  source = float4(endSkyRadiance(night, Galaxy, direction), 1.0f);
+  source = float4(endSkyRadiance(night.rotation, night.intensity, night.endParameters, Galaxy, direction), 1.0f);
 #endif
   float3 background = float3(0.0f);
   float3 visible = float3(0.0f);
@@ -102,7 +104,8 @@ void main(uint2 pixel : SV_DispatchThreadID) {
     if (cb.flags & kDomeSeparateBackground) visible = VisibleBackground[pixel].rgb;
   }
 #ifdef DOME_NIGHT_SKY
-  const float3 nightRadiance = nightSkyRadiance(night, NightField, Galaxy, direction, directionX, directionY);
+  const float3 nightRadiance = nightSkyRadiance(night.rotation, night.intensity, night.meteorHead,
+    night.meteorTail, NightField, Galaxy, direction, directionX, directionY);
   background += nightRadiance;
   visible += nightRadiance;
 #endif

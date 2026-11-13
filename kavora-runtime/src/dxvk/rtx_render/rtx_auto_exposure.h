@@ -25,6 +25,7 @@
 #include "dxvk_include.h"
 #include "dxvk_context.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 
 #include "../spirv/spirv_code_buffer.h"
 #include "../util/util_matrix.h"
@@ -36,13 +37,16 @@ namespace dxvk {
 
   class DxvkAutoExposure: public CommonDeviceObject {
   public:
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_finalOutputExtent>;
     explicit DxvkAutoExposure(DxvkDevice* device);
     ~DxvkAutoExposure();
 
     void dispatch(
       Rc<DxvkContext> ctx,
       Rc<DxvkSampler> linearSampler,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       const float frameTimeMilliseconds,
       bool resetHistory = false);
 
@@ -56,7 +60,7 @@ namespace dxvk {
     void dispatchAutoExposure(
       Rc<DxvkContext> ctx,
       Rc<DxvkSampler> linearSampler,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       const float frameTimeMilliseconds);
 
     Rc<vk::DeviceFn> m_vkd;

@@ -1,0 +1,97 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/nee_cache_light.slangh"
+#include "rtx/utility/noise.slangh"
+
+// Selects cached next-event candidates and projects screen-space boundary samples.
+
+// Calculate a point's screen space position, if it's outside the screen, move it to screen boundary.
+// Return if the point is inside the screen.
+bool calculateScreenBoundedPixelCoordinate(mat4 transformMatrix, vec3 position, inout ivec2 pixelCoordinate)
+{
+  vec4 ndc = mul(transformMatrix, vec4(position, 1.0f));
+  ndc.xyz /= ndc.w;
+
+  // Note: NDC x/y coordinates are valid from [-1, 1], whereas the NDC z (depth) is valid from [0, 1]
+  bool isInsideScreen = all((ndc.xyz <= vec3(1.0f, 1.0f, 1.0f)) && (ndc.xyz >= vec3(-1.0f, -1.0f, 0.0f)));
+  if (!isInsideScreen)
+  {
+    ndc.xy *= ndc.w < 0 ? -1 : 1;
+    vec2 absXY = abs(ndc.xy);
+    ndc.xy /= max(absXY.x, absXY.y);
+  }
+
+  pixelCoordinate = cameraNDCToPixelCoordinate(cb.camera, ndc.xy);
+
+  return isInsideScreen;
+}
+
+uint2 jitterBoundaryPixels(uint2 pixelCoordinate, uint2 jitterOffset)
+{
+  const uint2 padding = uint2(16, 8);
+  jitterOffset = (jitterOffset + cb.frameIdx) & (padding-1);
+  jitterOffset = reversebits(jitterOffset) >> uint2(28,29);
+  return clamp(pixelCoordinate, 0, cb.camera.resolution - padding) + jitterOffset;
+}
+
+bool sampleLightNeeCache(inout RAB_RandomSamplerState rtxdiRNG, inout RNG randomState, uint16_t neeCellOffset,
+  SurfaceInteraction surfaceInteraction,
+  OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction,
+  vec3 viewDirection,
+  out LightSample lightSample,
+  out float invSelectionPdf,
+  out uint16_t lightIdx)
+{
+  lightSample = {};
+
+  NEECell cell = NEECache.getCell(neeCellOffset);
+
+  const bool isThinOpaqueSubsurface = isThinOpaqueSubsurfaceMaterial(opaqueSurfaceMaterialInteraction);
+
+  // Note: We are NOT taking transmission into consideration, because calculating probability of transmission has some costs.
+  //       Also, it's an approximate importance sample and does not need to be exact, so we just skip the calculation here for better performance.
+  float specularRatio = calcBt709Luminance(opaqueSurfaceMaterialInteraction.baseReflectivity)
+    / calcBt709Luminance(opaqueSurfaceMaterialInteraction.albedo + opaqueSurfaceMaterialInteraction.baseReflectivity);
+  vec2 uniformRandomNumber = vec2(getNextSampleBlueNoise(randomState), getNextSampleBlueNoise(randomState));
+
+  cell.sampleLightCandidate(rtxdiRNG, uniformRandomNumber,
+    surfaceInteraction.position, viewDirection,
+    opaqueSurfaceMaterialInteraction.shadingNormal, specularRatio, opaqueSurfaceMaterialInteraction.isotropicRoughness, isThinOpaqueSubsurface, lightIdx, invSelectionPdf);
+
+  if (invSelectionPdf > 0)
+  {
+    MemoryPolymorphicLight memoryPolymorphicLight = lights[lightIdx];
+    float2 sampleCoordinates0 = float2(getNextSampleBlueNoise(randomState), getNextSampleBlueNoise(randomState));
+    lightSample = memoryPolymorphicLightSampleArea(memoryPolymorphicLight, sampleCoordinates0, surfaceInteraction);
+    return true;
+  }
+
+  return false;
+}
+
+bool useNeeCacheOnThisBounce(uint bounce, bool enableNeeCacheAfterFirstBounce)
+{
+  return  (bounce == 1 && cb.neeCacheArgs.enableOnFirstBounce) ||
+          (bounce >  1 && cb.neeCacheArgs.enableModeAfterFirstBounce != NeeEnableMode::None && enableNeeCacheAfterFirstBounce);
+}

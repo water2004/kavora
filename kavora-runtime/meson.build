@@ -24,11 +24,18 @@ project(
   'dxvk', ['c', 'cpp'],
   version : 'remix-main',
   meson_version : '>= 0.60',
-  default_options : ['werror=true', 'b_vscrt=from_buildtype', 'cpp_std=c++17']
+  default_options : ['werror=true', 'b_vscrt=from_buildtype', 'cpp_std=c++20']
 )
 
 global_src_root_norm = meson.global_source_root().replace('\\', '/')
 current_build_dir_norm = meson.current_build_dir().replace('\\', '/')
+
+slang_compiler_path = get_option('slang_compiler_path')
+slang_compiler = find_program(slang_compiler_path == '' ? 'slangc' : slang_compiler_path, native: true)
+slang_version = run_command(slang_compiler, '-version', check: true).stderr().strip()
+if slang_version != '2026.20'
+  error('Kavora requires Slang 2026.20, but found ' + slang_version + '. Set -Dslang_compiler_path to the required compiler.')
+endif
 
 # Fetch dependencies
 #   `get_dependencies` is intentionally called twice. Why?:
@@ -147,21 +154,7 @@ endif
 add_global_arguments('/DBUILD_SOURCE_ROOT="' + global_src_root_norm + '/"', language : 'cpp')
 vs_project_defines += 'BUILD_SOURCE_ROOT="' + global_src_root_norm + '/";'
 
-# c++17 was added in 15.3, older version needs c++latest
-if dxvk_is_msvc and dxvk_compiler.version().version_compare('<15.3')
-  if dxvk_is_ninja
-    # for whatever reason, ninja gets /fpermissive- when using c++latest/c++17 but vs does not
-    dxvk_cpp_std='vc++latest'
-  else
-    dxvk_cpp_std='c++latest'
-  endif
-else
-  if dxvk_is_ninja
-    dxvk_cpp_std='vc++17'
-  else
-    dxvk_cpp_std='c++17'
-  endif
-endif
+dxvk_cpp_std = 'c++20'
 
 if dxvk_is_msvc
   add_global_arguments('/MP', language : 'cpp')
@@ -316,12 +309,6 @@ endif
 
 # Shader Compile Tools
 glsl_compiler = find_program('external/glslangvalidator/glslangValidator')
-slang_compiler_path = get_option('slang_compiler_path')
-if slang_compiler_path != ''
-  slang_compiler = find_program(slang_compiler_path)
-else
-  slang_compiler = find_program('external/slang/slangc')
-endif
 spirv_val = find_program('external/spirv_tools/spirv-val')
 python_interpreter = find_program('python3', 'python')
 shader_compile_script = join_paths(global_src_root_norm, 'scripts-common/compile_shaders.py')

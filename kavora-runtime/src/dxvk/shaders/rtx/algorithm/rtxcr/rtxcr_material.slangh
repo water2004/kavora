@@ -113,7 +113,7 @@ SssDiffusionProfileResult evalSssDiffusionProfile(
 
   /// Load Subsurface Material
 
-  const SubsurfaceMaterial subsurfaceMaterial = subsurfaceMaterialCreate(opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction);
+  const SubsurfaceMaterial subsurfaceMaterial = decodeSubsurfaceMaterial(opaqueSurfaceMaterialInteraction.subsurfaceMaterialInteraction);
 
   /// Convert to RTXCR SSS material
 

@@ -28,7 +28,7 @@
 #include "rtx/utility/brdf.slangh"
 #include "rtx/utility/froxel.slangh"
 #include "rtx/utility/packing.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
     
 #define VOLUME_LIGHTING_NO_JITTER
 #include "rtx/algorithm/volume_lighting.slangh"

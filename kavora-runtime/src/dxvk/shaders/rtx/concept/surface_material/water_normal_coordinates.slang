@@ -1,0 +1,19 @@
+// SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION. All rights reserved.
+// SPDX-License-Identifier: MIT
+module water_normal_coordinates;
+
+// The material pass retains sampler choice and LOD. These transforms return
+// coordinates for its existing normal-map layers.
+[ForceInline]
+public float2 waterSpritesheetNormalUV(float2 localUV, float2 bias, float2 size, float time, float2 velocity)
+{
+  return bias + size * frac(localUV + time * velocity);
+}
+
+[ForceInline]
+public float2 waterLayeredNormalUV(float2 uv, float2x4 transform, float2 motionScale)
+{
+  transform[0][2] *= motionScale.x;
+  transform[1][2] *= motionScale.y;
+  return mul(transform, float4(uv, 0.f, 1.f)).xy;
+}

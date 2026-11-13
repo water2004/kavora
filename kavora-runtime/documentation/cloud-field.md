@@ -18,7 +18,7 @@ Weather red controls coverage and green controls cloud type. Type determines
 local thickness, the upper density profile, narrowing and anvil development.
 Rain and thunder change these weather inputs. A separate height profile
 controls condensation at the bottom and dissipation at the top. Base shape
-and edge erosion are evaluated in `cloud_density.slangh`.
+and edge erosion are evaluated in `cloud_density.slang`.
 
 All rays share a curved shell with a 6360-kilometer radius and one tangent
 frame for the current view. Stable sphere roots and altitude evaluation avoid

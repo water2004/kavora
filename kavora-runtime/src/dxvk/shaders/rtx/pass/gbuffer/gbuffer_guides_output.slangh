@@ -21,6 +21,7 @@
 */
 #pragma once
 
+import "rtx/pass/gbuffer/gbuffer_guide_math.slang";
 #include "rtx/utility/brdf.slangh"
 #include "rtx/pass/ray_reconstruction/rr_guide_albedo.slangh"
 
@@ -45,29 +46,24 @@ void guidesSeedPixel(uvec2 pixelCoordinate)
   PrimarySpecularAlbedoDLSSRR[pixelCoordinate] = vec4(0.0f);
 }
 
-// Mirrors getRoughnessFactor in prepare_ray_reconstruction.
-float guideRoughnessFactor(float perceptualRoughness)
-{
-  return cb.sparseRenderingArgs.guideRoughnessDemodulationMultiplier *
-    pow(1.0f / (perceptualRoughness + 0.1f), cb.sparseRenderingArgs.guideRoughnessDemodulationOffset);
-}
-
 // Returns an opaque material's opacity as the integrator decodes it from the GBuffer.
 // Returns 1 for other material types, whose base reflectivity is not adjusted.
 float guideOpacity(GBufferMemoryPolymorphicSurfaceMaterialInteraction materialMemory)
 {
-  if (gBufferMemoryPolymorphicSurfaceMaterialInteractionGetTypeHelper(materialMemory) != surfaceMaterialTypeOpaque)
+  const bool isOpaque =
+    gBufferMemoryPolymorphicSurfaceMaterialInteractionGetTypeHelper(materialMemory) == surfaceMaterialTypeOpaque;
+  float opacity = 1.0f;
+  if (isOpaque)
   {
-    return 1.0f;
+    opacity = opaqueSurfaceMaterialInteractionCreate(materialMemory).opacity;
   }
-
-  return opaqueSurfaceMaterialInteractionCreate(materialMemory).opacity;
+  return guideMathOpacity(isOpaque, opacity);
 }
 
 // Mirrors opaqueSurfaceMaterialGetAdjustedBaseReflectivity, whose result demodulation sees in place of the raw base reflectivity.
 vec3 guideAdjustBaseReflectivity(vec3 baseReflectivity, float opacity)
 {
-  return max(baseReflectivity, vec3(1.0f - opacity));
+  return guideMathAdjustBaseReflectivity(baseReflectivity, opacity);
 }
 
 // Derives specular albedo the way demodulate does and scales it as prepare_ray_reconstruction does.
@@ -77,15 +73,12 @@ vec3 guideSpecularAlbedo(
 {
   const vec3 virtualShadingNormal = rrVirtualNormal(worldShadingNormal, accumulatedRotation,
     directionAltered && cb.enableCalculateVirtualShadingNormals);
-
   const vec3 cameraDirection = cameraPixelCoordinateToDirection(cb.camera, ivec2(pixelCoordinate)).worldDirection;
-
-  vec3 specularAlbedo = evalSpecularAlbedoGGXSchlick(
+  const vec3 specularAlbedo = evalSpecularAlbedoGGXSchlick(
     baseReflectivity, calcRoughness(perceptualRoughness), dot(virtualShadingNormal, -cameraDirection));
-
-  specularAlbedo *= guideRoughnessFactor(perceptualRoughness);
-
-  return specularAlbedo;
+  return guideMathScaleSpecularAlbedo(specularAlbedo, perceptualRoughness,
+    cb.sparseRenderingArgs.guideRoughnessDemodulationMultiplier,
+    cb.sparseRenderingArgs.guideRoughnessDemodulationOffset);
 }
 
 // Adds a surface that a PSR pass resolved into the albedo guides.

@@ -162,12 +162,12 @@ namespace dxvk {
     oldResolution = constants.camera.resolution;
   }
 
-  void NeeCachePass::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
+  void NeeCachePass::dispatch(RtxContext* ctx, DispatchResources resources) {
     if (!isActive() || !enableUpdate()) {
       return;
     }
 
-    const VkExtent3D& numRaysExtent = rtOutput.m_compositeOutputExtent;
+    const VkExtent3D& numRaysExtent = resources.get<&RaytracingFrame::m_compositeOutputExtent>();
     VkExtent3D workgroups = util::computeBlockCount(numRaysExtent, VkExtent3D{ 16, 8, 1 });
     Rc<DxvkBuffer> primitiveIDPrefixSumBuffer = ctx->getSceneManager().getCurrentFramePrimitiveIDPrefixSumBuffer();
     Rc<DxvkBuffer> lastPrimitiveIDPrefixSumBuffer = ctx->getSceneManager().getLastFramePrimitiveIDPrefixSumBuffer();
@@ -179,9 +179,9 @@ namespace dxvk {
     {
       ScopedGpuProfileZone(ctx, "UpdateNEECacheShader");
       ctx->bindCommonRayTracingResources();
-      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE, DxvkBufferSlice(rtOutput.m_neeCache, 0, rtOutput.m_neeCache->info().size));
-      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE_TASK, DxvkBufferSlice(rtOutput.m_neeCacheTask, 0, rtOutput.m_neeCacheTask->info().size));
-      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE_SAMPLE, DxvkBufferSlice(rtOutput.m_neeCacheSample, 0, rtOutput.m_neeCacheSample->info().size));
+      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCache>(), 0, resources.get<&RaytracingFrame::m_neeCache>()->info().size));
+      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE_TASK, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCacheTask>(), 0, resources.get<&RaytracingFrame::m_neeCacheTask>()->info().size));
+      ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_NEE_CACHE_SAMPLE, DxvkBufferSlice(resources.get<&RaytracingFrame::m_neeCacheSample>(), 0, resources.get<&RaytracingFrame::m_neeCacheSample>()->info().size));
       ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_PRIMITIVE_ID_PREFIX_SUM, DxvkBufferSlice(primitiveIDPrefixSumBuffer, 0, primitiveIDPrefixSumBuffer->info().size));
       ctx->bindResourceBuffer(UPDATE_NEE_CACHE_BINDING_LAST_PRIMITIVE_ID_PREFIX_SUM, DxvkBufferSlice(lastPrimitiveIDPrefixSumBuffer, 0, lastPrimitiveIDPrefixSumBuffer->info().size));
 

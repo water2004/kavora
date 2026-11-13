@@ -25,6 +25,7 @@
 #include "dxvk_include.h"
 #include "dxvk_context.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 
 #include "../spirv/spirv_code_buffer.h"
 #include "../util/util_matrix.h"
@@ -37,6 +38,10 @@ namespace dxvk {
 
   class DxvkToneMapping: public CommonDeviceObject {
   public:
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_neuralRenderingInput,
+      &RaytracingFrame::m_neuralRenderingOutput>;
     explicit DxvkToneMapping(DxvkDevice* device);
     ~DxvkToneMapping();
 
@@ -44,7 +49,7 @@ namespace dxvk {
       Rc<RtxContext> ctx,
       Rc<DxvkSampler> linearSampler,
       Rc<DxvkImageView> exposureView,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       const float frameTimeMilliseconds,
       bool resetHistory = false,
       bool autoExposureEnabled = true);
@@ -52,13 +57,13 @@ namespace dxvk {
     void dispatchFastToneMapping(
       Rc<RtxContext> ctx,
       Rc<DxvkImageView> exposureView,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       bool autoExposureEnabled);
 
     void dispatchInverseToneMapping(
       Rc<RtxContext> ctx,
       Rc<DxvkImageView> exposureView,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       bool autoExposureEnabled);
 
     bool isEnabled() const { return tonemappingEnabled(); }

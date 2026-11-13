@@ -119,9 +119,9 @@ Shaders use [Slang](https://github.com/shader-slang/slang) (GLSL-compatible). Al
 
 | Extension | Purpose |
 |-----------|---------|
-| `*.h` | Structure definitions shared across files (and sometimes with CPU) |
-| `*.slangh` | Implementations and helpers (this is what other files include) |
-| `*.slang` | Generic or multi-stage shader entry files |
+| `*.h` | Shared layouts, constants and descriptor indices |
+| `*.slangh` | Textual includes for preprocessor variants, shared bindings and SDK integration |
+| `*.slang` | Imported modules or generic and multi-stage shader entry files |
 | `*.comp.slang` | Compute shaders |
 | `*.vert.slang` | Vertex shaders |
 | `*.frag.slang` | Fragment / pixel shaders |

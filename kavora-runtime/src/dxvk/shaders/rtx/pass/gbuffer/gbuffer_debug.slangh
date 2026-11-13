@@ -1,0 +1,1135 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+import "rtx/pass/gbuffer/gbuffer_motion.slang";
+#include "rtx/pass/gbuffer/gbuffer_storage.slangh"
+#include "rtx/algorithm/nee_cache_light.slangh"
+#include "rtx/utility/debug_view_helpers.slangh"
+#include "rtx/utility/froxel.slangh"
+#include "rtx/utility/gpu_printing.slangh"
+#include "rtx/utility/procedural_noise.slangh"
+
+// Writes diagnostic outputs. Entries without debug views specialize these writes away.
+
+#if GBUFFER_FEATURE_DEBUG_VIEW
+
+void geometryResolverOutputSurfaceDebugView<
+  let PRIMARY_SURFACE : bool>(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  vec3 virtualMotion,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+ {
+  // The secondary surface's material is stored only in a GBuffer slot.
+  const bool readsSecondaryMaterial = !PRIMARY_SURFACE && hasGBufferSlot(compactedCoordinate);
+
+  switch(cb.debugView)
+  {
+  default:
+  case DEBUG_VIEW_DISABLED:
+    break;
+  case DEBUG_VIEW_VIRTUAL_MOTION_VECTOR:
+    storeInDebugView(pixelCoordinate, virtualMotion);
+    break;
+  case DEBUG_VIEW_SECONDARY_PERCEPTUAL_ROUGHNESS:
+    if (readsSecondaryMaterial)
+    {
+      storeInDebugView(pixelCoordinate, SecondaryPerceptualRoughness[compactedCoordinate]);
+    }
+    break;
+  case DEBUG_VIEW_SECONDARY_ALBEDO:
+    if (readsSecondaryMaterial)
+    {
+      storeInDebugView(pixelCoordinate, SecondaryAlbedo[compactedCoordinate].xyz);
+    }
+    break;
+  case DEBUG_VIEW_SECONDARY_BASE_REFLECTIVITY_RAW:
+    if (readsSecondaryMaterial)
+    {
+      storeInDebugView(pixelCoordinate, SecondaryBaseReflectivity[compactedCoordinate].xyz);
+    }
+    break;
+  case DEBUG_VIEW_NAN:
+   {
+     bool isValid = true;
+
+     // DEBUG_VIEW_VIRTUAL_MOTION_VECTOR
+     isValid &= isValidValue(virtualMotion);
+
+     // DEBUG_VIEW_SECONDARY_PERCEPTUAL_ROUGHNESS / DEBUG_VIEW_SECONDARY_ALBEDO
+     if (readsSecondaryMaterial)
+     {
+       isValid &= isValidValue(SecondaryPerceptualRoughness[compactedCoordinate]);
+       isValid &= isValidValue(SecondaryAlbedo[compactedCoordinate].xyz);
+       // DEBUG_VIEW_SECONDARY_BASE_REFLECTIVITY_RAW
+       isValid &= isValidValue(SecondaryBaseReflectivity[compactedCoordinate].xyz);
+     }
+
+     accumulateInDebugViewAnd(pixelCoordinate, isValid);
+     break;
+   }
+  }
+
+  // Primary-material debug views are factored into a separate helper because the unordered-decals
+  // pass re-invokes it after blending updates the GBuffer; calling it here covers the initial write.
+  if (PRIMARY_SURFACE)
+  {
+    geometryResolverOutputPrimaryMaterialDebugView(pixelCoordinate, compactedCoordinate, polymorphicSurfaceMaterialInteraction);
+  }
+}
+
+void geometryResolverVertexOutputDebugView(
+  uvec2 pixelCoordinate,
+  Ray ray, RayInteraction rayInteraction,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  float selectedIntegrationSurfacePdf,
+  bool directionAltered, PortalSpace2BitsType portalSpace, float virtualHitDistance,
+  const bool isRaytracedRenderTarget, bool isUnorderedEmissive)
+{
+  const uint8_t materialType = polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction);
+  const uint primitiveIndex = rayInteraction.primitiveIndex;
+
+  switch(cb.debugView)
+  {
+  default:
+  case DEBUG_VIEW_DISABLED:
+    break;
+  case DEBUG_VIEW_PRIMITIVE_INDEX:
+    // Note: Only will visualize values up to 2^24 - 1 and then will wrap around.
+    storeInDebugView(pixelCoordinate, unorm3x8ToFloat3x16(primitiveIndex));
+
+    break;
+  case DEBUG_VIEW_PRIMITIVE_INDEX_HASH:
+    storeInDebugView(pixelCoordinate, r5g6b5ToColor(uint16_t(uintHash(primitiveIndex))));
+
+    break;
+  case DEBUG_VIEW_GEOMETRY_HASH:
+    storeInDebugView(pixelCoordinate, r5g6b5ToColor(surface.hashPacked)); // visualize directly as colour (note the hash is compressed into a 16bit using XOR)
+
+    break;
+  case DEBUG_VIEW_CUSTOM_INDEX:
+
+    if (rayInteraction.isViewModel)
+      storeInDebugView(pixelCoordinate, vec3(0.f, 0.f, 1.f));
+    else
+    {
+      // Reconstruct approximate custom-index visualization from packed surface + flags.
+      // Lower 24 bits of _surfaceAndFlags mirror the customInstanceIndex bit layout
+      // (surfaceIndex includes geometryIndex, so values differ slightly from raw InstanceID).
+      uint ci = rayInteraction._surfaceAndFlags & 0xFFFFFFu;
+      storeInDebugView(pixelCoordinate, vec3(
+        float(ci & 0x3FF) / 1024.f,
+        float((ci >> 10) & 0x3FF) / 1024.f,
+        float((ci >> 20) & 0xFFF) / 4096.f));
+    }
+
+    break;
+  case DEBUG_VIEW_BARYCENTRICS:
+    const vec3 bary = uintToBarycentrics(rayInteraction.barycentricCoordinates);
+
+    storeInDebugView(pixelCoordinate, bary);
+
+    break;
+  case DEBUG_VIEW_IS_FRONT_HIT:
+    // Green = front, Red = back
+    storeInDebugView(pixelCoordinate, rayInteraction.frontHit ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_STATIC:
+    // Green = static, Red = not static
+    storeInDebugView(pixelCoordinate, surface.isStatic ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_PRESERVE_PATH:
+    // Red if any contributing hit is dynamic; green only when all hits took the preserve path.
+    accumulatePreservePathDebugView(pixelCoordinate, surface.isPreservePath);
+
+    break;
+  case DEBUG_VIEW_IS_OPAQUE:
+    // Green = opaque, Red = not opaque
+    storeInDebugView(pixelCoordinate, surface.isFullyOpaque ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_DIRECTION_ALTERED:
+    // Green = direction altered, Red = direction not altered
+    storeInDebugView(pixelCoordinate, directionAltered ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_EMISSIVE_BLEND:
+    // Green = Emissive blend mode in use, Red = non emissive blend mode in use
+    storeInDebugView(pixelCoordinate, surface.isEmissiveBlend ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_EMISSIVE:
+    // Green = Emissive mode in use, Red = non emissive mode in use
+    storeInDebugView(pixelCoordinate, surface.isEmissive ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_PARTICLE:
+    // Green = Particle mode in use, Red = non particle mode in use
+    storeInDebugView(pixelCoordinate, surface.isParticle ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_VIEW_DIRECTION:
+    storeInDebugView(pixelCoordinate, rayInteraction.viewDirection);
+
+    break;
+  case DEBUG_VIEW_CONE_RADIUS:
+    storeInDebugView(pixelCoordinate, rayInteraction.coneRadius);
+
+    break;
+  case DEBUG_VIEW_POSITION:
+    storeInDebugView(pixelCoordinate, fract(surfaceInteraction.position));
+
+    break;
+  case DEBUG_VIEW_TEXCOORDS:
+    // Note: Only fractional part of texture coordinates matter when wrapped. This won't represent
+    // textures which use a clamp to edge blend mode super well, but that is fine.
+    storeInDebugView(pixelCoordinate, fract(surfaceInteraction.textureCoordinates));
+
+    break;
+  case DEBUG_VIEW_TEXCOORDS_GRADIENT_X:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.textureGradientX);
+    break;
+  case DEBUG_VIEW_TEXCOORDS_GRADIENT_Y:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.textureGradientY);
+    break;
+  case DEBUG_VIEW_TEXCOORD_GENERATION_MODE:
+    storeInDebugView(pixelCoordinate, uint(surface.texcoordGenerationMode));
+    break;
+  case DEBUG_VIEW_EYE_REGIONS:
+  {
+    // storeInDebugView(pixelCoordinate, vec3(0.0f));
+    // See the DEBUG_VIEW_EYE_REGIONS entry in rtx_debug_view.cpp for the color legend.
+    vec3 albedo = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      albedo = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo;
+    }
+
+    vec3 color = albedo;
+
+    if (surface.isEye)
+    {
+      const float distFromCenter = length(surfaceInteraction.textureCoordinates - 0.5f);
+      vec3 regionColor;
+
+      if (distFromCenter < cb.eyeArgs.irisRadius)
+      {
+        regionColor = vec3(1.0f, 0.0f, 0.0f); // iris
+      }
+      else if (distFromCenter < cb.eyeArgs.irisRadius + 0.04f)
+      {
+        regionColor = vec3(0.0f, 0.0f, 1.0f); // cornea
+      }
+      else
+      {
+        regionColor = vec3(0.0f, 1.0f, 0.0f); // whites
+      }
+
+      if (distFromCenter < 0.01f)
+      {
+        regionColor = vec3(1.0f); // eye center marker
+      }
+
+      const float overlayOpacity = cb.debugKnob.x > 0.0f ? cb.debugKnob.x : 0.5f;
+      color = mix(albedo, regionColor, overlayOpacity);
+    }
+
+    storeInDebugView(pixelCoordinate, color);
+    break;
+  }
+  case DEBUG_VIEW_TRIANGLE_NORMAL:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.triangleNormal);
+    break;
+  case DEBUG_VIEW_INTERPOLATED_VERTEX_NORMAL:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.debugInterpolatedVertexNormal);
+    break;
+  case DEBUG_VIEW_GEOMETRY_NORMAL:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.geometryNormal);
+    break;
+  case DEBUG_VIEW_GEOMETRY_TANGENT:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.geometryTangent);
+    break;
+  case DEBUG_VIEW_GEOMETRY_BITANGENT:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.geometryBitangent);
+    break;
+  case DEBUG_VIEW_SHADING_NORMAL:
+    vec3 shadingNormal = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      shadingNormal = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      shadingNormal = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+    }
+
+    storeInDebugView(pixelCoordinate, shadingNormal);
+
+    break;
+  case DEBUG_VIEW_VERTEX_COLOR:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.vertexColor);
+
+    break;
+  case DEBUG_VIEW_VERTEX_ALPHA:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.vertexColor.w);
+
+    break;
+  }
+  // Too many cases in the DEBUG_VIEW switch statement breaks transparent shading on Intel GPUs.
+  // Splitting into two statements serves as a WAR.
+  switch(cb.debugView)
+  {
+  default:
+  case DEBUG_VIEW_DISABLED:
+    break;
+  case DEBUG_VIEW_PORTAL_SPACE:
+  {
+    vec3 typeColor = vec3(0.0f);
+    switch (uint(portalSpace)) {
+    case PORTAL_SPACE_NONE: typeColor = vec3(0.25f, 0.25f, 0.25f);            // Gray
+      break;
+    case PORTAL_SPACE_PORTAL_0: typeColor = vec3(1.0f, 0.0f, 0.0f);           // Red
+      break;
+    case PORTAL_SPACE_PORTAL_1: typeColor = vec3(0.0f, 1.0f, 0.0f);           // Green
+      break;
+    case PORTAL_SPACE_PORTAL_COMBINED: typeColor = vec3(0.0f, 0.0f, 1.0f);    // Blue
+      break;
+    }
+
+    storeInDebugView(pixelCoordinate, typeColor);
+
+    break;
+  }
+  case DEBUG_VIEW_MATERIAL_TYPE:
+  {
+    // Green = Opaque, Blue = Translucent, Red = Ray Portal (Shouldn't be seen)
+    vec3 typeColor = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      typeColor = vec3(0.0f, 1.0f, 0.0f);
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      typeColor = vec3(0.0f, 0.0f, 1.0f);
+    }
+    else if (materialType == surfaceMaterialTypeRayPortal)
+    {
+      typeColor = vec3(1.0f, 0.0f, 0.0f);
+    }
+
+    storeInDebugView(pixelCoordinate, typeColor);
+
+    break;
+  }
+  case DEBUG_VIEW_ALBEDO:
+    vec3 albedo = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      albedo = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo;
+    }
+
+    storeInDebugView(pixelCoordinate, albedo);
+
+    break;
+  case DEBUG_VIEW_ROUGHNESS:
+    float isotropicRoughness = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      isotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).isotropicRoughness;
+    }
+
+    storeInDebugView(pixelCoordinate, isotropicRoughness);
+
+    break;
+  case DEBUG_VIEW_ANISOTROPY:
+    float anisotropy = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+      anisotropy = anisotropicRoughnessToAnisotropy(opaqueSurfaceMaterialInteraction.isotropicRoughness, opaqueSurfaceMaterialInteraction.anisotropicRoughness);
+    }
+
+    storeInDebugView(pixelCoordinate, anisotropy);
+
+    break;
+  case DEBUG_VIEW_ANISOTROPIC_ROUGHNESS:
+    vec2 anisotropicRoughness = vec2(0.0f, 0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      anisotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).anisotropicRoughness;
+    }
+
+    storeInDebugView(pixelCoordinate, anisotropicRoughness);
+
+    break;
+  case DEBUG_VIEW_OPACITY:
+    float opacity = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      opacity = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).opacity;
+    }
+
+    storeInDebugView(pixelCoordinate, opacity);
+
+    break;
+  case DEBUG_VIEW_EMISSIVE_RADIANCE:
+    vec3 emissiveRadiance = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      emissiveRadiance = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      emissiveRadiance = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+    }
+
+    storeInDebugView(pixelCoordinate, emissiveRadiance);
+
+    break;
+
+  case DEBUG_VIEW_EMISSIVE_TRIANGLE_INTENSITY:
+  {
+    vec3 lightIntensity = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      vec3 triangleCenter;
+      vec3 triangleNormal;
+      NEECacheUtils.calculateTriangleLightIntensity(rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, triangleCenter, triangleNormal, lightIntensity);
+    }
+
+    storeInDebugView(pixelCoordinate, lightIntensity);
+    break;
+  }
+  case DEBUG_VIEW_EMISSIVE_PARTICLE:
+  {
+    storeInDebugView(pixelCoordinate, isUnorderedEmissive ? 1.0f : 0.0f);
+    break;
+  }
+  case DEBUG_VIEW_NEE_CACHE_SAMPLE_RADIANCE:
+  {
+    vec3 sampleRadiance = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      float lightObjectPdf = 1.0;
+      vec3 baryCentrics = uintToBarycentrics(rayInteraction.barycentricCoordinates);
+      float triangleAreaUnused;
+      LightSample lightSample = NEECacheUtils.calculateLightSampleFromTriangle(
+        rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, baryCentrics.yz, lightObjectPdf, cameraGetWorldPosition(cb.camera), rayInteraction.coneRadius, ray.spreadAngle, triangleAreaUnused);
+      sampleRadiance = lightSample.radiance;
+    }
+
+    storeInDebugView(pixelCoordinate, sampleRadiance);
+    break;
+  }
+  case DEBUG_VIEW_NEE_CACHE_TRIANGLE_CANDIDATE:
+  {
+    storeInDebugView(pixelCoordinate, asfloat(uint4(rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, 0, 0)));
+    break;
+  }
+
+  case DEBUG_VIEW_SURFACE_AREA:
+    storeInDebugView(pixelCoordinate, surfaceInteraction.triangleArea);
+    break;
+  case DEBUG_VIEW_THIN_FILM_THICKNESS:
+    float thinFilmThickness = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      thinFilmThickness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).thinFilmThickness;
+    }
+
+    storeInDebugView(pixelCoordinate, thinFilmThickness);
+
+    break;
+  case DEBUG_VIEW_VIRTUAL_HIT_DISTANCE:
+    storeInDebugView(pixelCoordinate, virtualHitDistance);
+
+    break;
+  case DEBUG_VIEW_PRIMARY_DEPTH:
+    // The depth is recomputed here, because the primary depth at a PSR pixel does not hold this hit.
+    storeInDebugView(pixelCoordinate, projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, virtualHitDistance, vec3(0.0f)).depth);
+
+    break;
+  case DEBUG_VIEW_PIXEL_CHECKERBOARD:
+    // Note: Creates a pixel-perfect checkerboard pattern. Useful for identifying incorrect scaling
+    // or pixel sampling as this will create visibile Moire Patterns in the result.
+    const float continueSample = float((pixelCoordinate.x & 1) ^ (pixelCoordinate.y & 1));
+
+    storeInDebugView(pixelCoordinate, continueSample);
+
+    break;
+  case DEBUG_VIEW_VOLUME_RADIANCE_DEPTH_LAYERS: {
+    const Camera camera = cb.camera;
+    const VolumeArgs volumeArgs = cb.volumeArgs;
+
+    vec2 screenUV = cameraPixelCoordinateToScreenUV(camera, pixelCoordinate);
+    screenUV.x *= cb.volumeArgs.numFroxelVolumes;
+    const float froxelVolume = floor(screenUV.x);
+    screenUV.x = frac(screenUV.x);
+    const uint widthTiles = ceil(sqrt(float(volumeArgs.froxelDepthSlices)));
+    const uint heightTiles = ceil(float(volumeArgs.froxelDepthSlices) / widthTiles);
+    const uint previewLevel = uint(screenUV.x * widthTiles) + uint(screenUV.y * heightTiles) * widthTiles;
+
+    vec3 filteredRadiance;
+
+    if (previewLevel >= volumeArgs.froxelDepthSlices)
+    {
+      // Note: Output black to indicate no data for this section of the screen.
+      filteredRadiance = vec3(0.0f, 0.0f, 0.0f);
+    }
+    else
+    {
+      vec2 previewUV = mod(screenUV, vec2(1.0f / widthTiles, 1.0f / heightTiles)) * vec2(widthTiles, heightTiles);
+      previewUV.x = clamp(previewUV.x, volumeArgs.minFilteredRadianceU, volumeArgs.maxFilteredRadianceU);
+      previewUV.x = (previewUV.x + froxelVolume) * volumeArgs.inverseNumFroxelVolumes;
+      const float previewW = float(previewLevel) / float(volumeArgs.froxelDepthSlices);
+      const float3 uvw = vec3(previewUV, previewW);
+      SphericalHarmonic sh = HarmonicsHelpers::loadFiltered3D<SphericalHarmonic>(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, uvw);
+      if(cb.debugKnob.x <= 1.f)
+      {
+        filteredRadiance = sh.getIrradiance();
+      }
+      else if(cb.debugKnob.x <= 2.f)
+      {
+        filteredRadiance = VolumeFilteredRadianceY.SampleLevel(uvw, 0).w;
+      }
+      else if(cb.debugKnob.x <= 3.f)
+      {
+        filteredRadiance = VolumeFilteredRadianceY.SampleLevel(uvw, 0).xyz;
+      }
+      else if(cb.debugKnob.x <= 4.f)
+      {
+        filteredRadiance.xy = VolumeFilteredRadianceCoCg.SampleLevel(uvw, 0);
+      }
+    }
+
+    storeInDebugView(pixelCoordinate, filteredRadiance);
+
+    break;
+  }
+  case DEBUG_VIEW_LIGHT_HISTORY_VALIDITY: {
+    uint first = cb.lightRanges[uint(lightTypeDistant)].offset;
+    uint count = cb.lightRanges[uint(lightTypeDistant)].count;
+    bool valid = count > 0;
+    uint mappingCount;
+    uint mappingStride;
+    lightMapping.GetDimensions(mappingCount, mappingStride);
+    for (uint i = 0; i < count; i++)
+    {
+      uint current = first + i;
+      uint previous = lightMapping[current];
+      bool mapped = previous != LIGHT_INDEX_INVALID && cb.lightCount + previous < mappingCount;
+      valid = valid && mapped;
+      if (mapped)
+      {
+        valid = valid && uint(lightMapping[cb.lightCount + previous]) == current;
+      }
+    }
+    storeInDebugView(pixelCoordinate, valid ? float3(0, 1, cb.volumeArgs.resetHistory ? 1 : 0) : float3(1, 0, 0));
+    break;
+  }
+  case DEBUG_VIEW_SURFACE_VOLUME_RADIANCE: {
+    const uint froxelVolumeHint = portalSpaceToVolumeHint(portalSpace);
+
+    vec3 filteredRadiance = evalVolumetricNEE(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, cb.volumeArgs,
+      surfaceInteraction, polymorphicSurfaceMaterialInteraction.shadingNormal, froxelVolumeHint);
+
+    // Show froxels
+    if (cb.debugKnob.x > 0)
+    {
+      const VolumeDefinitionCamera camera = cb.volumeArgs.cameras[0];
+      const vec3 translatedWorldPosition = worldToTranslatedWorld(camera, surfaceInteraction.position);
+      const vec3 virtualFroxelUVW = translatedWorldPositionToFroxelUVW(
+        camera.translatedWorldToView, camera.translatedWorldToProjectionJittered, packedFlagGet(camera.flags, rightHandedFlag),
+        cb.volumeArgs.froxelDepthSlices, cb.volumeArgs.froxelDepthSliceDistributionExponent, cb.volumeArgs.froxelMaxDistance, camera.nearPlane,
+        translatedWorldPosition);
+
+      uvec3 froxelDimension = uvec3(cb.volumeArgs.froxelGridDimensions, cb.volumeArgs.froxelDepthSlices);
+      if (cb.debugKnob.x > 1.0)
+      {
+        froxelDimension = uvec3(cb.volumeArgs.restirFroxelGridDimensions, cb.volumeArgs.restirFroxelDepthSlices);
+      }
+      uvec3 froxelCoordinate = froxelUVWToFroxelCoordinate(virtualFroxelUVW, froxelDimension);
+
+      const int colorResolution = 8;
+      filteredRadiance = (float3(froxelCoordinate.xy, 0) % colorResolution) / float(colorResolution);
+    }
+
+    storeInDebugView(pixelCoordinate, filteredRadiance);
+    break;
+  }
+  case DEBUG_VIEW_PSR_SELECTED_INTEGRATION_SURFACE_PDF:
+    storeInDebugView(pixelCoordinate, selectedIntegrationSurfacePdf);
+    break;
+  case DEBUG_VIEW_NAN:
+    {
+      bool isValid = true;
+
+      // Skipped
+      // DEBUG_VIEW_PRIMITIVE_INDEX
+      // DEBUG_VIEW_CUSTOM_INDEX
+
+      // DEBUG_VIEW_BARYCENTRICS
+      isValid &= isValidValue(uintToBarycentrics(rayInteraction.barycentricCoordinates));
+
+      // Skipped
+      // DEBUG_VIEW_IS_FRONT_HIT
+      // DEBUG_VIEW_IS_STATIC
+      // DEBUG_VIEW_PRESERVE_PATH
+      // DEBUG_VIEW_IS_OPAQUE
+      // DEBUG_VIEW_IS_DIRECTION_ALTERED
+      // DEBUG_VIEW_IS_EMISSIVE_BLEND
+      // DEBUG_VIEW_IS_EMISSIVE
+      // DEBUG_VIEW_IS_PARTICLE
+      // DEBUG_VIEW_IS_RAY_PORTAL
+
+      // DEBUG_VIEW_VIEW_DIRECTION
+      isValid &= isValidValue(rayInteraction.viewDirection);
+
+      // DEBUG_VIEW_CONE_RADIUS
+      isValid &= isValidValue(rayInteraction.coneRadius);
+
+      // DEBUG_VIEW_POSITION
+      isValid &= isValidValue(surfaceInteraction.position);
+
+      // DEBUG_VIEW_TEXCOORDS
+      isValid &= isValidValue(surfaceInteraction.textureCoordinates);
+
+      // DEBUG_VIEW_TEXCOORDS_GRADIENT_X
+      isValid &= isValidValue(surfaceInteraction.textureGradientX);
+
+      // DEBUG_VIEW_TEXCOORDS_GRADIENT_Y
+      isValid &= isValidValue(surfaceInteraction.textureGradientY);
+
+      // DEBUG_VIEW_TEXCOORD_GENERATION_MODE
+      isValid &= isValidValue(surface.texcoordGenerationMode);
+
+      // DEBUG_VIEW_TRIANGLE_NORMAL
+      isValid &= isValidValue(surfaceInteraction.triangleNormal);
+
+      // DEBUG_VIEW_INTERPOLATED_VERTEX_NORMAL
+      isValid &= isValidValue(surfaceInteraction.debugInterpolatedVertexNormal);
+
+      // DEBUG_VIEW_GEOMETRY_NORMAL
+      isValid &= isValidValue(surfaceInteraction.geometryNormal);
+
+      // DEBUG_VIEW_GEOMETRY_TANGENT
+      isValid &= isValidValue(surfaceInteraction.geometryTangent);
+
+      // DEBUG_VIEW_GEOMETRY_BITANGENT
+      isValid &= isValidValue(surfaceInteraction.geometryBitangent);
+
+      // DEBUG_VIEW_SHADING_NORMAL
+      vec3 shadingNormal = vec3(0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        shadingNormal = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+      }
+      else if (materialType == surfaceMaterialTypeTranslucent)
+      {
+        shadingNormal = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+      }
+      isValid &= isValidValue(shadingNormal);
+
+      // DEBUG_VIEW_VERTEX_COLOR
+      isValid &= isValidValue(surfaceInteraction.vertexColor);
+
+      // Skipped
+      // DEBUG_VIEW_VERTEX_ALPHA (already checked in DEBUG_VIEW_VERTEX_COLOR)
+      // DEBUG_VUEW_PORTAL_SPACE
+      // DEBUG_VIEW_MATERIAL_TYPE
+
+      // DEBUG_VIEW_ALBEDO
+      vec3 albedo = vec3(0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        albedo = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo;
+      }
+      isValid &= isValidValue(albedo);
+
+      // DEBUG_VIEW_ROUGHNESS
+      float isotropicRoughness = 0.0f;
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        isotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).isotropicRoughness;
+      }
+      isValid &= isValidValue(isotropicRoughness);
+
+      // DEBUG_VIEW_ANISOTROPY
+      float anisotropy = 0.0f;
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+        anisotropy = anisotropicRoughnessToAnisotropy(opaqueSurfaceMaterialInteraction.isotropicRoughness, opaqueSurfaceMaterialInteraction.anisotropicRoughness);
+      }
+      isValid &= isValidValue(anisotropy);
+
+      // DEBUG_VIEW_ANISOTROPIC_ROUGHNESS
+      vec2 anisotropicRoughness = vec2(0.0f, 0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        anisotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).anisotropicRoughness;
+      }
+      isValid &= isValidValue(anisotropicRoughness);
+
+      // DEBUG_VIEW_OPACITY
+      float opacity = 0.0f;
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        opacity = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).opacity;
+      }
+      isValid &= isValidValue(opacity);
+
+      // DEBUG_VIEW_EMISSIVE_RADIANCE
+      vec3 emissiveRadiance = vec3(0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        emissiveRadiance = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+      }
+      else if (materialType == surfaceMaterialTypeTranslucent)
+      {
+        emissiveRadiance = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+      }
+      isValid &= isValidValue(emissiveRadiance);
+
+      // DEBUG_VIEW_EMISSIVE_TRIANGLE_INTENSITY:
+      vec3 lightIntensity = vec3(0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        vec3 triangleCenter;
+        vec3 triangleNormal;
+        NEECacheUtils.calculateTriangleLightIntensity(rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, triangleCenter, triangleNormal, lightIntensity);
+      }
+      isValid &= isValidValue(lightIntensity);
+
+      // DEBUG_VIEW_NEE_CACHE_SAMPLE_RADIANCE:
+      vec3 sampleRadiance = vec3(0.0f);
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        float lightObjectPdf = 1.0;
+        vec3 baryCentrics = uintToBarycentrics(rayInteraction.barycentricCoordinates);
+        float triangleAreaUnused;
+        LightSample lightSample = NEECacheUtils.calculateLightSampleFromTriangle(
+          rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, baryCentrics.yz, lightObjectPdf, cameraGetWorldPosition(cb.camera), rayInteraction.coneRadius, ray.spreadAngle, triangleAreaUnused);
+        sampleRadiance = lightSample.radiance;
+      }
+      isValid &= isValidValue(sampleRadiance);
+
+      // DEBUG_VIEW_NEE_CACHE_TRIANGLE_CANDIDATE:
+      isValid &= isValidValue(asfloat(uint4(rayInteraction.surfaceIndex, rayInteraction.primitiveIndex, 0, 0)));
+
+      // DEBUG_VIEW_SURFACE_AREA
+      isValid &= isValidValue(surfaceInteraction.triangleArea);
+
+      // DEBUG_VIEW_THIN_FILM_THICKNESS
+      float thinFilmThickness = 0.0f;
+      if (materialType == surfaceMaterialTypeOpaque)
+      {
+        thinFilmThickness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).thinFilmThickness;
+      }
+      isValid &= isValidValue(thinFilmThickness);
+
+      // DEBUG_VIEW_VIRTUAL_HIT_DISTANCE
+      isValid &= isValidValue(virtualHitDistance);
+
+      // DEBUG_VIEW_PRIMARY_DEPTH
+      isValid &= isValidValue(projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, virtualHitDistance, vec3(0.0f)).depth);
+
+      // DEBUG_VIEW_PIXEL_CHECKERBOARD
+      const float continueSample = float((pixelCoordinate.x & 1) ^ (pixelCoordinate.y & 1));
+      isValid &= isValidValue(continueSample);
+
+      // Skipped
+      // DEBUG_VIEW_VOLUME_RADIANCE_DEPTH_LAYERS
+
+      // DEBUG_VIEW_SURFACE_VOLUME_RADIANCE
+      const VolumeArgs volumeArgs = cb.volumeArgs;
+      const VolumeDefinitionCamera camera = volumeArgs.cameras[froxelVolumeMain];
+      const vec3 translatedWorldPosition = worldToTranslatedWorld(camera, surfaceInteraction.position);
+      const vec3 froxelUVW = translatedWorldPositionToFroxelUVW(
+        camera.translatedWorldToView, camera.translatedWorldToProjectionJittered, packedFlagGet(camera.flags, rightHandedFlag),
+        volumeArgs.froxelDepthSlices, volumeArgs.froxelDepthSliceDistributionExponent, volumeArgs.froxelMaxDistance, camera.nearPlane,
+        translatedWorldPosition);
+          vec3 volumeRadiance;
+          if (any(froxelUVW < vec3(0.0f)) || any(froxelUVW >= vec3(1.0f)))
+          {
+            // Note: Store red for UVW coordinates out of range to indicate the froxel grid is clipping the
+            // world, generally this indicates the max distance should be increased to a reasonable point.
+            volumeRadiance = vec3(1000.0f, 0.0f, 0.0f);
+          }
+          else
+          {
+            SphericalHarmonic sh = HarmonicsHelpers::loadFiltered3D<SphericalHarmonic>(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, froxelUVW);
+            volumeRadiance = sh.getIrradiance();
+          }
+      isValid &= isValidValue(volumeRadiance);
+
+      // DEBUG_VIEW_PSR_SELECTED_INTEGRATION_SURFACE_PDF:
+      isValid &= isValidValue(selectedIntegrationSurfacePdf);
+
+      // DEBUG_VIEW_GEOMETRY_HASH:
+      isValid &= isValidValue(r5g6b5ToColor(surface.hashPacked)); // visualize directly as colour (note the hash is compressed into a 16bit using XOR)
+
+      accumulateInDebugViewAnd(pixelCoordinate, isValid);
+      break;
+    }
+  case DEBUG_VIEW_IS_OUTSIDE_AABB:
+    vec3 relativePosition = abs(surfaceInteraction.position - cameraGetWorldPosition(cb.camera));
+    storeInDebugView(pixelCoordinate, vec3(relativePosition > cb.debugKnob.xyz * 0.5f));
+    break;
+  case DEBUG_VIEW_NRC_IS_OUTSIDE_SCENE_AABB:
+    bool isOutsideAabb = any(surfaceInteraction.position < cb.nrcArgs.sceneBoundsMin)
+                      || any(surfaceInteraction.position > cb.nrcArgs.sceneBoundsMax);
+      accumulateInDebugViewMax(pixelCoordinate, vec4(isOutsideAabb, 0, 0, 0));
+    break;
+  case DEBUG_VIEW_IS_THIN_OPAQUE:
+    bool isThinOpaque = false;
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      isThinOpaque = isThinOpaqueSubsurfaceMaterial(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction));
+    }
+    // Green = thin opaque, Red = not thin opaque
+    storeInDebugView(pixelCoordinate, isThinOpaque ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_IS_SUBSURFACE_SCATTERING:
+    bool isSss = false;
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      isSss = isSubsurfaceDiffusionProfileMaterial(opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction));
+    }
+    // Green = SSS material, Red = not SSS material
+    storeInDebugView(pixelCoordinate, isSss ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0));
+
+    break;
+  case DEBUG_VIEW_POM_ITERATIONS:
+#ifdef OPAQUE_MATERIAL_USE_POM
+    if (materialType == surfaceMaterialTypeOpaque && cb.pomMode != DisplacementMode::Off)
+    {
+      const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
+      OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+      float3 hitPos = float3(0.f);
+      uint iterations = 0;
+      if (opaqueSurfaceMaterial.hasValidDisplacement())
+      {
+        SurfaceInteraction tempSurfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+        const f16mat3 worldToTangent = f16mat3(tempSurfaceInteraction.geometryTangent, tempSurfaceInteraction.geometryBitangent, tempSurfaceInteraction.geometryNormal);
+        const vec3 viewDirTangentSpace = normalize(mul(worldToTangent, rayInteraction.viewDirection));
+        hitPos = pomCalculateTexcoord(opaqueSurfaceMaterial, tempSurfaceInteraction, viewDirTangentSpace, iterations);
+      }
+      float iterFrac = ((float)iterations) / cb.pomMaxIterations;
+      storeInDebugView(pixelCoordinate, float3(iterFrac, 1.f-iterFrac, 0.f));
+    }
+#endif
+    break;
+  case DEBUG_VIEW_POM_DIRECT_HIT_POS:
+#ifdef OPAQUE_MATERIAL_USE_POM
+    if (materialType == surfaceMaterialTypeOpaque && cb.pomMode != DisplacementMode::Off)
+    {
+      const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
+      OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+      float3 hitPos = float3(0.f);
+      if (opaqueSurfaceMaterial.hasValidDisplacement())
+      {
+        SurfaceInteraction tempSurfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+        const f16mat3 worldToTangent = f16mat3(tempSurfaceInteraction.geometryTangent, tempSurfaceInteraction.geometryBitangent, tempSurfaceInteraction.geometryNormal);
+        const vec3 viewDirTangentSpace = normalize(mul(worldToTangent, rayInteraction.viewDirection));
+        uint iterations = 0;
+        hitPos = pomCalculateTexcoord(opaqueSurfaceMaterial, tempSurfaceInteraction, viewDirTangentSpace, iterations);
+      }
+      storeInDebugView(pixelCoordinate, hitPos);
+    }
+#endif
+    break;
+  case DEBUG_VIEW_HEIGHT_MAP:
+#ifdef OPAQUE_MATERIAL_USE_POM
+    float heightMapValue = -1.f;
+    if (materialType == surfaceMaterialTypeOpaque && cb.pomMode != DisplacementMode::Off)
+    {
+      const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surface.surfaceMaterialIndex];
+      OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+      if (opaqueSurfaceMaterial.hasValidDisplacement()) {
+        heightMapValue = 1.f - pomSampleHeight(textures[nonuniformEXT(uint(opaqueSurfaceMaterial.heightTextureIndex))],
+          samplers[nonuniformEXT(uint(opaqueSurfaceMaterial.reliefSamplerIndex))],
+          surfaceInteraction.textureCoordinates, surfaceInteraction.textureCoordinateBounds);
+      }
+    }
+
+    storeInDebugView(pixelCoordinate, heightMapValue);
+#endif
+    break;
+
+  case DEBUG_VIEW_RAYTRACED_RENDER_TARGET_GEOMETRY:
+    if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && cb.enableRaytracedRenderTarget && isRaytracedRenderTarget){
+      storeInDebugView(pixelCoordinate, vec4(surfaceInteraction.textureCoordinates, 0.0, 1.0));
+    }
+    break;
+  case DEBUG_VIEW_RAYTRACED_RENDER_TARGET_DIRECT:
+    if (GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET && cb.enableRaytracedRenderTarget && isRaytracedRenderTarget){
+      storeInDebugView(pixelCoordinate, vec4(1.f));
+    }
+    break;
+  }
+}
+
+void geometryResolverOutputDebugView(uvec2 pixelCoordinate)
+{
+  switch(cb.debugView)
+  {
+  default:
+    break;
+  case DEBUG_VIEW_SHARED_BIAS_CURRENT_COLOR_MASK:
+    // Only DLSS-SR reads the mask, so the GBuffer does not write it under Ray Reconstruction and the view stays clear.
+    if (!cb.enableDLSSRR)
+    {
+      storeInDebugView(pixelCoordinate, SharedBiasCurrentColorMask[pixelCoordinate]);
+    }
+    break;
+  case DEBUG_VIEW_NAN:
+    {
+      bool isValid = true;
+      // DEBUG_VIEW_SHARED_BIAS_CURRENT_COLOR_MASK
+      isValid &= isValidValue(SharedBiasCurrentColorMask[pixelCoordinate]);
+
+      accumulateInDebugViewAnd(pixelCoordinate, isValid);
+      break;
+    }
+  }
+}
+
+// Writes primary-surface debug views derived from the GBuffer-resident material data.
+// May be called more than once per pixel: once after the initial primary material write in the
+// geometry resolve pass, and again after unordered-decal blending updates the same GBuffer
+// resources. All cases here must therefore be safe to re-run (snapshot writes that overwrite the
+// previous value, or accumulators whose operation is idempotent/order-independent).
+void geometryResolverOutputPrimaryMaterialDebugView(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+{
+  const uint8_t materialType = polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction);
+
+  switch(cb.debugView)
+  {
+  default:
+    break;
+  case DEBUG_VIEW_PRIMARY_PERCEPTUAL_ROUGHNESS:
+    storeInDebugView(pixelCoordinate, PrimaryPerceptualRoughness[pixelCoordinate]);
+    break;
+  case DEBUG_VIEW_PRIMARY_BASE_REFLECTIVITY_RAW:
+    // Stored only in a GBuffer slot.
+    if (hasGBufferSlot(compactedCoordinate))
+    {
+      storeInDebugView(pixelCoordinate, PrimaryBaseReflectivity[compactedCoordinate].xyz);
+    }
+    break;
+  case DEBUG_VIEW_SHADING_NORMAL:
+  {
+    vec3 shadingNormal = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      shadingNormal = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      shadingNormal = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).shadingNormal;
+    }
+
+    storeInDebugView(pixelCoordinate, shadingNormal);
+    break;
+  }
+  case DEBUG_VIEW_ALBEDO:
+  {
+    vec3 albedo = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      albedo = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).albedo;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
+        translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+      if ((translucentSurfaceMaterialInteraction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER) != 0)
+      {
+        albedo = translucentSurfaceMaterialInteraction.diffuseColor;
+      }
+    }
+
+    storeInDebugView(pixelCoordinate, albedo);
+    break;
+  }
+  case DEBUG_VIEW_ROUGHNESS:
+  {
+    float isotropicRoughness = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      isotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).isotropicRoughness;
+    }
+
+    storeInDebugView(pixelCoordinate, isotropicRoughness);
+    break;
+  }
+  case DEBUG_VIEW_ANISOTROPY:
+  {
+    float anisotropy = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+        opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+      anisotropy = anisotropicRoughnessToAnisotropy(
+        opaqueSurfaceMaterialInteraction.isotropicRoughness,
+        opaqueSurfaceMaterialInteraction.anisotropicRoughness);
+    }
+
+    storeInDebugView(pixelCoordinate, anisotropy);
+    break;
+  }
+  case DEBUG_VIEW_ANISOTROPIC_ROUGHNESS:
+  {
+    vec2 anisotropicRoughness = vec2(0.0f, 0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      anisotropicRoughness = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).anisotropicRoughness;
+    }
+
+    storeInDebugView(pixelCoordinate, anisotropicRoughness);
+    break;
+  }
+  case DEBUG_VIEW_OPACITY:
+  {
+    float opacity = 0.0f;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      opacity = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).opacity;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
+        translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+      if ((translucentSurfaceMaterialInteraction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER) != 0)
+      {
+        opacity = translucentSurfaceMaterialInteraction.diffuseOpacity;
+      }
+    }
+
+    storeInDebugView(pixelCoordinate, opacity);
+    break;
+  }
+  case DEBUG_VIEW_EMISSIVE_RADIANCE:
+  {
+    vec3 emissiveRadiance = vec3(0.0f);
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      emissiveRadiance = opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      emissiveRadiance = translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction).emissiveRadiance;
+    }
+
+    storeInDebugView(pixelCoordinate, emissiveRadiance);
+    break;
+  }
+  case DEBUG_VIEW_NAN:
+  {
+    bool isValid = true;
+
+    if (materialType == surfaceMaterialTypeOpaque)
+    {
+      const OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+        opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.shadingNormal);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.albedo);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.baseReflectivity);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.isotropicRoughness);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.anisotropicRoughness);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.opacity);
+      isValid &= isValidValue(opaqueSurfaceMaterialInteraction.emissiveRadiance);
+    }
+    else if (materialType == surfaceMaterialTypeTranslucent)
+    {
+      const TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
+        translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+
+      isValid &= isValidValue(translucentSurfaceMaterialInteraction.shadingNormal);
+      isValid &= isValidValue(translucentSurfaceMaterialInteraction.diffuseColor);
+      isValid &= isValidValue(translucentSurfaceMaterialInteraction.baseReflectivity);
+      isValid &= isValidValue(translucentSurfaceMaterialInteraction.diffuseOpacity);
+      isValid &= isValidValue(translucentSurfaceMaterialInteraction.emissiveRadiance);
+    }
+
+    accumulateInDebugViewAnd(pixelCoordinate, isValid);
+    break;
+  }
+  }
+}
+
+#else
+
+void geometryResolverOutputSurfaceDebugView<
+  let PRIMARY_SURFACE : bool>(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  vec3 virtualMotion,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+{
+}
+
+void geometryResolverVertexOutputDebugView(
+  uvec2 pixelCoordinate,
+  Ray ray, RayInteraction rayInteraction,
+  Surface surface, SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  float selectedIntegrationSurfacePdf,
+  bool directionAltered, PortalSpace2BitsType portalSpace, float virtualHitDistance,
+  const bool isRaytracedRenderTarget, bool isUnorderedEmissive)
+{
+}
+
+void geometryResolverOutputDebugView(uvec2 pixelCoordinate)
+{
+}
+
+#endif

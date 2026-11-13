@@ -41,13 +41,13 @@ namespace dxvk {
   void DxvkDenoise::dispatch(
     Rc<DxvkContext> ctx,
     DxvkBarrierSet& barriers,
-    const Resources::RaytracingOutput& rtOutput,
+    const VkExtent3D& renderExtent,
     const Input& inputs,
     Output& outputs) 
   {
     const SceneManager& sceneManager = device()->getCommon()->getSceneManager();
 
-    m_nrdContext->dispatch(ctx, barriers, sceneManager, rtOutput, inputs, outputs);
+    m_nrdContext->dispatch(ctx, barriers, sceneManager, renderExtent, inputs, outputs);
   }
 
   void DxvkDenoise::releaseResources() {

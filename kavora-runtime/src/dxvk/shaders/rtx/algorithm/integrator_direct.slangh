@@ -33,7 +33,7 @@
 #include "rtx/concept/surface_material/surface_material.slangh"
 #include "rtx/concept/light/light.slangh"
 #include "rtx/algorithm/lighting.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve.h"
 #include "rtx/algorithm/visibility.slangh"
 #include "rtx/algorithm/rtxcr/rtxcr_material.slangh"
 #include "integrator.slangh"

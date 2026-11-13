@@ -23,9 +23,6 @@
     <dependency name="glslangvalidator" linkPath="external/glslangvalidator">
         <package name="rtx-remix-glslangvalidator" version="main-tot-2bfc7ca" />
     </dependency>
-    <dependency name="slang" linkPath="external/slang">
-        <package name="rtx-remix-slang" version="slang-2025.10.4-39-g496fab196-win64-remix" />
-    </dependency>
     <dependency name="nv_xxd" linkPath="external/nv_xxd">
         <package name="rtx-remix-nv_xxd" version="1" />
     </dependency>

@@ -1,0 +1,135 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+
+#pragma once
+
+#include "rtx/utility/debug_view_helpers.slangh"
+#include "rtx/algorithm/ordered_intersection.slangh"
+
+#ifdef RT_SHADER_EXECUTION_REORDERING
+
+// Adds a coherence hint to the lowest/least important bit
+void addCoherenceHintAsLeastImportant1Bit(uint coherenceHintToAdd, inout uint coherenceHints, inout uint numCoherenceHints)
+{
+  coherenceHints = coherenceHintToAdd | (coherenceHints << 1);
+  ++numCoherenceHints;
+}
+
+void TraceRayCustom<payload_t : IBasePayloadState>(
+    RaytracingAccelerationStructure accelerationStructure,
+    uint                            rayFlags,
+    uint                            rayMask,
+    uint                            sbtRecordOffset,
+    uint                            sbtRecordStride,
+    uint                            missIndex,
+    RayDesc                         ray,
+    inout payload_t                 payload)
+{
+  HitObject hitObject = HitObject::TraceRay(
+    accelerationStructure,
+    orderedRayFlags(rayFlags), rayMask,
+    sbtRecordOffset, sbtRecordStride,
+    missIndex, ray,
+    payload
+  );
+
+  uint numCoherenceHints;
+  uint coherenceHints;
+
+  if (payload.shouldReorder(coherenceHints, numCoherenceHints))
+  {
+    ReorderThread(hitObject, coherenceHints, numCoherenceHints);
+  }
+
+  HitObject::Invoke(accelerationStructure, hitObject, payload);
+}
+
+#else  // !defined(RT_SHADER_EXECUTION_REORDERING)
+
+void TraceRayCustom<payload_t : IBasePayloadState>(
+    RaytracingAccelerationStructure accelerationStructure,
+    uint                            rayFlags,
+    uint                            rayMask,
+    uint                            sbtRecordOffset,
+    uint                            sbtRecordStride,
+    uint                            missIndex,
+    RayDesc                         ray,
+    inout payload_t                 payload)
+{
+  TraceRay(
+    accelerationStructure,
+    orderedRayFlags(rayFlags), rayMask,
+    sbtRecordOffset,
+    sbtRecordStride,
+    missIndex,
+    ray,
+    payload);
+}
+
+#endif
+
+#if defined(RT_TRACE_RAY) && defined(GBUFFER_TRACE_HIT_OBJECT)
+// The hit object carries the intersection. Resolver state stays in ray generation.
+RayHitInfo traceGbufferIntersection(RayDesc ray, uint flags, uint mask, uint sbtRecordOffset, float coneRadius)
+{
+  uint traversalPayload = asuint(coneRadius);
+  HitObject hit = HitObject::TraceRay(topLevelAS,
+    orderedRayFlags(flags),
+    mask, sbtRecordOffset, 0u, 0u, ray, traversalPayload);
+
+  uint material = MATERIAL_INDEX_INVALID;
+  if (hit.IsHit())
+  {
+    const uint surfaceIndex = (hit.GetInstanceID() & CUSTOM_INDEX_SURFACE_MASK) + hit.GetGeometryIndex();
+    material = surfaces[surfaceIndex].surfaceMaterialIndex;
+  }
+
+  // Keep the trace, hit data and coherence-hint lookup identical for the diagnostic comparison.
+  if (!push.skipSERReorder)
+  {
+    ReorderThread(hit, material, SURFACE_INDEX_BIT_COUNT);
+  }
+
+  RayHitInfo info;
+  info.hasHit = hit.IsHit();
+  if (info.hasHit)
+  {
+    info.hitDistance = hit.GetRayDesc().TMax;
+    info.barycentricCoordinates = barycentricsToUint(hit.GetAttributes<float2>());
+    info.primitiveIndex = hit.GetPrimitiveIndex();
+    info.customIndex = hit.GetInstanceID();
+    info.geometryIndex = hit.GetGeometryIndex();
+    info.frontHit = hit.GetHitKind() == HIT_KIND_TRIANGLE_FRONT_FACE;
+  }
+  return info;
+}
+
+#endif
+
+[ForceInline]
+void recordResolveInteractions(uint16_t2 pixel, uint8_t count, uint debugView1, uint debugView2)
+{
+  if (cb.debugView == debugView1 || cb.debugView == debugView2)
+  {
+    accumulateInDebugViewAdd(pixel, count);
+  }
+}

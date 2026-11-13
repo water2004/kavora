@@ -88,8 +88,8 @@ namespace dxvk {
     RemixGui::DragFloat("Direct Light Boiling Threshold", &directLightBoilingThresholdObject(), 0.01f, 1.f, 500.f, "%.1f");
   }
 
-  void DemodulatePass::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput) {
-    const auto& numRaysExtent = rtOutput.m_compositeOutputExtent;
+  void DemodulatePass::dispatch(RtxContext* ctx, DemodulateResources resources) {
+    const auto& numRaysExtent = resources.get<&RaytracingFrame::m_compositeOutputExtent>();
     VkExtent3D workgroups = util::computeBlockCount(numRaysExtent, VkExtent3D{ DEMODULATE_THREAD_GROUP_WIDTH, DEMODULATE_THREAD_GROUP_HEIGHT, 1 });
 
     ScopedGpuProfileZone(ctx, "Demodulate");
@@ -109,13 +109,13 @@ namespace dxvk {
 
     // Inputs
 
-    ctx->bindResourceView(DEMODULATE_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_ALBEDO_INPUT, rtOutput.m_primaryAlbedo.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, rtOutput.m_secondaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_secondaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_ALBEDO_INPUT, rtOutput.m_secondaryAlbedo.view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SHARED_FLAGS_INPUT, resources.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_LINEAR_VIEW_Z_INPUT, resources.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_primaryAlbedo>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_VIRTUAL_WORLD_SHADING_NORMAL_INPUT, resources.get<&RaytracingFrame::m_secondaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_LINEAR_VIEW_Z_INPUT, resources.get<&RaytracingFrame::m_secondaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_ALBEDO_INPUT, resources.get<&RaytracingFrame::m_secondaryAlbedo>().view, nullptr);
 
     // m_indirectRadianceHitDistance and m_primaryIndirectDiffuseRadiance are aliased
     // RestirGI already updated m_primaryIndirectDiffuseRadiance for primary surface pixels
@@ -125,19 +125,19 @@ namespace dxvk {
     const bool isPrimaryIndirectRadianceResourceRead = ctx->getCommonObjects()->metaReSTIRGIRayQuery().isActive();
     const bool suppressIndirectRadianceAliasCheck = isPrimaryIndirectRadianceResourceRead;
 
-    ctx->bindResourceView(DEMODULATE_BINDING_INDIRECT_RADIANCE_HIT_DISTANCE_INPUT, rtOutput.m_indirectRadianceHitDistance.view(Resources::AccessType::Read, !suppressIndirectRadianceAliasCheck), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PIXEL_SAMPLING_RATE_INPUT, rtOutput.m_sparseRenderingPixelSamplingRate.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, rtOutput.m_sparseRenderingActiveLocalPixelCoords.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_TILE_ACTIVE_COUNTS_INPUT, rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT, rtOutput.m_primaryBaseReflectivity.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_BASE_REFLECTIVITY_INPUT, rtOutput.m_secondaryBaseReflectivity.view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_INDIRECT_RADIANCE_HIT_DISTANCE_INPUT, resources.get<&RaytracingFrame::m_indirectRadianceHitDistance>().view(Resources::AccessType::Read, !suppressIndirectRadianceAliasCheck), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PIXEL_SAMPLING_RATE_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingPixelSamplingRate>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_ACTIVE_LOCAL_PIXEL_COORDS_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_TILE_ACTIVE_COUNTS_INPUT, resources.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_BASE_REFLECTIVITY_INPUT, resources.get<&RaytracingFrame::m_primaryBaseReflectivity>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_BASE_REFLECTIVITY_INPUT, resources.get<&RaytracingFrame::m_secondaryBaseReflectivity>().view(Resources::AccessType::Read), nullptr);
     
     // Inputs/Outputs
 
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_DIRECT_DIFFUSE_RADIANCE_INPUT_OUTPUT, rtOutput.m_primaryDirectDiffuseRadiance.view(Resources::AccessType::ReadWrite), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_DIRECT_SPECULAR_RADIANCE_INPUT_OUTPUT, rtOutput.m_primaryDirectSpecularRadiance.view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_DIRECT_DIFFUSE_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryDirectDiffuseRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_DIRECT_SPECULAR_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryDirectSpecularRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
 
-    const bool isPrimaryIndirectRadianceResourceWritten = rtOutput.m_raytraceArgs.enableSeparatedDenoisers;
+    const bool isPrimaryIndirectRadianceResourceWritten = resources.get<&RaytracingFrame::m_raytraceArgs>().enableSeparatedDenoisers;
     const bool isPrimaryIndirectRadianceResourceUsed = isPrimaryIndirectRadianceResourceRead || isPrimaryIndirectRadianceResourceWritten;
     Resources::AccessType primaryIndirectRadianceAccessType;
 
@@ -149,16 +149,16 @@ namespace dxvk {
       primaryIndirectRadianceAccessType = Resources::AccessType::Write;
     }
 
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectDiffuseRadiance.view(primaryIndirectRadianceAccessType, isPrimaryIndirectRadianceResourceUsed), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_INDIRECT_SPECULAR_RADIANCE_INPUT_OUTPUT, rtOutput.m_primaryIndirectSpecularRadiance.view(primaryIndirectRadianceAccessType, isPrimaryIndirectRadianceResourceUsed), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_INDIRECT_DIFFUSE_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryIndirectDiffuseRadiance>().view(primaryIndirectRadianceAccessType, isPrimaryIndirectRadianceResourceUsed), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_INDIRECT_SPECULAR_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_primaryIndirectSpecularRadiance>().view(primaryIndirectRadianceAccessType, isPrimaryIndirectRadianceResourceUsed), nullptr);
 
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_COMBINED_DIFFUSE_RADIANCE_INPUT_OUTPUT, rtOutput.m_secondaryCombinedDiffuseRadiance.view(Resources::AccessType::ReadWrite), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_COMBINED_SPECULAR_RADIANCE_INPUT_OUTPUT, rtOutput.m_secondaryCombinedSpecularRadiance.view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_COMBINED_DIFFUSE_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_secondaryCombinedDiffuseRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_COMBINED_SPECULAR_RADIANCE_INPUT_OUTPUT, resources.get<&RaytracingFrame::m_secondaryCombinedSpecularRadiance>().view(Resources::AccessType::ReadWrite), nullptr);
 
     // Outputs
 
-    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_SPECULAR_ALBEDO_OUTPUT, rtOutput.m_primarySpecularAlbedo.view(Resources::AccessType::Write), nullptr);
-    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_SPECULAR_ALBEDO_OUTPUT, rtOutput.m_secondarySpecularAlbedo.view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_PRIMARY_SPECULAR_ALBEDO_OUTPUT, resources.get<&RaytracingFrame::m_primarySpecularAlbedo>().view(Resources::AccessType::Write), nullptr);
+    ctx->bindResourceView(DEMODULATE_BINDING_SECONDARY_SPECULAR_ALBEDO_OUTPUT, resources.get<&RaytracingFrame::m_secondarySpecularAlbedo>().view(Resources::AccessType::Write), nullptr);
     ctx->bindResourceView(DEMODULATE_BINDING_DEBUG_VIEW_OUTPUT, debugView.getDebugOutput(), nullptr);
 
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, DemodulateShader::getShader());

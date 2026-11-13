@@ -24,7 +24,7 @@ https://www.nasa.gov/nasa-brand-center/images-and-media/
 Lunar surface shading is adapted from Caustica-Horizon realMoon() in
 shaders/world/world.rmiss.slang, Copyright (c) 2026 ComfyFluffy and contributors,
 under LGPL-3.0-or-later. The adapted module remains under that license:
-kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/caustica_moon.slangh
+kavora-runtime/src/dxvk/shaders/rtx/pass/dome_composite/lunar_surface.slang
 The existing Vulkan dome compositor supplies phase, projection, atmosphere,
 cloud occlusion and the shared background for camera and continuation rays.
 No proprietary ITRP/SEUS assets or renderer implementation are included.

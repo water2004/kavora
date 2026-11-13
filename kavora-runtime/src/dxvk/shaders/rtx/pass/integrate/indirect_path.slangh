@@ -1,0 +1,297 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/integrate/indirect_vertex.slangh"
+#include "rtx/pass/integrate/indirect_sharc.slangh"
+
+// Coordinates the indirect path and publishes the selected cache or lighting result.
+
+struct IndirectRayResolve : IRayResolveStep<PathState, IndirectPathTextures>
+{
+  [ForceInline]
+  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle, inout PathState state)
+  {
+#ifdef RT_TRACE_RAY
+    TraceRayCustom(topLevelAS, flags, uint(state.rayMask), sbtRecordOffset, 0u, 0u, ray, state);
+    return {};
+#else
+    return traceOrderedIntersection(ray, flags, uint(state.rayMask), state.coneRadius, spreadAngle);
+#endif
+  }
+
+  [ForceInline]
+  static void resolve(inout IndirectPathTextures textures, RayHitInfo hit, inout PathState state)
+  {
+#ifndef RT_TRACE_RAY
+    integratePathVertex(textures, hit, state);
+#endif
+  }
+};
+
+void integrateIndirectPath(
+  // Raw query pixel for RNG and screen-space outputs.
+  u16vec2 gbufferPixelCoordinate,
+  // Addresses a SHaRC update path's resources in update space.
+  u16vec2 cacheUpdatePixelCoordinate,
+  // Addresses compacted GBuffer and lighting resources.
+  u16vec2 compactedCoordinate,
+  // Addresses this thread's NRC path buffers. See PathState::nrcPixelIndex.
+  u16vec2 nrcPixelIndex,
+  uint indirectSbtOffset,
+  IndirectPathTextures indirectPathTextures,
+  GeometryFlags geometryFlags, uint mediumState, vec3 rayOrigin, vec3 rayDirection,
+  vec3 throughput, float rayConeRadius, float firstHitPerceptualRoughness,
+  float firstSampledLobePdf, float firstSampledSolidAnglePdf,
+  bool firstSampledLobeIsOpacityTransmission,
+  float gbufferSurfaceHitDistance, bool isCacheUpdate)
+{
+  // Initialize Path State
+  // Note: Not technically live state as this is only passed into the resolve call and reconstructed from its output.
+  PathState pathState = pathStateCreateEmpty(geometryFlags);
+
+  // Note: Carry over relevant state from the direct lighting integration. These are currently the only values which
+  // need to be set, the rest can remain as default.
+  pathState.origin = rayOrigin;
+  pathState.pixelCoordinate = gbufferPixelCoordinate;
+  pathState.coneRadius = rayConeRadius;
+  pathState.direction = rayDirection;
+  pathState.mediumState = mediumState;
+  pathState.throughput = throughput;
+  pathState.insideMedium = geometryFlags.insideMedium;
+  pathState.accumulatedHitDistance = gbufferSurfaceHitDistance;
+  pathState.solidAnglePdf = asfloat(NeeCacheThreadTask[compactedCoordinate].x);
+  pathState.coneSpreadAngle = calculateSpreadAngleFromSolidAnglePdf(pathState.coneSpreadAngle, firstSampledSolidAnglePdf);
+  if (cb.enableRaytracedRenderTarget) {
+    pathState.specularOnlyCameraPath = geometryFlags.firstSampledLobeIsSpecular || firstSampledLobeIsOpacityTransmission;
+  }
+  // Enable nee cache for PSR reflection, which cannot be handled by ReSTIR GI.
+  pathState.enableNeeCacheAfterFirstBounce =
+    (geometryFlags.performPSRR || NEECache.shouldUseHigherBounceNeeCache(geometryFlags.firstSampledLobeIsSpecular, calcRoughness(firstHitPerceptualRoughness)));
+  pathState.gbufferPerceptualRoughness = firstHitPerceptualRoughness;
+
+#if ENABLE_NRC
+  pathState.nrcPixelIndex = nrcPixelIndex;
+#else
+  unused(nrcPixelIndex);
+#endif
+
+  pathState.isSharcUpdate = isCacheUpdate;
+
+  initNrc(pathState, compactedCoordinate, isCacheUpdate, geometryFlags, firstSampledSolidAnglePdf,
+    firstSampledLobeIsOpacityTransmission);
+
+  initReSTIRGI(pathState, geometryFlags, firstHitPerceptualRoughness, firstSampledLobePdf, firstSampledSolidAnglePdf);
+
+  // Note: Initialize the continue path flag based on if an indirect ray should actually be cast, e.g. if the PDF
+  // and throughput are non-zero (as these being 0 indicates often that the sampled ray direction is invalid and should
+  // not be used).
+  if (firstSampledSolidAnglePdf == 0.0f)
+  {
+    pathState.continuePath = false;
+  }
+
+  pathState.continuePath &= any(pathState.throughput > 0.0f);
+
+  if (pathState.continuePath)
+  {
+    if (NEE_CACHE_ENABLE && cb.neeCacheArgs.enable)
+    {
+      RAB_RandomSamplerState rtxdiRNG = RAB_InitRandomSampler(pathState.pixelCoordinate, cb.frameIdx, pathState.bounceIteration);
+      uint jitter = sampleUniformIntRng(rtxdiRNG);
+      MinimalSurfaceInteraction gbuffer = minimalSurfaceInteractionReadFromGBuffer(compactedCoordinate, indirectPathTextures.PrimaryWorldPositionWorldTriangleNormal);
+      if(gbuffer.isValid)
+      {
+        pathState.neeCacheCellOffset = NEECache.pointToOffset(rayOrigin, gbuffer.geometryNormal, jitter);
+      }
+    }
+
+#ifdef OPAQUE_MATERIAL_USE_POM
+    // Set initial POM material and texcoords from textures.
+    if (pathState.continuePath && cb.pomEnableIndirectLighting && geometryFlags.pomOpaqueSurfaceEncountered)
+    {
+      uint primarySurfaceIndex = uint(SharedSurfaceIndex[compactedCoordinate]);
+
+      if (cb.debugView == DEBUG_VIEW_HEIGHT_MAP && TRUE_OR_CHECK_WHEN_NRC_ENABLED(pathState.isNrcQuery))
+      {
+        if (primarySurfaceIndex != SURFACE_INDEX_INVALID)
+        {
+          const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surfaces[primarySurfaceIndex].surfaceMaterialIndex];
+          if (memoryPolymorphicSurfaceMaterial.isOpaque())
+          {
+            OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+
+            if (opaqueSurfaceMaterial.heightTextureIndex == BINDING_INDEX_INVALID)
+            {
+              storeInDebugView(gbufferPixelCoordinate, float3(1.f, 1.f, 0.f));
+            }
+          }
+          else
+          {
+            storeInDebugView(gbufferPixelCoordinate, float3(1.f, 0.5f, 0.f));
+          }
+        }
+        else
+        {
+          storeInDebugView(gbufferPixelCoordinate, float3(1.f, 0.f, 0.f));
+        }
+      }
+
+      if (primarySurfaceIndex != SURFACE_INDEX_INVALID)
+      {
+        const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial = surfaceMaterials[surfaces[primarySurfaceIndex].surfaceMaterialIndex];
+        if (memoryPolymorphicSurfaceMaterial.hasValidDisplacement())
+        {
+          OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);
+
+          MinimalSurfaceInteraction minimalSurfaceInteraction = minimalSurfaceInteractionReadFromGBuffer(
+            compactedCoordinate, indirectPathTextures.PrimaryWorldPositionWorldTriangleNormal);
+
+          const float pomThroughput = opaqueSurfaceMaterialInteractionCalcHeightThroughput(
+            minimalSurfaceInteraction, pathState.direction, opaqueSurfaceMaterial, asfloat(SharedTextureCoord[compactedCoordinate])
+          );
+
+          accumulateThroughput(pathState, pomThroughput);
+          pathState.continuePath = any(pathState.throughput > 0.001h);
+          pathState.continueResolving = pathState.continuePath;
+        }
+      }
+    }
+#endif
+  }
+  // Init sharc after all throughput modifications to the primary vertex
+  initSharc(pathState, compactedCoordinate, cacheUpdatePixelCoordinate, geometryFlags, rayOrigin,
+    firstHitPerceptualRoughness, firstSampledLobeIsOpacityTransmission);
+
+  // Integrate Secondary Vertices
+
+  if (cb.enableSecondaryBounces)
+  for (; pathState.continuePath; ++pathState.bounceIteration)
+  {
+    // Note: Set to false to be set to true only if the path should continue in the path vertex function.
+    // This is done to easily account for the various cases the path vertex function may return on
+    // which do not require path extension.
+    pathState.continuePath = false;
+
+    pathState.decalEncountered = false;
+
+    // Create a secondary Ray from the Path State
+
+    // Todo: Find a better way to construct this, ideally a
+    // version without tMax when we have generic functions,
+    // and a constructor to take individual values.
+    Ray secondaryRay;
+    secondaryRay.origin = pathState.origin;
+    secondaryRay.coneRadius = pathState.coneRadius;
+    secondaryRay.direction = pathState.direction;
+    secondaryRay.tMax = floatMax;
+
+    // Trace the secondary ray and integrate the secondary vertex
+
+    // If we're inside a solid translucent object, we can't use backface culling
+    // (otherwise we don't hit the other side of the object)
+    uint flags = pathState.insideMedium ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES;
+    flags |= RAY_FLAG_FORCE_OPAQUE;
+
+    const uint8_t interactions = resolveRay<PathState, IndirectPathTextures, IndirectRayResolve, false, false>(
+      rayToRayDesc(secondaryRay), secondaryRay.coneRadius, secondaryRay.spreadAngle, {},
+      flags, indirectSbtOffset, cb.secondaryRayMaxInteractions, indirectPathTextures, pathState);
+    if (TRUE_OR_CHECK_WHEN_NRC_ENABLED(pathState.isNrcQuery))
+    {
+      recordResolveInteractions(pathState.pixelCoordinate, interactions,
+        DEBUG_VIEW_SECONDARY_RAY_INTERACTIONS, DEBUG_VIEW_SECONDARY_RAY_AND_UNORDERED_INTERACTIONS);
+    }
+  }
+
+  if (SHARC_QUERY && !pathState.isSharcUpdate && cb.debugView == DEBUG_VIEW_SHARC_QUERY_NUMBER_OF_BOUNCES ||
+      pathState.isSharcUpdate && cb.debugView == DEBUG_VIEW_SHARC_UPDATE_NUMBER_OF_BOUNCES)
+  {
+    float ratioMaxBounces = float(pathState.bounceIteration) / pathState.pathMaxBounces;
+    // white is zero
+    // otherwise, use RGB as a 3 bit number (0->7)
+    float red = float(pathState.bounceIteration & 1);
+    float green = float(pathState.bounceIteration & 2);
+    float blue = float(pathState.bounceIteration & 4);
+    float3 debugColor = pathState.bounceIteration == 0 ? float3(1.f,1.f,1.f) : float3(red, green, blue);
+
+    const u16vec2 debugPixelCoordinate = pathState.isSharcUpdate
+      ? cacheUpdatePixelCoordinate
+      : pathState.pixelCoordinate;
+    storeInDebugView(debugPixelCoordinate, debugColor);
+  }
+
+  // All writes for SHaRC update are done in the integratePathVertex function,
+  // so we can just return here.
+  if (pathState.isSharcUpdate)
+  {
+    return;
+  }
+
+  if (TRUE_OR_CHECK_WHEN_NRC_ENABLED(pathState.isNrcQuery))
+  {
+    // Re-load geometry flags from the resource so that they're not carried around as live state during a ray path integration
+    geometryFlags = geometryFlagsReadFromGBuffer(ivec2(compactedCoordinate), SharedFlags);
+
+    storeRestirGIRadiance(pathState, geometryFlags, compactedCoordinate);
+
+    vec4 indirectOutData = vec4(pathState.radiance, pathState.firstBounceHitDistance);
+
+    // Sanitize only primary indirect signal
+    // Secondary indirect signal is sanitized in demodulate pass after radiance contribution from the direct lighting is added
+    if (geometryFlags.primarySelectedIntegrationSurface)
+    {
+      indirectOutData = sanitizeRadianceHitDistance(indirectOutData.xyz, indirectOutData.w);
+    }
+
+    // Store the integrated ray path radiance and hit distance
+    indirectPathTextures.IndirectRadianceHitDistance[compactedCoordinate] = indirectOutData;
+  }
+
+  writeToNrcOutputsAfterIntegration(pathState);
+
+  integratorIndirectPathOutputDebugView(
+    indirectPathTextures,
+    pathState,
+    geometryFlags);
+}
+
+void integratorIndirectPathOutputDebugView(
+  IndirectPathTextures indirectPathTexture,
+  PathState pathState,
+  GeometryFlags geometryFlags)
+{
+  if (!TRUE_OR_CHECK_WHEN_NRC_ENABLED(pathState.isNrcQuery))
+  {
+    return;
+  }
+
+  switch(cb.debugView)
+  {
+  default:
+  case DEBUG_VIEW_DISABLED:
+    break;
+  case DEBUG_VIEW_SECONDARY_RAY_BOUNCES:
+    // Revert the last bounceIteration increase on for loop exit
+    storeInDebugView(pathState.pixelCoordinate, pathState.bounceIteration - (cb.enableSecondaryBounces ? 1 : 0));
+    break;
+  }
+}

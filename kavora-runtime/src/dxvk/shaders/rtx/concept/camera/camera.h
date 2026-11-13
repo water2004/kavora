@@ -22,57 +22,44 @@
 #pragma once
 
 #include "rtx/utility/shader_types.h"
+#ifdef __cplusplus
+#include "rtx/concept/camera/volume_camera.h"
+#define CAMERA_PARAMETER
+#else
+#define CAMERA_PARAMETER public
+#endif
 
-// Note: Indicates if the camera's view space is in a left or right handed coordinate space.
-static const uint rightHandedFlag = 1 << 0;
-
-struct Camera
+CAMERA_PARAMETER struct Camera
 {
-  mat4 worldToView;
-  mat4 viewToWorld;
-  mat4 viewToProjection;
-  mat4 projectionToView;
-  mat4 viewToProjectionJittered;
-  mat4 projectionToViewJittered;
-  mat4 worldToProjectionJittered;
-  mat4 projectionToWorldJittered;
-  mat4 translatedWorldToView;
-  mat4 translatedWorldToProjectionJittered;
-  mat4 projectionToTranslatedWorld;
+  CAMERA_PARAMETER mat4 worldToView;
+  CAMERA_PARAMETER mat4 viewToWorld;
+  CAMERA_PARAMETER mat4 viewToProjection;
+  CAMERA_PARAMETER mat4 projectionToView;
+  CAMERA_PARAMETER mat4 viewToProjectionJittered;
+  CAMERA_PARAMETER mat4 projectionToViewJittered;
+  CAMERA_PARAMETER mat4 worldToProjectionJittered;
+  CAMERA_PARAMETER mat4 projectionToWorldJittered;
+  CAMERA_PARAMETER mat4 translatedWorldToView;
+  CAMERA_PARAMETER mat4 translatedWorldToProjectionJittered;
+  CAMERA_PARAMETER mat4 projectionToTranslatedWorld;
 
-  mat4 prevWorldToView;
-  mat4 prevViewToWorld;
-  mat4 prevWorldToProjection;
-  mat4 prevWorldToProjectionJittered;
-  mat4 prevProjectionToView;
-  mat4 prevProjectionToViewJittered;
-  mat4 prevTranslatedWorldToView;
-  mat4 prevTranslatedWorldToProjection;
+  CAMERA_PARAMETER mat4 prevWorldToView;
+  CAMERA_PARAMETER mat4 prevViewToWorld;
+  CAMERA_PARAMETER mat4 prevWorldToProjection;
+  CAMERA_PARAMETER mat4 prevWorldToProjectionJittered;
+  CAMERA_PARAMETER mat4 prevProjectionToView;
+  CAMERA_PARAMETER mat4 prevProjectionToViewJittered;
+  CAMERA_PARAMETER mat4 prevTranslatedWorldToView;
+  CAMERA_PARAMETER mat4 prevTranslatedWorldToProjection;
 
-  mat4 projectionToPrevProjection;
-  mat4 projectionToPrevProjectionJittered;
+  CAMERA_PARAMETER mat4 projectionToPrevProjection;
+  CAMERA_PARAMETER mat4 projectionToPrevProjectionJittered;
 
-  uvec2 resolution;
+  CAMERA_PARAMETER uvec2 resolution;
   // Note: Near plane is not expressed with the same sign as the view space Z coordinates, so this
   // should be considered if ever mixing them.
-  float nearPlane;
-  uint flags;
+  CAMERA_PARAMETER float nearPlane;
+  CAMERA_PARAMETER uint flags;
 };
 
-struct VolumeDefinitionCamera
-{
-  mat4 viewToProjection;
-  mat4 translatedWorldToView;
-  mat4 translatedWorldToProjectionJittered;
-  mat4 projectionToTranslatedWorld;
-  mat4 prevTranslatedWorldToView;
-  mat4 prevTranslatedWorldToProjection;
-
-  vec3 translatedWorldOffset;
-  float nearPlane;
-
-  vec3 previousTranslatedWorldOffset;
-  uint flags;
-
-  float4 worldPlanes[6]; // [left, right, bottom, top, near, far]
-};
+#undef CAMERA_PARAMETER

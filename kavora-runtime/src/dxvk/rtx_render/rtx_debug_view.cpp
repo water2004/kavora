@@ -791,9 +791,7 @@ namespace dxvk {
     }
   }
 
-  void DebugView::processOutputStatistics(
-    Rc<RtxContext>& ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+  void DebugView::processOutputStatistics(Rc<RtxContext>& ctx) {
     
     if (m_showOutputStatistics) {
       const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
@@ -1213,7 +1211,7 @@ namespace dxvk {
 
   DebugViewArgs DebugView::getCommonDebugViewArgs(
     RtxContext& ctx,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources frame,
     DxvkObjects& common) {
     const VkExtent3D debugViewResolution = m_debugView.view->imageInfo().extent;    
 
@@ -1224,7 +1222,7 @@ namespace dxvk {
     DebugViewArgs debugViewArgs = {};
 
     debugViewArgs.debugViewIdx = debugViewIdx();
-    debugViewArgs.sparseRenderingArgs = rtOutput.m_raytraceArgs.sparseRenderingArgs;
+    debugViewArgs.sparseRenderingArgs = frame.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs;
     debugViewArgs.colorCodeRadius = std::clamp(m_colorCodeRadius, 0, 8);
 
     debugViewArgs.enableInputQuantization = enableInputQuantization();
@@ -1245,8 +1243,8 @@ namespace dxvk {
     debugViewArgs.debugViewResolution.y = debugViewResolution.height;
 
     debugViewArgs.debugKnob = m_debugKnob;
-    debugViewArgs.camera = rtOutput.m_raytraceArgs.camera;
-    debugViewArgs.volumeArgs = rtOutput.m_raytraceArgs.volumeArgs;
+    debugViewArgs.camera = frame.get<&RaytracingFrame::m_raytraceArgs>().camera;
+    debugViewArgs.volumeArgs = frame.get<&RaytracingFrame::m_raytraceArgs>().volumeArgs;
 
     if (displayType() == DebugViewDisplayType::Standard) {
       debugViewArgs.pseudoColorMode = pseudoColorMode();
@@ -1279,7 +1277,7 @@ namespace dxvk {
     debugViewArgs.samplerType = samplerType();
 
     debugViewArgs.isRTXDIConfidenceValid = ctx.getResourceManager().areRtxdiGradientResourcesAllocated() &&
-                                           rtOutput.getCurrentRtxdiConfidence().matchesWriteFrameIdx(frameIdx);
+                                           frame.get<&RaytracingFrame::getCurrentRtxdiConfidence>().matchesWriteFrameIdx(frameIdx);
 
     RayPortalManager::SceneData portalData = common.getSceneManager().getRayPortalManager().getRayPortalInfoSceneData();
     debugViewArgs.numActiveRayPortals = portalData.numActiveRayPortals;
@@ -1319,16 +1317,16 @@ namespace dxvk {
     debugViewArgs.rcpNumOutputPixels = 1.f /
       (debugViewArgs.debugViewResolution.x * debugViewArgs.debugViewResolution.y);
 
-    debugViewArgs.nrcArgs = rtOutput.m_raytraceArgs.nrcArgs;
-    debugViewArgs.sharcArgs = rtOutput.m_raytraceArgs.sharcArgs;
+    debugViewArgs.nrcArgs = frame.get<&RaytracingFrame::m_raytraceArgs>().nrcArgs;
+    debugViewArgs.sharcArgs = frame.get<&RaytracingFrame::m_raytraceArgs>().sharcArgs;
 
     debugViewArgs.overlayOnTopOfRenderOutput = overlayOnTopOfRenderOutput();
     debugViewArgs.overlayOpacity = std::clamp(overlayOpacity(), 0.f, 1.f);
 
     const VkExtent3D renderToOutputExtent =
       debugViewArgs.writeToCompositeOutput
-      ? rtOutput.m_compositeOutput.imageInfo().extent
-      : rtOutput.m_finalOutput.imageInfo().extent;
+      ? frame.get<&RaytracingFrame::m_compositeOutput>().imageInfo().extent
+      : frame.get<&RaytracingFrame::m_finalOutput>().imageInfo().extent;
 
     debugViewArgs.renderToOutputResolution = uvec2 { renderToOutputExtent.width, renderToOutputExtent.height };
     debugViewArgs.renderToOutputToDebugViewResolution = vec2 {
@@ -1360,35 +1358,35 @@ namespace dxvk {
     Rc<DxvkSampler> linearSampler,
     DebugViewArgs& debugViewArgs,
     Rc<DxvkBuffer>& debugViewConstantBuffer,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources frame,
     DxvkObjects& common) {
     ScopedGpuProfileZone(ctx, "Debug View");
 
     // Process output statistics now before we schedule a debug view dispatch that updates them.
-    // We also do it here since it needs access to the rtOutput
-    processOutputStatistics(ctx, rtOutput);
+    // We also do it here since it needs access to the frame
+    processOutputStatistics(ctx);
 
     // Inputs 
 
     ctx->bindResourceBuffer(DEBUG_VIEW_BINDING_CONSTANTS_INPUT, DxvkBufferSlice(debugViewConstantBuffer, 0, debugViewConstantBuffer->info().size));
 
     const RtxGlobalVolumetrics& globalVolumetrics = ctx->getCommonObjects()->metaGlobalVolumetrics();
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_PRIMARY_DIRECT_DIFFUSE_RADIANCE_HIT_T_INPUT, rtOutput.m_primaryDirectDiffuseRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_PRIMARY_DIRECT_SPECULAR_RADIANCE_HIT_T_INPUT, rtOutput.m_primaryDirectSpecularRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_SECONDARY_COMBINED_DIFFUSE_RADIANCE_HIT_T_INPUT, rtOutput.m_secondaryCombinedDiffuseRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_SECONDARY_COMBINED_SPECULAR_RADIANCE_HIT_T_INPUT, rtOutput.m_secondaryCombinedSpecularRadiance.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_SHARED_FLAGS_INPUT, rtOutput.m_sharedFlags.view, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_LINEAR_VIEW_Z_INPUT, rtOutput.m_primaryLinearViewZ.view, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_PERCEPTUAL_ROUGHNESS_INPUT, rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughness.view, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_SCREEN_SPACE_MOTION_VECTOR_INPUT, rtOutput.m_primaryScreenSpaceMotionVector.view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_PRIMARY_DIRECT_DIFFUSE_RADIANCE_HIT_T_INPUT, frame.get<&RaytracingFrame::m_primaryDirectDiffuseRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_PRIMARY_DIRECT_SPECULAR_RADIANCE_HIT_T_INPUT, frame.get<&RaytracingFrame::m_primaryDirectSpecularRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_SECONDARY_COMBINED_DIFFUSE_RADIANCE_HIT_T_INPUT, frame.get<&RaytracingFrame::m_secondaryCombinedDiffuseRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_DENOISED_SECONDARY_COMBINED_SPECULAR_RADIANCE_HIT_T_INPUT, frame.get<&RaytracingFrame::m_secondaryCombinedSpecularRadiance>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_SHARED_FLAGS_INPUT, frame.get<&RaytracingFrame::m_sharedFlags>().view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_LINEAR_VIEW_Z_INPUT, frame.get<&RaytracingFrame::m_primaryLinearViewZ>().view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_VIRTUAL_WORLD_SHADING_NORMAL_PERCEPTUAL_ROUGHNESS_INPUT, frame.get<&RaytracingFrame::m_primaryVirtualWorldShadingNormalPerceptualRoughness>().view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_PRIMARY_SCREEN_SPACE_MOTION_VECTOR_INPUT, frame.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>().view, nullptr);
     ctx->bindResourceView(DEBUG_VIEW_BINDING_RTXDI_CONFIDENCE_INPUT,
       ctx->getResourceManager().areRtxdiGradientResourcesAllocated()
-        ? rtOutput.getCurrentRtxdiConfidence().view(Resources::AccessType::Read, debugViewArgs.isRTXDIConfidenceValid)
+        ? frame.get<&RaytracingFrame::getCurrentRtxdiConfidence>().view(Resources::AccessType::Read, debugViewArgs.isRTXDIConfidenceValid)
         : nullptr, nullptr);
     Rc<DxvkImageView> renderOutput =
       shouldRunDispatchPostCompositePass()
-      ? rtOutput.m_compositeOutput.view(Resources::AccessType::Read)
-      : rtOutput.m_finalOutput.view(Resources::AccessType::Read);
+      ? frame.get<&RaytracingFrame::m_compositeOutput>().view(Resources::AccessType::Read)
+      : frame.get<&RaytracingFrame::m_finalOutput>().view(Resources::AccessType::Read);
     ctx->bindResourceView(DEBUG_VIEW_BINDING_RENDER_OUTPUT_INPUT, renderOutput, nullptr);
     ctx->bindResourceView(DEBUG_VIEW_BINDING_INSTRUMENTATION_INPUT, m_instrumentation.view, nullptr);
     
@@ -1445,16 +1443,16 @@ namespace dxvk {
     
     const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
     
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_COMPOSITE_INPUT, rtOutput.m_compositeOutput.view(Resources::AccessType::Read), nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_ALTERNATE_DISOCCLUSION_THRESHOLD_INPUT, rtOutput.m_primaryDisocclusionThresholdMix.view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_COMPOSITE_INPUT, frame.get<&RaytracingFrame::m_compositeOutput>().view(Resources::AccessType::Read), nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_ALTERNATE_DISOCCLUSION_THRESHOLD_INPUT, frame.get<&RaytracingFrame::m_primaryDisocclusionThresholdMix>().view, nullptr);
 
     ctx->bindResourceView(DEBUG_VIEW_BINDING_PREV_WORLD_POSITION_INPUT,
-                           rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read,
-                                                                                              rtOutput.getPreviousPrimaryWorldPositionWorldTriangleNormal().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
+                           frame.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read,
+                                                                                              frame.get<&RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal>().matchesWriteFrameIdx(frameIdx - 1)), nullptr);
 
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_SHARED_TERMINATOR_FIX_INPUT, rtOutput.getCurrentSharedTerminatorFix().view, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_SPARSE_COMPACTED_PIXEL_INDICES_INPUT, rtOutput.m_sparseRenderingCompactedPixelIndices.view, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_SPARSE_TILE_ACTIVE_COUNTS_INPUT, rtOutput.m_sparseRenderingTileActiveCounts.view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_SHARED_TERMINATOR_FIX_INPUT, frame.get<&RaytracingFrame::getCurrentSharedTerminatorFix>().view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_SPARSE_COMPACTED_PIXEL_INDICES_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingCompactedPixelIndices>().view, nullptr);
+    ctx->bindResourceView(DEBUG_VIEW_BINDING_SPARSE_TILE_ACTIVE_COUNTS_INPUT, frame.get<&RaytracingFrame::m_sparseRenderingTileActiveCounts>().view, nullptr);
 
     // Inputs / Outputs
 
@@ -1480,7 +1478,7 @@ namespace dxvk {
     ctx->copyBuffer(m_statisticsBuffer, statisticsBufferOffset, m_statisticsBufferGpu, statisticsBufferOffset, sizeof(m_outputStatistics));
 
     // Dispatch postprocess pass
-    dispatchPostprocess(ctx, debugViewArgs, debugViewConstantBuffer, rtOutput);
+    dispatchPostprocess(ctx, debugViewArgs, debugViewConstantBuffer);
   }
 
   // Input: m_accumulatedFrameDebugView
@@ -1488,8 +1486,7 @@ namespace dxvk {
   void DebugView::dispatchPostprocess(
     Rc<RtxContext> ctx,
     DebugViewArgs& debugViewArgs,
-    Rc<DxvkBuffer>& debugViewConstantBuffer,
-    const Resources::RaytracingOutput& rtOutput) {
+    Rc<DxvkBuffer>& debugViewConstantBuffer) {
     ScopedGpuProfileZone(ctx, "Debug View Postprocess");
 
     // Inputs 
@@ -1513,18 +1510,18 @@ namespace dxvk {
   }
 
   // Input: m_debugView
-  // Output: rtOutput.m_compositeOutput or rtOutput.m_finalOutput
+  // Output: frame.get<&RaytracingFrame::m_compositeOutput>() or m_finalOutput
   void DebugView::dispatchRenderToOutput(
     Rc<RtxContext> ctx,
     DebugViewArgs& debugViewArgs,
     Rc<DxvkBuffer>& debugViewConstantBuffer,
-    const Resources::RaytracingOutput& rtOutput) {
+    DispatchResources frame) {
     ScopedGpuProfileZone(ctx, "Debug View Render to Output");
 
     const Resources::AliasedResource& renderOutput = 
       debugViewArgs.writeToCompositeOutput
-      ? rtOutput.m_compositeOutput
-      : rtOutput.m_finalOutput;
+      ? frame.get<&RaytracingFrame::m_compositeOutput>()
+      : frame.get<&RaytracingFrame::m_finalOutput>();
 
     // Inputs 
 
@@ -1543,13 +1540,13 @@ namespace dxvk {
     ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
   }
 
-  // Output: rtOutput.m_finalOutput
+  // Output: m_finalOutput
   void DebugView::dispatch(
     Rc<RtxContext> ctx,
     Rc<DxvkSampler> nearestSampler,
     Rc<DxvkSampler> linearSampler,
     Rc<DxvkImage>& outputImage,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources frame,
     DxvkObjects& common) {
 
     if (m_showCachedImage) {
@@ -1560,7 +1557,7 @@ namespace dxvk {
                !shouldRunDispatchPostCompositePass()) {
       // Dispatch a debug view pass
 
-      DebugViewArgs&& debugViewArgs = getCommonDebugViewArgs(*ctx.ptr(), rtOutput, common);
+      DebugViewArgs&& debugViewArgs = getCommonDebugViewArgs(*ctx.ptr(), frame, common);
 
       Rc<DxvkBuffer> cb = getDebugViewConstantsBuffer();
       ctx->writeToBuffer(cb, 0, sizeof(DebugViewArgs), &debugViewArgs);
@@ -1582,7 +1579,7 @@ namespace dxvk {
       }
 
       // Dispatch Debug View 
-      dispatchDebugViewInternal(ctx, nearestSampler, linearSampler, debugViewArgs, cb, rtOutput, common);
+      dispatchDebugViewInternal(ctx, nearestSampler, linearSampler, debugViewArgs, cb, frame, common);
       
       // Display HDR Waveform
       if (displayType() == DebugViewDisplayType::HDRWaveform) {
@@ -1614,7 +1611,7 @@ namespace dxvk {
       }
 
       // Write debugView into output image
-      dispatchRenderToOutput(ctx, debugViewArgs, cb, rtOutput);
+      dispatchRenderToOutput(ctx, debugViewArgs, cb, frame);
 
       // Generate a composite image
       generateCompositeImage(ctx, outputImage);
@@ -1622,7 +1619,7 @@ namespace dxvk {
 
     // Cache current output image
     if (m_cacheCurrentImage) {
-      Rc<DxvkImage> srcImage = rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image;
+      Rc<DxvkImage> srcImage = frame.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::Read).image;
 
       if (!m_cachedImage.image.ptr() ||
           m_cachedImage.image->info().extent.width != srcImage->info().extent.width ||
@@ -1651,14 +1648,14 @@ namespace dxvk {
     Rc<RtxContext> ctx,
     Rc<DxvkSampler> nearestSampler,
     Rc<DxvkSampler> linearSampler,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources frame,
     DxvkObjects& common) {
 
     if (!shouldRunDispatchPostCompositePass()) {
       return;
     }
 
-    DebugViewArgs&& debugViewArgs = getCommonDebugViewArgs(*ctx.ptr(), rtOutput, common);
+    DebugViewArgs&& debugViewArgs = getCommonDebugViewArgs(*ctx.ptr(), frame, common);
 
     if (RtxOptions::useDenoiserReferenceMode() && debugViewArgs.debugViewIdx == DEBUG_VIEW_DISABLED) {
       debugViewArgs.debugViewIdx = DEBUG_VIEW_COMPOSITE_OUTPUT;
@@ -1669,17 +1666,17 @@ namespace dxvk {
     ctx->getCommandList()->trackResource<DxvkAccess::Read>(cb);
 
     // Dispatch Debug View 
-    dispatchDebugViewInternal(ctx, nearestSampler, linearSampler, debugViewArgs, cb, rtOutput, common);
+    dispatchDebugViewInternal(ctx, nearestSampler, linearSampler, debugViewArgs, cb, frame, common);
 
     // Write debugView into output image
-    dispatchRenderToOutput(ctx, debugViewArgs, cb, rtOutput);
+    dispatchRenderToOutput(ctx, debugViewArgs, cb, frame);
 
-    Rc<DxvkImage> outputImage = rtOutput.m_compositeOutput.resource(Resources::AccessType::Read).image;
+    Rc<DxvkImage> outputImage = frame.get<&RaytracingFrame::m_compositeOutput>().resource(Resources::AccessType::Read).image;
     generateCompositeImage(ctx, outputImage);
 
     // Output image needs to be the one of the compositeOutput, so blit the debug view's composite into it
-    if (outputImage.ptr() != rtOutput.m_compositeOutput.resource(Resources::AccessType::Read).image.ptr()) {
-      RtxContext::blitImageHelper(ctx, outputImage, rtOutput.m_compositeOutput.resource(Resources::AccessType::Write).image, VkFilter::VK_FILTER_NEAREST);
+    if (outputImage.ptr() != frame.get<&RaytracingFrame::m_compositeOutput>().resource(Resources::AccessType::Read).image.ptr()) {
+      RtxContext::blitImageHelper(ctx, outputImage, frame.get<&RaytracingFrame::m_compositeOutput>().resource(Resources::AccessType::Write).image, VkFilter::VK_FILTER_NEAREST);
     }
   }
 

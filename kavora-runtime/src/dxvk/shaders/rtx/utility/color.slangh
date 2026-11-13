@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/external/turbo_colormap.h"
+import "rtx/utility/color_transfer.slang";
 #include "rtx/utility/math.slangh"
 
 // Approximate wavelengths for the sRGB primaries in nanometers. Note these are not exact as
@@ -42,11 +43,10 @@ GENERIC_AVERAGE_COLOR(float16_t, f16vec3)
 #define GENERIC_BT709_LUMINANCE(luminanceType, colorType)     \
 luminanceType calcBt709Luminance(colorType linearColor)       \
 {                                                             \
-  return dot(linearColor, colorType(0.2126, 0.7152, 0.0722)); \
+  return dot(linearColor, colorType(kBt709LuminanceWeights)); \
 }
 
 GENERIC_BT709_LUMINANCE(float16_t, f16vec3)
-GENERIC_BT709_LUMINANCE(float, vec3)
 
 // Calculates EV100 based off a luminance (perceptual radiance) value
 #define GENERIC_LUMINANCE_EV100(type)                           \
@@ -87,8 +87,6 @@ GENERIC_ILLUMINANCE_EV100(vec3)
 // https://en.wikipedia.org/wiki/SRGB#Transformation
 // Note: Technically following conversions are not 100% accurate, we simply approximate the
 // sRGB transfer function with x^gamma rather than the full formula.
-static const float kSRGBGamma = 2.2f;
-
 // Converts color in linear space to color in gamma space with a sRGB gamma
 #define GENERIC_LINEAR_TO_GAMMA(colorType)               \
 colorType linearToGamma(colorType linearColor)           \
@@ -98,7 +96,6 @@ colorType linearToGamma(colorType linearColor)           \
 
 GENERIC_LINEAR_TO_GAMMA(f16vec4)
 GENERIC_LINEAR_TO_GAMMA(f16vec3)
-GENERIC_LINEAR_TO_GAMMA(vec3)
 
 // Converts color in gamma space to color in linear space with a sRGB gamma
 #define GENERIC_GAMMA_TO_LINEAR(colorType)       \
@@ -109,7 +106,6 @@ colorType gammaToLinear(colorType gammaColor)    \
 
 GENERIC_GAMMA_TO_LINEAR(f16vec4)
 GENERIC_GAMMA_TO_LINEAR(f16vec3)
-GENERIC_GAMMA_TO_LINEAR(vec3)
 
 // Converts color in linear space to color in gamma space with a gamma of 2. Note this is highly approximate
 // and does not match sRGB exactly, but it is simpler than using the pow function and ideally faster.

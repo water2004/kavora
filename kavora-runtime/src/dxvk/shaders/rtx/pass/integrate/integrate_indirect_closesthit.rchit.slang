@@ -571,7 +571,7 @@
 // Note: Needed for declaration of integration ray payload structure
 #include "rtx/algorithm/integrator.slangh"
 
-#include "rtx/algorithm/integrator_indirect.slangh"
+#include "rtx/pass/integrate/indirect_vertex.slangh"
 
 [shader("closesthit")]
 void main(inout PathState rayPayload : SV_RayPayload, in float2 barycentricCoordinates : SV_IntersectionAttributes)

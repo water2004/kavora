@@ -21,8 +21,8 @@
 */
 #pragma once
 
-// Note: surface_material.h must be first include to define required structures
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 #include "rtx/utility/noise.slangh"
 #include "rtx/utility/texture.slangh"
 #include "rtx/utility/packing.slangh"
@@ -35,9 +35,11 @@
 #include "rtx/concept/surface_material/surface_material_helper.slangh"
 #include "rtx/concept/surface_material/opaque_surface_material.slangh"
 #include "rtx/concept/surface_material/opaque_surface_material_interaction.slangh"
-#include "rtx/concept/surface_material/translucent_surface_material.slangh"
+import "rtx/concept/surface_material/translucent_surface_material.slang";
 #include "rtx/concept/surface_material/translucent_surface_material_interaction.slangh"
-#include "rtx/concept/surface_material/translucent_psr.slangh"
+import "rtx/concept/surface_material/translucent_interface_optics.slang";
+import "rtx/concept/surface_material/translucent_bsdf.slang";
+import "rtx/concept/surface_material/translucent_psr.slang";
 #include "rtx/concept/surface_material/ray_portal_surface_material.slangh"
 #include "rtx/concept/surface_material/ray_portal_surface_material_interaction.slangh"
 #include "rtx/concept/surface_material/polymorphic_surface_material.slangh"

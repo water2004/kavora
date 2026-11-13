@@ -51,14 +51,26 @@ produce dark overlays or visible quad boundaries.
 
 ## GPU analysis
 
+On the host, `KavoraSceneFrame.renderAndSubmitFrame` orders captured lights,
+terrain, entities and environment updates, then hands the prepared scene to
+`KavoraFramePresentation`. The presentation owner pairs Submit and Present.
+
 Choose the pass that owns the effect before tracing the host call chain.
-`RtxContext::recordSceneLighting` records sky, volumetrics, tracing, lighting
-and composition. Its outputs are HDR composite color and reconstruction
-guides. `reconstructSceneImage` writes display-resolution linear HDR into
-`m_finalOutput`. `recordDisplayEffects` consumes that image in place, with
-motion blur before tonemapping and lens effects after it. Debug output, frame
-generation inputs and export to the game target follow these stages. Pass
-implementations own their bindings and image access modes.
+`RtxFramePipeline::record` in `rtx_frame_pipeline.inl` orders scene lighting,
+reconstruction, display effects and export. Lighting in `rtx_frame_lighting.inl`
+produces HDR composite color and reconstruction guides. Reconstruction in
+`rtx_frame_reconstruction.inl` writes display-resolution linear HDR into
+`m_finalOutput`. Display effects in `rtx_frame_post_processing.inl` use it in
+place, with motion blur before tonemapping and lens effects after it.
+The frame stages compile with their caller in `rtx_context.cpp` so the
+compiler can inline them. Pass implementations own their bindings and image
+access modes.
+
+Pass implementations declare their borrowed frame resources in their headers.
+`FrameResourceView` limits access to those members at compile time. Passes
+resolve aliased resources at their point of use, in command order. The
+resource manager owns allocation and history rotation, and the frame
+pipeline hands each pass its inputs.
 
 For an effect change, start at its Slang calculation owner and the native pass
 that supplies its resources. Java's sky and cloud modules receive the camera and

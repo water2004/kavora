@@ -567,7 +567,8 @@ public:
                         const pxr::UsdStageWeakPtr& sender) {
     // Filter by stage — TfNotice::Register lets us scope to a sender, but be
     // defensive in case the registration scope is broader than expected.
-    if (sender != m_impl.m_stage) {
+    // Call the weak pointer's comparison directly to avoid C++20's rewritten comparison candidates.
+    if (!sender.operator==(m_impl.m_stage)) {
       return;
     }
     std::lock_guard<std::mutex> lock(m_impl.m_changedPathsMutex);

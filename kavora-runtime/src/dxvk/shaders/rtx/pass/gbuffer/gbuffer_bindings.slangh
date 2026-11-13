@@ -24,6 +24,7 @@
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 
 #include "rtx/utility/shader_types.slangh"
+#include "rtx/pass/sharc/sharc.slangh"
 
 #include "rtxdi/RtxdiParameters.h"
 

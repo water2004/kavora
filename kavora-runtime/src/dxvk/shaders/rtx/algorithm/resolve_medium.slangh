@@ -21,8 +21,10 @@
 */
 #pragma once
 
-#include "rtx/concept/surface_material/translucent_medium.slangh"
-#include "rtx/algorithm/atmosphere.slangh"
+import "rtx/concept/surface_material/translucent_medium.slang";
+import "rtx/algorithm/atmosphere.slang";
+#include "rtx/algorithm/volume_lighting.slangh"
+#include "rtx/utility/volume_integral.h"
 #include "rtx/algorithm/environment_radiance.slangh"
 
 // Applies one ray segment to its incoming throughput and emitted radiance.
@@ -38,7 +40,7 @@
 void resolveAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
   inout float3 attenuation, inout float3 radiance, uint mediumState = SURFACE_INDEX_INVALID)
 {
-  const float3 mediumExtinction = translucentMediumExtinction(mediumState);
+  const float3 mediumExtinction = translucentMediumExtinction(mediumState, surfaceMaterials);
   if (!cb.volumeArgs.enable && !cb.volumeArgs.clouds.enable)
   {
     attenuation *= volumeTransmittance(mediumExtinction, distance);
@@ -57,8 +59,9 @@ void resolveAtmosphere(float3 origin, float3 direction, float distance, uint vol
   float3 ambient = cb.volumeArgs.clouds.enable
     ? sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, LinearWrapSampler, cb.volumeArgs.sceneUpDirection) * 0.5f
     : float3(0);
-  AtmosphereSegment segment = integrateAtmosphereSegment(cb.volumeArgs, VolumeFilteredRadianceY,
-    VolumeFilteredRadianceCoCg, origin, direction, distance, ambient, volumeHint, mediumExtinction);
+  AtmosphereSegment segment = integrateAtmosphereSegment<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg,
+    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, origin, direction, distance, ambient, volumeHint, mediumExtinction);
 #endif
   radiance += attenuation * segment.radiance;
   attenuation *= segment.transmittance;

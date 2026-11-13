@@ -23,7 +23,6 @@ import org.edtp.kavora.render.KavoraInterop;
 import org.edtp.kavora.render.KavoraFramePresentation;
 import org.edtp.kavora.render.RenderBackend;
 import org.edtp.kavora.light.LightManager;
-import org.edtp.kavora.logic.AtmosphereDimension;
 import org.edtp.kavora.logic.ViewDistanceFade;
 import org.edtp.kavora.profiling.PerformanceTimer;
 import org.edtp.kavora.profiling.ProfileScope;
@@ -64,7 +63,6 @@ import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.material.FogType;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
@@ -98,6 +96,7 @@ public class KavoraRenderer {
     private KavoraInterop interop = null;
     private RenderBackend backend;
     private KavoraFramePresentation presentation;
+    private KavoraSceneFrame sceneFrame;
 
     // Scene managers
     private ChunkManager chunkManager;
@@ -215,6 +214,10 @@ public class KavoraRenderer {
             confLayerDriver = driver;
             LOGGER.info("Config option-layers acquired - conf-layer blending active");
 
+            sceneFrame = new KavoraSceneFrame(interop, presentation, chunkManager, lightManager,
+                    entityPass, entitySubmitter, blockEntityPass, firstPersonPass, blockDamagePass, blockOutlinePass,
+                    skyRenderer, cloudRenderer, confLayerDriver, textureManager, particleAtlasManager, particles,
+                    perfTimer, benchmarkController);
             RenderOrigin.publish(new RenderOrigin(0, 0));
             initialized = true;
             LOGGER.info("Kavora renderer initialized successfully!");
@@ -254,14 +257,6 @@ public class KavoraRenderer {
         KavoraTextureStore.init(remixApi);
         KavoraMaterialStore.init(remixApi);
         KavoraLightStore.init(remixApi);
-    }
-
-    private void gcAssetStores() {
-        if (KavoraMeshStore.get() != null)      KavoraMeshStore.get().gc();
-        if (KavoraInstanceStore.get() != null)  KavoraInstanceStore.get().gc();
-        if (KavoraTextureStore.get() != null)   KavoraTextureStore.get().gc();
-        if (KavoraMaterialStore.get() != null)  KavoraMaterialStore.get().gc();
-        if (KavoraLightStore.get() != null)     KavoraLightStore.get().gc();
     }
 
     /**
@@ -377,8 +372,6 @@ public class KavoraRenderer {
         }
         return renderer.joinBurstHold;
     }
-    private boolean renderThreadNamed;
-
     /**
      * Advances camera and benchmark frame-start state before Minecraft builds
      * its {@link Camera} for a world render.
@@ -527,219 +520,8 @@ public class KavoraRenderer {
         if (!initialized || remixApi == null) {
             return;
         }
-
         joinBurstHold.onFrame(System.nanoTime());
-
-        if (!renderThreadNamed) {
-            RemixAPI.tracyThreadName("Render");
-            renderThreadNamed = true;
-        }
-
-        perfTimer.beginFrame(interop);
-
-        boolean entityFrameClosed = false;
-        try (ProfileScope frameScope = ProfileScope.begin("renderAndSubmitFrame")) {
-            Minecraft client = Minecraft.getInstance();
-            ClientLevel world = client.level;
-            
-            if (world == null || client.gameRenderer == null) {
-                if (chunkManager != null) chunkManager.hideRetainedInstances();
-                particles.discardPendingFrame();
-                // Closed by the finally, like the RTX-disabled branch below. endFrame is not
-                // idempotent: it re-adds elapsed from the same frame start and refolds min,
-                // max and the frame count.
-                return;
-            }
-
-            // Vanilla draws this frame. The presentation owner still completes the
-            // shared-image handoff for the host frame.
-            if (!KavoraMod.isRtxEnabled()) {
-                if (chunkManager != null) chunkManager.hideRetainedInstances();
-                // A payload prepared before the toggle holds world-space vertices from the
-                // old camera position; publishing it on re-enable would draw stale geometry.
-                particles.discardPendingFrame();
-                return;
-            }
-
-            Camera camera = client.gameRenderer.mainCamera();
-            float tickDelta = client.getDeltaTracker().getGameTimeDeltaPartialTick(true);
-            
-            perfTimer.injectNanos(perfTimer.perfCamera, cameraUpdateNanos);
-            
-            particles.submitPendingFrame(world);
-            particles.startPrepare(particleAtlasManager, tickDelta, ProfileScope.currentFrameIndex());
-            Vec3 cameraPos = camera.position();
-
-            perfTimer.begin(perfTimer.perfLights);
-            try (ProfileScope lightsScope = ProfileScope.begin("Lights")) {
-                // Entity lights first: updateLights() draws them, so updating
-                // after it would submit last frame's positions. Visible as a
-                // one-frame lag between a spinning beacon and its beam.
-                lightManager.updateEntityLights(world, camera, tickDelta);
-                lightManager.updateLights(world, camera, tickDelta);
-            } finally {
-                perfTimer.end(perfTimer.perfLights);
-            }
-
-            if (KavoraMod.isWorldEnabled()) {
-                try {
-                    chunkManager.updateVisibleChunks(world, cameraPos, perfTimer, perfTimer.perfChunkGen, perfTimer.perfChunkDraw);
-                } catch (Exception e) {
-                    LOGGER.error("Error updating chunks", e);
-                }
-            } else {
-                chunkManager.hideRetainedInstances();
-            }
-
-            entitySubmitter.beginFrame();
-            try {
-                if (KavoraMod.isWorldEnabled() && KavoraMod.isBlockEntitiesEnabled()) {
-                    boolean scoping = client.player != null && client.player.isScoping();
-                    var beams = chunkManager.farBeaconBeams();
-                    for (int i = 0; i < beams.size(); i++) {
-                        blockEntityPass.submitFarBeacon(beams.get(i), cameraPos, scoping, entitySubmitter);
-                    }
-                }
-                if (KavoraMod.isEntitiesEnabled()) {
-                    perfTimer.begin(perfTimer.perfEntities);
-                    try (ProfileScope entitiesScope = ProfileScope.begin("Entities")) {
-                        KavoraEntityPass.FrameStats stats =
-                                entityPass.finishFrame(
-                                        world,
-                                        cameraPos,
-                                        tickDelta,
-                                        lightManager.getFirstPersonShadowModelOffset(),
-                                        entitySubmitter);
-                        perfTimer.recordEntities(entitiesScope, stats);
-                    } catch (Exception e) {
-                        LOGGER.error("Error rendering entities", e);
-                    } finally {
-                        perfTimer.end(perfTimer.perfEntities);
-                    }
-                }
-
-                // The first-person pass is captured from GameRenderer.renderHand just
-                // before this scene is submitted. It intentionally uses the same
-                // entity mesh/material path, but with a camera-to-world root transform.
-                if (firstPersonPass != null && firstPersonPass.hasPendingCapture()) {
-                    try (ProfileScope firstPersonScope = ProfileScope.begin("FirstPersonModel")) {
-                        firstPersonPass.submitPending(entitySubmitter);
-                    }
-                }
-            } finally {
-                closeEntityFrame();
-                entityFrameClosed = true;
-            }
-            blockDamagePass.finishFrame();
-
-            // Submit the targeted-block outline through Remix so it is
-            // depth-tested against the traced scene.
-            if (blockOutlinePass != null) {
-                try (ProfileScope blockOutlineScope = ProfileScope.begin("BlockOutline")) {
-                    blockOutlinePass.submit();
-                } catch (Exception e) {
-                    LOGGER.error("Error rendering targeted-block outline", e);
-                }
-            }
-
-            // The sky owner also clears host metadata when its rendering is disabled.
-            perfTimer.begin(perfTimer.perfSky);
-            try (ProfileScope skyScope = ProfileScope.begin("Sky")) {
-                skyRenderer.render(world, camera, cameraPos, tickDelta, confLayerDriver);
-            } catch (Exception e) {
-                LOGGER.error("Error rendering sky", e);
-            } finally {
-                perfTimer.end(perfTimer.perfSky);
-            }
-
-            if (KavoraMod.isWorldActive()) {
-                perfTimer.begin(perfTimer.perfClouds);
-                try (ProfileScope cloudScope = ProfileScope.begin("Clouds")) {
-                    cloudRenderer.render(world, camera, cameraPos, tickDelta, client.options.getCloudStatus());
-                    perfTimer.recordClouds(cloudScope, cloudRenderer);
-                } catch (Exception e) {
-                    LOGGER.error("Error rendering clouds", e);
-                } finally {
-                    perfTimer.end(perfTimer.perfClouds);
-                }
-            } else {
-                try {
-                    cloudRenderer.disable();
-                } catch (RuntimeException e) {
-                    LOGGER.error("Failed to disable cloud rendering", e);
-                }
-            }
-
-            // Forward atlas animation patches to Remix before presenting
-            if (textureManager != null) {
-                perfTimer.begin(perfTimer.perfAtlas);
-                try (ProfileScope atlasScope = ProfileScope.begin("Atlas")) {
-                    textureManager.flushAnimations(AtmosphereDimension.of(world.dimension()));
-                } finally {
-                    perfTimer.end(perfTimer.perfAtlas);
-                }
-            }
-
-            perfTimer.begin(perfTimer.perfSubmit);
-            try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
-                if (org.edtp.kavora.render.KavoraWaterRipples.wantsRain()) {
-                    float rain = world.getRainLevel(tickDelta);
-                    if (rain > 0) {
-                        BlockPos position = BlockPos.containing(cameraPos);
-                        if (world.getBiome(position).value().getPrecipitationAt(position, world.getSeaLevel()) != Biome.Precipitation.RAIN) {
-                            rain = 0;
-                        }
-                    }
-                    org.edtp.kavora.render.KavoraWaterRipples.rain(rain);
-                }
-                presentation.submitScene();
-            } finally {
-                perfTimer.end(perfTimer.perfSubmit);
-            }
-
-            // The worker publishes CPU data for the next scene after this one is submitted.
-            particles.finishAfterSubmit(world);
-
-        } catch (RemixException e) {
-            LOGGER.error("Remix error during frame render: {} (code: {})",
-                e.getMessage(), e.getErrorCode(), e);
-        } catch (Exception e) {
-            LOGGER.error("Error during frame render", e);
-        } finally {
-            // In-place capture during vanilla's world render opens the entity frame before
-            // this method runs, so a frame that aborts above the bracket would otherwise
-            // leave it open.
-            if (!entityFrameClosed) {
-                try {
-                    closeEntityFrame();
-                } catch (RuntimeException e) {
-                    LOGGER.error("Error closing the entity frame", e);
-                }
-            }
-            particles.discardInFlight();
-            particles.recordFrameTiming();
-            try (ProfileScope gcScope = ProfileScope.begin("gcAssetStores")) {
-                gcAssetStores();
-            }
-            perfTimer.finishFrame();
-            benchmarkController.onFrameEnd(perfTimer);
-        }
-    }
-
-    /**
-     * Retires entity parts and closes the block-entity frame, publishing its counters
-     * while the block-entity toggle is on so a disabled frame contributes no zero sample.
-     * Block entities are captured and submitted in place during vanilla's world render,
-     * inside the entity frame this closes. Retirement runs before Submit: an instance
-     * destroyed after the submit is still in that frame's scene.
-     */
-    private void closeEntityFrame() {
-        entitySubmitter.endFrame();
-        KavoraBlockEntityPass.FrameStats stats = blockEntityPass.finishFrame();
-        if (!KavoraMod.isBlockEntitiesEnabled()) {
-            return;
-        }
-        perfTimer.recordBlockEntities(stats);
+        sceneFrame.renderAndSubmitFrame(cameraUpdateNanos);
     }
 
     public void onMinecraftRenderFrameEnd(long fullFrameNanos) {
@@ -1037,6 +819,7 @@ public class KavoraRenderer {
     public void shutdown() {
         LOGGER.info("Shutting down Kavora renderer...");
         initialized = false;
+        sceneFrame = null;
         pendingTextureReload = false;
         pendingTerrainRecaptureAfterTextureReload = false;
         List<RuntimeException> failures = new ArrayList<>();

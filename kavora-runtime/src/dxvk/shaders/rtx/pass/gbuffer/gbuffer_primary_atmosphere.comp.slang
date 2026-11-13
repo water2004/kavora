@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define RAY_TRACING_PRIMARY_RAY 1
 #define GBUFFER_FEATURE_DEBUG_VIEW 0
+import "rtx/algorithm/fog_froxel_sampling.slang";
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
@@ -36,12 +37,13 @@ void main(uint2 pixel : SV_DispatchThreadID)
   const float distance = asfloat(endpoint.x);
   const uint checkpoint = endpoint.y;
   const Ray cameraRay = primaryAtmosphereRay(pixel);
-  const AtmosphereRay ray = createAtmosphereRay(cb.volumeArgs, cameraRay.origin, cameraRay.direction,
-    0, translucentMediumExtinction(cb.startInMediumMaterialIndex));
+  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction,
+    0, translucentMediumExtinction(cb.startInMediumMaterialIndex, surfaceMaterials));
   if (!ray.hasFog && !ray.hasCloud)
   {
-    storePrimaryAtmosphere(pixel, integrateAtmosphereRange(cb.volumeArgs, VolumeFilteredRadianceY,
-      VolumeFilteredRadianceCoCg, ray, 0, distance, float3(0)));
+    storePrimaryAtmosphere(pixel, integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+      VolumeFilteredRadianceCoCg,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray, 0, distance, float3(0)));
     return;
   }
   const float3 ambient = cb.volumeArgs.clouds.enable
@@ -54,15 +56,16 @@ void main(uint2 pixel : SV_DispatchThreadID)
     const AtmosphereSegment prefix = samplePreintegratedAtmosphere(pixel, ray.fogProjection,
       min(distance, cacheEnd), checkpoint);
     const AtmosphereSegment tail = distance > cacheEnd
-      ? integrateAtmosphereRange(cb.volumeArgs, VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg,
-          ray, cacheEnd, distance, ambient) : emptyAtmosphereSegment();
+      ? integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg,
+          CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray, cacheEnd, distance, ambient) : emptyAtmosphereSegment();
     storePrimaryAtmosphere(pixel, composeAtmosphereSegments(prefix, tail));
     return;
   }
   const float begin = checkpoint == 0 ? 0.0f
     : atmosphereCheckpointDistance(ray.fogProjection, checkpoint);
   const AtmosphereSegment prefix = interpolateAtmosphereCheckpoints(pixel, checkpoint);
-  const AtmosphereSegment tail = integrateAtmosphereRange(cb.volumeArgs, VolumeFilteredRadianceY,
-    VolumeFilteredRadianceCoCg, ray, begin, distance, ambient);
+  const AtmosphereSegment tail = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg,
+    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray, begin, distance, ambient);
   storePrimaryAtmosphere(pixel, composeAtmosphereSegments(prefix, tail));
 }

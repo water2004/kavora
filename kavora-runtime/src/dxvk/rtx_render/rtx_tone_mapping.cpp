@@ -313,7 +313,7 @@ namespace dxvk {
     Rc<RtxContext> ctx,
     Rc<DxvkSampler> linearSampler,
     Rc<DxvkImageView> exposureView,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources resources,
     const float frameTimeMilliseconds,
     bool resetHistory,
     bool autoExposureEnabled) {
@@ -329,13 +329,13 @@ namespace dxvk {
       m_resetState = true;
     }
 
-    const Resources::Resource& inputColorBuffer = rtOutput.m_finalOutput.resource(Resources::AccessType::Read);
+    const Resources::Resource& inputColorBuffer = resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::Read);
     if (tonemappingEnabled()) {
       dispatchHistogram(ctx, exposureView, inputColorBuffer, autoExposureEnabled);
       dispatchToneCurve(ctx);
     }
 
-    dispatchApplyToneMapping(ctx, linearSampler, exposureView, inputColorBuffer, rtOutput.m_finalOutput.resource(Resources::AccessType::Write), autoExposureEnabled);
+    dispatchApplyToneMapping(ctx, linearSampler, exposureView, inputColorBuffer, resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::Write), autoExposureEnabled);
 
     m_resetState = false;
   }
@@ -343,7 +343,7 @@ namespace dxvk {
   void DxvkToneMapping::dispatchFastToneMapping(
     Rc<RtxContext> ctx,
     Rc<DxvkImageView> exposureView,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources resources,
     bool autoExposureEnabled) {
 
     ScopedGpuProfileZone(ctx, "Fast Tone Mapping");
@@ -353,12 +353,12 @@ namespace dxvk {
     pushArgs.enableAutoExposure = autoExposureEnabled;
     pushArgs.exposureFactor = exp2f(exposureBias() + RtxOptions::calcUserEVBias()); // ev100
 
-    const Resources::Resource& inputColorTexture = rtOutput.m_finalOutput.resource(Resources::AccessType::Read);
+    const Resources::Resource& inputColorTexture = resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::Read);
     const VkExtent3D workgroups = util::computeBlockCount(inputColorTexture.view->imageInfo().extent, VkExtent3D { 16 , 16, 1 });
 
     ctx->bindResourceView(TONEMAPPING_APPLY_TONEMAPPING_COLOR_INPUT, inputColorTexture.view, nullptr);
     ctx->bindResourceView(TONEMAPPING_APPLY_TONEMAPPING_EXPOSURE_INPUT, exposureView, nullptr);
-    ctx->bindResourceView(TONEMAPPING_APPLY_TONEMAPPING_COLOR_OUTPUT, rtOutput.m_neuralRenderingInput.resource(Resources::AccessType::Write).view, nullptr);
+    ctx->bindResourceView(TONEMAPPING_APPLY_TONEMAPPING_COLOR_OUTPUT, resources.get<&RaytracingFrame::m_neuralRenderingInput>().resource(Resources::AccessType::Write).view, nullptr);
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, FastTonemappingShader::getShader());
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
     ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
@@ -367,7 +367,7 @@ namespace dxvk {
   void DxvkToneMapping::dispatchInverseToneMapping(
     Rc<RtxContext> ctx,
     Rc<DxvkImageView> exposureView,
-    const Resources::RaytracingOutput& rtOutput,
+    DispatchResources resources,
     bool autoExposureEnabled) {
 
     ScopedGpuProfileZone(ctx, "Inverse Tone Mapping");
@@ -383,8 +383,8 @@ namespace dxvk {
       pushArgs.highlightRecoveryThresholds = vec4(t.x, t.y, t.z, t.w);
     }
 
-    const Resources::Resource& inputColorTexture = rtOutput.m_neuralRenderingOutput.resource(Resources::AccessType::Read);
-    const Resources::Resource& inOutColorTexture = rtOutput.m_finalOutput.resource(Resources::AccessType::ReadWrite);
+    const Resources::Resource& inputColorTexture = resources.get<&RaytracingFrame::m_neuralRenderingInput>().resource(Resources::AccessType::Read);
+    const Resources::Resource& inOutColorTexture = resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::ReadWrite);
     const VkExtent3D workgroups = util::computeBlockCount(inputColorTexture.view->imageInfo().extent, VkExtent3D { 16 , 16, 1 });
 
     ctx->bindResourceView(TONEMAPPING_APPLY_TONEMAPPING_COLOR_INPUT, inputColorTexture.view, nullptr);

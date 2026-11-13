@@ -50,7 +50,7 @@ option('tracy_fibers', type : 'boolean', value : false, description : 'Enable fi
 option('tracy_shared_libs', type : 'boolean', value : false, description : 'Builds Tracy as a shared object')
 
 option('enable_rtxio', type : 'boolean', value : true)
-option('slang_compiler_path', type: 'string', value: '', description: 'Optional Slang compiler executable. Defaults to the bundled compiler.')
+option('slang_compiler_path', type: 'string', value: '', description: 'Slang 2026.20 compiler executable. Defaults to slangc on PATH.')
 
 option('remixsdk_local', type: 'string', value: '', description: 'Path to the local, prebuilt Remix SDK. Must contain the include and bin directories.')
 

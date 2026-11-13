@@ -21,7 +21,7 @@
 */
 #pragma once
 
-#include "rtx/concept/surface_material/water_normal_coordinates.slangh"
+import "rtx/concept/surface_material/water_normal_coordinates.slang";
 #ifdef WATER_SIM_SAMPLE
 #include "rtx/concept/surface_material/water_sim_surface.slangh"
 #endif
@@ -113,8 +113,8 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   if (cb.waterEffects && (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)) {
     const float normalUp = cb.isZUp ? surfaceInteraction.triangleNormal.z : surfaceInteraction.triangleNormal.y;
     if (abs(normalUp) > 0.55f) {
-      const float3 wave = sampleWaterSimulation(surfaceInteraction.position, minimalRayInteraction.coneRadius, true);
-      normal = applyWaterSlope(normal, wave.yz, normalUp);
+      const float3 wave = sampleBoundWater<true>(surfaceInteraction.position, minimalRayInteraction.coneRadius);
+      normal = applyWaterSlope(normal, wave.yz, normalUp, cb.isZUp != 0);
       simulatedWater = any(abs(wave) > 1e-4f);
     }
   }

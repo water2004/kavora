@@ -24,7 +24,8 @@
 // Includes NRC utilities that don't depend on NRC bindings
 
 #include "rtx/external/NRC.slangh"
-#include "rtx/concept/surface_material/surface_material.h"
+import "rtx/concept/surface_material/surface_material_types.slang";
+#include "rtx/utility/shared_constants.h"
 #include "rtx/pass/raytrace_args.h"
 #include "rtx/pass/nrc_args.h"
 #include "rtx/utility/common.slangh"

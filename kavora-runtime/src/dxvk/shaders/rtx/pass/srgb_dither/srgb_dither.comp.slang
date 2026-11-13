@@ -24,7 +24,7 @@
 //!>       DISPLAY_COLOR_INVERSION
 //!end-variants
 #include "rtx/pass/srgb_dither/srgb_dither.h"
-#include "rtx/pass/srgb_dither/display_color_grade.slangh"
+import "display_color_grade.slang";
 #include "rtx/pass/tonemap/tonemapping.slangh"
 #include "rtx/pass/tonemap/tonemapping_noise.slangh"
 #include "rtx/utility/color.slangh"

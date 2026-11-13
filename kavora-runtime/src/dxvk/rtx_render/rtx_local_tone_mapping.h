@@ -25,6 +25,7 @@
 #include "dxvk_include.h"
 #include "dxvk_context.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_render/rtx_mipmap.h"
 
 #include "../spirv/spirv_code_buffer.h"
@@ -37,6 +38,10 @@ namespace dxvk {
 
   class DxvkLocalToneMapping: public RtxPass {
   public:
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_finalOutputExtent,
+      &RaytracingFrame::m_compositeOutputExtent>;
     explicit DxvkLocalToneMapping(DxvkDevice* device);
     ~DxvkLocalToneMapping();
 
@@ -44,7 +49,7 @@ namespace dxvk {
       Rc<RtxContext> ctx,
       Rc<DxvkSampler> linearSampler,
       Rc<DxvkImageView> exposureView,
-      const Resources::RaytracingOutput& rtOutput,
+      DispatchResources resources,
       const float frameTimeMilliseconds,
       bool enableAutoExposure = true);
 

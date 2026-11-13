@@ -1,0 +1,534 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/algorithm/resolve_unordered.slangh"
+
+#include "rtx/pass/gbuffer/gbuffer_debug.slangh"
+#include "rtx/pass/gbuffer/gbuffer_guides_output.slangh"
+
+// Finds projected decals and blends their material data into the surface and G-buffer.
+
+void geometryResolverWritePrimaryMaterialInteraction(
+  ivec2 pixelCoordinate, uvec2 compactedCoordinate, PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  vec4 accumulatedRotation, bool directionAltered)
+{
+  const GBufferMemoryPolymorphicSurfaceMaterialInteraction materialMemory =
+    gBufferMemoryPolymorphicSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+
+  PrimaryAlbedo[compactedCoordinate] = vec4(materialMemory.albedo, 1.0f);
+  PrimaryBaseReflectivity[compactedCoordinate] = vec4(materialMemory.baseReflectivity, float(materialMemory.waterContact));
+  PrimaryWorldShadingNormal[compactedCoordinate] =
+    float2x32ToSnorm2x16(sphereDirectionToSignedOctahedral(materialMemory.worldShadingNormal));
+  PrimaryWorldShadingNormalDense[pixelCoordinate] = PrimaryWorldShadingNormal[compactedCoordinate];
+  PrimaryPerceptualRoughness[pixelCoordinate] = materialMemory.perceptualRoughness;
+  SharedMaterialData0[compactedCoordinate] = materialMemory.data0;
+  SharedMaterialData1[compactedCoordinate] = materialMemory.data1;
+
+  const vec3 virtualShadingNormal = rrVirtualNormal(vec3(materialMemory.worldShadingNormal), accumulatedRotation,
+    directionAltered && cb.enableCalculateVirtualShadingNormals);
+
+  PrimaryVirtualWorldShadingNormalPerceptualRoughness[compactedCoordinate] = vec4(
+    virtualShadingNormal * 0.5f + 0.5f,
+    materialMemory.perceptualRoughness);
+  if (cb.writePrimaryDenoisingNormal)
+  {
+    PrimaryVirtualWorldShadingNormalPerceptualRoughnessDenoising[pixelCoordinate] =
+      NRD_FrontEnd_PackNormalAndRoughness(virtualShadingNormal, materialMemory.perceptualRoughness, MATERIAL_ID_DEFAULT);
+  }
+
+  if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR)
+  {
+    PrimaryWorldShadingNormalDLSSRR[pixelCoordinate] = vec4(virtualShadingNormal, 0.0f);
+  }
+}
+
+bool geometryResolverTryReconstructSinglePortalUnorderedRay(
+  Ray primaryRay,
+  float coneRadius,
+  vec3 surfacePosition,
+  float primaryHitDistance,
+  PortalSpace2BitsType portalSpace,
+  inout Ray unorderedResolveRay,
+  inout float localHitDistance)
+{
+  if (portalSpace != PORTAL_SPACE_PORTAL_0 && portalSpace != PORTAL_SPACE_PORTAL_1)
+  {
+    return false;
+  }
+
+  const uint8_t entryRayPortalIndex = uint8_t(portalSpace - PORTAL_SPACE_PORTAL_0);
+  const RayPortalHitInfo rayPortalHitInfo = cb.rayPortalHitInfos[uint(entryRayPortalIndex)];
+  if (!rayPortalHitInfoIsActive(rayPortalHitInfo))
+  {
+    return false;
+  }
+
+  const float normalDotDirection = dot(rayPortalHitInfo.normal, primaryRay.direction);
+  if (abs(normalDotDirection) < 1e-5f)
+  {
+    return false;
+  }
+
+  const float portalHitDistance =
+    dot(rayPortalHitInfo.centroid - primaryRay.origin, rayPortalHitInfo.normal) / normalDotDirection;
+  if (portalHitDistance <= 0.0f || portalHitDistance >= primaryHitDistance)
+  {
+    return false;
+  }
+
+  const mat4 teleportMatrix = rayPortalHitInfo.encodedPortalToOpposingPortalDirection.unpack();
+  const vec3 portalHitPosition = rayEvaluate(primaryRay, portalHitDistance);
+  const vec3 portalRayOrigin = mul(teleportMatrix, vec4(portalHitPosition, 1.0f)).xyz;
+  const vec3 portalRayDirection =
+    normalize(vec3(mul(mat3(teleportMatrix), vec3(primaryRay.direction))));
+
+  localHitDistance = dot(surfacePosition - portalRayOrigin, portalRayDirection);
+  if (localHitDistance <= 0.0f)
+  {
+    return false;
+  }
+
+  unorderedResolveRay.origin = portalRayOrigin;
+  unorderedResolveRay.direction = portalRayDirection;
+  unorderedResolveRay.coneRadius = max(
+    0.0f,
+    coneRadius - unorderedResolveRay.spreadAngle * localHitDistance);
+
+  return true;
+}
+
+// Gathers the decal covering an already resolved surface, given the ray cone's radius there.
+bool resolveDecalAtSurface(
+  Ray primaryRay,
+  vec3 viewDirection,
+  vec3 surfacePosition,
+  float hitDistance,
+  float coneRadius,
+  PortalSpace2BitsType portalSpace,
+  uint8_t rayMask,
+  uvec2 pixelCoordinate,
+  out uint numUnorderedInteractions,
+  out int surfaceIndex,
+  out MemoryDecalMaterialInteraction decalMaterialMemory)
+{
+  numUnorderedInteractions = 0;
+  surfaceIndex = -1;
+
+  decalMaterialMemory.packed = uint4(0);
+  decalMaterialMemory.emissiveRadiance = f16vec3(0.0f);
+
+  bool decalEncountered = false;
+
+  Ray unorderedResolveRay;
+  unorderedResolveRay.direction = -viewDirection;
+  unorderedResolveRay.spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
+  unorderedResolveRay.origin = surfacePosition - vec3(unorderedResolveRay.direction) * hitDistance;
+  unorderedResolveRay.coneRadius =
+    max(0.0f, coneRadius - float(unorderedResolveRay.spreadAngle) * hitDistance);
+
+  float localHitDistance = hitDistance;
+  geometryResolverTryReconstructSinglePortalUnorderedRay(
+    primaryRay, coneRadius, surfacePosition, hitDistance,
+    portalSpace, unorderedResolveRay, localHitDistance);
+
+  // Phrased as a positive so a NaN fails it too, since nothing downstream bounds the traversal it would start.
+  const bool rayTraceable =
+    (localHitDistance > 0.0f) &&
+    !any(isnan(unorderedResolveRay.origin)) && !any(isinf(unorderedResolveRay.origin));
+
+  if (rayTraceable)
+  {
+    unorderedResolveRay.tMax = localHitDistance * kUnorderedResolveRayLengthening;
+
+    uint4 decalMemory = uint4(0);
+    f16vec3 decalEmissiveRadiance = f16vec3(0.0h);
+    vec3 radianceAttenuation = vec3(1.0f, 1.0f, 1.0f);
+    vec3 emissiveRadiance = vec3(0.0f);
+
+    resolveVertexUnordered<
+      RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES,
+      true,
+      false>(
+      resolveModeSeparateUnorderedApproximations | resolveModeDecalMaterialBlending,
+      unorderedResolveRay,
+      convertPrimaryRayMaskToUnordered(rayMask, OBJECT_MASK_ALL_UNORDERED),
+      portalSpace,
+      false,
+      u16vec2(pixelCoordinate),
+      getIdentityQuaternion(),
+      0.0f, 1.0f,
+      radianceAttenuation, emissiveRadiance,
+      numUnorderedInteractions,
+      decalEncountered, decalMemory, decalEmissiveRadiance, surfaceIndex);
+
+    decalMaterialMemory.packed = decalMemory;
+    decalMaterialMemory.emissiveRadiance = decalEmissiveRadiance;
+  }
+
+  return decalEncountered;
+}
+
+// The object mask carries the player model for primary shadows too; only a portal crossing makes it visible otherwise.
+uint8_t decalPassRayMask(uint8_t objectMask, PortalSpace2BitsType portalSpace)
+{
+  uint8_t rayMask = OBJECT_MASK_ALL | (objectMask & OBJECT_MASK_ALL_DYNAMIC);
+
+  if (portalSpace == PORTAL_SPACE_NONE && !cb.enablePlayerModelInPrimarySpace)
+  {
+    rayMask &= ~uint8_t(OBJECT_MASK_PLAYER_MODEL);
+  }
+
+  return rayMask;
+}
+
+void geometryResolverOutputDecalDebugViewAndPicking(
+  uvec2 pixelCoordinate, bool decalEncountered, DecalMaterialInteraction decalMaterialInteraction,
+  uint numUnorderedInteractions, int surfaceIndex)
+{
+  if (gbufferDebugViewEnabled && cb.debugView == DEBUG_VIEW_PRIMARY_DECAL_ALBEDO)
+  {
+    storeInDebugView(pixelCoordinate, decalEncountered ? decalMaterialInteraction.albedo : vec3(0.0f));
+  }
+
+  if (gbufferDebugViewEnabled && (cb.debugView == DEBUG_VIEW_PRIMARY_UNORDERED_INTERACTIONS || cb.debugView == DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS))
+  {
+    accumulateInDebugViewAdd(pixelCoordinate, numUnorderedInteractions);
+  }
+
+  if (decalEncountered && GBUFFER_FEATURE_OBJECT_PICKING && cb.enableObjectPicking != 0 && surfaceIndex >= 0)
+  {
+    // The main GBuffer pass has already written the base surface by the time
+    // deferred decals run. Publish the selected decal explicitly so picking
+    // still reports the visible unordered decal rather than the surface below.
+    PrimaryObjectPicking[pixelCoordinate] = surfaces[uint(surfaceIndex)].objectPickingValue;
+  }
+}
+
+// Returns whether the primary pass resolves first-hit decals before inline PSR sampling.
+// PSR prepare takes its first-hit decals in the deferred pass.
+// Raytraced render target receivers use their separate PSR payload path.
+bool geometryResolverResolvesDecalBeforePSR(bool isRaytracedRenderTarget)
+{
+  return !push.usePSRPrepare &&
+         !isRaytracedRenderTarget &&
+         cb.enableSeparateUnorderedApproximations &&
+         cb.enableDecalMaterialBlending;
+}
+
+void geometryResolverBlendDecalIntoMaterial(
+  DecalMaterialInteraction decalMaterialInteraction,
+  inout PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction)
+{
+  const uint8_t materialType = polymorphicSurfaceMaterialInteractionGetTypeHelper(polymorphicSurfaceMaterialInteraction);
+
+  if (materialType == surfaceMaterialTypeOpaque)
+  {
+    OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+      opaqueSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+    decalMaterialInteractionBlend(decalMaterialInteraction, opaqueSurfaceMaterialInteraction);
+
+    polymorphicSurfaceMaterialInteraction =
+      polymorphicSurfaceMaterialInteractionCreateInternal(opaqueSurfaceMaterialInteraction);
+  }
+  else
+  {
+    TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
+      translucentSurfaceMaterialInteractionCreate(polymorphicSurfaceMaterialInteraction);
+    decalMaterialInteractionBlend(decalMaterialInteraction, translucentSurfaceMaterialInteraction);
+
+    polymorphicSurfaceMaterialInteraction =
+      polymorphicSurfaceMaterialInteractionCreateInternal(translucentSurfaceMaterialInteraction);
+  }
+
+}
+
+// `perceptualRoughness` is the surface's roughness before the decal is blended in.
+// `addEmissiveChange` is false when the caller adds the decal's emissive change to the shared radiance itself.
+void geometryResolverBlendDecalIntoGBuffer(
+  ivec2 pixelCoordinate, uvec2 compactedCoordinate, float perceptualRoughness,
+  DecalMaterialInteraction decalMaterialInteraction, vec4 accumulatedRotation, bool directionAltered,
+  bool addEmissiveChange = true)
+{
+  GBufferMemoryPolymorphicSurfaceMaterialInteraction materialMemory;
+  materialMemory.worldShadingNormal =
+    signedOctahedralToSphereDirection(snorm2x16ToFloat2x32(PrimaryWorldShadingNormal[compactedCoordinate]));
+  materialMemory.perceptualRoughness = perceptualRoughness;
+  materialMemory.albedo = f16vec3(PrimaryAlbedo[compactedCoordinate].rgb);
+  const vec4 reflectivity = PrimaryBaseReflectivity[compactedCoordinate];
+  materialMemory.baseReflectivity = f16vec3(reflectivity.rgb);
+  materialMemory.waterContact = reflectivity.a > 0.5f;
+  materialMemory.data0 = SharedMaterialData0[compactedCoordinate].x;
+  materialMemory.data1 = SharedMaterialData1[compactedCoordinate].x;
+
+  const PolymorphicSurfaceMaterialInteraction previousPolymorphicSurfaceMaterialInteraction =
+    polymorphicSurfaceMaterialInteractionCreate(materialMemory);
+  const vec3 previousEmissiveRadiance =
+    polymorphicSurfaceMaterialInteractionEvalEmissiveRadiance(previousPolymorphicSurfaceMaterialInteraction);
+
+  const uint8_t materialType = gBufferMemoryPolymorphicSurfaceMaterialInteractionGetTypeHelper(materialMemory);
+  PolymorphicSurfaceMaterialInteraction blendedPolymorphicSurfaceMaterialInteraction =
+    previousPolymorphicSurfaceMaterialInteraction;
+
+  if (materialType == surfaceMaterialTypeOpaque)
+  {
+    OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteraction =
+      opaqueSurfaceMaterialInteractionCreate(materialMemory);
+    decalMaterialInteractionBlend(decalMaterialInteraction, opaqueSurfaceMaterialInteraction);
+
+    blendedPolymorphicSurfaceMaterialInteraction =
+      polymorphicSurfaceMaterialInteractionCreateInternal(opaqueSurfaceMaterialInteraction);
+  }
+  else if (materialType == surfaceMaterialTypeTranslucent)
+  {
+    TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction =
+      translucentSurfaceMaterialInteractionCreate(materialMemory);
+    decalMaterialInteractionBlend(decalMaterialInteraction, translucentSurfaceMaterialInteraction);
+
+    blendedPolymorphicSurfaceMaterialInteraction =
+      polymorphicSurfaceMaterialInteractionCreateInternal(translucentSurfaceMaterialInteraction);
+  }
+  else
+  {
+    return;
+  }
+
+  geometryResolverWritePrimaryMaterialInteraction(
+    pixelCoordinate,
+    compactedCoordinate,
+    blendedPolymorphicSurfaceMaterialInteraction, accumulatedRotation, directionAltered);
+
+  // Keep normal translucent materials on the legacy albedo fallback, but publish the decal-created
+  // diffuse layer for denoiser demodulation/remodulation.
+  if (materialType == surfaceMaterialTypeTranslucent)
+  {
+    const TranslucentSurfaceMaterialInteraction blendedTranslucentSurfaceMaterialInteraction =
+      translucentSurfaceMaterialInteractionCreate(blendedPolymorphicSurfaceMaterialInteraction);
+    if ((blendedTranslucentSurfaceMaterialInteraction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_USE_DIFFUSE_LAYER) != 0)
+    {
+      PrimaryAlbedo[compactedCoordinate] = vec4(blendedTranslucentSurfaceMaterialInteraction.diffuseColor, 1.0f);
+    }
+  }
+
+#if GBUFFER_FEATURE_DEBUG_VIEW
+  geometryResolverOutputPrimaryMaterialDebugView(
+    pixelCoordinate,
+    compactedCoordinate,
+    blendedPolymorphicSurfaceMaterialInteraction);
+#endif
+
+  if (!addEmissiveChange)
+  {
+    return;
+  }
+
+  const vec3 blendedEmissiveRadiance =
+    polymorphicSurfaceMaterialInteractionEvalEmissiveRadiance(blendedPolymorphicSurfaceMaterialInteraction);
+  const vec3 emissiveRadianceDelta =
+    (blendedEmissiveRadiance - previousEmissiveRadiance) * unpackSceneAttenuation(PrimaryAttenuation[compactedCoordinate], cb.enableRaytracedRenderTarget);
+  if (any(emissiveRadianceDelta != vec3(0.0f)))
+  {
+    const vec3 radiance = vec3(SharedRadianceRG[pixelCoordinate], SharedRadianceB[pixelCoordinate]) + emissiveRadianceDelta;
+    SharedRadianceRG[pixelCoordinate] = radiance.rg;
+    SharedRadianceB[pixelCoordinate] = radiance.b;
+  }
+}
+
+// Adds a decal's emissive change to the shared radiance the way geometryResolverBlendDecalIntoGBuffer does,
+// but from the first hit's emissive radiance and attenuation that guidesWriteFirstHit stores at every pixel.
+void geometryResolverAddDecalEmissiveChange(
+  uvec2 pixelCoordinate, uint surfaceKind, DecalMaterialInteraction decalMaterialInteraction)
+{
+  if (surfaceKind != kGuideSurfaceOpaque && surfaceKind != kGuideSurfaceTranslucent)
+  {
+    return;
+  }
+
+  const vec3 surfaceEmissiveRadiance = vec3(unpackFloat4x16(ReflectionPSRData1[pixelCoordinate]).xyz);
+  const vec3 attenuation = unpackSceneAttenuation(ReflectionPSRData2[pixelCoordinate].y, cb.enableRaytracedRenderTarget);
+
+  // decalMaterialInteractionBlend mixes the emissive radiance by the decal's opacity.
+  const vec3 blendedEmissiveRadiance =
+    mix(surfaceEmissiveRadiance, vec3(decalMaterialInteraction.emissiveRadiance), float(decalMaterialInteraction.opacity));
+  const vec3 emissiveRadianceDelta = (blendedEmissiveRadiance - surfaceEmissiveRadiance) * attenuation;
+
+  if (any(emissiveRadianceDelta != vec3(0.0f)))
+  {
+    const vec3 radiance = vec3(SharedRadianceRG[pixelCoordinate], SharedRadianceB[pixelCoordinate]) + emissiveRadianceDelta;
+    SharedRadianceRG[pixelCoordinate] = radiance.rg;
+    SharedRadianceB[pixelCoordinate] = radiance.b;
+  }
+}
+
+// Under the compacted GBuffer every first hit takes decals, but only an active pixel has a compacted material to blend into,
+// so the surface is rebuilt from the outputs the GBuffer writes at every pixel instead.
+void geometryResolverApplyUnorderedDecalsCompacted(uvec2 pixelCoordinate)
+{
+  const vec4 specularAlbedoGuide = PrimarySpecularAlbedoDLSSRR[pixelCoordinate];
+
+  if (guideSurfaceKind(specularAlbedoGuide) == kGuideSurfaceNone)
+  {
+    return;
+  }
+
+  const GeometryFlags geometryFlags = geometryFlagsReadFromGBuffer(ivec2(pixelCoordinate), SharedFlagsDense);
+  const Ray primaryRay = rayCreatePrimaryFromPixel(cb.camera, ivec2(pixelCoordinate));
+
+  // The GBuffer places the hit at the virtual hit distance along the unjittered camera ray,
+  // so inverting the linear view Z that the GBuffer writes recovers that distance.
+  const Ray unjitteredCameraRay = rayCreatePrimaryFromPixel(cb.camera, ivec2(pixelCoordinate), false);
+  const float originLinearViewZ = cameraWorldPosToLinearViewZ(cb.camera, unjitteredCameraRay.origin);
+  const float linearViewZPerDistance = mul(cb.camera.worldToView, vec4(vec3(unjitteredCameraRay.direction), 0.0f)).z;
+  const float hitDistance = (PrimaryLinearViewZ[pixelCoordinate] - originLinearViewZ) / linearViewZPerDistance;
+  const float coneRadius = primaryRay.coneRadius + primaryRay.spreadAngle * hitDistance;
+
+  const uint8_t rayMask = decalPassRayMask(geometryFlags.objectMask, geometryFlags.portalSpace);
+
+  uint numUnorderedInteractions;
+  int surfaceIndex;
+  MemoryDecalMaterialInteraction decalMaterialMemory;
+
+  const bool decalEncountered = resolveDecalAtSurface(
+    primaryRay,
+    -vec3(primaryRay.direction),
+    aliasedData0.PrimaryWorldPositionWorldTriangleNormal[pixelCoordinate].xyz,
+    hitDistance,
+    coneRadius,
+    geometryFlags.portalSpace,
+    rayMask,
+    pixelCoordinate,
+    numUnorderedInteractions,
+    surfaceIndex,
+    decalMaterialMemory);
+
+  const DecalMaterialInteraction decalMaterialInteraction = decalMaterialInteractionUnpack(decalMaterialMemory);
+  geometryResolverOutputDecalDebugViewAndPicking(
+    pixelCoordinate, decalEncountered, decalMaterialInteraction, numUnorderedInteractions, surfaceIndex);
+
+  if (!decalEncountered)
+  {
+    return;
+  }
+
+  // A first hit's direction is only ever altered by the portal it crossed.
+  const vec4 accumulatedRotation = gbufferLoadPortalRotation(geometryFlags.portalSpace);
+  const bool directionAltered = geometryFlags.portalSpace != PORTAL_SPACE_NONE;
+
+  const float perceptualRoughness = PrimaryPerceptualRoughness[pixelCoordinate];
+
+  guidesBlendDecal(
+    pixelCoordinate, specularAlbedoGuide, perceptualRoughness, decalMaterialInteraction,
+    accumulatedRotation, directionAltered);
+
+  // Composite adds the shared radiance unscaled at every pixel, so every pixel gets the emissive change, not just active ones.
+  geometryResolverAddDecalEmissiveChange(pixelCoordinate, guideSurfaceKind(specularAlbedoGuide), decalMaterialInteraction);
+
+  // Is read only once a decal is found, because most pixels exit above.
+  const uvec2 compactedCoordinate = loadGBufferStoreCoordinate(pixelCoordinate);
+
+  if (hasGBufferSlot(compactedCoordinate))
+  {
+    geometryResolverBlendDecalIntoGBuffer(
+      ivec2(pixelCoordinate), compactedCoordinate, perceptualRoughness, decalMaterialInteraction,
+      accumulatedRotation, directionAltered,
+      /* addEmissiveChange = */ false);
+  }
+}
+
+
+void geometryResolverApplyUnorderedDecalsPass(ivec2 pixelCoordinate)
+{
+  if (!cb.enableSeparateUnorderedApproximations || !cb.enableDecalMaterialBlending)
+  {
+    return;
+  }
+
+  if (cb.sparseRenderingArgs.mode != SparseRenderingMode::Off)
+  {
+    geometryResolverApplyUnorderedDecalsCompacted(uvec2(pixelCoordinate));
+    return;
+  }
+
+  const float primaryHitDistance = PrimaryHitDistance[pixelCoordinate];
+  const float encodedConeRadius = PrimaryConeRadius[pixelCoordinate];
+  if (encodedConeRadius == 0.0f || primaryHitDistance <= 0.0f)
+  {
+    return;
+  }
+
+  const GeometryFlags geometryFlags = geometryFlagsReadFromGBuffer(pixelCoordinate, SharedFlags);
+
+  // Inline gathering can consume first-hit decals even when the blend prevents PSR.
+  // Other inline PSR pixels hold a PSR payload here rather than a first-hit surface.
+  if (geometryFlags.firstHitDecalsResolved ||
+      (!push.usePSRPrepare && geometryFlags.performedAnyPSR()))
+  {
+    return;
+  }
+
+  // Match the jittered primary ray used to populate the GBuffer. Non-serialized
+  // view directions are reconstructed from this ray during GBuffer decode.
+  const Ray primaryRay = rayCreatePrimaryFromPixel(cb.camera, pixelCoordinate);
+
+  const MinimalRayInteraction minimalRayInteraction =
+    gbufferReadPrimaryMinimalRayInteraction(pixelCoordinate, encodedConeRadius, primaryRay);
+
+  GBufferMemoryMinimalSurfaceInteraction surfaceInteractionMemory;
+  surfaceInteractionMemory.encodedWorldPositionWorldTriangleTBN =
+    aliasedData0.PrimaryWorldPositionWorldTriangleNormal[pixelCoordinate];
+  surfaceInteractionMemory.positionError = PrimaryPositionError[pixelCoordinate];
+  const MinimalSurfaceInteraction minimalSurfaceInteraction =
+    minimalSurfaceInteractionCreate(surfaceInteractionMemory);
+
+  const uint8_t rayMask = decalPassRayMask(geometryFlags.objectMask, geometryFlags.portalSpace);
+
+  uint numUnorderedInteractions;
+  int surfaceIndex;
+  MemoryDecalMaterialInteraction decalMaterialMemory;
+
+  const bool decalEncountered = resolveDecalAtSurface(
+    primaryRay,
+    minimalRayInteraction.viewDirection,
+    minimalSurfaceInteraction.position,
+    primaryHitDistance,
+    minimalRayInteraction.coneRadius,
+    geometryFlags.portalSpace,
+    rayMask,
+    uvec2(pixelCoordinate),
+    numUnorderedInteractions,
+    surfaceIndex,
+    decalMaterialMemory);
+
+  const DecalMaterialInteraction decalMaterialInteraction = decalMaterialInteractionUnpack(decalMaterialMemory);
+  geometryResolverOutputDecalDebugViewAndPicking(
+    uvec2(pixelCoordinate), decalEncountered, decalMaterialInteraction, numUnorderedInteractions, surfaceIndex);
+
+  if (!decalEncountered)
+  {
+    return;
+  }
+
+  geometryResolverBlendDecalIntoGBuffer(
+    pixelCoordinate, uvec2(pixelCoordinate), PrimaryPerceptualRoughness[pixelCoordinate], decalMaterialInteraction,
+    gbufferLoadPortalRotation(geometryFlags.portalSpace),
+    geometryFlags.portalSpace != PORTAL_SPACE_NONE);
+}

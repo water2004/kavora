@@ -782,7 +782,7 @@ namespace dxvk {
     ctx->dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
   }
 
-  void RtxGlobalVolumetrics::dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, uint32_t numActiveFroxelVolumes) {
+  void RtxGlobalVolumetrics::dispatch(RtxContext* ctx, uint32_t numActiveFroxelVolumes) {
     // Bind resources
 
     ctx->bindCommonRayTracingResources();

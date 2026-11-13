@@ -31,7 +31,7 @@
 #include "rtx/utility/brdf.slangh"
 #include "rtx/utility/demodulate_helpers.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/surface/alpha_blend_surface.slangh"
 #include "rtx/concept/surface/appearance_lighting.slangh"
 #include "rtx/external/NRD.slangh"

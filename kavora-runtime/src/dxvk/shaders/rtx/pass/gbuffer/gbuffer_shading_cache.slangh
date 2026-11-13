@@ -1,0 +1,202 @@
+/*
+* Copyright (c) 2022-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_storage.slangh"
+#include "rtx/algorithm/volume_lighting.slangh"
+#include "rtx/pass/nrc/nrc_integrator_utilities.slangh"
+#include "rtx/pass/sharc/sharc_integrator_utilities.slangh"
+
+// Provides the cached diffuse-layer term and records G-buffer hits for the radiance caches.
+
+// This function calculates a diffuse layer contribution for the surface from a combined diffuse layer weight. Do note this weight is typically
+// made up of a shared component and a component from the reflection and/or translucent side of things. This should be added in regardless of if reflection
+// or transmission PSR is actually done, just since there's no need to make this contribution noisy for no reason. This contribution does not work quite
+// properly however when reflection or transmission PSR are individually disabled right now, we'd need to conditionally have the diffuse layer weight
+// only include the relevant lobe contributions rather than both always.
+vec3 approximateDiffuseLayerRadiance(SurfaceInteraction surfaceInteraction,
+                                     vec3 shadingNormal,
+                                     PortalSpace2BitsType portalSpace,
+                                     const vec3 diffuseLayerWeight)
+{
+  // Note: Important early out check to avoid expensive radiance cache lookups when they are not needed (as the diffuse layer
+  // weight will be set to 0 in these cases).
+  if (all(diffuseLayerWeight <= 0.0))
+  {
+    return vec3(0);
+  }
+
+  // Fetch data from the radiance cache for the current surface interaction
+
+  const VolumeArgs volumeArgs = cb.volumeArgs;
+  const uint froxelVolumeHint = portalSpaceToVolumeHint(portalSpace);
+  const vec3 accumulatedOutgoingRadiance = evalVolumetricNEE(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg, volumeArgs,
+    surfaceInteraction, shadingNormal, froxelVolumeHint);
+
+  // Light the surface to add in a diffuse layer approximation
+
+  // Note: Diffuse layer weight from the material model assumes the radiance cache contains a value pre-divided by 4pi as a basic isotropic
+  // scattering model.
+  // Todo: We should really be using spherical harmonics in the future for this to actually evaluate a directional contribution of the diffuse
+  // layer as right now isotropic scattering looks a bit darker than it should (most the light should be backscattered for such a surface realistically
+  // rather than equally scattered around).
+  return diffuseLayerWeight * accumulatedOutgoingRadiance / 4;
+}
+
+// Performs NRC related updates after a GBuffer miss
+// Query buffers are indexed by `compactedCoordinate`, and training paths are indexed by their training-space coordinate.
+void updateNrcOnGBufferMiss(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate)
+{
+#if ENABLE_NRC
+  if (!hasGBufferSlot(compactedCoordinate))
+  {
+    return;
+  }
+
+  // Query path is always traced at the full ray tracing resolution
+  const uvec2 queryPixelCoordinate = pixelCoordinate;
+
+  // Update NRC Query Path
+  {
+    g_nrcMode = NrcMode::Query;
+
+    Nrc::updateNrcOnPrimaryMiss(queryPixelCoordinate, compactedCoordinate);
+  }
+
+  g_nrcMode = NrcMode::Disabled;
+
+  // Update NRC Training Path
+  if (cb.allowNrcTraining)
+  {
+    uvec2 trainingPixelCoordinateInTrainingSpace;
+    const bool hasTrainingPath = Nrc::calculateNrcTrainingPathForQueryPixel(
+      queryPixelCoordinate, cb.sparseRenderingArgs.resampledNrcTrainingPaths,
+      RadianceCacheUpdateQueryReservoir, cb.nrcArgs, trainingPixelCoordinateInTrainingSpace);
+
+    // Training paths are more sparse than Query paths, so filter the updates to pixels that have a training path
+    if (hasTrainingPath)
+    {
+      Nrc::registerNrcTrainingPathPrimaryMiss(trainingPixelCoordinateInTrainingSpace);
+    }
+  }
+#endif
+}
+
+// Performs NRC related updates after a GBuffer hit
+// See updateNrcOnGBufferMiss for what `compactedCoordinate` is used for.
+void updateNrcOnGBufferHitTrainingAndQueryPaths(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  vec3 rayDirection,
+  float primaryPathHitDistance,
+  SurfaceInteraction surfaceInteraction,
+  PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
+  // GBuffer surface radiance - emissive + diffuse layer (i.e. all except Integrate Direct and Indirect Lighting)
+  vec3 gbufferSurfaceRadiance,
+  inout RNG randomState)
+{
+#if ENABLE_NRC
+  if (!hasGBufferSlot(compactedCoordinate))
+  {
+    return;
+  }
+
+  // Query path is always traced at the full ray tracing resolution
+  const uvec2 queryPixelCoordinate = pixelCoordinate;
+
+  // Update NRC Query Path
+  {
+    g_nrcMode = NrcMode::Query;
+
+    const float rand01 = getNextSampleBlueNoise(randomState);
+
+    Nrc::updateNrcOnPrimaryHit(queryPixelCoordinate, compactedCoordinate,
+      surfaceInteraction.position, polymorphicSurfaceMaterialInteraction, -rayDirection,
+      primaryPathHitDistance, rand01, NrcQueryPathData0, NrcQueryPathData1);
+  }
+
+  g_nrcMode = NrcMode::Disabled;
+
+  // Update NRC Training Path
+  if (cb.allowNrcTraining)
+  {
+    uvec2 trainingPixelCoordinateInTrainingSpace;
+    const bool hasTrainingPath = Nrc::calculateNrcTrainingPathForQueryPixel(
+      queryPixelCoordinate, cb.sparseRenderingArgs.resampledNrcTrainingPaths,
+      RadianceCacheUpdateQueryReservoir, cb.nrcArgs, trainingPixelCoordinateInTrainingSpace);
+
+    // Training paths are more sparse than Query paths, so filter the updates to pixels that have a training path
+    if (hasTrainingPath)
+    {
+      Nrc::registerNrcTrainingPathPrimaryHit(
+        trainingPixelCoordinateInTrainingSpace,
+        surfaceInteraction.position, polymorphicSurfaceMaterialInteraction, -rayDirection,
+        primaryPathHitDistance, NrcQueryPathData0, NrcTrainingPathData1);
+
+      // Store radiance accumulated on the surface during GBuffer pass, this will be added to accumulated radiance
+      // between vertex 0 and vertex 1 for training paths in the indirect integrate pass
+      RadianceCacheUpdateGBufferSurfaceRadianceRG[trainingPixelCoordinateInTrainingSpace] = gbufferSurfaceRadiance.rg;
+      RadianceCacheUpdateGBufferSurfaceRadianceB[trainingPixelCoordinateInTrainingSpace] = gbufferSurfaceRadiance.b;
+    }
+
+    if (cb.debugView == DEBUG_VIEW_NRC_UPDATE_PIXEL)
+    {
+      storeInDebugView(queryPixelCoordinate, hasTrainingPath);
+    }
+  }
+#else
+  unused(randomState);
+#endif
+}
+
+// Performs SHaRC specific updates on a primary ray hit
+void updateSharcOnGBufferHit(
+  uvec2 pixelCoordinate,
+  uvec2 compactedCoordinate,
+  // GBuffer surface radiance - emissive + diffuse layer (i.e. all except Integrate Direct and Indirect Lighting)
+  vec3 gbufferSurfaceRadiance)
+{
+  // Note: Remix does not implement support for querying the SHaRC for primary hits since that is not desired in practice,
+  // as it's more likely to show limitations of SHaRC (i.e. per-pixel resolution/quality, latency, etc)
+  // versus resolving direct lighting using RTXDI.
+  // Therefore, we do not need to do anything here for the query paths
+
+#if SHARC_UPDATE
+  if (!hasGBufferSlot(compactedCoordinate))
+  {
+    return;
+  }
+
+  uvec2 updatePixelCoordinate;
+  if (Sharc::calculateUpdatePathForQueryPixel(
+        pixelCoordinate, cb.sparseRenderingArgs.resampledSharcUpdatePaths,
+        RadianceCacheUpdateQueryReservoir, cb.sharcArgs, updatePixelCoordinate))
+  {
+    // Store radiance accumulated on the surface during GBuffer pass, this will be added to accumulated radiance
+    // between vertex 0 and vertex 1 for training paths in the indirect integrate pass
+    RadianceCacheUpdateGBufferSurfaceRadianceRG[updatePixelCoordinate] = gbufferSurfaceRadiance.rg;
+    RadianceCacheUpdateGBufferSurfaceRadianceB[updatePixelCoordinate] = gbufferSurfaceRadiance.b;
+  }
+#endif
+}

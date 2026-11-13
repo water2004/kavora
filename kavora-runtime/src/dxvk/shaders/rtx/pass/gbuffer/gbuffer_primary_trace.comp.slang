@@ -22,6 +22,7 @@
 
 #define RAY_TRACING_PRIMARY_RAY
 #define GBUFFER_FEATURE_DEBUG_VIEW 0
+import "rtx/algorithm/fog_froxel_sampling.slang";
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"

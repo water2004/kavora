@@ -77,7 +77,7 @@ namespace dxvk {
     void dispatch(
       Rc<DxvkContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      const VkExtent3D& renderExtent,
       const Input& inputs,
       Output& outputs);
 

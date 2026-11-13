@@ -26,6 +26,7 @@
 
 #include "../spirv/spirv_code_buffer.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_options.h"
 
 namespace dxvk {
@@ -56,11 +57,38 @@ namespace dxvk {
   class DxvkReSTIRGIRayQuery: public RtxPass {
     
   public:
+
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_gbufferLast,
+      &RaytracingFrame::m_primaryAlbedo,
+      &RaytracingFrame::m_primaryBaseReflectivity,
+      &RaytracingFrame::m_primaryConeRadius,
+      &RaytracingFrame::m_primaryHitDistance,
+      &RaytracingFrame::m_primaryIndirectDiffuseRadiance,
+      &RaytracingFrame::m_primaryIndirectSpecularRadiance,
+      &RaytracingFrame::m_primaryPerceptualRoughness,
+      &RaytracingFrame::m_primaryPositionError,
+      &RaytracingFrame::m_primaryViewDirection,
+      &RaytracingFrame::m_primaryVirtualMotionVector,
+      &RaytracingFrame::m_primaryWorldShadingNormal,
+      &RaytracingFrame::m_rtxdiGradients,
+      &RaytracingFrame::m_sharedFlags,
+      &RaytracingFrame::m_sharedMaterialData0,
+      &RaytracingFrame::m_sharedMaterialData1,
+      &RaytracingFrame::m_sharedSubsurfaceData,
+      &RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData,
+      &RaytracingFrame::m_sharedSurfaceIndex,
+      &RaytracingFrame::m_sharedTextureCoord,
+      &RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal
+    >;
+
     
     DxvkReSTIRGIRayQuery(DxvkDevice* device);
     ~DxvkReSTIRGIRayQuery() = default;
 
-    void dispatch(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatch(RtxContext* ctx, DispatchResources resources);
 
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 

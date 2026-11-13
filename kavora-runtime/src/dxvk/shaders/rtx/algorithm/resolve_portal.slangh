@@ -1,0 +1,109 @@
+/*
+* Copyright (c) 2023-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+#pragma once
+
+#include "rtx/concept/ray_portal/ray_portal.slangh"
+#include "rtx/pass/instance_definitions.slangh"
+import "rtx/algorithm/ray_resolve.slang";
+
+// Updates the dynamic object mask when a ray changes portal space.
+void updateStateOnPortalCrossing(inout PortalSpace2BitsType portalSpace,
+                                 inout uint8_t rayMask,
+                                 uint8_t rayPortalIndex,
+                                 bool hasRayOriginatedFromViewModel)
+{
+  PortalSpace2BitsType newPortalSpace = 0;
+  uint8_t newDynamicMask = 0;
+
+  switch(uint(portalSpace))
+  {
+  case PORTAL_SPACE_NONE:
+  {
+    newPortalSpace = PORTAL_SPACE_PORTAL_0 + rayPortalIndex;
+
+    newDynamicMask = rayPortalIndex == cb.virtualInstancePortalIndex
+      ? OBJECT_MASK_VIEWMODEL_VIRTUAL | OBJECT_MASK_PLAYER_MODEL
+      : OBJECT_MASK_ALL_PLAYER_MODEL;
+
+    if (rayMask & OBJECT_MASK_PLAYER_MODEL)
+      newDynamicMask |= OBJECT_MASK_PLAYER_MODEL_VIRTUAL;
+
+    break;
+  }
+  case PORTAL_SPACE_PORTAL_0:
+  case PORTAL_SPACE_PORTAL_1:
+    uint8_t prevEntryRayPortalIndex = portalSpace - PORTAL_SPACE_PORTAL_0;
+    if (rayPortalIndex == prevEntryRayPortalIndex)
+    {
+      newPortalSpace = PORTAL_SPACE_PORTAL_COMBINED;
+      newDynamicMask = OBJECT_MASK_ALL_PLAYER_MODEL;
+    }
+    else
+    { // Reentering the main space
+      newPortalSpace = PORTAL_SPACE_NONE;
+
+      if (rayMask & OBJECT_MASK_PLAYER_MODEL_VIRTUAL)
+        newDynamicMask |= OBJECT_MASK_PLAYER_MODEL;
+      if (rayMask & OBJECT_MASK_PLAYER_MODEL)
+        newDynamicMask |= OBJECT_MASK_PLAYER_MODEL_VIRTUAL;
+    }
+    break;
+
+  case PORTAL_SPACE_PORTAL_COMBINED:
+    // Do nothing. Stay in combined space. Technically a ray could go back to immediate portal space
+    // but we'd need more state and logic to resolve it since a ray could be several layers deep into the combined space.
+    // Ignoring it for now until we hit a scenario where it's needed
+    newPortalSpace = PORTAL_SPACE_PORTAL_COMBINED;
+    // ViewModel instances are not visible in combined space
+    newDynamicMask = OBJECT_MASK_ALL_PLAYER_MODEL;
+    break;
+  }
+
+#ifdef RAY_TRACING_PRIMARY_RAY
+  rayMask = (rayMask & ~OBJECT_MASK_ALL_VIEWMODEL) | (newDynamicMask & OBJECT_MASK_ALL_VIEWMODEL);
+
+  if (cb.enablePlayerModelInPrimarySpace)
+    newDynamicMask |= OBJECT_MASK_PLAYER_MODEL;
+
+#else // Indirect Rays
+  rayMask &= ~OBJECT_MASK_ALL_VIEWMODEL;
+
+  // Keep including ViewModel instances as long as the ray originated from a ViewModel surface
+  if (hasRayOriginatedFromViewModel)
+    rayMask = rayMask | (newDynamicMask & OBJECT_MASK_ALL_VIEWMODEL);
+#endif
+
+  rayMask = (rayMask & ~OBJECT_MASK_ALL_PLAYER_MODEL) | (newDynamicMask & OBJECT_MASK_ALL_PLAYER_MODEL);
+
+  portalSpace = newPortalSpace;
+}
+
+void updateStateOnPortalCrossing<T:IBasePayloadState>(inout T resolveVertexState, uint8_t rayPortalIndex)
+{
+#ifdef RAY_TRACING_PRIMARY_RAY
+  const bool hasRayOriginatedFromViewModel = false;
+#else // Indirect Rays
+  const bool hasRayOriginatedFromViewModel = resolveVertexState.rayMask & OBJECT_MASK_ALL_VIEWMODEL;
+#endif
+
+  updateStateOnPortalCrossing(resolveVertexState.portalSpace, resolveVertexState.rayMask, rayPortalIndex, hasRayOriginatedFromViewModel);
+}

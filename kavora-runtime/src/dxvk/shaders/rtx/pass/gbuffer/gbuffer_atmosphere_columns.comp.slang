@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define RAY_TRACING_PRIMARY_RAY 1
 #define GBUFFER_FEATURE_DEBUG_VIEW 0
+import "rtx/algorithm/fog_froxel_sampling.slang";
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
@@ -49,8 +50,8 @@ void main(uint2 column : SV_DispatchThreadID)
   }
 
   const Ray cameraRay = primaryAtmosphereRay(min(center, cb.camera.resolution - 1));
-  const AtmosphereRay ray = createAtmosphereRay(cb.volumeArgs, cameraRay.origin, cameraRay.direction,
-    0, translucentMediumExtinction(cb.startInMediumMaterialIndex));
+  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction,
+    0, translucentMediumExtinction(cb.startInMediumMaterialIndex, surfaceMaterials));
   const float3 ambient = cb.volumeArgs.clouds.enable
     ? sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, LinearWrapSampler, cb.volumeArgs.sceneUpDirection) * 0.5f
     : float3(0);
@@ -59,8 +60,9 @@ void main(uint2 column : SV_DispatchThreadID)
   for (uint checkpoint = 1; checkpoint <= lastCheckpoint; checkpoint++)
   {
     const float next = max(previous, atmosphereCheckpointDistance(ray.fogProjection, checkpoint));
-    const AtmosphereSegment segment = integrateAtmosphereRange(cb.volumeArgs, VolumeFilteredRadianceY,
-      VolumeFilteredRadianceCoCg, ray, previous, next, ambient);
+    const AtmosphereSegment segment = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+      VolumeFilteredRadianceCoCg,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray, previous, next, ambient);
     accumulated = composeAtmosphereSegments(accumulated, segment);
     storeAtmosphereCheckpoint(column, checkpoint, accumulated);
     previous = next;

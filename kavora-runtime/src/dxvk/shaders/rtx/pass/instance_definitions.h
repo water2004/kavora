@@ -62,7 +62,7 @@
 // stored as GeometryFlags.objectMask. Only the upper 4 bits of it are actually used though,
 // the rest is determined by the specific pass or ray type.
 //
-// For the portal transition rules, see updateStateOnPortalCrossing(...) in resolve.slangh
+// For the portal transition rules, see updateStateOnPortalCrossing in resolve_portal.slangh.
 
 
 // Note: if there's an absolute need for additional instance mask bits in the future

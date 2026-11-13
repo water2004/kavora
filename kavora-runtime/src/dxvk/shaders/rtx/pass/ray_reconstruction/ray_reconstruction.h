@@ -26,7 +26,7 @@
 #ifdef __cplusplus
 #include "rtx/concept/camera/camera.h"
 #else
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #endif
 
 // Inputs

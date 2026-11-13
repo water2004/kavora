@@ -584,8 +584,7 @@ namespace dxvk {
   }
 
   void SpatiallyHashedRadianceCache::dispatch(
-    RtxContext& ctx,
-    const Resources::RaytracingOutput& rtOutput) {
+    RtxContext& ctx) {
 
     copyUpdateCounters(ctx);
 
@@ -642,7 +641,7 @@ namespace dxvk {
     }
   }
   
-  void SpatiallyHashedRadianceCache::onFrameEnd(Resources::RaytracingOutput& rtOutput) {
+  void SpatiallyHashedRadianceCache::onFrameEnd() {
     if (!isActive()) {
       return;
     }

@@ -36,7 +36,7 @@
 #include "rtx/concept/surface/minimal_surface_interaction.slangh"
 #include "rtx/concept/volume/volume_interaction.slangh"
 #include "rtx/concept/light/light.slangh"
-#include "rtx/algorithm/resolve.slangh"
+#include "rtx/algorithm/resolve.h"
 #include "rtx/algorithm/visibility.slangh"
 #include "rtx/algorithm/volume_integrator_helpers.slangh"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"

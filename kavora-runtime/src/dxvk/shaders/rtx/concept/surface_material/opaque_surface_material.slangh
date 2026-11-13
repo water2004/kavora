@@ -55,22 +55,6 @@ SubsurfaceMaterial subsurfaceMaterialCreate(MemoryPolymorphicSurfaceMaterial mem
   return reinterpret<SubsurfaceMaterial>(memoryPolymorphicSurfaceMaterial);
 }
 
-SubsurfaceMaterial subsurfaceMaterialCreate(const SubsurfaceMaterialInteraction subsurfaceMaterialInteraction)
-{
-  SubsurfaceMaterial subsurfaceMaterial;
-
-  const f16vec3 transmittanceColor = r11g11b10ToColor(subsurfaceMaterialInteraction.packedTransmittanceColor);
-  subsurfaceMaterial.volumetricAttenuationCoefficient = subsurfaceMaterialInteraction.maxSampleRadius == 0.0f ?
-    transmittanceToAttenuationCoefficient(max(transmittanceColor, materialEpsilon), subsurfaceMaterialInteraction.measurementDistance) :
-    transmittanceColor;
-  subsurfaceMaterial.measurementDistance = subsurfaceMaterialInteraction.measurementDistance;
-  subsurfaceMaterial.singleScatteringAlbedo = r11g11b10ToColor(subsurfaceMaterialInteraction.packedSingleScatteringAlbedo);
-  subsurfaceMaterial.volumetricAnisotropy = snorm8ToF16(subsurfaceMaterialInteraction.volumetricAnisotropy);
-  subsurfaceMaterial.maxSampleRadius = unorm8ToF16(subsurfaceMaterialInteraction.maxSampleRadius);
-
-  return subsurfaceMaterial;
-}
-
 uint getSubsurfaceMaterialIndex(const MemoryPolymorphicSurfaceMaterial memoryPolymorphicSurfaceMaterial, inout uint16_t samplerIndex)
 {
   OpaqueSurfaceMaterial opaqueSurfaceMaterial = opaqueSurfaceMaterialCreate(memoryPolymorphicSurfaceMaterial);

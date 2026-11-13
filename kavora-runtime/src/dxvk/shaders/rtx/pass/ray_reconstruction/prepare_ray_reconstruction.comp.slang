@@ -23,7 +23,7 @@
 #include "rtx/utility/packing.slangh"
 #include "rtx/algorithm/camera_transport.slangh"
 #include "rtx/utility/brdf.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/utility/debug_view_helpers.slangh"
 #include "rtx/utility/geometry_flags.slangh"
 #include "rtx/utility/common.slangh"

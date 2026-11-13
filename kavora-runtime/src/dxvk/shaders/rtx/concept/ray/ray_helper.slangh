@@ -21,6 +21,8 @@
 */
 #pragma once
 
+import "rtx/algorithm/ray_resolve.slang";
+
 // Ray Constants
 
 // Note: Sign bit of hit distance on Ray Interactions used to indicate no hit.
@@ -30,19 +32,6 @@ static const float kMissHitDistance = -1.0f;
 // typically be set to 0 for "empty" pixels assuming the PDF of the stochastic choice between having the pixel be empty or not was
 // factored into the radiance present in other pixels.
 static const float kEmptyPixelHitDistance = 0.f;
-
-// Ray Helper Structures
-
-struct RayHitInfo
-{
-  float hitDistance;
-  uint barycentricCoordinates;
-  uint primitiveIndex;
-  uint customIndex;
-  uint geometryIndex;
-  bool hasHit;
-  bool frontHit;
-};
 
 uint calculateSurfaceIndex(RayHitInfo rayHitInfo) 
 {

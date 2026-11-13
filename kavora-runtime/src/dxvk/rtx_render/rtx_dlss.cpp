@@ -208,7 +208,7 @@ namespace dxvk {
   void DxvkDLSS::dispatch(
     Rc<RtxContext> ctx,
     DxvkBarrierSet& barriers,
-    const Resources::RaytracingOutput& rtOutput,
+    DLSSDispatchResources resources,
     bool resetHistory)
   {
     ScopedGpuProfileZone(ctx, "DLSS");
@@ -227,6 +227,12 @@ namespace dxvk {
 
     SceneManager& sceneManager = device()->getCommon()->getSceneManager();
 
+    const auto& compositeOutput = resources.get<&RaytracingFrame::m_compositeOutput>();
+    const auto& primaryScreenSpaceMotionVector = resources.get<&RaytracingFrame::m_primaryScreenSpaceMotionVector>();
+    const auto& primaryDepth = resources.get<&RaytracingFrame::m_primaryDepth>();
+    const auto& sharedBiasCurrentColorMask = resources.get<&RaytracingFrame::m_sharedBiasCurrentColorMask>();
+    const auto& finalOutput = resources.get<&RaytracingFrame::m_finalOutput>();
+
     {
       // The DLSS y coordinate is pointing down
       float jitterOffset[2];
@@ -237,12 +243,12 @@ namespace dxvk {
       float motionVectorScale[2] = { 1.f,1.f };
 
       std::vector<Rc<DxvkImageView>> pInputs = {
-        rtOutput.m_compositeOutput.view(Resources::AccessType::Read),
-        rtOutput.m_primaryScreenSpaceMotionVector.view,
-        rtOutput.m_primaryDepth.view,
-        rtOutput.getCurrentPrimaryWorldPositionWorldTriangleNormal().view(Resources::AccessType::Read),
-        rtOutput.m_primaryAlbedo.view,
-        rtOutput.m_sharedBiasCurrentColorMask.view(Resources::AccessType::Read)
+        compositeOutput.view(Resources::AccessType::Read),
+        primaryScreenSpaceMotionVector.view,
+        primaryDepth.view,
+        resources.get<&RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal>().view(Resources::AccessType::Read),
+        resources.get<&RaytracingFrame::m_primaryAlbedo>().view,
+        sharedBiasCurrentColorMask.view(Resources::AccessType::Read)
       };
 
       const DxvkAutoExposure& autoExposure = device()->getCommon()->metaAutoExposure();
@@ -251,8 +257,8 @@ namespace dxvk {
       }
 
       std::vector<Rc<DxvkImageView>> pOutputs = {
-        rtOutput.m_sharedBiasCurrentColorMask.view(Resources::AccessType::Write),
-        rtOutput.m_finalOutput.view(Resources::AccessType::Write)
+        sharedBiasCurrentColorMask.view(Resources::AccessType::Write),
+        finalOutput.view(Resources::AccessType::Write)
       };
 
       for (auto input : pInputs) {
@@ -285,21 +291,21 @@ namespace dxvk {
 
       barriers.recordCommands(ctx->getCommandList());
 
-      auto motionVectorInput = &rtOutput.m_primaryScreenSpaceMotionVector;
-      auto depthInput = &rtOutput.m_primaryDepth;
+      auto motionVectorInput = &primaryScreenSpaceMotionVector;
+      auto depthInput = &primaryDepth;
       // Note: Texture contains specular albedo in this case as DLSS happens after demodulation
-      auto specularAlbedoInput = &rtOutput.m_primarySpecularAlbedo.resource(Resources::AccessType::Read);
+      auto specularAlbedoInput = &resources.get<&RaytracingFrame::m_primarySpecularAlbedo>().resource(Resources::AccessType::Read);
       m_dlssContext->setWorldToViewMatrix(camera.getWorldToView());
       m_dlssContext->setViewToProjectionMatrix(camera.getViewToProjection());
 
       // Note: Add texture inputs added here to the pInputs array above to properly access the images.
       NGXDLSSContext::NGXBuffers buffers;
-      buffers.pUnresolvedColor = &rtOutput.m_compositeOutput.resource(Resources::AccessType::Read);
-      buffers.pResolvedColor = &rtOutput.m_finalOutput.resource(Resources::AccessType::Read);
+      buffers.pUnresolvedColor = &compositeOutput.resource(Resources::AccessType::Read);
+      buffers.pResolvedColor = &finalOutput.resource(Resources::AccessType::Read);
       buffers.pMotionVectors = motionVectorInput;
       buffers.pDepth = depthInput;
       buffers.pExposure = &autoExposure.getExposureTexture();
-      buffers.pBiasCurrentColorMask = &rtOutput.m_sharedBiasCurrentColorMask.resource(Resources::AccessType::Read);
+      buffers.pBiasCurrentColorMask = &sharedBiasCurrentColorMask.resource(Resources::AccessType::Read);
 
       NGXDLSSContext::NGXSettings settings;
       settings.resetAccumulation = resetHistory;

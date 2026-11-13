@@ -22,7 +22,7 @@
 #pragma once
 
 #include "rtx_option.h"
-#include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_common_object.h"
 #include "rtx/pass/sparse_rendering/sparse_rendering.h"
 
@@ -155,10 +155,24 @@ namespace dxvk {
 
     // Launches a compute pass over the active-pixel list under sparse rendering.
     // Launches it over the given workgroups when sparse rendering is off.
-    static void dispatchCompactedConsumer(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, const VkExtent3D& workgroups);
+    static void dispatchCompactedConsumer(RtxContext& ctx, SparseRenderingMode mode,
+      const Rc<DxvkBuffer>& dispatchIndirectArgs, const VkExtent3D& workgroups);
+
+    using DispatchResources = FrameResourceView<
+      &RaytracingFrame::m_sparseRenderingPixelSamplingRate,
+      &RaytracingFrame::m_sparseRenderingActivePixelMask,
+      &RaytracingFrame::m_sparseRenderingActivePixelCount,
+      &RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords,
+      &RaytracingFrame::m_sparseRenderingCompactedPixelIndices,
+      &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+      &RaytracingFrame::m_sparseRenderingActivePixelCoords,
+      &RaytracingFrame::m_sparseRenderingTraceRaysIndirectArgs,
+      &RaytracingFrame::m_sparseRenderingDispatchIndirectArgs,
+      &RaytracingFrame::m_compositeOutputExtent,
+      &RaytracingFrame::m_raytraceArgs>;
 
     void showImguiSettings();
-    void dispatch(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatch(RtxContext& ctx, DispatchResources frame);
     void setSparseRenderingArgs(RtxContext& ctx, SparseRenderingArgs& args) const;
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
@@ -178,9 +192,9 @@ namespace dxvk {
     static float calculateSamplingRate(uint32_t pixelCount);
     static float calculateCapacityRate(uint32_t pixelCount);
 
-    void dispatchActivePixelSamplingRate(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
-    void dispatchActivePixelMask(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
-    void dispatchCompactActivePixels(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatchActivePixelSamplingRate(RtxContext& ctx, DispatchResources frame);
+    void dispatchActivePixelMask(RtxContext& ctx, DispatchResources frame);
+    void dispatchCompactActivePixels(RtxContext& ctx, DispatchResources frame);
     bool checkCompactActivePixelsRequirements() const;
     bool checkCompactedLaunchLimits(uint32_t maxLaunchPixels) const;
     void allocateActivePixelListBuffers(Rc<DxvkContext>& ctx, Resources::RaytracingOutput& rtOutput) const;

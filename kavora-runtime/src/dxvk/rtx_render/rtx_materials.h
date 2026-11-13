@@ -727,7 +727,7 @@ struct RtOpaqueSurfaceMaterial {
       flags |= uint16_t(m_glintMode) << OPAQUE_SURFACE_MATERIAL_GLINT_MODE_SHIFT;
     }
 
-    // For decode process, see surface_material.h
+    // For decode process, see surface_material_types.slang
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
 
     if (m_enableThinFilm) {
@@ -1151,7 +1151,7 @@ struct RtTranslucentSurfaceMaterial {
   void writeGPUData(unsigned char* data, std::size_t& offset, uint32_t materialIndex) const {
     [[maybe_unused]] const std::size_t oldOffset = offset;
 
-    // For decode process, see surface_material.h
+    // For decode process, see surface_material_types.slang
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
 
     uint16_t flags = surfaceMaterialTypeTranslucent;
@@ -1336,7 +1336,7 @@ struct RtRayPortalSurfaceMaterial {
   void writeGPUData(unsigned char* data, std::size_t& offset) const {
     [[maybe_unused]] const std::size_t oldOffset = offset;
 
-    // For decode process, see surface_material.h
+    // For decode process, see surface_material_types.slang
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
 
     uint16_t flags = surfaceMaterialTypeRayPortal;
@@ -1504,7 +1504,7 @@ struct RtSubsurfaceMaterial {
   void writeGPUData(unsigned char* data, std::size_t& offset) const {
     [[maybe_unused]] const std::size_t oldOffset = offset;
 
-    // For decode process, see surface_material.h
+    // For decode process, see surface_material_types.slang
     // this data is accessed from uint16_t data[32], so data[n] refers to a pair of bytes.
 
     // Write an empty flags to stay consistent with the other materials.

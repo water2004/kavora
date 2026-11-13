@@ -61,8 +61,8 @@
 // Note: Needed for declaration of g-buffer ray payload structure
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
-#include "rtx/concept/camera/camera.slangh"
-#include "rtx/algorithm/geometry_resolver.slangh"
+import "rtx/concept/camera/camera.slang";
+#include "rtx/pass/gbuffer/gbuffer_primary.slangh"
 
 #ifdef RAY_PIPELINE
 [shader("raygeneration")]

@@ -1,4 +1,5 @@
 #pragma once
+#include "rtx/utility/shader_types.slangh"
 #include "rtx/utility/color.slangh"
 
 // https://en.wikipedia.org/wiki/Table_of_spherical_harmonics#Real_spherical_harmonics

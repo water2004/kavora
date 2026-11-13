@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/concept/surface/surface.slangh"
+#include "rtx/utility/atlas_mip_bounds.h"
 
 vec4 textureRead(uint16_t textureIndex, uint16_t samplerIndex, SurfaceInteraction surfaceInteraction, float lodBias = 0.0)
 {

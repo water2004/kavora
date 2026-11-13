@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: MIT */
+import "cloud_sky_transport.slang";
+import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
 #include "rtx/utility/math.slangh"
-#include "rtx/concept/camera/camera.slangh"
-#include "rtx/algorithm/clouds.slangh"
-#include "rtx/pass/clouds/cloud_sky_transport.slangh"
-#include "rtx/algorithm/cloud_sky.slangh"
+import "rtx/concept/camera/camera.slang";
+import "rtx/algorithm/clouds.slang";
+import "rtx/pass/cloud_parameters.slang";
+import "rtx/algorithm/cloud_sky.slang";
 #include "rtx/algorithm/environment_radiance.slangh"
 
 layout(binding = CLOUD_SKY_BINDING_PROBE)
@@ -37,11 +39,13 @@ void main(uint2 pixel : SV_DispatchThreadID)
     const float next = grid.boundary(cell + 1);
     const float distance = grid.sampleAt(cell);
     const float3 position = origin + direction * distance;
-    const float extinction = cloudExtinction(args, position);
+    const float extinction = cloudExtinction(args, position, CloudWeatherSampler, CloudBaseSampler,
+      CloudDetailSampler);
     if (extinction > 0)
     {
       const float opacity = accumulateCloudSkyStep(extinction, next - previous, args.albedo,
-        cloudIncidentRadiance(args, position, direction, ambient), radiance, transmittance);
+        cloudIncidentRadiance(args, position, direction, ambient, CloudWeatherSampler, CloudBaseSampler,
+          CloudDetailSampler), radiance, transmittance);
       distanceMoment += opacity * distance;
     }
     if (transmittance < kOpaqueCloudTransmittance) break;

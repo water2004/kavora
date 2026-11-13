@@ -40,7 +40,8 @@ namespace dxvk {
 
         void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
-        void dispatch(Rc<RtxContext> ctx, const Resources::RaytracingOutput& rtOutput);
+        void dispatch(Rc<RtxContext> ctx, const Resources::AliasedResource& compositeColor,
+                      const Resources::AliasedResource& output);
 
         float m_sharpness = 0.5f;
         bool m_useFp16 = false;

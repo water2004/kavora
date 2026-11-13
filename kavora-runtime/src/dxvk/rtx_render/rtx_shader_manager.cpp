@@ -573,7 +573,7 @@ namespace dxvk {
     bool allShaderRecreationSuccessful = true;
 
     for (auto& [name, info] : m_shaderMap) {
-      const auto shaderSPIRVBinaryPath = (std::filesystem::path{ spirvBinaryOutputPath } / (std::string { info.m_name } + ".spv")).u8string();
+      const auto shaderSPIRVBinaryPath = std::filesystem::path{ spirvBinaryOutputPath } / (std::string { info.m_name } + ".spv");
 
       bool recreationSuccessful = false;
       std::ifstream file(shaderSPIRVBinaryPath, std::ios::binary);
@@ -590,7 +590,7 @@ namespace dxvk {
       }
 
       if (!recreationSuccessful) {
-        Logger::err(str::format("Failed to recreate a shader from a SPIR-V binary: \"", shaderSPIRVBinaryPath, "\""));
+        Logger::err(str::format("Failed to recreate a shader from a SPIR-V binary: \"", str::utf8Bytes(shaderSPIRVBinaryPath.u8string()), "\""));
 
         allShaderRecreationSuccessful = false;
       }

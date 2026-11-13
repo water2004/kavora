@@ -21,10 +21,76 @@
 */
 #pragma once
 
-#include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx/pass/raytrace_args.h"
 
 namespace dxvk {
+
+  using IndirectIntegrationResources = FrameResourceView<
+    &RaytracingFrame::m_sharedFlags,
+    &RaytracingFrame::m_sharedMediumState,
+    &RaytracingFrame::m_sharedTextureCoord,
+    &RaytracingFrame::m_sharedSurfaceIndex,
+    &RaytracingFrame::m_sharedSubsurfaceData,
+    &RaytracingFrame::m_sharedIntegrationSurfacePdf,
+    &RaytracingFrame::m_primaryConeRadius,
+    &RaytracingFrame::m_secondaryConeRadius,
+    &RaytracingFrame::getCompactedPrimaryWorldPositionWorldTriangleNormal,
+    &RaytracingFrame::m_rtxdiReservoirBuffer,
+    &RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal,
+    &RaytracingFrame::m_indirectRayOriginDirection,
+    &RaytracingFrame::m_sparseRenderingActiveLocalPixelCoords,
+    &RaytracingFrame::m_sparseRenderingCompactedPixelIndices,
+    &RaytracingFrame::m_sparseRenderingTileActiveCounts,
+    &RaytracingFrame::m_indirectFirstHitPerceptualRoughness,
+    &RaytracingFrame::m_gbufferLast,
+    &RaytracingFrame::getPreviousPrimaryWorldPositionWorldTriangleNormal,
+    &RaytracingFrame::m_primaryHitDistance,
+    &RaytracingFrame::m_secondaryHitDistance,
+    &RaytracingFrame::m_raytraceArgs,
+    &RaytracingFrame::m_indirectFirstSampledLobeData,
+    &RaytracingFrame::m_rtxdiGradients,
+    &RaytracingFrame::m_primaryDirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryDirectSpecularRadiance,
+    &RaytracingFrame::m_secondaryCombinedDiffuseRadiance,
+    &RaytracingFrame::m_secondaryCombinedSpecularRadiance,
+    &RaytracingFrame::m_neeCache,
+    &RaytracingFrame::m_neeCacheSample,
+    &RaytracingFrame::m_neeCacheTask,
+    &RaytracingFrame::m_neeCacheThreadTask,
+    &RaytracingFrame::m_indirectThroughputConeRadius,
+    &RaytracingFrame::m_indirectRadianceHitDistance,
+    &RaytracingFrame::m_compositeOutputExtent>;
+
+  using NeeIntegrationResources = FrameResourceView<
+    &RaytracingFrame::m_compositeOutputExtent,
+    &RaytracingFrame::m_sharedFlags,
+    &RaytracingFrame::m_sharedMaterialData0,
+    &RaytracingFrame::m_sharedMaterialData1,
+    &RaytracingFrame::m_sharedTextureCoord,
+    &RaytracingFrame::m_sharedSurfaceIndex,
+    &RaytracingFrame::m_sharedSubsurfaceData,
+    &RaytracingFrame::m_sharedSubsurfaceDiffusionProfileData,
+    &RaytracingFrame::m_sparseRenderingActivePixelCoords,
+    &RaytracingFrame::m_sparseRenderingActivePixelCount,
+    &RaytracingFrame::m_primaryWorldShadingNormal,
+    &RaytracingFrame::m_primaryPerceptualRoughness,
+    &RaytracingFrame::m_primaryHitDistance,
+    &RaytracingFrame::m_primaryAlbedo,
+    &RaytracingFrame::m_primaryViewDirection,
+    &RaytracingFrame::m_primaryConeRadius,
+    &RaytracingFrame::getCompactedPrimaryWorldPositionWorldTriangleNormal,
+    &RaytracingFrame::m_primaryPositionError,
+    &RaytracingFrame::m_indirectRadianceHitDistance,
+    &RaytracingFrame::m_primaryBaseReflectivity,
+    &RaytracingFrame::m_primaryIndirectDiffuseRadiance,
+    &RaytracingFrame::m_primaryIndirectSpecularRadiance,
+    &RaytracingFrame::m_neeCache,
+    &RaytracingFrame::m_neeCacheTask,
+    &RaytracingFrame::m_neeCacheSample,
+    &RaytracingFrame::m_raytraceArgs,
+    &RaytracingFrame::m_sparseRenderingDispatchIndirectArgs,
+    &RaytracingFrame::m_finalOutputExtent>;
 
   class DxvkDevice;
   enum class IntegrateIndirectMode;
@@ -43,9 +109,9 @@ namespace dxvk {
 
     void prewarmShaders(DxvkPipelineManager& pipelineManager) const;
 
-    void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, const bool doSharcUpdate = false);
+    void dispatch(class RtxContext* ctx, IndirectIntegrationResources resources, const bool doSharcUpdate = false);
 
-    void dispatchNEE(RtxContext* ctx, const Resources::RaytracingOutput& rtOutput);
+    void dispatchNEE(RtxContext* ctx, NeeIntegrationResources resources);
 
     static const char* raytraceModeToString(RaytraceMode raytraceMode);
 

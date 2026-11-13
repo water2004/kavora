@@ -25,6 +25,7 @@
 #include "rtx/pass/volume_args.h"
 #include "rtx/utility/shader_types.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_camera_manager.h"
 
 namespace dxvk {
@@ -73,6 +74,7 @@ namespace dxvk {
   class RtxGlobalVolumetrics : public CommonDeviceObject, public RtxPass {
 
   public:
+
     enum QualityLevel : uint32_t {
       Low = 0,
       Medium,
@@ -322,7 +324,7 @@ namespace dxvk {
 
     VolumeArgs getVolumeArgs(CameraManager const& cameraManager, FogState const& fogState, bool enablePortalVolumes);
 
-    void dispatch(class RtxContext* ctx, const Resources::RaytracingOutput& rtOutput, uint32_t numActiveFroxelVolumes);
+    void dispatch(class RtxContext* ctx, uint32_t numActiveFroxelVolumes);
     // Publishes radiance, transmittance and the first opacity moment of each sky ray.
     void dispatchCloudSky(class RtxContext* ctx, const CloudArgs& clouds);
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }

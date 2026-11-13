@@ -57,10 +57,10 @@
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 #define WATER_SIM_SAMPLE 1
 #include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
-#include "rtx/concept/camera/camera.slangh"
+import "rtx/concept/camera/camera.slang";
 #include "rtx/pass/gbuffer/psr_queue.slangh"
 
-#include "rtx/algorithm/geometry_resolver.slangh"
+#include "rtx/pass/gbuffer/gbuffer_psr.slangh"
 
 RayHitInfo traceQueuedPSRIntersection(RayDesc ray, uint flags, uint mask, float coneRadius, float spreadAngle)
 {
@@ -70,6 +70,22 @@ RayHitInfo traceQueuedPSRIntersection(RayDesc ray, uint flags, uint mask, float 
   return traceOrderedIntersection(ray, flags, mask, coneRadius, spreadAngle);
 #endif
 }
+
+struct QueuedPsrResolve : IRayResolveStep<GeometryPSRResolverState, EmptyExtraArgs>
+{
+  [ForceInline]
+  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle,
+    inout GeometryPSRResolverState state)
+  {
+    return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask), state.coneRadius, spreadAngle);
+  }
+
+  [ForceInline]
+  static void resolve(inout EmptyExtraArgs args, RayHitInfo hit, inout GeometryPSRResolverState state)
+  {
+    geometryPSRResolverVertex(args, hit, state);
+  }
+};
 
 RayHitInfo traceQueuedPSRState(GeometryPSRResolverState state)
 {
@@ -136,10 +152,14 @@ void main()
   ray.tMax = floatMax;
   const uint flags = RAY_FLAG_FORCE_OPAQUE | (state.insideMedium ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES);
   EmptyExtraArgs extraArgs;
-  RESOLVE_RAY_WITH_INITIAL_HIT(traceQueuedPSRIntersection, true, firstHit,
-    extraArgs, ray, flags, geometryPSRResolverVertex,
-    cb.psrRayMaxInteractions, state, state.segmentHitDistance,
-    DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS, GBUFFER_FEATURE_DEBUG_VIEW);
+  const uint8_t interactions = resolveRay<GeometryPSRResolverState, EmptyExtraArgs, QueuedPsrResolve, true, true>(
+    rayToRayDesc(ray), ray.coneRadius, ray.spreadAngle, firstHit, flags, 0u,
+    cb.psrRayMaxInteractions, extraArgs, state);
+  if (GBUFFER_FEATURE_DEBUG_VIEW)
+  {
+    recordResolveInteractions(state.pixelCoordinate, interactions,
+      DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS);
+  }
   if (state.continuePSRResolving)
   {
     storePSRState(pixelIndex, state, resolveVertexUnorderedRng.seed);

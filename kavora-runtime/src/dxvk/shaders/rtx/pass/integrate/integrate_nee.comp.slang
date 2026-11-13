@@ -226,7 +226,8 @@ void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_Group
         vec3 diffuseLight = 0;
         vec3 specularLight = 0;
         vec3 inputDirection = normalize(lightSample.position - minimalSurfaceInteraction.position);
-        float brdfSampleSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcSolidAnglePdf(opaqueSurfaceMaterialInteraction, minimalRayInteraction, inputDirection);
+        float brdfSampleSolidAnglePdf = opaqueSurfaceMaterialInteractionCalcSolidAnglePdf(
+          opaqueSurfaceMaterialInteraction, opaqueLobeSampling(cb), minimalRayInteraction.viewDirection, inputDirection);
         float misWeight = lightSample.solidAnglePdf / (brdfSampleSolidAnglePdf + lightSample.solidAnglePdf);
         lightSample.radiance *= misWeight;
 

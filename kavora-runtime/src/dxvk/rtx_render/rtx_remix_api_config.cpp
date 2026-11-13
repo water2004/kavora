@@ -14,6 +14,7 @@
 #include "rtx_remix_api_config.h"
 #include "rtx_option.h"
 #include "rtx_option_manager.h"
+#include "../../util/util_string.h"
 
 namespace dxvk::remixapi_config {
   namespace {
@@ -60,7 +61,7 @@ namespace dxvk::remixapi_config {
     if (error) {
       return REMIXAPI_ERROR_CODE_GENERAL_FAILURE;
     }
-    const std::string normalizedPath = fullPath.u8string();
+    const std::string normalizedPath(str::utf8Bytes(fullPath.u8string()));
     // Clamp before the float-to-integer conversion, which is undefined for out-of-range values.
     const uint32_t effectivePriority = static_cast<uint32_t>(std::round(std::clamp(priority,
       static_cast<float>(kMinDynamicRtxOptionLayerPriority), static_cast<float>(kMaxDynamicRtxOptionLayerPriority))));

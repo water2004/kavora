@@ -23,6 +23,7 @@
 
 #include "../dxvk_include.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "dxvk_image.h"
 
 namespace dxvk {
@@ -51,6 +52,16 @@ namespace dxvk {
 
   class DxvkDLSS : public CommonDeviceObject, public RtxPass {
   public:
+    using DLSSDispatchResources = FrameResourceView<
+      &RaytracingFrame::m_compositeOutput,
+      &RaytracingFrame::m_primaryScreenSpaceMotionVector,
+      &RaytracingFrame::m_primaryDepth,
+      &RaytracingFrame::getCurrentPrimaryWorldPositionWorldTriangleNormal,
+      &RaytracingFrame::m_primaryAlbedo,
+      &RaytracingFrame::m_sharedBiasCurrentColorMask,
+      &RaytracingFrame::m_primarySpecularAlbedo,
+      &RaytracingFrame::m_finalOutput>;
+
     enum class MotionVectorScale : uint32_t {
       Absolute,   ///< Motion vectors are provided in absolute screen space length (pixels).
       Relative,   ///< Motion vectors are provided in relative screen space length (pixels divided by screen width/height).
@@ -88,7 +99,7 @@ namespace dxvk {
     void dispatch(
       Rc<RtxContext> ctx,
       DxvkBarrierSet& barriers,
-      const Resources::RaytracingOutput& rtOutput,
+      DLSSDispatchResources resources,
       bool resetHistory = false);
 
     void showImguiSettings();
