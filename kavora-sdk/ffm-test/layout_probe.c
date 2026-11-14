@@ -191,6 +191,10 @@ printf("MeshInfoSkinning blendWeights_values %zu\n", offsetof(remixapi_MeshInfoS
 printf("MeshInfoSkinning blendWeights_count %zu\n", offsetof(remixapi_MeshInfoSkinning, blendWeights_count));
 printf("MeshInfoSkinning blendIndices_values %zu\n", offsetof(remixapi_MeshInfoSkinning, blendIndices_values));
 printf("MeshInfoSkinning blendIndices_count %zu\n", offsetof(remixapi_MeshInfoSkinning, blendIndices_count));
+printf("MatchedIorBackMedium sizeof %zu\n", sizeof(remixapi_MatchedIorBackMedium));
+printf("MatchedIorBackMedium alignof %zu\n", __alignof(remixapi_MatchedIorBackMedium));
+printf("MatchedIorBackMedium texcoord %zu\n", offsetof(remixapi_MatchedIorBackMedium, texcoord));
+printf("MatchedIorBackMedium atlasBoundsOrExtinction %zu\n", offsetof(remixapi_MatchedIorBackMedium, atlasBoundsOrExtinction));
 printf("MeshInfoSurfaceTriangles sizeof %zu\n", sizeof(remixapi_MeshInfoSurfaceTriangles));
 printf("MeshInfoSurfaceTriangles alignof %zu\n", __alignof(remixapi_MeshInfoSurfaceTriangles));
 printf("MeshInfoSurfaceTriangles vertices_values %zu\n", offsetof(remixapi_MeshInfoSurfaceTriangles, vertices_values));

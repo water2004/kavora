@@ -171,7 +171,26 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
                     "fill -3 -60 1 -1 -54 1 minecraft:red_stained_glass_pane",
                     "fill 0 -60 1 2 -54 1 minecraft:blue_stained_glass_pane",
                     "fill 3 -60 1 5 -54 1 minecraft:blue_stained_glass",
-                    "fill 6 -60 1 8 -54 1 minecraft:glass_pane");
+                    "fill 6 -60 1 8 -54 1 minecraft:glass_pane",
+                    "fill -9 -60 2 -7 -54 2 minecraft:red_stained_glass",
+                    "fill -6 -60 2 -4 -54 2 minecraft:blue_stained_glass",
+                    "fill 3 -60 2 5 -54 2 minecraft:red_stained_glass",
+                    "fill -9 -60 3 -4 -54 3 minecraft:white_concrete",
+                    "fill 3 -60 3 5 -54 3 minecraft:white_concrete",
+                    "fill -9 -57 3 -4 -57 3 minecraft:gray_concrete",
+                    "fill 3 -57 3 5 -57 3 minecraft:gray_concrete",
+                    "fill 9 -60 1 11 -54 1 minecraft:glass",
+                    "fill 9 -60 2 11 -54 2 minecraft:white_concrete",
+                    "fill 9 -57 2 11 -57 2 minecraft:gray_concrete",
+                    "fill 12 -60 1 14 -54 1 minecraft:glass",
+                    "fill 12 -60 3 14 -54 3 minecraft:white_concrete",
+                    "fill 12 -57 3 14 -57 3 minecraft:gray_concrete",
+                    "fill 16 -60 1 24 -54 1 minecraft:glass",
+                    "fill 16 -58 2 18 -58 2 minecraft:stone_slab[type=bottom]",
+                    "fill 19 -58 2 21 -58 2 minecraft:quartz_stairs[facing=east]",
+                    "fill 22 -59 2 24 -59 2 minecraft:smooth_stone",
+                    "fill 22 -58 2 24 -58 2 minecraft:snow[layers=5]",
+                    "fill 16 -60 4 24 -54 4 minecraft:light_blue_concrete");
         });
         context.runOnClient(client -> { if (!client.gui.hud.isHidden()) client.gui.hud.toggle(); });
         pose(world, -4.5, -58.5, -5.0, 0, 0);
@@ -179,18 +198,27 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
         Path redPane = captureGlassPanel(context, world, -1.5, "glass-red-pane");
         Path bluePane = captureGlassPanel(context, world, 1.5, "glass-blue-pane");
         Path blueBlock = captureGlassPanel(context, world, 4.5, "glass-blue-block");
-        double clearBlockTint = glassTint(captureGlassPanel(context, world, -7.5, "glass-clear-block"));
+        Path clearToRed = captureGlassPanel(context, world, -7.5, "glass-clear-to-red-backed");
         double clearPaneTint = glassTint(captureGlassPanel(context, world, 7.5, "glass-clear-pane"));
+        Path clearBacked = captureGlassPanel(context, world, 10.5, "glass-clear-backed");
+        Path clearAirGap = captureGlassPanel(context, world, 13.5, "glass-clear-air-gap");
 
-        double redBlockTint = glassTint(redBlock) - clearBlockTint;
         double redPaneTint = glassTint(redPane) - clearPaneTint;
         double bluePaneTint = clearPaneTint - glassTint(bluePane);
-        double blueBlockTint = clearBlockTint - glassTint(blueBlock);
-        if (redPaneTint < 0.02 || bluePaneTint < 0.02
-                || redBlockTint < 0.02 || blueBlockTint < 0.02) {
-            throw new AssertionError("Incorrect glass transmission (red block, red pane, blue pane, blue block) "
-                    + redBlockTint + ", " + redPaneTint + ", " + bluePaneTint + ", " + blueBlockTint);
+        if (redPaneTint < 0.02 || bluePaneTint < 0.02 || glassTint(clearToRed) < clearPaneTint + 0.02) {
+            throw new AssertionError("Incorrect transmission through glass panes or the backed clear-to-red interface");
         }
+        double redToBlueTint = glassTint(redBlock);
+        double blueToRedTint = glassTint(blueBlock);
+        if (Math.abs(redToBlueTint - blueToRedTint) > 0.09) {
+            throw new AssertionError("Backed glass tint depends on layer order: " + redToBlueTint + ", " + blueToRedTint);
+        }
+        assertBackingStripe(clearBacked);
+        assertBackingStripe(clearAirGap);
+        Path slab = captureGlassPanel(context, world, 17.5, "glass-slab-contact");
+        Path stair = captureGlassPanel(context, world, 20.5, "glass-stair-contact");
+        Path snow = captureGlassPanel(context, world, 23.5, "glass-snow-contact");
+        for (Path partial : new Path[] {slab, stair, snow}) assertPartialGlassBacking(partial);
     }
 
     private static Path captureGlassPanel(ClientGameTestContext context, TestSingleplayerContext world,
@@ -217,6 +245,64 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
             return (double) (red - blue) / Math.max(1, red + green + blue);
         } catch (IOException error) {
             throw new AssertionError("Cannot inspect stained glass screenshot " + path, error);
+        }
+    }
+
+    private static void assertBackingStripe(Path path) {
+        try {
+            var image = ImageIO.read(path.toFile());
+            int width = image.getWidth();
+            int height = image.getHeight();
+            int darkest = 255;
+            int brightest = 0;
+            for (int y = height * 36 / 100; y < height * 66 / 100; y++) {
+                int luminance = 0;
+                int firstX = width * 48 / 100;
+                int lastX = width * 52 / 100;
+                for (int x = firstX; x < lastX; x++) {
+                    int rgb = image.getRGB(x, y);
+                    luminance += (rgb >>> 16 & 255) + (rgb >>> 8 & 255) + (rgb & 255);
+                }
+                int row = luminance / (3 * (lastX - firstX));
+                darkest = Math.min(darkest, row);
+                brightest = Math.max(brightest, row);
+            }
+            if (brightest - darkest < 12) {
+                throw new AssertionError("Opaque backing stripe is missing through " + path);
+            }
+        } catch (IOException error) {
+            throw new AssertionError("Cannot inspect backing stripe through " + path, error);
+        }
+    }
+
+    private static void assertPartialGlassBacking(Path path) {
+        try {
+            var image = ImageIO.read(path.toFile());
+            int backing = 0;
+            int blue = 0;
+            int width = image.getWidth();
+            int height = image.getHeight();
+            int firstX = width * 43 / 100;
+            int lastX = width * 57 / 100;
+            int firstY = height * 35 / 100;
+            int lastY = height * 69 / 100;
+            for (int y = firstY; y < lastY; y++) {
+                for (int x = firstX; x < lastX; x++) {
+                    int rgb = image.getRGB(x, y);
+                    int r = rgb >>> 16 & 255;
+                    int g = rgb >>> 8 & 255;
+                    int b = rgb & 255;
+                    if (Math.max(r, g) >= b - 8 && Math.max(r, g) > 32) backing++;
+                    if (b - r > 30) blue++;
+                }
+            }
+            int pixels = (lastY - firstY) * (lastX - firstX);
+            if (backing < pixels / 25 || blue < pixels / 10) {
+                throw new AssertionError("Expected both exposed and backed parts of the glass in " + path
+                        + " (backing=" + backing + ", blue=" + blue + ", pixels=" + pixels + ")");
+            }
+        } catch (IOException error) {
+            throw new AssertionError("Cannot inspect glass with partial backing in " + path, error);
         }
     }
 

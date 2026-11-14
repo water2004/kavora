@@ -1077,6 +1077,7 @@ namespace {
     dst.vertexCount = src.vertices_count;
     dst.immutablePositions = !src.skinning_hasvalue;
     dst.hasWaterContact = (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_WATER_CONTACT) != 0;
+    dst.isMatchedIorBoundary = (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_MATCHED_IOR_BOUNDARY) != 0;
     if (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS) {
       dst.previousPositionOffset = offsetof(remixapi_HardcodedVertex, previousPosition);
     }
@@ -1135,10 +1136,14 @@ namespace {
 
     constexpr size_t kAttributeStride = REMIXAPI_HARDCODED_VERTEX_STORAGE_STRIDE;
     constexpr size_t kMotionStride = offsetof(remixapi_HardcodedVertex, _pad3);
+    constexpr size_t kBoundaryStride = REMIXAPI_MATCHED_IOR_BOUNDARY_VERTEX_STRIDE;
     static_assert(kAttributeStride == offsetof(remixapi_HardcodedVertex, previousPosition));
+    static_assert(kBoundaryStride == kAttributeStride + sizeof(remixapi_MatchedIorBackMedium));
+    static_assert(kAttributeStride == offsetof(remixapi_HardcodedVertex, texcoordBounds) + sizeof(remixapi_HardcodedVertex::texcoordBounds));
     static_assert(sizeof(remixapi_HardcodedVertex) == 64);
     const bool explicitMotion = src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS;
-    const size_t vertexStride = explicitMotion ? kMotionStride : kAttributeStride;
+    const bool matchedIorBoundary = src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_MATCHED_IOR_BOUNDARY;
+    const size_t vertexStride = matchedIorBoundary ? kBoundaryStride : explicitMotion ? kMotionStride : kAttributeStride;
     const size_t vertexDataSize = vertexStride * src.vertices_count;
     const auto quadPattern = dxvk::findQuadIndexPattern(src.indices_values, src.indices_count, src.vertices_count);
     const uint32_t indexStride = quadPattern != dxvk::QuadIndexPattern::None ? sizeof(uint16_t)
@@ -1153,7 +1158,9 @@ namespace {
     auto vertexSlice = dxvk::DxvkBufferSlice { vertexBuffer };
     const size_t inputStride = (src.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_COMPACT_VERTICES)
       ? kAttributeStride : sizeof(remixapi_HardcodedVertex);
-    if (explicitMotion) {
+    if (matchedIorBoundary) {
+      memcpy(vertexSlice.mapPtr(0), src.vertices_values, vertexDataSize);
+    } else if (explicitMotion) {
       dxvk::remixapi_geometry::copyVertices<kMotionStride>(vertexSlice.mapPtr(0), src.vertices_values, src.vertices_count, inputStride);
     } else {
       dxvk::remixapi_geometry::copyVertices<kAttributeStride>(vertexSlice.mapPtr(0), src.vertices_values, src.vertices_count, inputStride);
@@ -1249,6 +1256,13 @@ namespace {
         const auto& surface = info->surfaces_values[i];
         if ((surface.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS)
             && ((surface.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_COMPACT_VERTICES) || surface.skinning_hasvalue)) {
+          return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
+        }
+        constexpr uint32_t boundaryRequired = REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_TEXCOORD_BOUNDS |
+          REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_COMPACT_VERTICES;
+        if ((surface.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_MATCHED_IOR_BOUNDARY)
+            && ((surface.flags & boundaryRequired) != boundaryRequired ||
+                (surface.flags & REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_WATER_CONTACT) || surface.skinning_hasvalue)) {
           return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
         }
       }

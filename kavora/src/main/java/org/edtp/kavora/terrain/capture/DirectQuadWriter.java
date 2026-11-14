@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.resources.Identifier;
 
 /**
@@ -38,21 +39,14 @@ import net.minecraft.resources.Identifier;
  */
 public final class DirectQuadWriter {
 
-    private static final int STRIDE = SectionMeshData.VERTEX_STRIDE;
     private static final int INDICES_PER_QUAD = 6;
     private static final int MAX_BLOCK_QUADS = 128;
     private static final float DECAL_NORMAL_DOT_EPSILON = 0.999f;
     private static final float DECAL_PLANE_DISTANCE_EPSILON = 1.0E-3f;
     private static final float DECAL_OVERLAP_EPSILON = 1.0E-4f;
 
-    private static final int BYTES_PER_QUAD = 4 * STRIDE;
-    // Keep the intermediate capacity used for dense cube sections. Models with
-    // more faces can grow past it to the next power-of-two quad capacity.
-    private static final int DENSE_BUCKET_BYTES = 24_576 * BYTES_PER_QUAD;
-    private static final int MAX_VERTEX_BUFFER_BYTES = Integer.MAX_VALUE / BYTES_PER_QUAD * BYTES_PER_QUAD;
     /** Initial bucket capacity: 128 quads keeps small section buckets compact. */
     private static final int INITIAL_QUADS    = 128;
-    private static final int INITIAL_VERT_SIZE = INITIAL_QUADS * BYTES_PER_QUAD;
 
     /** Total bytes allocated across all DirectQuadWriter bucket buffers, all threads. */
     private static final AtomicLong totalAllocatedBytes = new AtomicLong();
@@ -82,6 +76,8 @@ public final class DirectQuadWriter {
     static final class BucketBuffer {
         final int category;
         final String key;
+        final int stride;
+        final int bytesPerQuad;
         ByteBuffer vertices;
         int vertexCount;
         int indexCount;
@@ -90,8 +86,10 @@ public final class DirectQuadWriter {
         BucketBuffer(int category, String key) {
             this.category = category;
             this.key = key;
-            vertices = ByteBuffer.allocate(INITIAL_VERT_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-            totalAllocatedBytes.addAndGet(INITIAL_VERT_SIZE);
+            stride = SectionMeshData.Surface.vertexStride(key);
+            bytesPerQuad = 4 * stride;
+            vertices = ByteBuffer.allocate(INITIAL_QUADS * bytesPerQuad).order(ByteOrder.LITTLE_ENDIAN);
+            totalAllocatedBytes.addAndGet(vertices.capacity());
         }
 
         int allocatedBytes() { return vertices.capacity(); }
@@ -106,46 +104,64 @@ public final class DirectQuadWriter {
         void writeQuad(float[] pos, int posOff, float[] uvs, int uvOff,
                 float nx, float ny, float nz, int color, int[] colors, int colorOffset,
                 int boundsMin, int boundsMax) {
-            int usedBytes = vertexCount * STRIDE;
-            if (vertices.capacity() - usedBytes < BYTES_PER_QUAD) {
+            writeQuad(pos, posOff, uvs, uvOff, nx, ny, nz, color, colors, colorOffset,
+                    boundsMin, boundsMax, null, 0, 0, false);
+        }
+
+        void writeQuad(float[] pos, int posOff, float[] uvs, int uvOff,
+                float nx, float ny, float nz, int color, int[] colors, int colorOffset,
+                int boundsMin, int boundsMax, float[] oppositeUv, int oppositeMin, int oppositeMax,
+                boolean reverseWinding) {
+            int usedBytes = vertexCount * stride;
+            if (vertices.capacity() - usedBytes < bytesPerQuad) {
                 growVertices(usedBytes);
             }
 
             for (int v = 0; v < 4; v++) {
-                int wo = usedBytes + v * STRIDE;
-                float x = pos[posOff + v * 3];
-                float y = pos[posOff + v * 3 + 1];
-                float z = pos[posOff + v * 3 + 2];
+                int wo = usedBytes + v * stride;
+                int source = reverseWinding ? (-v & 3) : v;
+                float x = pos[posOff + source * 3];
+                float y = pos[posOff + source * 3 + 1];
+                float z = pos[posOff + source * 3 + 2];
+                float u = uvs[uvOff + source * 2];
+                float t = uvs[uvOff + source * 2 + 1];
                 vertices.putFloat(wo,      x);
                 vertices.putFloat(wo + 4,  y);
                 vertices.putFloat(wo + 8,  z);
                 vertices.putFloat(wo + 12, nx);
                 vertices.putFloat(wo + 16, ny);
                 vertices.putFloat(wo + 20, nz);
-                vertices.putFloat(wo + 24, uvs[uvOff + v * 2]);
-                vertices.putFloat(wo + 28, uvs[uvOff + v * 2 + 1]);
-                int vertexColor = colors == null ? color : colors[colorOffset + v];
+                vertices.putFloat(wo + 24, u);
+                vertices.putFloat(wo + 28, t);
+                int vertexColor = colors == null ? color : colors[colorOffset + source];
                 vertices.putInt(wo + 32, vertexColor);
                 vertices.putInt(wo + 36,   boundsMin);
                 vertices.putInt(wo + 40,   boundsMax);
-                hashVertex(x, y, z,
-                           nx, ny, nz,
-                           uvs[uvOff + v * 2],
-                           uvs[uvOff + v * 2 + 1],
-                           vertexColor, boundsMin, boundsMax);
+                hashVertex(x, y, z, nx, ny, nz, u, t, vertexColor, boundsMin, boundsMax);
+                if (oppositeUv != null) {
+                    float oppositeU = oppositeUv[source * 2];
+                    float oppositeV = oppositeUv[source * 2 + 1];
+                    vertices.putFloat(wo + HardcodedVertex.STORAGE_STRIDE, oppositeU);
+                    vertices.putFloat(wo + HardcodedVertex.STORAGE_STRIDE + 4, oppositeV);
+                    vertices.putInt(wo + HardcodedVertex.STORAGE_STRIDE + 8, oppositeMin);
+                    vertices.putInt(wo + HardcodedVertex.STORAGE_STRIDE + 12, oppositeMax);
+                    vertexHash = (mixFloat(mixFloat(vertexHash, oppositeU), oppositeV) * 31 + oppositeMin) * 31 + oppositeMax;
+                }
             }
             vertexCount += 4;
             indexCount += INDICES_PER_QUAD;
         }
 
         private void growVertices(int usedBytes) {
-            if ((long) usedBytes + BYTES_PER_QUAD > MAX_VERTEX_BUFFER_BYTES) {
+            int maxVertexBytes = Integer.MAX_VALUE / bytesPerQuad * bytesPerQuad;
+            if ((long) usedBytes + bytesPerQuad > maxVertexBytes) {
                 throw new IllegalStateException("Terrain vertex buffer exceeds ByteBuffer capacity for " + key);
             }
             int oldCap = vertices.capacity();
-            long nextCap = 2L * Integer.highestOneBit(oldCap / BYTES_PER_QUAD) * BYTES_PER_QUAD;
-            if (oldCap < DENSE_BUCKET_BYTES) nextCap = Math.min(nextCap, DENSE_BUCKET_BYTES);
-            int newCap = (int) Math.min(nextCap, MAX_VERTEX_BUFFER_BYTES);
+            int denseBucketBytes = 24_576 * bytesPerQuad;
+            long nextCap = 2L * Integer.highestOneBit(oldCap / bytesPerQuad) * bytesPerQuad;
+            if (oldCap < denseBucketBytes) nextCap = Math.min(nextCap, denseBucketBytes);
+            int newCap = (int) Math.min(nextCap, maxVertexBytes);
             ByteBuffer grown = ByteBuffer.allocate(newCap).order(ByteOrder.LITTLE_ENDIAN);
             ByteBuffer src = vertices.duplicate().order(ByteOrder.LITTLE_ENDIAN);
             src.position(0).limit(usedBytes);
@@ -169,7 +185,7 @@ public final class DirectQuadWriter {
             surfaceHash = surfaceHash * 31 + indexCount;
             surfaceHash = surfaceHash * 31 + 1; // canonical quad indices
             surfaceHash = appendHash(
-                    surfaceHash, vertexHash, vertexCount * (STRIDE / Integer.BYTES));
+                    surfaceHash, vertexHash, vertexCount * (stride / Integer.BYTES));
             return h * 31 + surfaceHash;
         }
 
@@ -287,6 +303,22 @@ public final class DirectQuadWriter {
         stageHasVertexColors[index] = true;
     }
 
+    /** Writes an internal interface with the stained atlas material on its front-facing entry side. */
+    void writeGlassMediumBoundary(float[] positions, float[] uvs, float nx, float ny, float nz,
+            float u0, float v0, float u1, float v1,
+            float[] oppositeUv, TextureAtlasSprite oppositeSprite, boolean reverseWinding) {
+        int boundsMin = HardcodedVertex.packHalf2x16(u0, v0);
+        int boundsMax = HardcodedVertex.packHalf2x16(u1, v1);
+        int oppositeBoundsMin = oppositeSprite == null ? Float.floatToRawIntBits(-BlockTextureManager.CLEAR_GLASS_EXTINCTION)
+                : HardcodedVertex.packHalf2x16(oppositeSprite.getU0(), oppositeSprite.getV0());
+        int oppositeBoundsMax = oppositeSprite == null ? 0
+                : HardcodedVertex.packHalf2x16(oppositeSprite.getU1(), oppositeSprite.getV1());
+        String layer = BlockTextureManager.GLASS_MEDIUM_BOUNDARY;
+        getBucket(translucentCategory(BlockTextureManager.layerType(layer)), layer).writeQuad(
+                positions, 0, uvs, 0, nx, ny, nz, -1, null, 0,
+                boundsMin, boundsMax, oppositeUv, oppositeBoundsMin, oppositeBoundsMax, reverseWinding);
+    }
+
     /**
      * Writes a fluid quad directly to output buffers (fluids are never overlays).
      */
@@ -313,8 +345,7 @@ public final class DirectQuadWriter {
         int layerType = BlockTextureManager.layerType(renderLayer);
         boolean isWater = spriteId == null;
 
-        int cat = BlockTextureManager.isTranslucentLayer(layerType) ? ChunkManager.CAT_TRANSLUCENT
-                                              : ChunkManager.CAT_SOLID;
+        int cat = translucentCategory(layerType);
 
         String bk = isWater ? "water" : renderLayer;
         BlockTextureManager.SpriteEntry se = (spriteId != null && tex != null)
@@ -332,6 +363,10 @@ public final class DirectQuadWriter {
                                 : HardcodedVertex.packHalf2x16(su1, sv1);
 
         bb.writeQuad(positions, 0, uvs, 0, nx, ny, nz, color, colors, 0, boundsMin, boundsMax);
+    }
+
+    private static int translucentCategory(int layerType) {
+        return BlockTextureManager.isTranslucentLayer(layerType) ? ChunkManager.CAT_TRANSLUCENT : ChunkManager.CAT_SOLID;
     }
 
     /**
@@ -475,16 +510,18 @@ public final class DirectQuadWriter {
     public SectionMeshData buildMeshData() {
         int activeBuckets = 0;
         int totalVerts = 0;
+        long vertexBytes = 0;
         for (BucketBuffer bb : bucketOrder) {
             if (bb.vertexCount > 0) {
                 activeBuckets++;
                 totalVerts += bb.vertexCount;
+                vertexBytes += (long) bb.vertexCount * bb.stride;
             }
         }
         try (ProfileScope buildScope = ProfileScope.begin("buildMeshData")) {
             buildScope.surfaceCount(activeBuckets)
                     .vertexCount(totalVerts)
-                    .bytes((long) totalVerts * STRIDE);
+                    .bytes(vertexBytes);
             List<SectionMeshData.Surface> surfaces = new ArrayList<>();
             int contentHash = activeBuckets;
 
@@ -497,7 +534,7 @@ public final class DirectQuadWriter {
                     if (bb.vertexCount == 0) continue;
                     contentHash = bb.appendToContentHash(contentHash);
 
-                    int vBytes = bb.vertexCount * STRIDE;
+                    int vBytes = bb.vertexCount * bb.stride;
                     ByteBuffer vb = DirectBufferPool.acquire(vBytes);
                     ByteBuffer srcV = bb.vertices.duplicate().order(ByteOrder.LITTLE_ENDIAN);
                     srcV.position(0).limit(vBytes);

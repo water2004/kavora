@@ -20,6 +20,8 @@ public class MeshInfoSurfaceTriangles {
     public static final int PREVIOUS_POSITIONS = 1 << 2;
     /** On translucent faces, a zero vertex alpha marks water on the exterior side. */
     public static final int WATER_CONTACT = 1 << 3;
+    /** The two sides of a thick translucent boundary share an IOR. See remix_c.h for the vertex layout. */
+    public static final int MATCHED_IOR_BOUNDARY = 1 << 4;
 
     /** Direct, native-order records starting at offset zero; capacity must cover vertexCount times the stride. */
     public ByteBuffer vertexBuffer;

@@ -362,6 +362,7 @@ struct RtSurface {
     static_assert(static_cast<uint32_t>(TexGenMode::Count) <= 4);
     textureFlags |= ((static_cast<uint32_t>(texgenMode) & 0x3) << 17);
     textureFlags |= hasWaterContact ? (1 << 19) : 0;
+    textureFlags |= isMatchedIorBoundary ? (1 << 20) : 0;
 
     writeGPUHelper(data, offset, textureFlags);
 
@@ -432,6 +433,7 @@ struct RtSurface {
   bool isSelfLit = false;
   bool alphaCoverage = false;
   bool hasWaterContact = false;
+  bool isMatchedIorBoundary = false;
   bool isClipPlaneEnabled = false;
   bool isTextureFactorBlend = false;
   bool isVertexColorBakedLighting = true;

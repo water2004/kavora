@@ -384,7 +384,8 @@ void sampleAndStoreIndirectRayPathSample(
   inout GeometryFlags geometryFlags)
 {
   const uint8_t materialType = polymorphicSurfaceMaterialInteractionGetTypeHelper(primaryPolymorphicSurfaceMaterialInteraction);
-  uint mediumState = materialType == surfaceMaterialTypeTranslucent ? SharedMediumState[compactedCoordinate] : SURFACE_INDEX_INVALID;
+  uint mediumState = materialType == surfaceMaterialTypeTranslucent || geometryFlags.insideMedium
+    ? SharedMediumState[compactedCoordinate] : SURFACE_INDEX_INVALID;
 
   bool mediumChanged;
   Ray sampledRay;

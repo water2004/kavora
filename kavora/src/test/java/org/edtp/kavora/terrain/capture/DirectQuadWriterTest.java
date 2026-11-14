@@ -5,6 +5,7 @@
 package org.edtp.kavora.terrain.capture;
 
 import org.edtp.kavora.terrain.ChunkManager;
+import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.texture.BlockTextureManager;
 import org.junit.jupiter.api.Test;
 
@@ -43,6 +44,39 @@ class DirectQuadWriterTest {
             0.75f, 0.25f,
             0.25f, 0.25f
     };
+
+    @Test
+    void mediumBoundaryKeepsNormalsAndStoresBackMediumAfterAtlasBounds() {
+        DirectQuadWriter writer = new DirectQuadWriter();
+        writer.beginSection();
+        writer.writeGlassMediumBoundary(FRONT_POSITIONS, FRONT_UVS, 0, 0, 1,
+                0, 0, 1, 1, DISTINCT_BACK_UVS, null, true);
+        SectionMeshData data = writer.buildMeshData();
+        try {
+            var surface = data.surfaces().getFirst();
+            assertEquals(ChunkManager.CAT_TRANSLUCENT, surface.category());
+            assertEquals(HardcodedVertex.BOUNDARY_STORAGE_STRIDE, surface.vertexStride());
+            assertEquals(4 * surface.vertexStride(), surface.vertexBuffer().limit());
+            var vertices = surface.vertexBuffer().duplicate().order(ByteOrder.LITTLE_ENDIAN);
+            for (int vertex = 0; vertex < 4; vertex++) {
+                int offset = vertex * surface.vertexStride();
+                int source = -vertex & 3;
+                assertEquals(FRONT_POSITIONS[source * 3], vertices.getFloat(offset));
+                assertEquals(0f, vertices.getFloat(offset + 12));
+                assertEquals(0f, vertices.getFloat(offset + 16));
+                assertEquals(1f, vertices.getFloat(offset + 20));
+                assertEquals(-1, vertices.getInt(offset + 32));
+                int back = offset + HardcodedVertex.STORAGE_STRIDE;
+                assertEquals(DISTINCT_BACK_UVS[source * 2], vertices.getFloat(back));
+                assertEquals(DISTINCT_BACK_UVS[source * 2 + 1], vertices.getFloat(back + 4));
+                assertEquals(-BlockTextureManager.CLEAR_GLASS_EXTINCTION, vertices.getFloat(back + 8));
+            }
+            assertEquals(new SectionMeshData(data.surfaces()).contentHash(), data.contentHash());
+        } finally {
+            data.release();
+            writer.releaseBuffers();
+        }
+    }
 
     @Test
     void evaluatedQuadsPreserveEveryVertexTintAndHashIt() {

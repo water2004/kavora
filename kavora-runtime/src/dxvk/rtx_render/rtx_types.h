@@ -396,6 +396,7 @@ struct RasterGeometry {
   // API mesh positions remain fixed unless skinning or view-model correction deforms them.
   bool immutablePositions = false;
   bool hasWaterContact = false;
+  bool isMatchedIorBoundary = false;
   uint32_t quadMaterialOffset = 0;
   float quadMaxUvTileSize = -1;
   uint32_t previousPositionOffset = 0;

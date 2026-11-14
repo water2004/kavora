@@ -21,6 +21,8 @@
 */
 #pragma once
 
+import "rtx/concept/surface_material/translucent_medium.slang";
+import "rtx/concept/surface_material/translucent_medium_state.slang";
 import "rtx/concept/surface_material/water_normal_coordinates.slang";
 #ifdef WATER_SIM_SAMPLE
 import "rtx/concept/surface_material/water_surface.slang";
@@ -32,6 +34,30 @@ f16vec3 translucentSurfaceMaterialInteractionResolveTransmittanceColor(f16vec3 t
 {
   transmittanceColor = saturate(transmittanceColor * cb.translucentMaterialArgs.transmittanceColorScale + cb.translucentMaterialArgs.transmittanceColorBias);
   return gammaToLinear(transmittanceColor);
+}
+
+vec3 translucentTextureTransmittance(TranslucentSurfaceMaterial material, vec4 sampleValue)
+{
+  return lerp(material.transmittanceColor, sampleValue.rgb, sampleValue.a);
+}
+
+uint translucentBoundaryMedium(uint materialIndex, SurfaceInteraction interaction, float uniformExtinction)
+{
+  if (uniformExtinction > 0.0f)
+  {
+    return packMediumExtinction(float3(uniformExtinction));
+  }
+
+  const TranslucentSurfaceMaterial material = translucentSurfaceMaterialCreate(surfaceMaterials[materialIndex]);
+  vec4 sampleValue;
+  if (!surfaceMaterialInteractionTextureReadHelper(
+      material.transmittanceOrDiffuseTextureIndex, material.samplerIndex, interaction, sampleValue))
+  {
+    return material.sourceSurfaceMaterialIndex;
+  }
+  const float3 linear = translucentSurfaceMaterialInteractionResolveTransmittanceColor(
+    translucentTextureTransmittance(material, sampleValue));
+  return translucentMediumFromTransmittance(linear, material.thicknessOrMeasurementDistance);
 }
 
 // Translucent Surface Material Interaction Functions
@@ -128,7 +154,7 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   {
     if (transmittanceOrDiffuseLoaded)
     {
-      transmittanceColor = lerp(translucentSurfaceMaterial.transmittanceColor, transmittanceOrDiffuseSample.rgb, transmittanceOrDiffuseSample.a);
+      transmittanceColor = translucentTextureTransmittance(translucentSurfaceMaterial, transmittanceOrDiffuseSample);
     }
   }
   else

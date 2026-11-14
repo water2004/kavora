@@ -275,14 +275,16 @@ public final class BlockMeshBuilder {
     private void appendCanonicalPages(SurfaceBucket bucket,
                                       KavoraMaterial material,
                                       PageAccumulator accumulator) {
+        int stride = bucket.surfaces[0].surface().vertexStride();
+        int bytesPerQuad = VERTS_PER_QUAD * stride + INDICES_PER_QUAD * Integer.BYTES;
         int totalQuads = bucket.totalVerts / VERTS_PER_QUAD;
         int maxQuadsPerSurface = (int) Math.max(1L,
-                Math.min(Integer.MAX_VALUE, maxPageBytes / BYTES_PER_CANONICAL_QUAD));
+                Math.min(Integer.MAX_VALUE, maxPageBytes / bytesPerQuad));
         for (int firstQuad = 0; firstQuad < totalQuads; ) {
             int quadCount = Math.min(maxQuadsPerSurface, totalQuads - firstQuad);
             KavoraMeshSurface surface = mergeCanonicalSurfaceRange(
-                    bucket, material, firstQuad, quadCount);
-            accumulator.add(surface, (long) quadCount * BYTES_PER_CANONICAL_QUAD);
+                    bucket, material, firstQuad, quadCount, stride);
+            accumulator.add(surface, (long) quadCount * bytesPerQuad);
             firstQuad += quadCount;
         }
     }
@@ -291,7 +293,8 @@ public final class BlockMeshBuilder {
             SurfaceBucket bucket,
             KavoraMaterial material,
             int firstQuad,
-            int quadCount) {
+            int quadCount,
+            int stride) {
         int totalVerts = Math.multiplyExact(quadCount, VERTS_PER_QUAD);
         int totalIdx = Math.multiplyExact(quadCount, INDICES_PER_QUAD);
         ByteBuffer vm = null;
@@ -299,7 +302,7 @@ public final class BlockMeshBuilder {
         boolean transferred = false;
 
         try {
-            vm = DirectBufferPool.acquire(Math.multiplyExact(totalVerts, STRIDE));
+            vm = DirectBufferPool.acquire(Math.multiplyExact(totalVerts, stride));
             im = DirectBufferPool.acquire(Math.multiplyExact(totalIdx, Integer.BYTES));
 
             int wantedStart = firstQuad;
@@ -320,7 +323,7 @@ public final class BlockMeshBuilder {
                     ByteBuffer src = source.vertexBuffer().duplicate().order(ByteOrder.LITTLE_ENDIAN);
                     copySectionVertices(vm, outputVerts, src,
                             localFirstQuad * VERTS_PER_QUAD, copyVerts,
-                            ref.xOff(), ref.yOff(), ref.zOff());
+                            ref.xOff(), ref.yOff(), ref.zOff(), stride);
                     outputVerts += copyVerts;
                 }
                 sourceStart = sourceEnd;
@@ -333,7 +336,9 @@ public final class BlockMeshBuilder {
             putCanonicalQuadIndices(im, totalVerts);
             int flags = MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS | MeshInfoSurfaceTriangles.COMPACT_VERTICES;
             int layer = BlockTextureManager.layerType(bucket.key);
-            if (layer == BlockTextureManager.L_GLASS || layer == BlockTextureManager.L_STAINED_GLASS_BLOCK) {
+            if (layer == BlockTextureManager.L_GLASS_MEDIUM_BOUNDARY) {
+                flags |= MeshInfoSurfaceTriangles.MATCHED_IOR_BOUNDARY;
+            } else if (layer == BlockTextureManager.L_GLASS || layer == BlockTextureManager.L_STAINED_GLASS_BLOCK) {
                 flags |= MeshInfoSurfaceTriangles.WATER_CONTACT;
             }
             KavoraMeshSurface surface = new KavoraMeshSurface(material)
@@ -394,16 +399,16 @@ public final class BlockMeshBuilder {
 
 
     private static void copySectionVertices(ByteBuffer destination, int destinationBase,
-            ByteBuffer source, int sourceBase, int vertexCount, int xOff, int yOff, int zOff) {
-        destination.put(destinationBase * STRIDE, source, sourceBase * STRIDE, vertexCount * STRIDE);
+            ByteBuffer source, int sourceBase, int vertexCount, int xOff, int yOff, int zOff, int stride) {
+        destination.put(destinationBase * stride, source, sourceBase * stride, vertexCount * stride);
         for (int v = 0; v < vertexCount; v++) {
-            int src = (sourceBase + v) * SectionMeshData.VERTEX_STRIDE;
-            int dst = (destinationBase + v) * STRIDE;
+            int src = (sourceBase + v) * stride;
+            int dst = (destinationBase + v) * stride;
             destination.putFloat(dst, source.getFloat(src) + xOff);
             destination.putFloat(dst + 4, source.getFloat(src + 4) + yOff);
             destination.putFloat(dst + 8, source.getFloat(src + 8) + zOff);
         }
-        destination.position((destinationBase + vertexCount) * STRIDE);
+        destination.position((destinationBase + vertexCount) * stride);
     }
 
     private static int canonicalIndexCount(int vertexCount) {

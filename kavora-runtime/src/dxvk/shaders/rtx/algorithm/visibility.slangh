@@ -68,6 +68,9 @@ vec3 handleVisibilityVertex<let VisibilityMode : uint>(Ray ray, RayHitInfo rayHi
   }
 
   Surface surface = surfaces[uint(rayInteraction.surfaceIndex)];
+  // Unordered visibility handles sheets. Thick media are integrated over
+  // distance by the ordered resolver.
+  if (surface.isMatchedIorBoundary) return vec3(1.0f);
   if ((VisibilityMode & visibilityModeOpaqueOnly) &&
       (!surface.isFullyOpaque || (!surface.isClipPlaneEnabled && surface.voxelCoverageLevel == 0)))
   {

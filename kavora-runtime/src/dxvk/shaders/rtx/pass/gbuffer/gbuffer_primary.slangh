@@ -50,6 +50,7 @@ GeometryResolverState geometryResolverStateCreateEmpty(u16vec2 pixelCoordinate, 
   geometryResolverState.attenuation = f16vec3(1.0f, 1.0f, 1.0f);
   geometryResolverState.segmentHitDistance = 0.0f;
   geometryResolverState.accumulatedHitDistance = 0.0f;
+  geometryResolverState.mediumState = cb.startInMediumMaterialIndex;
   geometryResolverState.rayMask = uint8_t(0x0);
   geometryResolverState.portalSpace = PORTAL_SPACE_NONE;
   geometryResolverState.isViewModelSurface = false;
@@ -176,10 +177,11 @@ void geometryResolverVertex(
   bool raytracedRenderTarget;
   const float opacityTransmittance = resolveGBufferSegment<
     GeometryResolverState, PrimaryMaterialContext, PrimaryUnorderedResolve, true>(
-    rayHitInfo, geometryResolverState, materialContext, cb.startInMediumMaterialIndex,
+    rayHitInfo, geometryResolverState, materialContext, geometryResolverState.mediumState,
     cb.forceFirstHitInGBufferPass, extraArgs.firstSegment, false,
     geometryResolverState.pomOpaqueSurfaceEncountered, segment,
     ray, interaction, surface, surfaceInteraction, material, stochasticAlpha, raytracedRenderTarget);
+  geometryResolverState.insideMedium = geometryResolverState.mediumState != SURFACE_INDEX_INVALID;
   extraArgs.firstSegment = false;
 
   if (cb.enableCoverageAov != 0) {
@@ -302,7 +304,7 @@ void geometryResolverVertex(
       float3 transmittance = 1;
 #ifdef RESOLVER_USE_VOLUMETRIC_ATTENUATION
       resolveAtmosphere(surfaceInteraction.position, ray.direction, floatMax,
-        portalSpaceToVolumeHint(geometryResolverState.portalSpace), transmittance, background, cb.startInMediumMaterialIndex);
+        portalSpaceToVolumeHint(geometryResolverState.portalSpace), transmittance, background, geometryResolverState.mediumState);
 #endif
       if (!cb.ignoreSkyIfCameraInMedium)
       {
@@ -366,7 +368,7 @@ void geometryResolverVertex(
   // writing this value out in cases we know the PDF will be 1 (any case where only PSRR or PSTR happen but not both) to
   // save some writes/reads, but this should be fine for now.
   float selectedIntegrationSurfacePdf = 1.0f;
-  uint transmissionMediumState = cb.startInMediumMaterialIndex;
+  uint transmissionMediumState = geometryResolverState.mediumState;
   bool pstrPenetrateSurface = false;
 
   if (samplePSR)
@@ -448,7 +450,7 @@ void geometryResolverVertex(
       surface, surfaceInteraction,
       material,
       geometryResolverState.radiance, geometryResolverState.attenuation,
-      geometryResolverState.accumulatedRotation, cb.startInMediumMaterialIndex,
+      geometryResolverState.accumulatedRotation, geometryResolverState.mediumState,
       geometryResolverState.accumulatedHitDistance, geometryResolverState.directionAltered,
       virtualMotion, projection,
       geometryResolverState.useAlternateDisocclusionThreshold,
@@ -530,7 +532,7 @@ void geometryResolverVertex(
       ray, interaction, surfaceInteraction, surfaceInteraction.triangleNormal,
       material, geometryResolverState.attenuation, geometryResolverState.accumulatedRotation,
       surfaceMaterialInteractionReflectionPSRSample, surfaceMaterialInteractionTransmissionPSRSample,
-      transmissionMediumState, pstrPenetrateSurface, geometryResolverState.rayMask,
+      geometryResolverState.mediumState, transmissionMediumState, pstrPenetrateSurface, geometryResolverState.rayMask,
       geometryResolverState.useAlternateDisocclusionThreshold, geometryResolverState.coneRadius);
     geometryResolverStorePSRContinuation(geometryResolverState.pixelCoordinate, geometryResolverState.compactedCoordinate,
       geometryResolverState.accumulatedHitDistance, interaction.coneRadius);
@@ -587,7 +589,7 @@ void preprocessPrimaryRayState(inout Ray originalCameraRay, inout GeometryResolv
 
   originalCameraRay = rayCreatePrimaryFromPixel(cb.camera, geometryResolverState.pixelCoordinate);
 
-  geometryResolverState.insideMedium = cb.startInMediumMaterialIndex != SURFACE_INDEX_INVALID;
+  geometryResolverState.insideMedium = geometryResolverState.mediumState != SURFACE_INDEX_INVALID;
   geometryResolverState.rayMask = primaryRayMask();
 }
 
@@ -677,7 +679,7 @@ void geometryResolverEnd(GeometryResolverState geometryResolverState)
   geometryFlags.portalSpace = geometryResolverState.portalSpace;
   geometryFlags.objectMask = primaryRayMaskToObjectMask(geometryResolverState.rayMask, geometryResolverState.isViewModelSurface);
   // Note: Set by direct lighting integrator later, hardcoded to false here.
-  geometryFlags.insideMedium = false;
+  geometryFlags.insideMedium = geometryResolverState.insideMedium;
   geometryFlags.firstSampledLobeIsSpecular = false;
   geometryFlags.firstSampledLobeUsesDiffuseSignal = false;
   geometryFlags.performPSTR = geometryResolverState.performPSTR;

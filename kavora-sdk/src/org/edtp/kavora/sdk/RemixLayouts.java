@@ -180,6 +180,9 @@ final class RemixLayouts {
                 JAVA_INT.withName("blendWeights_count"),
                 ADDRESS.withName("blendIndices_values"),
                 JAVA_INT.withName("blendIndices_count"));
+        define("MatchedIorBackMedium",
+                MemoryLayout.sequenceLayout(2, JAVA_FLOAT).withName("texcoord"),
+                MemoryLayout.sequenceLayout(2, JAVA_INT).withName("atlasBoundsOrExtinction"));
         define("MeshInfoSurfaceTriangles",
                 ADDRESS.withName("vertices_values"),
                 JAVA_LONG.withName("vertices_count"),

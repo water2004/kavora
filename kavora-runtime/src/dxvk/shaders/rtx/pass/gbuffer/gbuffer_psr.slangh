@@ -582,6 +582,7 @@ void geometryPSRResolverEnd(GeometryPSRResolverState geometryPSRResolverState)
     // Update the flags and store
     geometryFlags.isViewModel = geometryPSRResolverState.isViewModelSurface;
     geometryFlags.portalSpace = geometryPSRResolverState.portalSpace;
+    geometryFlags.insideMedium = geometryPSRResolverState.mediumState != SURFACE_INDEX_INVALID;
     geometryFlags.pomOpaqueSurfaceEncountered = geometryPSRResolverState.pomOpaqueSurfaceEncountered;
     geometryFlags.objectMask = primaryRayMaskToObjectMask(geometryPSRResolverState.rayMask, geometryPSRResolverState.isViewModelSurface);
 

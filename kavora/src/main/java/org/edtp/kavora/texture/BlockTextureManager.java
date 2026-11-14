@@ -65,10 +65,15 @@ public class BlockTextureManager {
             InstanceInfoBlendEXT.textureTimesVertexColor();
     private static final float POM_DISPLACE_IN = 0.25f;
     private static final float COMMON_GLASS_IOR = 1.52f;
+    private static final float GLASS_TRANSMITTANCE = 0.97f;
     private static final float GLASS_TRANSMITTANCE_DISTANCE = 0.35f;
     // A glass pane is 2/16 of a block thick. Match its tint at normal incidence.
     private static final float STAINED_GLASS_BLOCK_TRANSMITTANCE_DISTANCE = 8.0f * GLASS_TRANSMITTANCE_DISTANCE;
+    public static final float CLEAR_GLASS_EXTINCTION = (float) (-Math.log(
+            Float.float16ToFloat(Float.floatToFloat16(GLASS_TRANSMITTANCE)))
+            / Float.float16ToFloat(Float.floatToFloat16(GLASS_TRANSMITTANCE_DISTANCE)));
     public static final String STAINED_GLASS_BLOCK_LAYER = "stained_glass_block";
+    public static final String GLASS_MEDIUM_BOUNDARY = "glass_medium_boundary";
     private static final float THIN_SSS_MEASUREMENT_DISTANCE = 0.75f;
     private static final int THIN_SSS_DEFAULT_THICKNESS = Math.round(THIN_SSS_MEASUREMENT_DISTANCE * 255.0f);
     private static final float DEFAULT_CUTOUT_SSS_TRANSMISSION_DISTANCE = THIN_SSS_MEASUREMENT_DISTANCE;
@@ -78,7 +83,8 @@ public class BlockTextureManager {
     public static final float MAX_TERRAIN_EMISSION_MULTIPLIER = 50.0f;
     private static final float BASE_TERRAIN_EMISSION_INTENSITY = 100.0f;
     public static final int L_SOLID = 0, L_CUTOUT = 1, L_CUTOUT_MIPPED = 2, L_TRANS = 3,
-            L_GLASS = 4, L_STAINED_GLASS_BLOCK = 5, LAYER_COUNT = 6;
+            L_GLASS = 4, L_STAINED_GLASS_BLOCK = 5, LAYER_COUNT = 6,
+            L_GLASS_MEDIUM_BOUNDARY = LAYER_COUNT;
 
     private static BlockTextureManager INSTANCE;
 
@@ -789,7 +795,8 @@ public class BlockTextureManager {
 
     static MaterialInfoTranslucentEXT atlasTranslucentOptics(long albedo, int layer) {
         var optics = MaterialInfoTranslucentEXT.builder()
-                .refractiveIndex(COMMON_GLASS_IOR).transmittanceColor(0.97f, 0.97f, 0.97f)
+                .refractiveIndex(COMMON_GLASS_IOR)
+                .transmittanceColor(GLASS_TRANSMITTANCE, GLASS_TRANSMITTANCE, GLASS_TRANSMITTANCE)
                 .transmittanceMeasurementDistance(layer == L_STAINED_GLASS_BLOCK
                         ? STAINED_GLASS_BLOCK_TRANSMITTANCE_DISTANCE : GLASS_TRANSMITTANCE_DISTANCE)
                 .useDiffuseLayer(layer == L_GLASS);
@@ -1088,12 +1095,12 @@ public class BlockTextureManager {
 
     /** Returns the atlas-based material (no SSS) for the given layer type. */
     public KavoraMaterial getAtlasMaterial(int layerType) {
-        return atlasMaterials[layerType];
+        return atlasMaterials[layerType == L_GLASS_MEDIUM_BOUNDARY ? L_STAINED_GLASS_BLOCK : layerType];
     }
 
     /** Returns the atlas-based SSS material for the given layer type, or null if none. */
     public KavoraMaterial getAtlasMaterialSSS(int layerType) {
-        return atlasMaterialsSSS[layerType];
+        return layerType == L_GLASS_MEDIUM_BOUNDARY ? null : atlasMaterialsSSS[layerType];
     }
 
     /** Maps sprite identifiers (e.g. "minecraft:block/glowstone") to max block luminance. */
@@ -1191,6 +1198,7 @@ public class BlockTextureManager {
             case "translucent" -> L_TRANS;
             case "glass" -> L_GLASS;
             case STAINED_GLASS_BLOCK_LAYER -> L_STAINED_GLASS_BLOCK;
+            case GLASS_MEDIUM_BOUNDARY -> L_GLASS_MEDIUM_BOUNDARY;
             default -> L_SOLID;
         };
     }
@@ -1206,7 +1214,8 @@ public class BlockTextureManager {
     }
 
     public static boolean isTranslucentLayer(int layer) {
-        return layer == L_TRANS || layer == L_GLASS || layer == L_STAINED_GLASS_BLOCK;
+        return layer == L_TRANS || layer == L_GLASS || layer == L_STAINED_GLASS_BLOCK
+                || layer == L_GLASS_MEDIUM_BOUNDARY;
     }
 
     // ====================================================================

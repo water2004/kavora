@@ -19,6 +19,8 @@ public class HardcodedVertex {
     /** Compact CPU input and runtime vertex storage, excluding trailing padding.
      * Shared GPU buffers retain {@link #STRIDE}. This counts no indices, skinning or BLAS storage. */
     public static final int STORAGE_STRIDE = 44;
+    /** Compact vertex and its dedicated matched-IOR boundary attributes. */
+    public static final int BOUNDARY_STORAGE_STRIDE = STORAGE_STRIDE + 4 * Integer.BYTES;
     public static final int PREVIOUS_POSITION_OFFSET = 44;
     public static final int MOTION_STORAGE_STRIDE = 56;
 

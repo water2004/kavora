@@ -103,7 +103,9 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   vec3 diffuseLayerWeight = vec3(0.0f);
   bool reflectionSelectedIntegrationSurface = false;
   float selectedIntegrationSurfacePdf = 1.0f;
-  uint transmissionMediumState = cb.startInMediumMaterialIndex;
+  const uint incidentMedium = geometryFlags.insideMedium
+    ? SharedMediumState[pixelCoordinate] : SURFACE_INDEX_INVALID;
+  uint transmissionMediumState = incidentMedium;
   bool pstrPenetrateSurface = false;
 
   polymorphicSurfaceMaterialInteractionCalcPSRSample(
@@ -194,7 +196,7 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
     performPSRR, performPSTR, primaryRay,
     minimalRayInteraction, minimalSurfaceInteraction, minimalSurfaceInteraction.geometryNormal,
     polymorphicSurfaceMaterialInteraction, attenuation, gbufferLoadPortalRotation(geometryFlags.portalSpace),
-    reflectionPSRSample, transmissionPSRSample, transmissionMediumState, pstrPenetrateSurface, primaryRayMask(),
+    reflectionPSRSample, transmissionPSRSample, incidentMedium, transmissionMediumState, pstrPenetrateSurface, primaryRayMask(),
     useAlternateDisocclusionThreshold, unusedConeRadius);
   SecondaryHitDistance[pixelCoordinate] = PrimaryHitDistance[pixelCoordinate];
   PrimaryDisocclusionThresholdMix[pixelCoordinate] = useAlternateDisocclusionThreshold ? 1.0f : 0.0f;

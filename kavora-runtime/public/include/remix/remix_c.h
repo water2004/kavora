@@ -549,7 +549,20 @@ extern "C" {
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_PREVIOUS_POSITIONS = 1 << 2,
     /** On translucent surfaces, vertex alpha zero marks a face whose exterior is water. */
     REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_WATER_CONTACT = 1 << 3,
+    // CPU-only, 60-byte records. Requires COMPACT_VERTICES, TEXCOORD_BOUNDS and
+    // a thick textured translucent material. Incompatible with motion and skinning.
+    // The material and ordinary UVs define the medium entered against the outward
+    // normal. The appended attributes describe the other side.
+    REMIXAPI_MESH_INFO_SURFACE_TRIANGLES_BIT_MATCHED_IOR_BOUNDARY = 1 << 4,
   } remixapi_MeshInfoSurfaceTrianglesFlagBit;
+
+  typedef struct remixapi_MatchedIorBackMedium {
+    float texcoord[2];
+    // Two half-floats per word, min.u/min.v and max.u/max.v.
+    // A negative float in the first word instead encodes negated achromatic extinction.
+    uint32_t atlasBoundsOrExtinction[2];
+  } remixapi_MatchedIorBackMedium;
+  enum { REMIXAPI_MATCHED_IOR_BOUNDARY_VERTEX_STRIDE = 60 };
   typedef uint32_t remixapi_MeshInfoSurfaceTrianglesFlags;
 
   typedef struct remixapi_MeshInfoSurfaceTriangles {

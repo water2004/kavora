@@ -491,7 +491,8 @@ namespace dxvk {
 
     // When the SmoothNormals category is set and the input has no normals, force the interleaved
     // vertex layout to include space for normals. The smooth normals compute pass will fill them in later.
-    const bool needsSmoothNormals = !input.quadAttributes && drawCallState.getCategoryFlags().test(InstanceCategories::SmoothNormals);
+    const bool needsSmoothNormals = !input.quadAttributes && !input.isMatchedIorBoundary &&
+      drawCallState.getCategoryFlags().test(InstanceCategories::SmoothNormals);
     const bool forceNormals = needsSmoothNormals && !input.normalBuffer.defined();
 
     // When smooth normals state changes (added or removed), promote to kUpdateBVH so the vertex

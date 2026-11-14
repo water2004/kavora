@@ -33,7 +33,7 @@ void storeGBufferOpticalSeeds(uvec2 pixel, uint packedFlags, bool viewModel, boo
   MinimalRayInteraction hit, MinimalSurfaceInteraction surface, vec3 interfaceNormal,
   PolymorphicSurfaceMaterialInteraction material, vec3 attenuation, vec4 rotation,
   SurfaceMaterialInteractionPSRSample reflection, SurfaceMaterialInteractionPSRSample transmission,
-  uint transmissionMedium, bool penetrateSurface, uint8_t rayMask, inout bool alternateThreshold,
+  uint incidentMedium, uint transmissionMedium, bool penetrateSurface, uint8_t rayMask, inout bool alternateThreshold,
   inout float coneRadius)
 {
   if (hasReflection) {
@@ -42,7 +42,7 @@ void storeGBufferOpticalSeeds(uvec2 pixel, uint packedFlags, bool viewModel, boo
     }
     const Ray reflected = rayCreateDirection(hit, surface, incident, reflection.inputDirection, false);
     // Reflection keeps the medium on the incident side of the camera hit.
-    storeReflectionPSRData(packPSRData(reflected, cb.startInMediumMaterialIndex,
+    storeReflectionPSRData(packPSRData(reflected, incidentMedium,
       attenuation * reflection.attenuation, quaternionMultiply(rotation, reflection.vectorTransform, true), packedFlags), pixel);
     coneRadius = reflected.coneRadius;
     if (reflection.useAlternateDisocclusionThreshold) {

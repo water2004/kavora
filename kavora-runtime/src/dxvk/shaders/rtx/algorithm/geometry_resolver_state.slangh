@@ -48,6 +48,7 @@ struct GeometryResolverState : IBasePayloadState
   // through PSR and ray portals.
   f16vec4 _accumulatedRotation;
   float accumulatedHitDistance;
+  uint mediumState;
   
   f16vec3 _direction;
   f16vec3 attenuation;

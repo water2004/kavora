@@ -11,6 +11,7 @@ import org.edtp.kavora.light.LightEntry;
 import org.edtp.kavora.light.AreaLightMerger;
 import org.edtp.kavora.profiling.ProfileScope;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.model.geom.builders.UVPair;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModelPart;
 import net.minecraft.client.renderer.block.BlockStateModelSet;
@@ -24,6 +25,9 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.client.renderer.block.BlockAndTintGetter;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.SingleThreadedRandomSource;
 import net.minecraft.world.level.material.FluidState;
@@ -60,6 +64,8 @@ public final class BlockQuadEmitter {
     private final DirectQuadWriter writer = new DirectQuadWriter();
     private final BlockPos.MutableBlockPos neighborPos = new BlockPos.MutableBlockPos();
     private final ModelSampling modelSampling = new ModelSampling();
+    private final LayerSampler glassModels = new LayerSampler();
+    private final GlassFaceCoverage glassCoverage = new GlassFaceCoverage();
     private final List<LightEntry> lights = new ArrayList<>();
     private final AreaLightMerger lightMerger = new AreaLightMerger();
 
@@ -67,6 +73,7 @@ public final class BlockQuadEmitter {
     private static final int LOCAL_BLOCK_COUNT = SECTION_SIZE * SECTION_SIZE * SECTION_SIZE;
     private final float[] tempPositions = new float[12];
     private final float[] tempUvs = new float[8];
+    private final float[] contactUvs = new float[8];
     private final BlockState[] blockStateCache = new BlockState[LOCAL_BLOCK_COUNT];
     private final FluidState[] fluidStateCache = new FluidState[LOCAL_BLOCK_COUNT];
 
@@ -211,8 +218,31 @@ public final class BlockQuadEmitter {
         } else {
             if (glassLayer) {
                 Direction face = quadBoundary(positions, blockPos, nx, ny, nz);
-                boolean wet = face != null && BlockTextureManager.isFullGlass(block)
-                        && isGlassWaterContact(world, blockPos, face, true);
+                boolean wet = false;
+                if (face != null && BlockTextureManager.isFullGlass(block)) {
+                    BlockState adjacent = getCachedBlockState(world, blockPos.getX() + face.getStepX(),
+                            blockPos.getY() + face.getStepY(), blockPos.getZ() + face.getStepZ());
+                    // The backing face is the endpoint in the current medium. A model
+                    // may emit an unculled quad even when it coincides with that face.
+                    if (Block.isShapeFullBlock(adjacent.getFaceOcclusionShape(face.getOpposite()))) {
+                        return;
+                    }
+                    float normalAlongFace = nx * face.getStepX() + ny * face.getStepY() + nz * face.getStepZ();
+                    if (adjacent.getBlock() != block.getBlock() && BlockTextureManager.isFullGlass(adjacent)
+                            && captureGlassBoundary(positions, uvs, sprite, blockPos, block, face,
+                                    adjacent, normalAlongFace)) {
+                        return;
+                    }
+                    wet = adjacent.getFluidState().is(FluidTags.WATER)
+                            && isGlassWaterContact(world, blockPos, face, true);
+                    if (sprite != null && adjacent.getRenderShape() == RenderShape.MODEL
+                            && !BlockTextureManager.isFullGlass(adjacent)
+                            && collectAdjacentModel(blockPos, face, adjacent)
+                            && glassCoverage.clip(writer, positions, uvs, nx, ny, nz,
+                                    sprite, layerName, blockPos, face, glassModels.parts, wet)) {
+                        return;
+                    }
+                }
                 for (int i = 0; i < 4; i++) {
                     colors[i] = (colors[i] & 0x00FFFFFF) | (wet ? 0 : 0xFF000000);
                 }
@@ -221,6 +251,87 @@ public final class BlockQuadEmitter {
                     sprite == null ? 0 : sprite.getU0(), sprite == null ? 0 : sprite.getV0(),
                     sprite == null ? 1 : sprite.getU1(), sprite == null ? 1 : sprite.getV1(), layerName);
         }
+    }
+
+    private boolean captureGlassBoundary(float[] positions, float[] uvs, TextureAtlasSprite sprite,
+            BlockPos pos, BlockState owner, Direction face, BlockState adjacent, float normalAlongFace) {
+        if (sprite == null || !collectAdjacentModel(pos, face, adjacent)) return false;
+        Direction oppositeFace = face.getOpposite();
+        // A resource model can put a boundary quad in either the culled or general list.
+        for (int p = 0; p < glassModels.parts.size(); p++) {
+            var part = glassModels.parts.get(p);
+            BakedQuad opposite = findMatchingGlassQuad(part.getQuads(oppositeFace), positions, pos, face);
+            if (opposite == null) {
+                opposite = findMatchingGlassQuad(part.getQuads(null), positions, pos, face);
+            }
+            if (opposite == null) continue;
+
+            // The positive face owns the matching pair, including across section boundaries.
+            if (face.getAxisDirection() == Direction.AxisDirection.POSITIVE) {
+                TextureAtlasSprite oppositeSprite = opposite.materialInfo().sprite();
+                boolean ownerClear = owner.is(Blocks.GLASS);
+                // Canonical terrain triangles reverse the captured vertex winding.
+                boolean reverseWinding = (normalAlongFace > 0) != ownerClear;
+                float sign = ownerClear ? -1.0f : 1.0f;
+                TextureAtlasSprite frontSprite = ownerClear ? oppositeSprite : sprite;
+                writer.writeGlassMediumBoundary(positions,
+                        ownerClear ? contactUvs : uvs,
+                        sign * face.getStepX(), sign * face.getStepY(), sign * face.getStepZ(),
+                        frontSprite.getU0(), frontSprite.getV0(), frontSprite.getU1(), frontSprite.getV1(),
+                        ownerClear ? uvs : contactUvs, adjacent.is(Blocks.GLASS) || ownerClear ? null : oppositeSprite,
+                        reverseWinding);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean collectAdjacentModel(BlockPos pos, Direction face, BlockState adjacent) {
+        if (blockRenderManager == null) return false;
+        BlockStateModel model = blockRenderManager.get(adjacent);
+        if (model == null) return false;
+        neighborPos.setWithOffset(pos, face);
+        glassModels.parts.clear();
+        glassModels.random.setSeed(adjacent.getSeed(neighborPos));
+        model.collectParts(glassModels.random, glassModels.parts);
+        return !glassModels.parts.isEmpty();
+    }
+
+    private BakedQuad findMatchingGlassQuad(List<BakedQuad> quads, float[] positions, BlockPos pos, Direction face) {
+        for (int q = 0; q < quads.size(); q++) {
+            BakedQuad opposite = quads.get(q);
+            if (opposite.materialInfo().sprite() != null &&
+                    matchInterfaceUvs(positions, pos, face, opposite, contactUvs)) {
+                return opposite;
+            }
+        }
+        return null;
+    }
+
+    private static boolean matchInterfaceUvs(float[] positions, BlockPos pos, Direction face,
+            BakedQuad opposite, float[] oppositeUvs) {
+        int x = SectionPos.sectionRelative(pos.getX()) + face.getStepX();
+        int y = SectionPos.sectionRelative(pos.getY()) + face.getStepY();
+        int z = SectionPos.sectionRelative(pos.getZ()) + face.getStepZ();
+        int matched = 0;
+        for (int i = 0; i < 4; i++) {
+            int j = 0;
+            for (; j < 4; j++) {
+                if ((matched & (1 << j)) != 0) continue;
+                var vertex = opposite.position(j);
+                if (Math.abs(positions[i * 3] - (x + vertex.x())) < 0.0001f
+                        && Math.abs(positions[i * 3 + 1] - (y + vertex.y())) < 0.0001f
+                        && Math.abs(positions[i * 3 + 2] - (z + vertex.z())) < 0.0001f) {
+                    break;
+                }
+            }
+            if (j == 4) return false;
+            matched |= 1 << j;
+            long uv = opposite.packedUV(j);
+            oppositeUvs[i * 2] = UVPair.unpackU(uv);
+            oppositeUvs[i * 2 + 1] = UVPair.unpackV(uv);
+        }
+        return true;
     }
 
     /** Closes one block so coplanar overlay classification keeps its scope. */

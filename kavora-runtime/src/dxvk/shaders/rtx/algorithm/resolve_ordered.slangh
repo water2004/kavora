@@ -153,7 +153,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   inout uint8_t firstRayPortal,
   inout bool pomOpaqueSurfaceEncountered,
   inout bool isRaytracedRenderTarget,
-  uint mediumState,
+  inout uint mediumState,
   // Forces enablement of ray portal resolve path regardless of global resolve mask
   // Needed for RayQuery paths for visibility rays from CHS as they don't run material specific hit groups
   // Visibility rays are expected not to start from RayPortal surfaces, and thus only RayPortal path is force enabled
@@ -185,13 +185,23 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   // Classify the segment before integrating it. Clipped hits keep their finite
   // distance, while view-distance misses integrate the infinite segment once.
   bool surfaceClipped = false;
+  bool matchedIorBoundary = false;
+  float uniformExtinction = 0.0f;
   if (rayInteractionHasHit(rayInteraction))
   {
     resolveVertexState.segmentHitDistance = rayInteraction.hitDistance;
     resolveVertexState.coneRadius = rayInteraction.coneRadius;
 
     surface = surfaces[uint(rayInteraction.surfaceIndex)];
-    surfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+    matchedIorBoundary = rayInteraction.materialType == surfaceMaterialTypeTranslucent && surface.isMatchedIorBoundary;
+    if (matchedIorBoundary)
+    {
+      surfaceInteraction = surfaceInteractionCreateMatchedIorBoundary(surface, rayInteraction, ray, uniformExtinction);
+    }
+    else
+    {
+      surfaceInteraction = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, rayInteraction, ray);
+    }
 
     surfaceClipped = isSurfaceClipped(surface, surfaceInteraction) && resolveVertexState.continueResolving;
     if (!surfaceClipped && !evalViewDistance(cb.viewDistanceArgs, cb.isZUp, camera, surfaceInteraction.position))
@@ -231,6 +241,24 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   }
   if (surfaceClipped)
   {
+    resolveVertexFinalContinue(ray, surfaceInteraction, teleport, teleportMatrix, resolveVertexState);
+    return 1.0f;
+  }
+
+  if (matchedIorBoundary)
+  {
+    // The incoming segment has already been attenuated. At equal IOR, only the
+    // extinction for the next segment changes, without a BSDF event.
+    if (forceFirstHit || !resolveVertexState.continueResolving)
+    {
+      resolveVertexSetMiss<true>(resolveVertexState, rayInteraction);
+      return 1.0f;
+    }
+    // Approximation rays can deliberately skip the external dielectric event.
+    if (mediumState != SURFACE_INDEX_INVALID)
+    {
+      mediumState = translucentBoundaryMedium(surface.surfaceMaterialIndex, surfaceInteraction, uniformExtinction);
+    }
     resolveVertexFinalContinue(ray, surfaceInteraction, teleport, teleportMatrix, resolveVertexState);
     return 1.0f;
   }

@@ -795,8 +795,17 @@ public final class RemixBridge {
                             || (bonesPerVertex != null && bonesPerVertex[i] > 0))) {
                     throw new IllegalArgumentException("Explicit mesh motion requires full-stride, unskinned vertices");
                 }
-                int vertexStride = (flags[i] & MeshInfoSurfaceTriangles.COMPACT_VERTICES) != 0
-                        ? HardcodedVertex.STORAGE_STRIDE : HardcodedVertex.STRIDE;
+                boolean boundary = (flags[i] & MeshInfoSurfaceTriangles.MATCHED_IOR_BOUNDARY) != 0;
+                if (boundary) {
+                    int required = MeshInfoSurfaceTriangles.COMPACT_VERTICES | MeshInfoSurfaceTriangles.TEXCOORD_BOUNDS;
+                    if ((flags[i] & required) != required || (flags[i] & MeshInfoSurfaceTriangles.WATER_CONTACT) != 0
+                            || (bonesPerVertex != null && bonesPerVertex[i] > 0)) {
+                        throw new IllegalArgumentException("Matched-IOR boundaries require unskinned compact atlas vertices");
+                    }
+                }
+                int vertexStride = boundary ? HardcodedVertex.BOUNDARY_STORAGE_STRIDE
+                        : (flags[i] & MeshInfoSurfaceTriangles.COMPACT_VERTICES) != 0
+                            ? HardcodedVertex.STORAGE_STRIDE : HardcodedVertex.STRIDE;
                 put(surface, type, "vertices_values", direct(vertexBuffers[i], Math.multiplyExact((long) vertexCounts[i], vertexStride)).address());
                 put(surface, type, "vertices_count", vertexCounts[i]);
                 put(surface, type, "indices_values", direct(indexBuffers[i], Math.multiplyExact((long) indexCounts[i], 4L)).address());

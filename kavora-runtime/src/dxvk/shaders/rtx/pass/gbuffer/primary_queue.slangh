@@ -41,7 +41,7 @@ void storePrimaryResolveState(uint pixel, GeometryResolverState state, float rem
   PathStorage[i + 4] = asuint(state.radiance.x);
   PathStorage[a + 0] = asuint(state.radiance.y);
   PathStorage[a + 1] = asuint(state.radiance.z);
-  PathStorage[a + 2] = asuint(state._segmentHitDistance);
+  PathStorage[a + 2] = state.mediumState;
   PathStorage[a + 3] = packGBufferHalf2(state._accumulatedRotation.xy);
   PathStorage[a + 4] = packGBufferHalf2(state._accumulatedRotation.zw);
   PathStorage[a + 5] = asuint(state.accumulatedHitDistance);
@@ -65,7 +65,8 @@ GeometryResolverState loadPrimaryResolveState(uint pixel, out float remainingDis
   state._coneRadius = float16_t(f16tof32(PathStorage[i + 3] & 0xffff));
   state._encodedFlags = uint16_t(PathStorage[i + 3] >> 16);
   state.radiance = asfloat(uint3(PathStorage[i + 4], PathStorage[a + 0], PathStorage[a + 1]));
-  state._segmentHitDistance = asfloat(PathStorage[a + 2]);
+  state._segmentHitDistance = 0.0f;
+  state.mediumState = PathStorage[a + 2];
   state._accumulatedRotation = f16vec4(unpackGBufferHalf2(PathStorage[a + 3]), unpackGBufferHalf2(PathStorage[a + 4]));
   state.accumulatedHitDistance = asfloat(PathStorage[a + 5]);
   remainingDistance = asfloat(PathStorage[t + 0]);

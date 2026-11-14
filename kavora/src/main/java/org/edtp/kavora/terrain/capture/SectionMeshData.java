@@ -7,6 +7,7 @@ package org.edtp.kavora.terrain.capture;
 import org.edtp.kavora.util.DirectBufferPool;
 import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.terrain.ChunkManager;
+import org.edtp.kavora.texture.BlockTextureManager;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
@@ -57,7 +58,14 @@ public final class SectionMeshData {
         int vertexCount,
         int indexCount,
         boolean canonicalQuadIndices
-    ) {}
+    ) {
+        public int vertexStride() { return vertexStride(bucketKey); }
+
+        static int vertexStride(String bucketKey) {
+            return BlockTextureManager.layerType(bucketKey) == BlockTextureManager.L_GLASS_MEDIUM_BOUNDARY
+                    ? HardcodedVertex.BOUNDARY_STORAGE_STRIDE : VERTEX_STRIDE;
+        }
+    }
 
     private final List<Surface> surfaces;
     private final int cachedHash;
@@ -178,7 +186,7 @@ public final class SectionMeshData {
         hash = hash * 31 + (surface.canonicalQuadIndices ? 1 : 0);
 
         ByteBuffer vertices = surface.vertexBuffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
-        vertices.position(0).limit(surface.vertexCount * VERTEX_STRIDE);
+        vertices.position(0).limit(surface.vertexCount * surface.vertexStride());
         while (vertices.remaining() >= Integer.BYTES) hash = hash * 31 + vertices.getInt();
 
         return hash;
@@ -188,7 +196,7 @@ public final class SectionMeshData {
         long[] bytes = new long[ChunkManager.CAT_COUNT];
         for (Surface s : surfaces) {
             if (!isValidCategory(s.category)) continue;
-            bytes[s.category] += (long) s.vertexCount * HardcodedVertex.STRIDE;
+            bytes[s.category] += (long) s.vertexCount * Math.max(HardcodedVertex.STRIDE, s.vertexStride());
             bytes[s.category] += (long) s.indexCount * Integer.BYTES;
         }
         return bytes;

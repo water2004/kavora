@@ -517,6 +517,11 @@ struct Surface
     get { return packedFlagGet(data13.z, 1 << 19); }
   }
 
+  property bool isMatchedIorBoundary
+  {
+    get { return packedFlagGet(data13.z, 1 << 20); }
+  }
+
   property uint tFactor
   {
     get { return data13.y; }

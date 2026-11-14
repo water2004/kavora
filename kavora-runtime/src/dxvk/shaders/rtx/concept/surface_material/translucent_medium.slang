@@ -30,12 +30,17 @@ import "rtx/utility/material_optics.slang";
 #include "rtx/utility/shared_constants.h"
 
 [ForceInline]
+public uint translucentMediumFromTransmittance(float3 transmittance, float distance)
+{
+  return packMediumExtinction(transmittanceToAttenuationCoefficient(max(transmittance, float3(1e-30f)), distance));
+}
+
+[ForceInline]
 public uint translucentMediumEnter(TranslucentSurfaceMaterialInteraction interaction)
 {
   if (interaction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_TEXTURED_TRANSMITTANCE)
   {
-    return packMediumExtinction(transmittanceToAttenuationCoefficient(
-      max(interaction.transmittanceColor, float3(1e-30f)), interaction.thicknessOrMeasurementDistance));
+    return translucentMediumFromTransmittance(interaction.transmittanceColor, interaction.thicknessOrMeasurementDistance);
   }
   return interaction.sourceSurfaceMaterialIndex;
 }

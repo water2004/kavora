@@ -39,6 +39,31 @@ static const uint kFootprintFromRayOriginClamped = 3u;
 static const bool SurfaceGenerateTangents = true;
 static const bool SurfaceIgnoreTangents = false;
 
+uint surfaceMatchedIorElement(Surface surface, uint vertexIndex)
+{
+  // The API's back medium follows the ordinary four half-float atlas bounds.
+  return (vertexIndex * surface.texcoordBoundsStride + surface.texcoordBoundsOffset) / 4 + 2;
+}
+
+float2 surfaceMatchedIorAttributes(Surface surface, uint vertexIndex, out vec4 bounds, out float uniformExtinction)
+{
+  const uint element = surfaceMatchedIorElement(surface, vertexIndex);
+  const uint buffer = surface.texcoordBoundsBufferIndex;
+  const float lower = BUFFER_ARRAY(geometries, buffer, element + 2);
+  uniformExtinction = max(-lower, 0.0f);
+  bounds = 0.0f;
+  if (lower < 0.0f)
+  {
+    return 0.0f;
+  }
+  if (cb.enableUvBoundsLooping)
+  {
+    const float upper = BUFFER_ARRAY(geometries, buffer, element + 3);
+    bounds = unpackAtlasBounds(float2(lower, upper));
+  }
+  return float2(BUFFER_ARRAY(geometries, buffer, element), BUFFER_ARRAY(geometries, buffer, element + 1));
+}
+
 // Surface Interaction Helper Functions
 
 uint surfaceQuadMaterialElement(Surface surface, uint vertexIndex)
@@ -343,10 +368,12 @@ vec3 surfaceInteractionCalcVertexNormal(
 // Note: ComputeMotionAndShadowTerminator is false for callers that never read the motion or the shadow terminator offset of
 // the result, see surfaceInteractionCreateWithoutMotion. That avoids the previous position loads, and lets the interpolated
 // normal be accumulated one vertex at a time instead of holding all three vertex normals live.
-SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let ComputeMotionAndShadowTerminator : bool>(
+SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let ComputeMotionAndShadowTerminator : bool,
+  let MatchedIorBoundary : bool = false>(
   Surface surface, RayInteraction rayInteraction, Ray ray,
-  bool usePreviousPositions, uint footprintMode)
+  bool usePreviousPositions, uint footprintMode, out float uniformExtinction)
 {
+  uniformExtinction = 0.0f;
   // Compute vertex indicies
 
   uint idx[3];
@@ -464,6 +491,42 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
   const vec3 flippedTriangleNormal = triangleNormalSameDirection ? triangleNormal : -triangleNormal;
 
   surfaceInteraction.triangleNormal = flippedTriangleNormal;
+
+  if (MatchedIorBoundary)
+  {
+    // The shared continuation offset uses the geometric normal.
+    surfaceInteraction.geometryNormal = flippedTriangleNormal;
+    // The canonical winding points out of the medium described by the primary UVs.
+    const bool reverse = !triangleNormalSameDirection;
+    vec2 texcoords[3];
+    if (reverse)
+    {
+      texcoords[0] = surfaceMatchedIorAttributes(surface, idx[0], surfaceInteraction.textureCoordinateBounds, uniformExtinction);
+      if (uniformExtinction > 0.0f)
+      {
+        return surfaceInteraction;
+      }
+    }
+    else
+    {
+      surfaceInteraction.textureCoordinateBounds = surfaceTextureCoordinateBounds(surface, idx[0]);
+    }
+    for (uint i = reverse ? 1 : 0; i < 3; ++i)
+    {
+      const uint element = reverse
+        ? surfaceMatchedIorElement(surface, idx[i])
+        : (idx[i] * uint(surface.texcoordStride) + surface.texcoordOffset) / 4;
+      const uint buffer = reverse ? surface.texcoordBoundsBufferIndex : surface.texcoordBufferIndex;
+      texcoords[i] = vec2(BUFFER_ARRAY(geometries, buffer, element),
+        BUFFER_ARRAY(geometries, buffer, element + 1));
+    }
+    const vec3 localHit = interpolateHitAttribute(trianglePositions, bary);
+    surfaceInteraction.textureCoordinates = interpolateHitAttribute(texcoords, bary);
+    computeAnisotropicEllipseAxes(localHit, triangleNormal, worldTwoTriangleArea, ray.direction,
+      rayInteraction.coneRadius, trianglePositions, texcoords, surfaceInteraction.textureCoordinates,
+      surfaceInteraction.textureGradientX, surfaceInteraction.textureGradientY);
+    return surfaceInteraction;
+  }
 
 #ifdef GBUFFER_FEATURE_DEBUG_VIEW
 #if GBUFFER_FEATURE_DEBUG_VIEW
@@ -878,7 +941,9 @@ SurfaceInteraction surfaceInteractionCreate<let GenerateTangents : bool>(
   Surface surface, RayInteraction rayInteraction, Ray ray,
   bool usePreviousPositions = false, uint footprintMode = kFootprintFromRayDirection)
 {
-  return surfaceInteractionCreateImpl<GenerateTangents, true>(surface, rayInteraction, ray, usePreviousPositions, footprintMode);
+  float unusedExtinction;
+  return surfaceInteractionCreateImpl<GenerateTangents, true>(
+    surface, rayInteraction, ray, usePreviousPositions, footprintMode, unusedExtinction);
 }
 
 // Creates a surface interaction whose motion and shadow terminator offset are left at zero.
@@ -887,7 +952,16 @@ SurfaceInteraction surfaceInteractionCreateWithoutMotion<let GenerateTangents : 
   Surface surface, RayInteraction rayInteraction, Ray ray,
   bool usePreviousPositions = false, uint footprintMode = kFootprintFromRayDirection)
 {
-  return surfaceInteractionCreateImpl<GenerateTangents, false>(surface, rayInteraction, ray, usePreviousPositions, footprintMode);
+  float unusedExtinction;
+  return surfaceInteractionCreateImpl<GenerateTangents, false>(
+    surface, rayInteraction, ray, usePreviousPositions, footprintMode, unusedExtinction);
+}
+
+SurfaceInteraction surfaceInteractionCreateMatchedIorBoundary(Surface surface, RayInteraction interaction, Ray ray,
+  out float uniformExtinction)
+{
+  return surfaceInteractionCreateImpl<SurfaceIgnoreTangents, false, true>(
+    surface, interaction, ray, false, kFootprintFromRayDirection, uniformExtinction);
 }
 
 // Todo: Surface interaction construction function from sampled position
