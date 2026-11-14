@@ -38,33 +38,6 @@ RWTexture2D<float4> OutColorBuffer;
 layout(push_constant)
 ConstantBuffer<ToneMappingApplyToneMappingArgs> cb;
 
-// Photographic Tone Reproduction for Digital Images
-// http://www.cs.utah.edu/~reinhard/cdrom/tonemap.pdf
-float3 reinhardToneMapper(float3 inputColor) 
-{
-  float inputLuminance = calcBt709Luminance(inputColor);
-  
-  // (Eq. 4) Scale the luminance down to compress bright highlights to representable LDR values
-  float outputLuminance = inputLuminance / (1.0f + inputLuminance);
-  
-  // (Not Reinhard Operator) Make the curve S-shaped to boost shadow contrast
-  // Should only activate when outputLuminance < e^gToneMappingShadowContrastEnd
-  outputLuminance *= pow(min(1.0f, outputLuminance * exp(-cb.shadowContrastEnd)), cb.shadowContrast);
-  
-  // Apply output luminance to the input
-  return inputColor * (outputLuminance / inputLuminance);  
-}
-
-// Heji and Burgess-Dawson tone curve, from
-// http://filmicworlds.com/blog/filmic-tonemapping-operators/
-float3 filmicToneMapper(float3 inputColor) 
-{
-  float3 x = max(float3(0), inputColor - float3(0.004));
-  x = (x * (6.2f * x + 0.5f)) / (x * (6.2f * x + 1.7f) + 0.06f);
-  
-  return pow(x, float3(2.2));
-}
-
 
 // Dynamic tone mapper based on Eilertsen, Mantiuk, and Unger's paper
 // *Real-time noise-aware tone mapping*. Applies a luminance-based tone 

@@ -20,6 +20,7 @@
 * DEALINGS IN THE SOFTWARE.
 */
 #pragma once
+import "rtx/utility/quaternion.slang";
 
 // Distant Light Functions
 

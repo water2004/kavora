@@ -20,8 +20,10 @@ namespace dxvk {
     uint32_t           count;
     VkDescriptorBindingFlags flags;
 
-    DxvkResourceSlot(uint32_t s = 0, VkDescriptorType t = VK_DESCRIPTOR_TYPE_SAMPLER, VkImageViewType v = VK_IMAGE_VIEW_TYPE_1D, VkAccessFlags a = VK_ACCESS_NONE_KHR, uint32_t c = 1, VkDescriptorBindingFlags f = 0) :
+    // NV-DXVK start: Check RTX shader slot declarations during compilation
+    constexpr DxvkResourceSlot(uint32_t s = 0, VkDescriptorType t = VK_DESCRIPTOR_TYPE_SAMPLER, VkImageViewType v = VK_IMAGE_VIEW_TYPE_1D, VkAccessFlags a = VK_ACCESS_NONE_KHR, uint32_t c = 1, VkDescriptorBindingFlags f = 0) :
       slot(s), type(t), view(v), access(a), count(c), flags(f) {}
+    // NV-DXVK end
   };
   
   /**

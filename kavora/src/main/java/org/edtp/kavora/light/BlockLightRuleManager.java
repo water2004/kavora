@@ -392,7 +392,7 @@ public final class BlockLightRuleManager {
      *
      * <p>Also note that positions here are in the model's own space, which for a
      * block with an {@code AbstractBlock.OffsetType} is not where the block's
-     * geometry was drawn; see {@code BlockQuadEmitter.emitBlock}.
+     * geometry is drawn after Sodium applies the block's positional offset.
      */
     public interface ModelSampler {
         /** Mean of the model's vertices, in block-local [0,1] space. */

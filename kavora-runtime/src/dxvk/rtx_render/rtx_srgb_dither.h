@@ -24,6 +24,7 @@
 #include "dxvk_include.h"
 #include "dxvk_context.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 #include "rtx_options.h"
 
 namespace dxvk {
@@ -35,13 +36,14 @@ namespace dxvk {
   // applies dithering. Runs as the very last step of the post-process pipeline.
   class DxvkSRGBDither : public CommonDeviceObject {
   public:
+    using DispatchResources = FrameResourceView<&RaytracingFrame::m_finalOutput>;
     explicit DxvkSRGBDither(DxvkDevice* device);
 
     // Grades linear post-tonemap color in place. Conversion and dithering follow grading.
     void dispatch(
       Rc<RtxContext> ctx,
-      const Resources::AliasedResource& color,
-      bool performSRGBConversion);
+      DispatchResources resources,
+      bool screenCapture);
 
     void showImguiSettings();
 

@@ -110,66 +110,6 @@ public final class CopperBeaconBlockEntity extends BlockEntity
                 TYPE);
     }
 
-    public float getAzimuth() {
-        return yaw.position();
-    }
-
-    public void setAzimuth(float azimuth) {
-        setYaw(new CopperBeaconAxisState(
-                azimuth,
-                yaw.mode(),
-                yaw.rotationSpeed(),
-                yaw.minimumOffset(),
-                yaw.maximumOffset(),
-                yaw.cycleSeconds(),
-                yaw.patrolSeconds(),
-                currentTick()));
-    }
-
-    public float getZenith() {
-        return pitch.position();
-    }
-
-    public void setZenith(float zenith) {
-        setPitch(new CopperBeaconAxisState(
-                zenith,
-                pitch.mode(),
-                pitch.rotationSpeed(),
-                pitch.minimumOffset(),
-                pitch.maximumOffset(),
-                pitch.cycleSeconds(),
-                pitch.patrolSeconds(),
-                currentTick()));
-    }
-
-    public void setAngles(float azimuth, float zenith) {
-        long tick = currentTick();
-        CopperBeaconAxisState newYaw = new CopperBeaconAxisState(
-                azimuth,
-                yaw.mode(),
-                yaw.rotationSpeed(),
-                yaw.minimumOffset(),
-                yaw.maximumOffset(),
-                yaw.cycleSeconds(),
-                yaw.patrolSeconds(),
-                tick);
-        CopperBeaconAxisState newPitch = new CopperBeaconAxisState(
-                zenith,
-                pitch.mode(),
-                pitch.rotationSpeed(),
-                pitch.minimumOffset(),
-                pitch.maximumOffset(),
-                pitch.cycleSeconds(),
-                pitch.patrolSeconds(),
-                tick);
-        if (yaw.equals(newYaw) && pitch.equals(newPitch)) {
-            return;
-        }
-        yaw = newYaw;
-        pitch = newPitch;
-        markDirtyAndSync();
-    }
-
     public float getIntensityMultiplier() {
         return intensityMultiplier;
     }
@@ -273,23 +213,6 @@ public final class CopperBeaconBlockEntity extends BlockEntity
     public boolean isActive() {
         return CopperBeaconState.isActive(
                 redstoneControlled, getBlockState().getValue(CopperBeaconBlock.POWERED));
-    }
-
-    public double animationTick(float tickDelta) {
-        return CopperBeaconState.animationTick(
-                redstoneControlled,
-                getBlockState().getValue(CopperBeaconBlock.POWERED),
-                currentTick(),
-                tickDelta,
-                frozenTick);
-    }
-
-    public float yawAngle(float tickDelta) {
-        return yawAngleAt(animationTick(tickDelta));
-    }
-
-    public float pitchAngle(float tickDelta) {
-        return pitchAngleAt(animationTick(tickDelta));
     }
 
     public float yawAngleAt(double presentedWorldTick) {

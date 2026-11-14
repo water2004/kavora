@@ -22,30 +22,10 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/primary_atmosphere.slangh"
+#include "rtx/pass/gbuffer/gbuffer_queue.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
 layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PrimaryQueue;
-
-void enqueuePrimaryPixel(uint pixel)
-{
-  uint base = 0;
-  const uint count = WaveActiveCountBits(true);
-  if (WaveIsFirstLane()) {
-    InterlockedAdd(PrimaryQueue[0], count, base);
-  }
-  base = WaveReadLaneFirst(base);
-  PrimaryQueue[GBUFFER_PSR_QUEUE_HEADER_WORDS + base + WavePrefixCountBits(true)] = pixel;
-}
-
-uint primaryPackHalf2(float2 value)
-{
-  return f32tof16(value.x) | (f32tof16(value.y) << 16);
-}
-
-float2 primaryUnpackHalf2(uint value)
-{
-  return float2(f16tof32(value & 0xffff), f16tof32(value >> 16));
-}
 
 // Each invocation replaces its own consumed intersection and atmosphere records.
 void storePrimaryResolveState(uint pixel, GeometryResolverState state, float remainingDistance,
@@ -62,13 +42,13 @@ void storePrimaryResolveState(uint pixel, GeometryResolverState state, float rem
   PathStorage[a + 0] = asuint(state.radiance.y);
   PathStorage[a + 1] = asuint(state.radiance.z);
   PathStorage[a + 2] = asuint(state._segmentHitDistance);
-  PathStorage[a + 3] = primaryPackHalf2(state._accumulatedRotation.xy);
-  PathStorage[a + 4] = primaryPackHalf2(state._accumulatedRotation.zw);
+  PathStorage[a + 3] = packGBufferHalf2(state._accumulatedRotation.xy);
+  PathStorage[a + 4] = packGBufferHalf2(state._accumulatedRotation.zw);
   PathStorage[a + 5] = asuint(state.accumulatedHitDistance);
   PathStorage[t + 0] = asuint(remainingDistance);
-  PathStorage[t + 1] = primaryPackHalf2(state._direction.xy);
+  PathStorage[t + 1] = packGBufferHalf2(state._direction.xy);
   PathStorage[t + 2] = f32tof16(state._direction.z) | (uint(state._rayMask) << 16);
-  PathStorage[t + 3] = primaryPackHalf2(state.attenuation.xy);
+  PathStorage[t + 3] = packGBufferHalf2(state.attenuation.xy);
   PathStorage[t + 4] = f32tof16(state.attenuation.z) | (uint(state._compactedCoordinate.x) << 16);
   PathStorage[t + 5] = state._compactedCoordinate.y;
   PathStorage[t + 6] = seed;
@@ -86,12 +66,12 @@ GeometryResolverState loadPrimaryResolveState(uint pixel, out float remainingDis
   state._encodedFlags = uint16_t(PathStorage[i + 3] >> 16);
   state.radiance = asfloat(uint3(PathStorage[i + 4], PathStorage[a + 0], PathStorage[a + 1]));
   state._segmentHitDistance = asfloat(PathStorage[a + 2]);
-  state._accumulatedRotation = f16vec4(primaryUnpackHalf2(PathStorage[a + 3]), primaryUnpackHalf2(PathStorage[a + 4]));
+  state._accumulatedRotation = f16vec4(unpackGBufferHalf2(PathStorage[a + 3]), unpackGBufferHalf2(PathStorage[a + 4]));
   state.accumulatedHitDistance = asfloat(PathStorage[a + 5]);
   remainingDistance = asfloat(PathStorage[t + 0]);
-  state._direction = f16vec3(primaryUnpackHalf2(PathStorage[t + 1]), f16tof32(PathStorage[t + 2] & 0xffff));
+  state._direction = f16vec3(unpackGBufferHalf2(PathStorage[t + 1]), f16tof32(PathStorage[t + 2] & 0xffff));
   state._rayMask = uint8_t(PathStorage[t + 2] >> 16);
-  state.attenuation = f16vec3(primaryUnpackHalf2(PathStorage[t + 3]), f16tof32(PathStorage[t + 4] & 0xffff));
+  state.attenuation = f16vec3(unpackGBufferHalf2(PathStorage[t + 3]), f16tof32(PathStorage[t + 4] & 0xffff));
   state._compactedCoordinate = u16vec2(PathStorage[t + 4] >> 16, PathStorage[t + 5]);
   seed = PathStorage[t + 6];
   return state;

@@ -26,6 +26,8 @@
 #include "rtx/pass/nrc/nrc_integrator_utilities.slangh"
 #include "rtx/pass/sharc/sharc_integrator_utilities.slangh"
 
+import "rtx/concept/surface/appearance_lighting.slang";
+
 // Provides the cached diffuse-layer term and records G-buffer hits for the radiance caches.
 
 // This function calculates a diffuse layer contribution for the surface from a combined diffuse layer weight. Do note this weight is typically
@@ -103,9 +105,11 @@ void updateNrcOnGBufferMiss(
 #endif
 }
 
-// Performs NRC related updates after a GBuffer hit
-// See updateNrcOnGBufferMiss for what `compactedCoordinate` is used for.
-void updateNrcOnGBufferHitTrainingAndQueryPaths(
+
+
+// Update the active caches once the path has selected its integration surface.
+[ForceInline]
+void updateGBufferHitCaches(
   uvec2 pixelCoordinate,
   uvec2 compactedCoordinate,
   vec3 rayDirection,
@@ -114,14 +118,16 @@ void updateNrcOnGBufferHitTrainingAndQueryPaths(
   PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   // GBuffer surface radiance - emissive + diffuse layer (i.e. all except Integrate Direct and Indirect Lighting)
   vec3 gbufferSurfaceRadiance,
-  inout RNG randomState)
+  __ref RNG randomState)
 {
-#if ENABLE_NRC
+#if ENABLE_NRC || SHARC_UPDATE
   if (!hasGBufferSlot(compactedCoordinate))
   {
     return;
   }
+#endif
 
+#if ENABLE_NRC
   // Query path is always traced at the full ray tracing resolution
   const uvec2 queryPixelCoordinate = pixelCoordinate;
 
@@ -168,26 +174,9 @@ void updateNrcOnGBufferHitTrainingAndQueryPaths(
 #else
   unused(randomState);
 #endif
-}
-
-// Performs SHaRC specific updates on a primary ray hit
-void updateSharcOnGBufferHit(
-  uvec2 pixelCoordinate,
-  uvec2 compactedCoordinate,
-  // GBuffer surface radiance - emissive + diffuse layer (i.e. all except Integrate Direct and Indirect Lighting)
-  vec3 gbufferSurfaceRadiance)
-{
-  // Note: Remix does not implement support for querying the SHaRC for primary hits since that is not desired in practice,
-  // as it's more likely to show limitations of SHaRC (i.e. per-pixel resolution/quality, latency, etc)
-  // versus resolving direct lighting using RTXDI.
-  // Therefore, we do not need to do anything here for the query paths
 
 #if SHARC_UPDATE
-  if (!hasGBufferSlot(compactedCoordinate))
-  {
-    return;
-  }
-
+  // SHaRC starts update paths at the G-buffer and serves queries after the first bounce.
   uvec2 updatePixelCoordinate;
   if (Sharc::calculateUpdatePathForQueryPixel(
         pixelCoordinate, cb.sparseRenderingArgs.resampledSharcUpdatePaths,
@@ -199,4 +188,28 @@ void updateSharcOnGBufferHit(
     RadianceCacheUpdateGBufferSurfaceRadianceB[updatePixelCoordinate] = gbufferSurfaceRadiance.b;
   }
 #endif
+}
+
+[ForceInline]
+void shadeGBufferHit(uvec2 pixel, uvec2 slot, vec3 direction, float distance,
+  SurfaceInteraction surface, PolymorphicSurfaceMaterialInteraction material, bool selfLit,
+  PortalSpace2BitsType portalSpace, vec3 diffuseLayerWeight, f16vec3 attenuation,
+  bool shadePhysicalSurface, bool trainCache, __ref RNG randomState, __ref vec3 radiance)
+{
+  vec3 surfaceRadiance = vec3(0.0f);
+  if (shadePhysicalSurface) {
+    const vec3 emission = polymorphicSurfaceMaterialInteractionEvalEmissiveRadiance(material);
+    radiance += emission * attenuation;
+    const vec3 diffuse = approximateDiffuseLayerRadiance(surface, material.shadingNormal, portalSpace, diffuseLayerWeight);
+    radiance += diffuse * attenuation;
+    surfaceRadiance = emission + diffuse;
+  }
+
+  // The cache starts from physical surface radiance. Appearance only contributes to the camera path.
+  if (trainCache) {
+    updateGBufferHitCaches(pixel, slot, direction, distance, surface, material, surfaceRadiance, randomState);
+  }
+  if (selfLit) {
+    radiance += attenuation * evaluateAppearanceEmission(opaqueSurfaceMaterialInteractionCreate(material).albedo);
+  }
 }

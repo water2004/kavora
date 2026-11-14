@@ -29,7 +29,7 @@
 struct IndirectRayResolve : IRayResolveStep<PathState, IndirectPathTextures>
 {
   [ForceInline]
-  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle, inout PathState state)
+  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle, __ref PathState state)
   {
 #ifdef RT_TRACE_RAY
     TraceRayCustom(topLevelAS, flags, uint(state.rayMask), sbtRecordOffset, 0u, 0u, ray, state);
@@ -40,7 +40,7 @@ struct IndirectRayResolve : IRayResolveStep<PathState, IndirectPathTextures>
   }
 
   [ForceInline]
-  static void resolve(inout IndirectPathTextures textures, RayHitInfo hit, inout PathState state)
+  static void resolve(__ref IndirectPathTextures textures, RayHitInfo hit, __ref PathState state)
   {
 #ifndef RT_TRACE_RAY
     integratePathVertex(textures, hit, state);

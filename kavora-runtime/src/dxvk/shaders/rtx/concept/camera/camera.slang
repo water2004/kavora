@@ -217,15 +217,6 @@ public CameraDirections cameraPixelCoordinateToDirection(Camera camera, ivec2 pi
   return cameraScreenUVToDirection(camera, screenUV, jitter);
 }
 
-// Converts a pixel coordinate from [0, resolution) to last frame's world/view space direction similar to the
-// screen UV variant of this function.
-[ForceInline]
-public CameraDirections cameraPixelCoordinateToPrevDirection(Camera camera, ivec2 pixelCoordinate, bool jitter) {
-  const vec2 screenUV = cameraPixelCoordinateToScreenUV(camera, pixelCoordinate);
-
-  return cameraScreenUVToPrevDirection(camera, screenUV, jitter);
-}
-
 // Overload for converting a pixel coordinate to a world/view space direction with the assumption
 // of using jittering (as this is the most common case).
 [ForceInline]
@@ -272,12 +263,4 @@ public vec3 calculatePreviousVirtualWorldPosition(Camera camera, ivec2 pixelCoor
 public vec3 translatedWorldToPreviousTranslatedWorld(VolumeDefinitionCamera camera, vec3 translatedWorldPosition)
 {
   return translatedWorldPosition + camera.translatedWorldOffset - camera.previousTranslatedWorldOffset;
-}
-
-// We are using default D3D_NDC, so directly extract farPlane to avoid overheads (need to check OGL_NDC and reverse projection in more general cases)
-[ForceInline]
-public float cameraGetFarPlane(Camera camera)
-{
-  float4 farPlane = camera.viewToProjection[3] - camera.viewToProjection[2]; // = [0, 0, n / (f - n), fn / (f - n)]
-  return farPlane.w / farPlane.z;
 }

@@ -25,6 +25,7 @@
 */
 
 #include "rtx_frame_pipeline.h"
+#include "rtx_frame_schedule.h"
 #include "rtx_context.h"
 #include "dxvk_device.h"
 #include "dxvk_scoped_annotation.h"
@@ -34,38 +35,43 @@
 #include "../util/util_global_time.h"
 
 namespace dxvk {
-  extern bool g_allowSrgbConversionForOutput;
-
   __forceinline void RtxFramePipeline::recordDisplayEffects(RtxContext& ctx, Resources::RaytracingOutput& rtOutput, RtxFrameCapture capture) {
-    RtxDustParticles& dust = ctx.m_common->metaDustParticles();
-    dust.simulateAndDraw(&ctx, ctx.m_state, RtxDustParticles::DispatchResources(rtOutput));
+    DisplayFrame display { rtOutput, capture };
+    // Bloom and motion blur consume HDR. Lens effects and final grading consume LDR.
+    using Effects = frame::Schedule<recordDust, recordNeuralRendering, dispatchBloom, dispatchPostFxMotionBlur,
+      dispatchToneMapping, dispatchPostFxLensEffects, recordDisplayConversion, captureDisplay>;
+    static_assert(Effects::orders<dispatchBloom, dispatchToneMapping>);
+    static_assert(Effects::orders<dispatchPostFxMotionBlur, dispatchToneMapping>);
+    static_assert(Effects::orders<dispatchToneMapping, dispatchPostFxLensEffects>);
+    static_assert(Effects::orders<dispatchPostFxLensEffects, recordDisplayConversion>);
+    static_assert(Effects::orders<recordDisplayConversion, captureDisplay>);
+    Effects::record(ctx, display);
+  }
 
-    const bool dlssNrEnabled = dispatchDlssNR(ctx, rtOutput);
-    if (capture.capturesDebugImages()) {
-      ctx.takeScreenshot("rtxImagePostNeuralRendering", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
+  __forceinline void RtxFramePipeline::recordDust(RtxContext& ctx, DisplayFrame& frame) {
+    ctx.m_common->metaDustParticles().simulateAndDraw(&ctx, ctx.m_state, RtxDustParticles::DispatchResources(frame.resources));
+  }
+
+  __forceinline void RtxFramePipeline::recordNeuralRendering(RtxContext& ctx, DisplayFrame& frame) {
+    frame.neuralRendering = dispatchDlssNR(ctx, frame.resources);
+    if (frame.capture.capturesDebugImages()) {
+      ctx.takeScreenshot("rtxImagePostNeuralRendering", frame.resources.m_finalOutput.resource(Resources::AccessType::Read).image);
     }
+  }
 
-    dispatchBloom(ctx, rtOutput.m_finalOutput);
-
-    // Motion blur runs before tonemapping while the image is still in linear HDR space.
-    dispatchPostFxMotionBlur(ctx, rtOutput);
-
-    dispatchToneMapping(ctx, rtOutput, !dlssNrEnabled);
-
-    // Lens effects (chromatic aberration, vignette) run AFTER tonemapping. They are
-    // display-space artifacts so they operate on post-tonemap LDR data.
-    dispatchPostFxLensEffects(ctx, rtOutput.m_finalOutput, rtOutput.m_postFxIntermediateTexture);
-
+  __forceinline void RtxFramePipeline::recordDisplayConversion(RtxContext& ctx, DisplayFrame& frame) {
     // Final output pass grades the linear post-tonemap LDR image, converts to sRGB and applies
     // dithering as the very last step. SRGB conversion is suppressed for screenshot
     // captures (WAR for TREX-553: NVTT implicitly applies sRGB during dds->png conversion
     // for 16bit float formats).
-    const bool performSRGBConversion = !capture.screenImage && g_allowSrgbConversionForOutput;
-    {
-      ScopedCpuProfileZoneN("dxvk::RtxContext::dispatchSRGBDither");
-      ctx.getCommonObjects()->metaSRGBDither().dispatch(&ctx, rtOutput.m_finalOutput, performSRGBConversion);
-    }
+    ScopedCpuProfileZoneN("dxvk::RtxContext::dispatchSRGBDither");
+    ctx.getCommonObjects()->metaSRGBDither().dispatch(
+      &ctx, DxvkSRGBDither::DispatchResources(frame.resources), frame.capture.screenImage);
+  }
 
+  __forceinline void RtxFramePipeline::captureDisplay(RtxContext& ctx, DisplayFrame& frame) {
+    const auto& capture = frame.capture;
+    const auto& rtOutput = frame.resources;
     if (capture.screenImage) {
       if (ctx.m_common->metaDebugView().debugViewIdx() == DEBUG_VIEW_DISABLED) {
         ctx.takeScreenshot("rtxImagePostTonemapping", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
@@ -113,7 +119,7 @@ namespace dxvk {
     return true;
   }
 
-  void RtxFramePipeline::dispatchToneMapping(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, bool updateAutoExposure) {
+  void RtxFramePipeline::dispatchToneMapping(RtxContext& ctx, DisplayFrame& frame) {
     ScopedCpuProfileZone();
 
     if (ctx.m_common->metaDebugView().debugViewIdx() == DEBUG_VIEW_PRE_TONEMAP_OUTPUT) {
@@ -125,7 +131,8 @@ namespace dxvk {
     ctx.unbindComputePipeline();
 
     DxvkAutoExposure& autoExposure = ctx.m_common->metaAutoExposure();
-    if (updateAutoExposure) {
+    const auto& rtOutput = frame.resources;
+    if (!frame.neuralRendering) {
       autoExposure.dispatch(&ctx,
         ctx.getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER),
       DxvkAutoExposure::DispatchResources(rtOutput), GlobalTime::get().deltaTimeMs());
@@ -154,49 +161,27 @@ namespace dxvk {
     }
   }
 
-  void RtxFramePipeline::dispatchBloom(RtxContext& ctx, const Resources::AliasedResource& finalColor) {
+  void RtxFramePipeline::dispatchBloom(RtxContext& ctx, DisplayFrame& frame) {
     ScopedCpuProfileZone();
     DxvkBloom& bloom = ctx.m_common->metaBloom();
     if (!bloom.isActive()) {
       return;
     }
 
-    // TODO: just in case, because tonemapping does the same
     ctx.spillRenderPass(false);
     ctx.unbindComputePipeline();
-
-    bloom.dispatch(&ctx,
-      ctx.getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-      finalColor.resource(Resources::AccessType::ReadWrite));
+    bloom.dispatch(&ctx, DxvkBloom::DispatchResources(frame.resources));
   }
 
-  void RtxFramePipeline::dispatchPostFxMotionBlur(RtxContext& ctx, Resources::RaytracingOutput& rtOutput) {
+  void RtxFramePipeline::dispatchPostFxMotionBlur(RtxContext& ctx, DisplayFrame& frame) {
     ScopedCpuProfileZone();
     DxvkPostFx& postFx = ctx.m_common->metaPostFx();
-    const RtCamera& mainCamera = ctx.getSceneManager().getCamera();
-    if (!postFx.enable()) {
-      return;
-    }
-
-    postFx.dispatchMotionBlur(&ctx,
-      ctx.getResourceManager().getSampler(VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-      ctx.getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-      mainCamera.getShaderConstants().resolution,
-      RtxOptions::rngSeedWithFrameIndex() ? ctx.m_device->getCurrentFrameId() : 0,
-      DxvkPostFx::MotionBlurResources(rtOutput),
-      mainCamera.isViewHistoryInvalidated(ctx.m_device->getCurrentFrameId()));
+    postFx.dispatchMotionBlur(&ctx, DxvkPostFx::MotionBlurResources(frame.resources));
   }
 
-  void RtxFramePipeline::dispatchPostFxLensEffects(RtxContext& ctx, const Resources::AliasedResource& finalColor,
-                                                   const Resources::AliasedResource& intermediate) {
+  void RtxFramePipeline::dispatchPostFxLensEffects(RtxContext& ctx, DisplayFrame& frame) {
     ScopedCpuProfileZone();
     DxvkPostFx& postFx = ctx.m_common->metaPostFx();
-    if (!postFx.enable()) {
-      return;
-    }
-
-    postFx.dispatchLensEffects(&ctx,
-      ctx.getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE),
-      finalColor, intermediate);
+    postFx.dispatchLensEffects(&ctx, DxvkPostFx::LensEffectsResources(frame.resources));
   }
 }

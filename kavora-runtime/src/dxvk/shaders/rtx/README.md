@@ -12,14 +12,15 @@ This document provides an overview for the general structure, standards and conv
 Use explicit-width storage and preserve the CPU/GPU field layout when adding
 parameters. Each pass keeps its descriptor indices alongside its bindings.
 
-Meson reflects `RaytraceArgs` through a build-only probe. The composite,
-Ray Reconstruction, dome compositor, night sky and display color checks
-reflect their production entry points. The display color check also verifies
-descriptor bindings for both variants. These targets use the production
-scalar-layout and matrix options and generate C++ assertions for sizes,
-field offsets and array strides. The owning C++ translation units enforce
-the assertions at build time. Resource encodings, image access modes and
-history lifetime belong to each pass's contract.
+Meson reflects `RaytraceArgs` through a build-only probe. Composite, its alpha
+pass, Ray Reconstruction preparation, dome composition, night sky and display
+color reflect their production entry points. The checks use the production
+scalar-layout and matrix options and emit C++ assertions for sizes, offsets and
+array strides. Reflected descriptor checks compare the slots, Vulkan types,
+image view dimensions and descriptor counts with the C++ pipeline declarations.
+The dome variants share the union of their slots. Composite and its alpha pass
+may omit slots their entry point never uses. Resource encodings, access modes
+and history lifetime belong to each pass's contract.
 
 ### Visual effect boundaries
 
@@ -37,12 +38,26 @@ parameter type used by several modules, import the module that owns its Slang
 declaration so every consumer uses the same type. The host still reads the
 layout from the corresponding C++ header.
 
+`material_effects.slang` expands a list of material effects at compile time.
+`opaque_surface_material_interaction.slangh` lists the parameter modifiers
+before BSDF construction and composes replacement emission before additive
+emission. Both emission stages specialize against typed bindless accessors.
+
+`water_surface.slang` owns the wave, slope and refracted-ray offset calculations.
+`gbuffer_water.slangh` adapts the G-buffer variants' bindings and ray data to
+its interface. `gbuffer_water_bindings.h` declares the shared water image slots.
+`water_surface_args.h` declares the shared constant-buffer block written by
+the simulation and used by the Slang water module. The layout reflection checks
+the size and every member offset of that block.
+
 `common_bindings.slangh` owns shared descriptor declarations. The G-buffer
 entries include the implementation for the stage they dispatch.
 
 | G-buffer stage | Owner | Inputs and outputs |
 | --- | --- | --- |
 | Primary resolve | [`gbuffer_primary.slangh`](pass/gbuffer/gbuffer_primary.slangh) | Camera ray and first intersection in. First-hit material, guides and PSR candidates out. |
+| Shared hit resolution | [`gbuffer_segment.slangh`](pass/gbuffer/gbuffer_segment.slangh) | Ray state and nearest candidate in. Runs unordered resolve, then evaluates the ordered hit and its material. Returns the hit and segment contributions for the caller to accumulate. |
+| Shared surface shading | [`gbuffer_shading_cache.slangh`](pass/gbuffer/gbuffer_shading_cache.slangh) | Surface material, layer weight and attenuation in. Surface radiance and optional NRC or SHaRC updates out. |
 | Decals | [`gbuffer_decals.slangh`](pass/gbuffer/gbuffer_decals.slangh) | Ray cone and first-hit geometry in. Blended material out. The primary pass can call the same decal operations before publishing the first hit. |
 | PSR setup | [`gbuffer_psr_prepare.slangh`](pass/gbuffer/gbuffer_psr_prepare.slangh) | First-hit material and guides in. Reflection and transmission seeds out. |
 | PSR resolve | [`gbuffer_psr.slangh`](pass/gbuffer/gbuffer_psr.slangh) | A reflection or transmission seed in. Resolved optical surface and guides out. The entry manages its work queue. |
@@ -51,9 +66,13 @@ entries include the implementation for the stage they dispatch.
 pixels to compacted slots and owns shared buffer encodings.
 [`gbuffer_output.slangh`](pass/gbuffer/gbuffer_output.slangh) publishes the hit
 or miss and calls the [motion projection module](pass/gbuffer/gbuffer_motion.slang).
-Diagnostics and radiance-cache updates are local to the G-buffer stages.
-`ray_resolve.slang` owns the shared traversal loop. Each pass specializes
-its traversal and hit policy at compile time.
+`ray_resolve.slang` owns the traversal loop, including queued Primary
+continuations. Each pass specializes its tracing and hit policy at compile
+time. `gbuffer_queue.slangh` owns wave-compacted enqueue and the shared half
+encoding. The Primary and PSR queues own their record layouts and lifetimes.
+`gbuffer_optical_ray.slangh` builds transmission rays for all PSR stages.
+It also publishes the same packed reflection and transmission seeds for inline
+sampling and the separate preparation pass.
 [`resolve_ordered.slangh`](algorithm/resolve_ordered.slangh) decides whether
 the nearest hit ends that loop or advances the ray.
 [`resolve_unordered.slangh`](algorithm/resolve_unordered.slangh) accumulates
@@ -85,9 +104,9 @@ as Kavora's passes.
 | End sky and planet | [`end_sky.slang`](pass/dome_composite/end_sky.slang) | End-sky parameters, background map and world direction yield linear radiance for the dome layer. |
 | Visible moon | [`lunar_surface.slang`](pass/dome_composite/lunar_surface.slang) | Projected disc coordinates, gradients, texture and phase yield the disc's radiance and coverage. Scene illumination comes from the directional light. |
 | Water normal motion | [`water_normal_coordinates.slang`](concept/surface_material/water_normal_coordinates.slang) | Sprite coordinates, time and motion or a texture transform produce the UVs for the material's existing normal layers. The material owns sampling, LOD and normal blending. |
-| Water simulation at a surface | [`water_surface.slang`](concept/surface_material/water_surface.slang) | The caller supplies the simulation textures, settings and footprint. The material gets wave height and slope, and the resolver owns any shore intersection. |
-| Portal and gateway emission | [`end_portal_material.slang`](concept/surface_material/end_portal_material.slang) | Samples the star layers using supplied textures, camera projection and time. The material resolves descriptor indices and selects the layer count. |
-| Enchantment glint | [`surface_glint.slang`](concept/surface_material/surface_glint.slang) | Texture, UVs, gradients, material color and animation settings produce additive radiance. |
+| Water simulation at a surface | [`water_surface.slang`](concept/surface_material/water_surface.slang) | Simulation textures, settings and footprint produce wave height and slope. The transmission helper takes the scene acceleration structure for the shore test. |
+| Portal and gateway emission | [`end_portal_emission_effect.slang`](concept/surface_material/end_portal_emission_effect.slang) | Selects a layer count from the material and evaluates star-layer radiance from the supplied camera and texture accessors. |
+| Enchantment glint | [`surface_glint_effect.slang`](concept/surface_material/surface_glint_effect.slang) | Texture, UVs, gradients, material color and animation settings produce additive radiance. |
 | Visibility through portals and thin media | [`visibility_material.slang`](algorithm/visibility_material.slang) | Ray and portal geometry yield intersection coordinates. Thin-sheet thickness, transmittance color and ray geometry yield attenuation. |
 | Reconstruction guides | [`gbuffer_guide_math.slang`](pass/gbuffer/gbuffer_guide_math.slang) | Evaluates guide roughness, opacity and reflectivity from material values. The G-buffer output code owns resource writes and feature variants. |
 | Parallax and relief visibility | [`parallax_occlusion.slang`](concept/surface_material/parallax_occlusion.slang) | The height texture, sampler, tangent-space ray, atlas bounds and parallax settings determine the displacement or visibility. The material owns texture indexing. |

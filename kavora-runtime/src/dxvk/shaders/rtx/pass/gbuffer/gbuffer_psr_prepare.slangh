@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/gbuffer_output.slangh"
+#include "rtx/pass/gbuffer/gbuffer_optical_ray.slangh"
 #include "rtx/pass/gbuffer/gbuffer_shading_cache.slangh"
 #include "rtx/pass/gbuffer/primary_intersection.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
@@ -187,60 +188,14 @@ void geometryPSRPreparePass(ivec2 pixelCoordinate) {
   // PrimaryConeRadius. PSR resolving consumes this texture as a raw cone radius.
   PrimaryConeRadius[pixelCoordinate] = minimalRayInteraction.coneRadius;
 
-  const uint packedGeometryFlags = geometryFlagsEncode(geometryFlags);
   bool useAlternateDisocclusionThreshold = false;
-  const vec4 accumulatedRotation =
-    gbufferLoadPortalRotation(geometryFlags.portalSpace);
-
-  if (performPSRR)
-  {
-    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && performPSTR)
-    {
-      RayReconstructionSpecularMotion[pixelCoordinate] = kRRSpecularMotionPending.xx;
-    }
-    const Ray sampledRay = rayCreateDirection(
-      minimalRayInteraction, minimalSurfaceInteraction, primaryRay,
-      reflectionPSRSample.inputDirection, false);
-    const vec4 vectorTransform =
-      quaternionMultiply(accumulatedRotation, reflectionPSRSample.vectorTransform, true);
-    // Reflections retain the camera medium; unpackPSRData also derives insideMedium from this index.
-    const GbufferPSRData psrData = packPSRData(
-      sampledRay, cb.startInMediumMaterialIndex,
-      attenuation * reflectionPSRSample.attenuation,
-      vectorTransform,
-      packedGeometryFlags);
-
-    storeReflectionPSRData(psrData, pixelCoordinate);
-    useAlternateDisocclusionThreshold =
-      useAlternateDisocclusionThreshold || reflectionPSRSample.useAlternateDisocclusionThreshold;
-  }
-
-  if (performPSTR)
-  {
-    Ray sampledRay = rayCreateDirection(
-      minimalRayInteraction, minimalSurfaceInteraction, primaryRay,
-      transmissionPSRSample.inputDirection, pstrPenetrateSurface);
-#ifdef WATER_SIM_SAMPLE
-    if (pstrPenetrateSurface && hasWaterTransmissionOffset(polymorphicSurfaceMaterialInteraction)) {
-      offsetWaterTransmissionRay(sampledRay, primaryRay, minimalSurfaceInteraction.position,
-        minimalSurfaceInteraction.geometryNormal, primaryRayMask());
-    }
-#endif
-    const vec4 vectorTransform =
-      quaternionMultiply(accumulatedRotation, transmissionPSRSample.vectorTransform, true);
-    const GbufferPSRData psrData = packPSRData(
-      sampledRay, transmissionMediumState,
-      attenuation * transmissionPSRSample.attenuation,
-      vectorTransform,
-      packedGeometryFlags);
-
-    storeTransmissionPSRData(psrData, pixelCoordinate);
-    useAlternateDisocclusionThreshold =
-      useAlternateDisocclusionThreshold || transmissionPSRSample.useAlternateDisocclusionThreshold;
-  }
-
-  geometryResolverStorePSRProjectionSeed(pixelCoordinate,
-    performPSTR ? transmissionPSRSample.relativeRefractiveIndex : 1.0f, geometryFlags.isViewModel);
+  float unusedConeRadius = minimalRayInteraction.coneRadius;
+  storeGBufferOpticalSeeds(pixelCoordinate, geometryFlagsEncode(geometryFlags), geometryFlags.isViewModel,
+    performPSRR, performPSTR, primaryRay,
+    minimalRayInteraction, minimalSurfaceInteraction, minimalSurfaceInteraction.geometryNormal,
+    polymorphicSurfaceMaterialInteraction, attenuation, gbufferLoadPortalRotation(geometryFlags.portalSpace),
+    reflectionPSRSample, transmissionPSRSample, transmissionMediumState, pstrPenetrateSurface, primaryRayMask(),
+    useAlternateDisocclusionThreshold, unusedConeRadius);
   SecondaryHitDistance[pixelCoordinate] = PrimaryHitDistance[pixelCoordinate];
   PrimaryDisocclusionThresholdMix[pixelCoordinate] = useAlternateDisocclusionThreshold ? 1.0f : 0.0f;
 

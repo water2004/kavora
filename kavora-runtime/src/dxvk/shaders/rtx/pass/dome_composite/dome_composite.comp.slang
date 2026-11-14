@@ -9,14 +9,8 @@
 #include "rtx/pass/dome_composite/dome_composite_args.h"
 #include "rtx/pass/dome_composite/night_sky_args.h"
 #include "rtx/utility/math.slangh"
-import "lunar_surface.slang";
 import "rtx/utility/lat_long_projection.slang";
-#if defined(DOME_NIGHT_SKY) || defined(DOME_END_SKY)
-import "night_sky.slang";
-#endif
-#ifdef DOME_END_SKY
-import "end_sky.slang";
-#endif
+import "dome_effects.slang";
 
 layout(binding = DOME_COMPOSITE_SOURCE)
 Sampler2D<float4> DomeSource;
@@ -83,19 +77,13 @@ void main(uint2 pixel : SV_DispatchThreadID) {
       if (!(cb.flags & kDomeFirstLayer)) return;
       source = float4(0.0f);
     } else if (cb.flags & kDomeHasTexture) {
-      if (cb.flags & kDomeLunarSurface) {
-        source = LunarSurface::radiance(DomeSource, (sourceUV - 0.5f) * float2(2, -2),
-          (projectedUv(directionX) - 0.5f) * float2(2, -2),
-          (projectedUv(directionY) - 0.5f) * float2(2, -2), (cb.flags >> kDomeMoonPhaseShift) & 7u);
-      } else {
-        source = DomeSource.SampleGrad(sourceUV, projectedUv(directionX) - sourceUV, projectedUv(directionY) - sourceUV);
-      }
+      source = DomeEffectOwner.projectedSource(DomeSource, sourceUV, projectedUv(directionX), projectedUv(directionY), cb.flags);
     }
   } else if (cb.flags & kDomeHasTexture) {
     source = DomeSource.SampleLevel(sourceUV, 0);
   }
 #ifdef DOME_END_SKY
-  source = float4(endSkyRadiance(night.rotation, night.intensity, night.endParameters, Galaxy, direction), 1.0f);
+  source = float4(DomeEffectOwner.end(night.rotation, night.intensity, night.endParameters, Galaxy, direction), 1.0f);
 #endif
   float3 background = float3(0.0f);
   float3 visible = float3(0.0f);
@@ -104,7 +92,7 @@ void main(uint2 pixel : SV_DispatchThreadID) {
     if (cb.flags & kDomeSeparateBackground) visible = VisibleBackground[pixel].rgb;
   }
 #ifdef DOME_NIGHT_SKY
-  const float3 nightRadiance = nightSkyRadiance(night.rotation, night.intensity, night.meteorHead,
+  const float3 nightRadiance = DomeEffectOwner.night(night.rotation, night.intensity, night.meteorHead,
     night.meteorTail, NightField, Galaxy, direction, directionX, directionY);
   background += nightRadiance;
   visible += nightRadiance;

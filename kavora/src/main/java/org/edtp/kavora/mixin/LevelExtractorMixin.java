@@ -6,7 +6,6 @@ package org.edtp.kavora.mixin;
 
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.terrain.NeighbourReflagFilter;
-import org.edtp.kavora.terrain.capture.BlockQuadEmitter;
 import org.edtp.kavora.terrain.visibility.BuiltChunkStorageSectionAccess;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.extract.LevelExtractor;
@@ -24,10 +23,11 @@ public abstract class LevelExtractorMixin {
     @Shadow @Final private LevelRenderer levelRenderer;
 
     @Inject(method = "setBlocksDirty(IIIIII)V", at = @At("HEAD"), cancellable = true)
-    private void kavora$expandWaterOcclusionRebuildMargin(
+    private void kavora$expandWaterContactRebuildMargin(
             int minX, int minY, int minZ, int maxX, int maxY, int maxZ, CallbackInfo ci) {
         if (!KavoraMod.isRtxEnabled()) return;
-        int radius = Math.max(1, BlockQuadEmitter.getWaterTopOcclusionRadius());
+        // Glass contact can sample adjacent fluid corners across a section boundary.
+        int radius = 2;
         LevelExtractor extractor = (LevelExtractor) (Object) this;
         for (int z = SectionPos.blockToSectionCoord(minZ - radius); z <= SectionPos.blockToSectionCoord(maxZ + radius); z++) {
             for (int x = SectionPos.blockToSectionCoord(minX - radius); x <= SectionPos.blockToSectionCoord(maxX + radius); x++) {

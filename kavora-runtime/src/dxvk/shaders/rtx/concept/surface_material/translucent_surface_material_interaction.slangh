@@ -23,7 +23,7 @@
 
 import "rtx/concept/surface_material/water_normal_coordinates.slang";
 #ifdef WATER_SIM_SAMPLE
-#include "rtx/concept/surface_material/water_sim_surface.slangh"
+import "rtx/concept/surface_material/water_surface.slang";
 #endif
 
 // Translucent Surface Material Interaction Helper Functions
@@ -76,7 +76,7 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
       cb.timeSinceStartSeconds, cb.translucentMaterialArgs.animatedWaterSecondaryNormalMotion);
     const float lodBias = cb.translucentMaterialArgs.animatedWaterSecondaryNormalLodBias;
 
-    surfaceInteraction.textureCoordinates = secondaryUV;;
+    surfaceInteraction.textureCoordinates = secondaryUV;
     secondNormalLoaded = surfaceMaterialInteractionTextureReadHelper(translucentSurfaceMaterial.normalTextureIndex, translucentSurfaceMaterial.reliefSamplerIndex, surfaceInteraction, secondNormalSample, lodBias);
     surfaceInteraction.textureCoordinates = primaryUV;
   }
@@ -108,16 +108,11 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
     normal = normalize(mul(tangentToWorld, tangentNormal));
   }
 
-  bool simulatedWater = false;
 #ifdef WATER_SIM_SAMPLE
-  if (cb.waterEffects && (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)) {
-    const float normalUp = cb.isZUp ? surfaceInteraction.triangleNormal.z : surfaceInteraction.triangleNormal.y;
-    if (abs(normalUp) > 0.55f) {
-      const float3 wave = sampleBoundWater<true>(surfaceInteraction.position, minimalRayInteraction.coneRadius);
-      normal = applyWaterSlope(normal, wave.yz, normalUp, cb.isZUp != 0);
-      simulatedWater = any(abs(wave) > 1e-4f);
-    }
-  }
+  const bool simulatedWater = applyWaterSurfaceNormal<BoundWater>(cb.water.effects, translucentSurfaceMaterial.flags,
+    cb.isZUp != 0, surfaceInteraction.position, surfaceInteraction.triangleNormal, minimalRayInteraction.coneRadius, normal);
+#else
+  const bool simulatedWater = false;
 #endif
 
   // Note: Diffuse layer override encapsulated in if the diffuse layer flag is set or not as this override is able to be done on the CPU.

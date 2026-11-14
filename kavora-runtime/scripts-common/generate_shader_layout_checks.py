@@ -11,39 +11,9 @@ from pathlib import Path
 from slang_spirv_layout import LAYOUT_FLAGS
 
 
-def validate_dither_resources(parameters, variant):
-    resources = {param['name']: param for param in parameters if param['type']['kind'] == 'resource'}
-    expected = {
-        'BlueNoise': ('SRGB_DITHER_BLUE_NOISE_TEXTURE_INPUT', 'texture2D', True, None),
-        'InOutColorBuffer': ('SRGB_DITHER_COLOR_INPUT_OUTPUT', 'texture2D', False, 'readWrite'),
-    }
-    if set(resources) != set(expected):
-        raise ValueError(f'{variant}: expected only BlueNoise and InOutColorBuffer resources, got {sorted(resources)}')
-    bindings = {}
-    for name, (binding, shape, is_array, access) in expected.items():
-        param = resources[name]
-        ty = param['type']
-        reflected_binding = param['binding']
-        # Slang omits the descriptor space for set zero.
-        if (reflected_binding.get('kind') != 'descriptorTableSlot' or
-                reflected_binding.get('space', 0) != 0):
-            raise ValueError(f'{variant}: {name} must use a descriptor in set zero')
-        bindings[binding] = reflected_binding['index']
-        if ty.get('baseShape') != shape or ty.get('array', False) != is_array:
-            raise ValueError(f'{variant}: unexpected {name} image shape/array layout')
-        if ty.get('access') != access:
-            raise ValueError(f'{variant}: unexpected {name} image access {ty.get("access")!r}')
-        result = ty.get('resultType', {})
-        if (result.get('kind') != 'vector' or result.get('elementCount') != 4 or
-                result.get('elementType', {}).get('kind') != 'scalar' or
-                result.get('elementType', {}).get('scalarType') != 'float32'):
-            raise ValueError(f'{variant}: {name} must expose float4 image elements')
-    return bindings
-
-
-def reflect(compiler, source, includes, directory, suffix, defines=(), depfile_override=None):
+def reflect(compiler, source, includes, directory, suffix, defines):
     reflection = directory / f'layout{suffix}.json'
-    depfile = depfile_override or directory / f'layout{suffix}.d'
+    depfile = directory / f'layout{suffix}.d'
     module_search_path = Path(source).resolve().parent
     subprocess.run([
         compiler, source, '-entry', 'main', '-target', 'spirv', '-zero-initialize', '-emit-spirv-directly',
@@ -51,7 +21,84 @@ def reflect(compiler, source, includes, directory, suffix, defines=(), depfile_o
         '-reflection-json', str(reflection), '-depfile', str(depfile),
         '-o', str(directory / f'layout{suffix}.spv'),
     ], check=True)
-    return json.loads(reflection.read_text(encoding='utf-8'))['parameters'], depfile
+    _, separator, dependencies = depfile.read_text(encoding='utf-8').partition(': ')
+    if not separator:
+        raise ValueError('Slang did not emit a valid dependency file')
+    return json.loads(reflection.read_text(encoding='utf-8')), dependencies.strip()
+
+
+def descriptors(reflection):
+    used = {binding['name'] for binding in reflection['entryPoints'][0]['bindings']
+            if binding['binding'].get('used')}
+    slots = {}
+    for param in reflection['parameters']:
+        binding = param['binding']
+        if binding['kind'] != 'descriptorTableSlot':
+            continue
+        shader_type = param['type']
+        slot, name = binding['index'], param['name']
+        if binding.get('space', 0) or slot in slots:
+            raise ValueError(f'Expected a unique set-zero descriptor for {name}')
+        if shader_type['kind'] == 'constantBuffer':
+            descriptor, view = 'UNIFORM_BUFFER', None
+        elif shader_type['kind'] == 'resource':
+            view = {'texture2D': '2D', 'texture3D': '3D', 'textureCube': 'CUBE'}[shader_type['baseShape']]
+            if shader_type.get('array'):
+                view += '_ARRAY'
+            if shader_type.get('combined'):
+                descriptor = 'COMBINED_IMAGE_SAMPLER'
+            elif shader_type.get('access') == 'readWrite':
+                descriptor = 'STORAGE_IMAGE'
+            elif 'access' not in shader_type:
+                descriptor = 'SAMPLED_IMAGE'
+            else:
+                raise ValueError(f'Unsupported image access for {name}: {shader_type["access"]}')
+        else:
+            raise ValueError(f'Unsupported descriptor for {name}: {shader_type["kind"]}')
+        count, = (size['value'] for size in shader_type['sizes'] if size['kind'] == 'descriptorTableSlot')
+        slots[slot] = (descriptor, view, count), name in used
+    return slots
+
+
+def assert_descriptors(reflections, name, allow_unused, shared_layout):
+    slots = {}
+    for reflection in reflections:
+        variant = descriptors(reflection)
+        if slots and shared_layout and slots.keys() != variant.keys():
+            raise ValueError(f'{name}: descriptor slots differ across variants')
+        for slot, (layout, used) in variant.items():
+            if slot in slots:
+                previous_layout, previously_used = slots[slot]
+                if layout != previous_layout:
+                    raise ValueError(f'{name}: descriptor slot {slot} differs across variants')
+                used |= previously_used
+            slots[slot] = layout, used
+    if not slots:
+        raise ValueError(f'{name}: no descriptor slots were reflected')
+    ordered_slots = sorted(slots.items())
+    lines = [
+        'template<std::size_t Count>',
+        f'consteval bool {name}(const dxvk::DxvkResourceSlot (&slots)[Count]) {{',
+        f'  bool seen[{len(slots)}] = {{}};',
+        '  for (const auto& slot : slots) {',
+        '    std::size_t index;',
+        '    switch (slot.slot) {',
+    ]
+    for index, (slot, ((descriptor, view, count), _)) in enumerate(ordered_slots):
+        lines += [
+            f'      case {slot}:',
+            f'        if (slot.type != VK_DESCRIPTOR_TYPE_{descriptor}'
+            + (f' || slot.view != VK_IMAGE_VIEW_TYPE_{view}' if view else '')
+            + f' || slot.count != {count}) return false;',
+            f'        index = {index};',
+            '        break;',
+        ]
+    lines += ['      default: return false;', '    }', '    if (seen[index]) return false;',
+              '    seen[index] = true;', '  }']
+    required = [f'seen[{index}]' for index, (_, (_, used)) in enumerate(ordered_slots)
+                if used or not allow_unused]
+    lines += [f'  return {" && ".join(required) or "true"};', '}']
+    return lines
 
 
 def assert_fields(fields, struct_name, prefix='', base_offset=0):
@@ -88,7 +135,10 @@ def main():
     parser.add_argument('alignment', type=int)
     parser.add_argument('includes', nargs='*')
     parser.add_argument('-D', dest='defines', action='append', default=[])
-    parser.add_argument('--validate-srgb-dither', action='store_true')
+    parser.add_argument('--check-slots')
+    parser.add_argument('--variant', action='append', default=[])
+    parser.add_argument('--allow-unused-slots', action='store_true')
+    parser.add_argument('--union-variant-slots', action='store_true')
     options = parser.parse_args()
     compiler, source, includes = options.compiler, options.source, options.includes
     header, depfile = options.header, options.depfile
@@ -96,31 +146,24 @@ def main():
     with tempfile.TemporaryDirectory(dir=header.parent) as temp_dir:
         directory = Path(temp_dir)
         defines = [f'-D{define}' for define in options.defines]
-        parameters, depfile = reflect(compiler, source, includes, directory, '', defines, depfile)
-        variant_parameters = [('sRGB dither', parameters)]
-        if options.validate_srgb_dither:
-            inversion, _ = reflect(compiler, source, includes, directory, '_inversion', [*defines, '-DDISPLAY_COLOR_INVERSION'])
-            variant_parameters.append(('sRGB dither inversion', inversion))
+        reflection, dependencies = reflect(compiler, source, includes, directory, '', defines)
+        parameters = reflection['parameters']
+        reflections = [reflection]
+        dependency_lines = [dependencies]
+        for index, variant in enumerate(options.variant):
+            reflected_variant, dependencies = reflect(compiler, source, includes, directory, f'_{index}', [*defines, f'-D{variant}'])
+            reflections.append(reflected_variant)
+            dependency_lines.append(dependencies)
 
     args = next(param for param in parameters if param['name'] == param_name)
     element = args['type']['elementVarLayout']
     if element['type']['kind'] != 'struct' or element['binding']['kind'] != 'uniform':
         raise ValueError(f'Expected a uniform struct for {param_name}')
-    bindings = {}
-    if options.validate_srgb_dither:
-        for variant_name, variant in variant_parameters:
-            reflected_bindings = validate_dither_resources(variant, variant_name)
-            if bindings and bindings != reflected_bindings:
-                raise ValueError(f'{variant_name}: descriptor bindings differ from sRGB dither')
-            bindings = reflected_bindings
-            push = next((param for param in variant if param['name'] == param_name), None)
-            if (push is None or push['binding'].get('kind') != 'pushConstantBuffer' or
-                    push['binding'].get('index') != 0):
-                raise ValueError(f'{variant_name}: expected {param_name} at push-constant slot 0')
-            variant_element = push['type'].get('elementVarLayout', {})
-            if (variant_element.get('type') != element['type'] or
-                    variant_element.get('binding') != element['binding']):
-                raise ValueError(f'{variant_name}: push-constant layout differs from sRGB dither')
+    for variant in reflections[1:]:
+        parameter = next((param for param in variant['parameters'] if param['name'] == param_name), None)
+        if (parameter is None or parameter['binding'] != args['binding'] or
+                parameter['type']['elementVarLayout'] != element):
+            raise ValueError(f'{source}: {param_name} layout differs across variants')
     struct_name = element['type']['name']
     size = ((element['binding']['size'] + alignment - 1) // alignment) * alignment
     lines = [
@@ -131,19 +174,17 @@ def main():
         f'static_assert(alignof({struct_name}) == {alignment}, "{struct_name} alignment");',
         *assert_fields(element['type']['fields'], struct_name),
     ]
-    if options.validate_srgb_dither:
-        lines += [f'static_assert({name} == {slot}, "{name} descriptor slot");' for name, slot in bindings.items()]
+    if options.check_slots:
+        lines.insert(3, '#include "dxvk_pipelayout.h"')
+        lines += assert_descriptors(reflections, options.check_slots, options.allow_unused_slots,
+                                    not options.union_variant_slots)
     lines.append('')
     content = '\n'.join(lines)
     if not header.exists() or header.read_text(encoding='utf-8') != content:
         header.write_bytes(content.encode('utf-8'))
 
-    # Slang names the temporary SPIR-V file as the dependency target.
-    _, separator, dependencies = depfile.read_text(encoding='utf-8').partition(': ')
-    if not separator:
-        raise ValueError('Slang did not emit a valid dependency file')
     target = header.as_posix().replace(' ', r'\ ')
-    depfile.write_bytes(f'{target}: {dependencies}'.encode('utf-8'))
+    depfile.write_bytes(f'{target}: {" ".join(dependency_lines)}\n'.encode('utf-8'))
 
 
 if __name__ == '__main__':

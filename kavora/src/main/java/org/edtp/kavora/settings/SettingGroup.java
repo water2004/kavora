@@ -23,6 +23,7 @@ public enum SettingGroup {
     PARALLAX(MATERIALS, "kavora.settings.group.parallax"),
     WATER(SettingCategory.MATERIALS, "kavora.settings.group.water"),
     SUBSURFACE(SettingCategory.MATERIALS, "kavora.settings.group.subsurface"),
+    SIMULATED_PARTICLES(SettingCategory.PARTICLES, "kavora.settings.group.simulatedParticles"),
     SKY(SettingCategory.SKY, "kavora.settings.group.sky"),
     NIGHT_SKY(SettingCategory.SKY, "kavora.settings.group.nightSky"),
     END_SKY(SettingCategory.SKY, "kavora.settings.group.endSky"),

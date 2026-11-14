@@ -113,6 +113,18 @@ public struct OpaqueSurfaceMaterial
   public bool hasValidDisplacement() {
     return flags & OPAQUE_SURFACE_MATERIAL_FLAG_HAS_DISPLACEMENT;
   }
+
+  [ForceInline]
+  public uint packedGlintMode()
+  {
+    return flags & OPAQUE_SURFACE_MATERIAL_GLINT_MODE_MASK;
+  }
+
+  [ForceInline]
+  public static uint decodeGlintMode(uint packedMode)
+  {
+    return packedMode >> OPAQUE_SURFACE_MATERIAL_GLINT_MODE_SHIFT;
+  }
 };
 
 public struct TranslucentSurfaceMaterial

@@ -29,8 +29,7 @@ public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
   float3 mediumExtinction = float3(0))
 {
   return Fog.transmittance(args, origin, direction, distance)
-    * (args.clouds.transportMode == 0 ? cloudTransmittance(args.clouds, origin, direction, distance,
-      weather, base, detail) : 1.0f)
+    * VolumeCloud::transmittance(args.clouds, origin, direction, distance, weather, base, detail)
     * volumeTransmittance(mediumExtinction, distance);
 }
 
@@ -90,8 +89,7 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   ray.mediumExtinction = mediumExtinction;
   float2 fog;
   ray.hasFog = Fog.interval(args, origin, direction, floatMax, fog);
-  const float2 cloud = args.clouds.transportMode == 0
-    ? cloudInterval(args.clouds, origin, direction, args.clouds.maxDistance) : float2(0);
+  const float2 cloud = VolumeCloud::interval(args.clouds, origin, direction);
   ray.hasCloud = cloud.y > cloud.x;
   if (!ray.hasFog) fog = 0;
 

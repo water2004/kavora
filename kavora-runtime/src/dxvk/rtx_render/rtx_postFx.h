@@ -46,6 +46,9 @@ namespace dxvk {
       &RaytracingFrame::m_primarySurfaceFlagsIntermediateTexture2,
       &RaytracingFrame::m_primaryScreenSpaceMotionVector,
       &RaytracingFrame::m_primaryLinearViewZ>;
+    using LensEffectsResources = FrameResourceView<
+      &RaytracingFrame::m_finalOutput,
+      &RaytracingFrame::m_postFxIntermediateTexture>;
     enum class InversionMode : uint32_t {
       Invert = 0,
       ThresholdInvert,
@@ -58,21 +61,14 @@ namespace dxvk {
     // Reads m_finalOutput, writes back to m_finalOutput (via intermediate texture).
     void dispatchMotionBlur(
       Rc<RtxContext> ctx,
-      Rc<DxvkSampler> nearestSampler,
-      Rc<DxvkSampler> linearSampler,
-      const uvec2& mainCameraResolution,
-      const uint32_t frameIdx,
-      MotionBlurResources resources,
-      const bool cameraCutDetected);
+      MotionBlurResources resources);
 
     // Lens effects phase (chromatic aberration + vignette). Runs after tonemapping
     // so it operates on post-tonemap LDR data — these are display-space lens artifacts.
     // Writes the result into scratch before copying it back into color.
     void dispatchLensEffects(
       Rc<RtxContext> ctx,
-      Rc<DxvkSampler> linearSampler,
-      const Resources::AliasedResource& color,
-      const Resources::AliasedResource& scratch);
+      LensEffectsResources resources);
 
     using HighlightResources = FrameResourceView<
       &RaytracingFrame::m_primaryObjectPicking,

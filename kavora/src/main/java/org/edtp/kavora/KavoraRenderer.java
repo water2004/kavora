@@ -14,7 +14,6 @@ import org.edtp.kavora.sdk.RemixException;
 import org.edtp.kavora.sdk.VulkanClientFrameInfo;
 import org.edtp.kavora.asset.KavoraInstanceStore;
 import org.edtp.kavora.asset.KavoraLightStore;
-import org.edtp.kavora.asset.KavoraMaterial;
 import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraMeshStore;
 import org.edtp.kavora.asset.KavoraTextureStore;
@@ -38,6 +37,7 @@ import org.edtp.kavora.weather.KavoraWeatherRenderer;
 import org.edtp.kavora.camera.CameraController;
 import org.edtp.kavora.logic.ConfLayerDriver;
 import org.edtp.kavora.logic.ZoneRegistry;
+import org.edtp.kavora.logic.KavoraCameraEnvironment;
 import org.edtp.kavora.entity.EntityRenderContext;
 import org.edtp.kavora.entity.KavoraBlockDamagePass;
 import org.edtp.kavora.entity.KavoraBlockEntityPass;
@@ -63,7 +63,6 @@ import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.material.FogType;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,6 +105,7 @@ public class KavoraRenderer {
     // Drives the minecraft-logic conf option-layers per frame; acquired during
     // initialize(), so it is null only before the renderer comes up.
     private ConfLayerDriver confLayerDriver;
+    private KavoraCameraEnvironment cameraEnvironment;
     private LightManager lightManager;
     private SkyRenderer skyRenderer;
     private CloudRenderer cloudRenderer;
@@ -144,9 +144,6 @@ public class KavoraRenderer {
     private final ParticleFramePipeline particles = new ParticleFramePipeline(perfTimer);
     private final CameraController cameraController = new CameraController();
     private final BenchmarkController benchmarkController = new BenchmarkController(cameraController);
-    private long lastCameraMediumHandle = Long.MIN_VALUE;
-    private long lastWaterMediumHandle;
-    private int lastWaterMaterialRevision;
     private final ViewDistanceFade viewDistanceFade = new ViewDistanceFade();
     
     /**
@@ -156,8 +153,6 @@ public class KavoraRenderer {
         LOGGER.info("Initializing Kavora renderer...");
 
         try {
-            lastCameraMediumHandle = Long.MIN_VALUE;
-
             Minecraft client = Minecraft.getInstance();
             remixApi = NativeRuntime.startup(client.getWindow().handle());
 
@@ -212,12 +207,14 @@ public class KavoraRenderer {
                 throw new IllegalStateException("conf failed to acquire (see log): " + waterConf);
             }
             confLayerDriver = driver;
+            cameraEnvironment = new KavoraCameraEnvironment(remixApi, textureManager, confLayerDriver, zoneRegistry);
             LOGGER.info("Config option-layers acquired - conf-layer blending active");
 
+            var effects = new KavoraSceneEffects(skyRenderer, cloudRenderer, confLayerDriver, perfTimer,
+                    lightManager, particles, particleAtlasManager, blockDamagePass, blockOutlinePass);
             sceneFrame = new KavoraSceneFrame(interop, presentation, chunkManager, lightManager,
-                    entityPass, entitySubmitter, blockEntityPass, firstPersonPass, blockDamagePass, blockOutlinePass,
-                    skyRenderer, cloudRenderer, confLayerDriver, textureManager, particleAtlasManager, particles,
-                    perfTimer, benchmarkController);
+                    entityPass, entitySubmitter, blockEntityPass, firstPersonPass,
+                    effects, textureManager, particles, perfTimer, benchmarkController);
             RenderOrigin.publish(new RenderOrigin(0, 0));
             initialized = true;
             LOGGER.info("Kavora renderer initialized successfully!");
@@ -401,26 +398,6 @@ public class KavoraRenderer {
     }
 
     /**
-     * Opens a fresh entity capture window for the world render that is starting.
-     *
-     * <p>{@code WorldRenderEvents.END} does not fire during loading screens, so a
-     * capture window can be opened and never closed. Resetting at the start of
-     * every world render stops a dropped frame bleeding into the next one, and
-     * opening the submitter's frame here (rather than in
-     * {@link #renderAndSubmitFrame}) is what lets parts captured in place be
-     * stamped with the frame that will decide whether to retire them.
-     */
-    public void beginEntityFrame() {
-        if (entityPass == null || entitySubmitter == null) {
-            return;
-        }
-        entityPass.resetFrame();
-        if (initialized && KavoraMod.isRtxEnabled() && KavoraMod.isEntitiesEnabled()) {
-            entityPass.beginFrame(entitySubmitter);
-        }
-    }
-
-    /**
      * Captures one entity at vanilla's own traversal point, in place of the render
      * that would have gone to the vanilla render passes.
      *
@@ -598,10 +575,8 @@ public class KavoraRenderer {
             remixApi.setupCamera(worldCameraInfo);
             RenderOrigin.publish(origin);
             remixApi.setupCamera(viewModelCameraInfo);
-            float viewDistanceStrength = viewDistanceFade.layerStrength(ClientViewDistance.chunks(),
-                    farDistanceChunks);
-            if (confLayerDriver != null) confLayerDriver.setFarViewDistanceStrength(viewDistanceFade.farLayerStrength());
-            updateCameraMedium(camera, pos, viewDistanceStrength, tickDelta);
+            float viewDistanceStrength = viewDistanceFade.layerStrength(ClientViewDistance.chunks(), farDistanceChunks);
+            cameraEnvironment.update(client.level, camera, pos, viewDistanceStrength, viewDistanceFade.farLayerStrength(), tickDelta);
         } catch (RemixException e) {
             LOGGER.error("Error updating camera: {} (code: {})", e.getMessage(), e.getErrorCode());
         } catch (Exception e) {
@@ -636,43 +611,6 @@ public class KavoraRenderer {
                 chunkManager == null ? 0 : chunkManager.getFarRenderDistanceChunks());
     }
 
-    private void updateCameraMedium(Camera camera, Vec3 cameraPos, float viewDistanceStrength, float tickDelta) {
-        try {
-            Minecraft client = Minecraft.getInstance();
-            ClientLevel world = client != null ? client.level : null;
-    
-            // Submersion is read before material readiness so the driver sees
-            // it on early frames.
-            boolean underwater = camera.getFluidInCamera() == FogType.WATER;
-            KavoraMaterial waterMedium = textureManager == null ? null : underwater
-                    ? textureManager.getWaterCameraMediumMaterial() : textureManager.getWaterSurfaceMaterial();
-            long waterHandle = waterMedium != null && !waterMedium.isDeleted() ? waterMedium.getHandle() : 0;
-            long materialHandle = underwater ? waterHandle : 0;
-            int waterRevision = textureManager != null ? textureManager.getWaterMaterialRevision() : 0;
-            if (materialHandle != lastCameraMediumHandle || waterHandle != lastWaterMediumHandle
-                    || waterRevision != lastWaterMaterialRevision) {
-                remixApi.setCameraMediumMaterial(materialHandle, waterHandle);
-                lastWaterMediumHandle = waterHandle;
-                lastWaterMaterialRevision = waterRevision;
-                if (materialHandle != lastCameraMediumHandle) {
-                    LOGGER.info("Camera medium updated: {}", materialHandle != 0 ? "water" : "clear");
-                    lastCameraMediumHandle = materialHandle;
-                }
-            }
-            // Conf layers own the volumetric profile and the view-distance
-            // fade. A driver left inactive by a failed reload drives nothing
-            // until the next successful /kavora conf reload.
-            if (confLayerDriver != null && confLayerDriver.isActive() && world != null) {
-                confLayerDriver.update(world, cameraPos, underwater,
-                        viewDistanceStrength, tickDelta, zoneRegistry);
-            }
-        } catch (RemixException e) {
-            LOGGER.error("Error updating camera medium: {} (code: {})", e.getMessage(), e.getErrorCode());
-        } catch (Exception e) {
-            LOGGER.error("Error updating camera medium", e);
-        }
-    }
-    
     /** Draws the runtime's independent menu layer above Minecraft screens, immediately before the surface blit. */
     public void compositeRemixMenus() {
         if (!KavoraMod.getRemixInputGate().isCaptureSessionOpen()) return;
@@ -777,6 +715,9 @@ public class KavoraRenderer {
      */
     private void doClearWorld() {
         LOGGER.info("Clearing world resources...");
+        if (cameraEnvironment != null) {
+            cameraEnvironment.invalidate();
+        }
         particles.discardInFlight();
         particles.discardPendingFrame();
         
@@ -888,6 +829,7 @@ public class KavoraRenderer {
         }
         // Presentation outlives scene capture and is released with the host Vulkan device.
         remixApi = null;
+        cameraEnvironment = null;
         LOGGER.info("Kavora renderer shut down");
         if (!failures.isEmpty()) {
             RuntimeException failure = failures.getFirst();

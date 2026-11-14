@@ -1,0 +1,82 @@
+// SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors.
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/algorithm/resolve_ordered.slangh"
+#include "rtx/algorithm/resolve_unordered.slangh"
+#include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
+
+struct GBufferSegment
+{
+  vec3 attenuation;
+  vec3 emission;
+  uint4 decalMemory;
+  f16vec3 decalEmission;
+  uint numUnorderedInteractions;
+};
+
+interface IGBufferUnorderedResolve<State : IBasePayloadState, MaterialContext : IVertexMaterialContext>
+{
+  static float resolve(uint8_t mode, Ray ray, uint8_t mask, uint medium, __ref State state,
+    __ref GBufferSegment segment, __ref MaterialContext materialContext);
+};
+
+[ForceInline]
+float resolveGBufferSegment<State : IBasePayloadState, MaterialContext : IVertexMaterialContext,
+  Unordered : IGBufferUnorderedResolve<State, MaterialContext>, let StochasticAlpha : bool>(
+  RayHitInfo candidate, __ref State state, __ref MaterialContext materialContext,
+  uint medium, bool forceFirstHit, bool firstPrimarySegment, bool evaluatePomSilhouette,
+  inout bool pomOpaqueSurfaceEncountered, __ref GBufferSegment segment,
+  __ref Ray ray, __ref RayInteraction interaction, __ref Surface surface, __ref SurfaceInteraction surfaceInteraction,
+  __ref PolymorphicSurfaceMaterialInteraction material, __ref bool stochasticAlpha, __ref bool raytracedRenderTarget)
+{
+  const uint8_t mode = resolveModeAlteredDirectionNotify |
+    resolveModeEmissiveOpacityTransmissionApprox | resolveModeDecalMaterialBlending |
+    (cb.enableSeparateUnorderedApproximations ? resolveModeSeparateUnorderedApproximations : 0);
+  const float spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
+  Ray unorderedRay;
+  unorderedRay.origin = state.origin;
+  unorderedRay.coneRadius = state.coneRadius;
+  unorderedRay.spreadAngle = spreadAngle;
+  unorderedRay.direction = state.direction;
+  unorderedRay.tMax = candidate.hasHit ? candidate.hitDistance * kUnorderedResolveRayLengthening : floatMax;
+  const uint8_t unorderedMask = convertPrimaryRayMaskToUnordered(state.rayMask, OBJECT_MASK_ALL_UNORDERED);
+
+  segment = {};
+  segment.attenuation = vec3(1.0f);
+  state.decalEncountered = false;
+  const float unorderedTransmittance = Unordered.resolve(mode, unorderedRay, unorderedMask, medium,
+    state, segment, materialContext);
+
+  if (gbufferDebugViewEnabled && (cb.debugView == DEBUG_VIEW_PRIMARY_UNORDERED_INTERACTIONS ||
+      cb.debugView == DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS))
+  {
+    accumulateInDebugViewAdd(u16vec2(getDispatchRaysIndex().xy), segment.numUnorderedInteractions);
+  }
+
+  stochasticAlpha = false;
+  raytracedRenderTarget = false;
+  uint8_t firstRayPortal = invalidRayPortalIndex;
+  const float orderedTransmittance = resolveVertex<State, MaterialContext>(mode, candidate, state, materialContext,
+    ray, interaction, surface, surfaceInteraction, material,
+    segment.attenuation, segment.emission, segment.decalMemory, segment.decalEmission,
+    spreadAngle, stochasticAlpha, firstRayPortal, pomOpaqueSurfaceEncountered,
+    raytracedRenderTarget, medium, false, StochasticAlpha, forceFirstHit, firstPrimarySegment, evaluatePomSilhouette);
+  return unorderedTransmittance * orderedTransmittance;
+}
+
+[ForceInline]
+void accumulateGBufferSegment(__ref GBufferSegment segment, __ref vec3 radiance, __ref f16vec3 attenuation)
+{
+  // Emission traverses the incoming path before the segment attenuates it.
+  radiance += segment.emission * attenuation;
+  attenuation *= segment.attenuation;
+}
+
+[ForceInline]
+void storeGBufferRadiance(u16vec2 pixel, vec3 radiance)
+{
+  SharedRadianceRG[pixel] = radiance.rg;
+  SharedRadianceB[pixel] = radiance.b;
+}

@@ -99,8 +99,6 @@ VOLUME_PARAMETER struct VolumeArgs {
   VOLUME_PARAMETER float noiseFieldGain;
 
   VOLUME_PARAMETER vec3 sceneUpDirection;
-  VOLUME_PARAMETER float atmosphereHeight;
-
   VOLUME_PARAMETER vec3 planetCenter;
   // Note: Squared radius used as most functions involving atmospheric intersection use a squared radius
   // in their math, simplifying the work that needs to be done on the GPU.
@@ -120,6 +118,7 @@ VOLUME_PARAMETER struct VolumeArgs {
   VOLUME_PARAMETER float groundMistBaseHeight;
   VOLUME_PARAMETER float groundMistFalloff;
   VOLUME_PARAMETER float groundMistRegionSize;
+  VOLUME_PARAMETER uint volumePadding;
 };
 
 #undef VOLUME_PARAMETER

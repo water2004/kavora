@@ -54,23 +54,19 @@ public struct EmptyExtraArgs {};
 // The pass supplies a concrete traversal policy. TraceRay resolves in its hit shader.
 public interface IRayResolveStep<Payload : IBasePayloadState, Context>
 {
-  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle, inout Payload payload);
-  static void resolve(inout Context context, RayHitInfo hit, inout Payload payload);
+  static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle, __ref Payload payload);
+  static void resolve(__ref Context context, RayHitInfo hit, __ref Payload payload);
 }
 
 [ForceInline]
-public uint8_t resolveRay<Payload : IBasePayloadState, Context, Step : IRayResolveStep<Payload, Context>,
-  let HasInitialHit : bool, let ShortenRay : bool>(
-  RayDesc ray, float coneRadius, float spreadAngle, RayHitInfo initialHit,
-  uint flags, uint sbtRecordOffset, uint8_t maxInteractions, inout Context context, inout Payload payload)
+public uint8_t resolveRayFromPayload<Payload : IBasePayloadState, Context, Step : IRayResolveStep<Payload, Context>,
+  let HasInitialHit : bool, let ShortenRay : bool, let FirstInteraction : uint8_t = 1>(
+  RayDesc ray, float spreadAngle, RayHitInfo initialHit,
+  uint flags, uint sbtRecordOffset, uint8_t maxInteractions, __ref Context context, __ref Payload payload)
 {
-  payload.origin = ray.Origin;
-  payload.coneRadius = coneRadius;
-  payload.direction = ray.Direction;
-
   RayHitInfo hit = initialHit;
   uint8_t iteration;
-  for (iteration = uint8_t(1);; ++iteration)
+  for (iteration = FirstInteraction;; ++iteration)
   {
     payload.continueResolving = iteration < maxInteractions;
     if (!HasInitialHit)
@@ -96,4 +92,17 @@ public uint8_t resolveRay<Payload : IBasePayloadState, Context, Step : IRayResol
     }
   }
   return iteration;
+}
+
+[ForceInline]
+public uint8_t resolveRay<Payload : IBasePayloadState, Context, Step : IRayResolveStep<Payload, Context>,
+  let HasInitialHit : bool, let ShortenRay : bool>(
+  RayDesc ray, float coneRadius, float spreadAngle, RayHitInfo initialHit,
+  uint flags, uint sbtRecordOffset, uint8_t maxInteractions, __ref Context context, __ref Payload payload)
+{
+  payload.origin = ray.Origin;
+  payload.coneRadius = coneRadius;
+  payload.direction = ray.Direction;
+  return resolveRayFromPayload<Payload, Context, Step, HasInitialHit, ShortenRay>(
+    ray, spreadAngle, initialHit, flags, sbtRecordOffset, maxInteractions, context, payload);
 }

@@ -128,7 +128,7 @@ namespace dxvk {
       m_appliedImpactImpulses = 0;
       m_activity = 0.0f;
       m_accumulatedTime = 0.0f;
-      m_rain = 0.0f;
+      setRain(0.0f);
     }
     if (count != 0) {
       const uint32_t accepted = std::min(count, kWaterSimMaxImpulses - m_count);
@@ -150,9 +150,9 @@ namespace dxvk {
   }
 
   void RtxWaterSimulation::prepare(RtxContext* ctx, bool hasWater, bool hasSludge) {
-    m_shaderArgs = vec4(0.0f);
-    m_impactArgs = vec4(0.0f);
-    m_effects = 0;
+    m_shaderArgs.simulationClip = vec4(0.0f);
+    m_shaderArgs.impactClip = {};
+    m_shaderArgs.effects = 0;
     const bool sludge = sludgeEnabled() && hasSludge;
     const bool surface = hasWater || sludge;
     const bool ripples = surface && enable();
@@ -164,7 +164,7 @@ namespace dxvk {
 
     if (wind) {
       prepareWind(ctx, float(timeMs % uint64_t(kWaterWindLoopSeconds * 1000.0f)) * 0.001f);
-      m_effects |= WATER_EFFECT_WIND;
+      m_shaderArgs.effects |= WATER_EFFECT_WIND;
     } else if (m_windSeed != nullptr) {
       m_wind = {};
       m_windSeed = nullptr;
@@ -186,9 +186,9 @@ namespace dxvk {
     const bool active = m_count || m_activity > 0.0f;
     const bool runRipples = ripples && active;
     const bool runImpacts = impactEffects && active;
-    if (rings && (m_rain > 0.0f || runImpacts)) {
+    if (rings && (m_shaderArgs.rain > 0.0f || runImpacts)) {
       prepareRings(ctx, float(timeMs % 4096000u) * 0.001f);
-      m_effects |= WATER_EFFECT_RINGS;
+      m_shaderArgs.effects |= WATER_EFFECT_RINGS;
     }
     if (!runRipples && !runImpacts) {
       m_reset = true;
@@ -215,7 +215,7 @@ namespace dxvk {
     }
     if (runImpacts) {
       prepareImpacts(ctx, origin, delta, impactEffects);
-      m_effects |= WATER_EFFECT_IMPACTS | (impactEffects & WATER_EFFECT_SLUDGE);
+      m_shaderArgs.effects |= WATER_EFFECT_IMPACTS | (impactEffects & WATER_EFFECT_SLUDGE);
     }
     if (runRipples) {
       prepareRipples(ctx, origin, delta);
@@ -266,9 +266,9 @@ namespace dxvk {
       }
     }
     if (!m_reset && m_state[m_current].view != nullptr) {
-      m_shaderArgs = vec4(float(m_originX) * kCellSize, float(m_originZ) * kCellSize,
+      m_shaderArgs.simulationClip = vec4(float(m_originX) * kCellSize, float(m_originZ) * kCellSize,
         1.0f / (kCellSize * kWaterSimResolution), 1.0f);
-      m_effects |= WATER_EFFECT_RIPPLES;
+      m_shaderArgs.effects |= WATER_EFFECT_RIPPLES;
     }
   }
 
@@ -332,6 +332,6 @@ namespace dxvk {
     m_impactOrigin = origin;
     m_resetImpacts = false;
     m_appliedImpactImpulses = m_count;
-    m_impactArgs = vec4(worldOrigin.x, worldOrigin.y, 1.0f / (kCellSize * kWaterSimResolution), 1.0f);
+    m_shaderArgs.impactClip = vec3(worldOrigin.x, worldOrigin.y, 1.0f / (kCellSize * kWaterSimResolution));
   }
 }

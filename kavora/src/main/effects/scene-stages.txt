@@ -1,0 +1,14 @@
+# Declare each stage's typed method inputs, then list its calls in order.
+stage beforeGeometry effects:org.edtp.kavora.KavoraSceneEffects world:net.minecraft.client.multiplayer.ClientLevel camera:net.minecraft.client.Camera partialTick:float
+stage afterGeometry effects:org.edtp.kavora.KavoraSceneEffects client:net.minecraft.client.Minecraft world:net.minecraft.client.multiplayer.ClientLevel camera:net.minecraft.client.Camera position:net.minecraft.world.phys.Vec3 partialTick:float
+stage beforeSubmit world:net.minecraft.client.multiplayer.ClientLevel position:net.minecraft.world.phys.Vec3 partialTick:float
+stage afterSubmit effects:org.edtp.kavora.KavoraSceneEffects world:net.minecraft.client.multiplayer.ClientLevel
+
+call beforeGeometry effects.beginParticles world partialTick
+call beforeGeometry effects.recordLights world camera partialTick
+call afterGeometry effects.retireBlockDamage
+call afterGeometry effects.recordBlockOutline
+call afterGeometry effects.recordSky world camera position partialTick
+call afterGeometry effects.recordClouds client world camera position partialTick
+call beforeSubmit org.edtp.kavora.render.KavoraWaterRipples.captureRain world position partialTick
+call afterSubmit effects.finishParticles world

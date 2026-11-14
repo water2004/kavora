@@ -1,0 +1,35 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors.
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
+
+uint gbufferQueueIndex(uint2 invocation)
+{
+  return invocation.x + invocation.y * GBUFFER_PSR_QUEUE_ROW_WIDTH;
+}
+
+[ForceInline]
+void enqueueGBufferPixel(RWStructuredBuffer<uint> queue, uint pixel)
+{
+  uint base = 0;
+  const uint count = WaveActiveCountBits(true);
+  if (WaveIsFirstLane())
+  {
+    InterlockedAdd(queue[0], count, base);
+  }
+  base = WaveReadLaneFirst(base);
+  queue[GBUFFER_PSR_QUEUE_HEADER_WORDS + base + WavePrefixCountBits(true)] = pixel;
+}
+
+// Keep the explicit half encodings used by both saved continuation records.
+uint packGBufferHalf2(float2 value)
+{
+  return f32tof16(value.x) | (f32tof16(value.y) << 16);
+}
+
+float2 unpackGBufferHalf2(uint value)
+{
+  return float2(f16tof32(value & 0xffff), f16tof32(value >> 16));
+}

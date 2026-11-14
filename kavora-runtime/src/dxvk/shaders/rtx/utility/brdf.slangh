@@ -130,12 +130,6 @@ float calcRoughness(float perceptualRoughness)
   return isotropicRoughness;
 }
 
-// Calculates the monochromatic base reflectivity from a given incident and transmitted IoR
-float iorToBaseReflectivity(float incidentIoR, float transmittedIoR)
-{
-  return square((incidentIoR - transmittedIoR) / (incidentIoR + transmittedIoR));
-}
-
 // Calculates IoR from a monochromatic base reflectivity and an incident IoR
 // Note: When this is used on a conductor the refractive index will be fairly high, this is because the reflectivity of
 // a conductor is actually based on its full complex refractive index which when converted down to a real value will be some
@@ -146,18 +140,6 @@ float baseReflectivityToIoR(float incidentIoR, float baseReflectivity)
   const float baseReflectivity2 = min(sqrt(baseReflectivity), float(0.99f));
 
   return incidentIoR / (2.0f / (baseReflectivity2 + float(1.0f)) - float(1.0f));
-}
-
-// Calculates the single-scattering albedo from a perceived multi-scattering albedo color and phase anisotropy
-// (assuming a view at a semi-infinite volumetric medium on the same side as a uniform light source).
-// [Kulla 2017, "Revisiting Physically Based Shading at Imageworks"]
-vec3 multiScatteringAlbedoToSingleScatteringAlbedo(vec3 multiScatteringAlbedo, float anisotropy)
-{
-  const vec3 s = float(4.09712) + float(4.20863) * multiScatteringAlbedo -
-                    sqrt(float(9.59217) + float(41.6808) * multiScatteringAlbedo + float(17.7126) * square(multiScatteringAlbedo));
-  const vec3 s2 = square(s);
-
-  return (float(1.0) - s2) / (float(1.0) - anisotropy * s2);
 }
 
 // Surface/Volume Material Distribution Helpers
@@ -396,14 +378,6 @@ float evalGGXBoundedVisibleNormalDistributionSamplePdf(vec2 anisotropicRoughness
     normalDotMicrofacetNormal,
     outputDirectionDotMicrofacetNormal,
     k);
-}
-
-// Calculates Beer-Lambert attenuation at an infinite distance through a medium with a specified attenuation coefficient.
-float3 evalBeerLambertInfiniteAttenuation(in const float3 attenuationCoefficient)
-{
-  // Note: Return a per-channel attenuation of 0 if any attenuation is desired due to infinite attenuation
-  // distance, otherwise return 1.
-  return mix(float3(0.0f), float3(1.0f), attenuationCoefficient == float3(0.0f, 0.0f, 0.0f));
 }
 
 // Fresnel Amplitude Coefficients (For S and P polarized light)

@@ -484,16 +484,6 @@ public final class ProfileScope implements AutoCloseable {
         return this;
     }
 
-    public ProfileScope blockCount(int value) {
-        if (jfrEvent != null) jfrEvent.blockCount = value;
-        return this;
-    }
-
-    public ProfileScope fluidCount(int value) {
-        if (jfrEvent != null) jfrEvent.fluidCount = value;
-        return this;
-    }
-
     public ProfileScope bytes(long value) {
         if (jfrEvent != null) jfrEvent.bytes = value;
         return this;
@@ -514,43 +504,8 @@ public final class ProfileScope implements AutoCloseable {
         return this;
     }
 
-    public ProfileScope visibleChunkCount(int value) {
-        if (jfrEvent != null) jfrEvent.visibleChunkCount = value;
-        return this;
-    }
-
     public ProfileScope scannedChunkCount(int value) {
         if (jfrEvent != null) jfrEvent.scannedChunkCount = value;
-        return this;
-    }
-
-    public ProfileScope blockEntityChunkCount(int value) {
-        if (jfrEvent != null) jfrEvent.blockEntityChunkCount = value;
-        return this;
-    }
-
-    public ProfileScope blockEntityCount(int value) {
-        if (jfrEvent != null) jfrEvent.blockEntityCount = value;
-        return this;
-    }
-
-    public ProfileScope noCullBlockEntityCount(int value) {
-        if (jfrEvent != null) jfrEvent.noCullBlockEntityCount = value;
-        return this;
-    }
-
-    public ProfileScope blockBreakingCount(int value) {
-        if (jfrEvent != null) jfrEvent.blockBreakingCount = value;
-        return this;
-    }
-
-    public ProfileScope renderLayerCalls(int value) {
-        if (jfrEvent != null) jfrEvent.renderLayerCalls = value;
-        return this;
-    }
-
-    public ProfileScope renderLayerSkips(int value) {
-        if (jfrEvent != null) jfrEvent.renderLayerSkips = value;
         return this;
     }
 

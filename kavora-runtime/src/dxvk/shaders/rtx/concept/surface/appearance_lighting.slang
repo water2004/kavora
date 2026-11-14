@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: MIT */
-#pragma once
+module appearance_lighting;
 
 // Scene-linear diffuse fill for the visible surface. Kept out of light transport and cache training.
-float3 selfLitAppearanceRadiance(float3 diffuseAlbedo)
+[ForceInline]
+public float3 evaluateAppearanceEmission(float3 diffuseAlbedo)
 {
   return diffuseAlbedo * 0.18f;
 }

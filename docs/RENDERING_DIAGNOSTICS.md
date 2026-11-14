@@ -54,6 +54,10 @@ produce dark overlays or visible quad boundaries.
 On the host, `KavoraSceneFrame.renderAndSubmitFrame` orders captured lights,
 terrain, entities and environment updates, then hands the prepared scene to
 `KavoraFramePresentation`. The presentation owner pairs Submit and Present.
+`kavora/src/main/effects/scene-stages.txt` declares when scene effects run and
+which captured values their handlers consume. Gradle generates the ordered
+Java calls. Capture hooks run at their vanilla call sites, and frame cleanup
+runs even when submission is interrupted.
 
 Choose the pass that owns the effect before tracing the host call chain.
 `RtxFramePipeline::record` in `rtx_frame_pipeline.inl` orders scene lighting,
@@ -72,13 +76,33 @@ resolve aliased resources at their point of use, in command order. The
 resource manager owns allocation and history rotation, and the frame
 pipeline hands each pass its inputs.
 
+`rtx_frame_schedule.h` expands ordered stage declarations and reconstruction
+alternatives into direct calls. The lighting schedules assert the order of
+G-buffer production, direct and indirect integration, radiance-cache resolve,
+denoising and composition. Reconstruction schedules assert exposure preparation
+before its consumers and the history update before capture. A pass can use
+`BorrowedPass` to construct its typed resource view and resolves aliases at
+the point where it records access.
+
 For an effect change, start at its Slang calculation owner and the native pass
-that supplies its resources. Java's sky and cloud modules receive the camera and
-world explicitly. They publish scene inputs through the existing Remix API.
+that supplies its resources. Java's sky and cloud owners share one camera-local
+environment snapshot. They publish scene inputs through the existing Remix API.
 Keep the input encoding, output extent, image access and history lifetime at
 that boundary. If the change needs new per-frame shader parameters, follow
 the shared [shader buffer contract](../kavora-runtime/src/dxvk/shaders/rtx/README.md#ray-tracing-constant-buffer).
 See the [effect entry points](../kavora-runtime/src/dxvk/shaders/rtx/README.md#visual-effect-boundaries).
+
+A rain-driven material effect, for example, can consume weather in a Java
+scene-stage handler and modify roughness in Slang's opaque parameter stage.
+Use the existing weather input when its meaning matches the effect. If the
+effect simulates or retains its own GPU data, declare the producer and its
+resources in the native preparation stage and give the material stage a
+typed view of the result. Each layer can declare its own inputs and ordering.
+
+Water already uses this boundary. Java submits a `WaterSimulationFrame`
+through the public FFM contract, and the native simulation produces the
+shared `WaterSurfaceArgs` block. The shader layout check verifies the block
+inside `RaytraceArgs` independently of the Java-to-native layout probe.
 
 For the cloud-sky map, the dispatch and bindings live in `dispatchCloudSky`.
 The density and lighting used to fill the map live on the shader side.

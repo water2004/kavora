@@ -1,0 +1,42 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 GBwater, Kavora contributors
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/concept/ray/ray.h"
+#include "rtx/pass/water_sim/water_sim_args.h"
+
+import "rtx/concept/surface_material/water_surface.slang";
+
+struct BoundWater : IWaterSurfaceResources
+{
+  [ForceInline]
+  static WaterSurfaceSettings settings()
+  {
+    return { cb.isZUp != 0, cb.water, cb.timeSinceStartSeconds };
+  }
+
+  [ForceInline]
+  static Texture2D<float4> simulation() { return WaterSimulation; }
+  [ForceInline]
+  static Texture2DArray<float4> wind() { return WaterWind; }
+  [ForceInline]
+  static Texture2D<float2> rings() { return WaterRings; }
+  [ForceInline]
+  static Texture2D<float2> impacts() { return WaterImpacts; }
+  [ForceInline]
+  static SamplerState clipSampler() { return LinearWrapSampler; }
+  [ForceInline]
+  static SamplerState tileSampler() { return WaterTileSampler; }
+};
+
+bool hasWaterTransmissionOffset(PolymorphicSurfaceMaterialInteraction material)
+{
+  return waterCanOffsetTransmission(cb.water.effects, material.type == surfaceMaterialTypeTranslucent, material.bdata0);
+}
+
+void offsetWaterTransmissionRay(inout Ray refractedRay, Ray incidentRay, float3 position, float3 geometryNormal, uint8_t rayMask)
+{
+  offsetWaterTransmission<BoundWater>(refractedRay.origin, refractedRay.coneRadius, incidentRay.direction,
+    incidentRay.spreadAngle, position, geometryNormal, rayMask & (OBJECT_MASK_OPAQUE | OBJECT_MASK_ALL_DYNAMIC),
+    cb.isZUp != 0, topLevelAS);
+}

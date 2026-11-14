@@ -3,10 +3,12 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 
 #include "rtx_options.h"
 #include "rtx_resources.h"
 #include "rtx/pass/water_sim/water_sim_args.h"
+#include "rtx/pass/water_sim/water_surface_args.h"
 
 namespace dxvk {
   class RtxContext;
@@ -23,12 +25,17 @@ namespace dxvk {
     RTX_OPTION("rtx.waterSim", bool, sludgeEnabled, false, "Open and heal holes in marked floating sludge.");
 
     void addImpulses(const WaterSimImpulse* impulses, uint32_t count, bool reset);
-    void setRain(float amount) { m_rain = amount; }
+    void setRain(float amount) { m_shaderArgs.rain = amount; }
     void prepare(RtxContext* ctx, bool hasWater, bool hasSludge);
-    const vec4& shaderArgs() const { return m_shaderArgs; }
-    const vec4& impactArgs() const { return m_impactArgs; }
-    uint32_t effects() const { return m_effects; }
-    float rain() const { return m_rain; }
+    __forceinline WaterSurfaceArgs shaderArgs(int32_t originX, int32_t originZ) const {
+      auto args = m_shaderArgs;
+      // Both FFT cascades and the rain tiles repeat at this interval.
+      args.tileOrigin = vec2(float(originX % 672), float(originZ % 672));
+      args.gustPhase = float(std::remainder(
+        double(originX) * double(0.058f) + double(originZ) * double(0.041f), 6.2831853071795864769));
+      return args;
+    }
+    uint32_t effects() const { return m_shaderArgs.effects; }
     const Rc<DxvkImageView>& view() const { return m_state[m_current].view; }
     const Rc<DxvkImageView>& windView() const { return m_wind.view; }
     const Rc<DxvkImageView>& ringView() const { return m_rings.view; }
@@ -45,8 +52,7 @@ namespace dxvk {
     Resources::Resource m_wind;
     Resources::Resource m_rings;
     std::array<WaterSimImpulse, kWaterSimMaxImpulses> m_impulses{};
-    vec4 m_shaderArgs{ 0.0f };
-    vec4 m_impactArgs{ 0.0f };
+    WaterSurfaceArgs m_shaderArgs{};
     Rc<DxvkBuffer> m_impulseBuffer;
     Rc<DxvkBuffer> m_windSeed;
     Rc<DxvkBuffer> m_windScratch;
@@ -57,10 +63,8 @@ namespace dxvk {
     uint32_t m_current = 0;
     uint32_t m_currentImpact = 0;
     uint32_t m_appliedImpactImpulses = 0;
-    uint32_t m_effects = 0;
     float m_accumulatedTime = 0.0f;
     float m_activity = 0.0f;
-    float m_rain = 0.0f;
     bool m_reset = true;
     bool m_resetImpacts = true;
   };

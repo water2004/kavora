@@ -549,12 +549,12 @@ public class BlockTextureManager {
                             se.pixX, se.pixY, se.pixW, se.pixH, 0f);
                     hasAnyEmissive = true;
                 } else {
-                    var mask = BuiltinEmission.mask(se.id);
-                    if (mask != null) {
+                    var effect = BuiltinEmission.effect(se.id);
+                    if (effect != null) {
                         LabPBRConverter.blitEmissiveMask(emissiveAtlas, atlasW, albedoRGBA,
-                                se.pixX, se.pixY, se.pixW, se.pixH, mask);
+                                se.pixX, se.pixY, se.pixW, se.pixH, effect.mask());
                         hasAnyEmissive = true;
-                        if (mask == BuiltinEmission.CORAL) {
+                        if (effect.contributesDiffuseLight()) {
                             var emission = averageSpriteEmission(emissiveAtlas, se);
                             if (emission != null) diffuseEmission.put(se.id, emission);
                         }

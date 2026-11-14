@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/pass/sharc/sharc.slangh"
+import "rtx/utility/quaternion.slang";
 #include "rtx/concept/ray_portal/ray_portal.slangh"
 #include "rtx/utility/packing.slangh"
 #include "rtx/algorithm/ray_traversal_bindings.slangh"

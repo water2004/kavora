@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #pragma once
+import "rtx/utility/quaternion.slang";
 
 // Path throughput supplies the guide's tint. The input color already carries its magnitude.
 vec3 rrPathTint(vec3 throughput)

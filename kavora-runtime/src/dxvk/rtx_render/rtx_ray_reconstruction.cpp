@@ -53,7 +53,7 @@ namespace dxvk {
     class PrepareRayReconstructionShader : public ManagedShader {
       SHADER_SOURCE(PrepareRayReconstructionShader, VK_SHADER_STAGE_COMPUTE_BIT, prepare_ray_reconstruction)
 
-        BEGIN_PARAMETER()
+        BEGIN_REFLECTED_PARAMETER()
         CONSTANT_BUFFER(RAY_RECONSTRUCTION_CONSTANTS_INPUT)
         // Primary surface data
         TEXTURE2D(RAY_RECONSTRUCTION_PRIMARY_ATTENUATION_INPUT)
@@ -77,7 +77,7 @@ namespace dxvk {
         RW_TEXTURE2D(RAY_RECONSTRUCTION_DEBUG_VIEW_OUTPUT)
         RW_TEXTURE2D(RAY_RECONSTRUCTION_PRIMARY_DISOCCLUSION_MASK_OUTPUT)
 
-        END_PARAMETER()
+        END_REFLECTED_PARAMETER(checkRayReconstructionSlots)
     };
   }
 

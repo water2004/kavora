@@ -55,23 +55,31 @@ public final class BuiltinEmission {
     /** Let the coral's own color and coverage define the emitting surface. */
     static final Mask CORAL = (u, v, rgba) -> (rgba >>> 24) != 0 ? 0.14f : 0f;
 
-    private static final Map<Identifier, Mask> MASK = Map.ofEntries(
-            block("sea_pickle", SEA_PICKLE), block("beacon", BEACON),
-            block("brain_coral", CORAL), block("brain_coral_fan", CORAL),
-            block("bubble_coral", CORAL), block("bubble_coral_fan", CORAL),
-            block("fire_coral", CORAL), block("fire_coral_fan", CORAL),
-            block("horn_coral", CORAL), block("horn_coral_fan", CORAL),
-            block("tube_coral", CORAL), block("tube_coral_fan", CORAL));
+    record Effect(Mask mask, boolean contributesDiffuseLight) {}
+
+    private static final Effect CORAL_EFFECT = new Effect(CORAL, true);
+    private static final Map<Identifier, Effect> EFFECTS = Map.ofEntries(
+            block("sea_pickle", new Effect(SEA_PICKLE, false)), block("beacon", new Effect(BEACON, false)),
+            block("brain_coral", CORAL_EFFECT), block("brain_coral_fan", CORAL_EFFECT),
+            block("bubble_coral", CORAL_EFFECT), block("bubble_coral_fan", CORAL_EFFECT),
+            block("fire_coral", CORAL_EFFECT), block("fire_coral_fan", CORAL_EFFECT),
+            block("horn_coral", CORAL_EFFECT), block("horn_coral_fan", CORAL_EFFECT),
+            block("tube_coral", CORAL_EFFECT), block("tube_coral_fan", CORAL_EFFECT));
 
     private BuiltinEmission() {
     }
 
-    private static Map.Entry<Identifier, Mask> block(String name, Mask mask) {
-        return Map.entry(Identifier.withDefaultNamespace("block/" + name), mask);
+    private static Map.Entry<Identifier, Effect> block(String name, Effect effect) {
+        return Map.entry(Identifier.withDefaultNamespace("block/" + name), effect);
+    }
+
+    static Effect effect(Identifier spriteId) {
+        return EFFECTS.get(spriteId);
     }
 
     /** Emission for a sprite the pack leaves unauthored, or null when the mod adds none. */
     public static Mask mask(Identifier spriteId) {
-        return MASK.get(spriteId);
+        Effect effect = effect(spriteId);
+        return effect == null ? null : effect.mask();
     }
 }

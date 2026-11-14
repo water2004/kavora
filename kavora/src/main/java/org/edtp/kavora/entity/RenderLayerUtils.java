@@ -6,10 +6,13 @@ package org.edtp.kavora.entity;
 
 import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.BlendFunction;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import net.minecraft.client.renderer.RenderPipelines;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 import net.minecraft.client.renderer.rendertype.RenderType;
@@ -125,6 +128,22 @@ final class RenderLayerUtils {
     private static final Map<RenderType, SurfaceMode> surfaceModeCache =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    private static final Map<RenderPipeline, SurfaceMode> PIPELINE_SURFACE_MODES = pipelineSurfaceModes();
+    private static final Set<String> ARMOR_TRIM_LAYER_NAMES = Set.of("armor_trim", "armor_trim_decal");
+
+    private static Map<RenderPipeline, SurfaceMode> pipelineSurfaceModes() {
+        Map<RenderPipeline, SurfaceMode> modes = new IdentityHashMap<>();
+        modes.put(RenderPipelines.END_PORTAL, SurfaceMode.END_PORTAL);
+        modes.put(RenderPipelines.END_GATEWAY, SurfaceMode.END_GATEWAY);
+        modes.put(RenderPipelines.ARMOR_CUTOUT_NO_CULL_GLINT, SurfaceMode.ARMOR_GLINT_CUTOUT);
+        modes.put(RenderPipelines.ENTITY_SOLID_GLINT, SurfaceMode.ENTITY_GLINT_OPAQUE);
+        modes.put(RenderPipelines.ITEM_CUTOUT_GLINT, SurfaceMode.ITEM_GLINT_CUTOUT);
+        modes.put(RenderPipelines.ITEM_CUTOUT_GLINT_SPECIAL, SurfaceMode.ITEM_GLINT_CUTOUT);
+        modes.put(RenderPipelines.ITEM_TRANSLUCENT_GLINT, SurfaceMode.ITEM_GLINT_TRANSLUCENT);
+        modes.put(RenderPipelines.ITEM_TRANSLUCENT_GLINT_SPECIAL, SurfaceMode.ITEM_GLINT_TRANSLUCENT);
+        return Collections.unmodifiableMap(modes);
+    }
+
     /**
      * Returns the texture a captured layer is submitted under, or empty when Remix has
      * nothing to draw for the layer. Results are cached by layer identity.
@@ -234,17 +253,11 @@ final class RenderLayerUtils {
 
     private static SurfaceMode surfaceModeUncached(RenderType layer) {
         var pipeline = layer.pipeline();
-        if (pipeline == RenderPipelines.END_PORTAL) return SurfaceMode.END_PORTAL;
-        if (pipeline == RenderPipelines.END_GATEWAY) return SurfaceMode.END_GATEWAY;
-        if (pipeline == RenderPipelines.ARMOR_CUTOUT_NO_CULL_GLINT) return SurfaceMode.ARMOR_GLINT_CUTOUT;
-        if (pipeline == RenderPipelines.ENTITY_SOLID_GLINT) return SurfaceMode.ENTITY_GLINT_OPAQUE;
-        if (pipeline == RenderPipelines.ITEM_CUTOUT_GLINT
-                || pipeline == RenderPipelines.ITEM_CUTOUT_GLINT_SPECIAL) return SurfaceMode.ITEM_GLINT_CUTOUT;
-        if (pipeline == RenderPipelines.ITEM_TRANSLUCENT_GLINT
-                || pipeline == RenderPipelines.ITEM_TRANSLUCENT_GLINT_SPECIAL) return SurfaceMode.ITEM_GLINT_TRANSLUCENT;
+        SurfaceMode pipelineMode = PIPELINE_SURFACE_MODES.get(pipeline);
+        if (pipelineMode != null) return pipelineMode;
         // The trim and the armor base can share a pipeline. The trim layer alone
         // binds the palette-resolved pattern, including equipment overrides.
-        if (layer.name.equals("armor_trim") || layer.name.equals("armor_trim_decal")) return SurfaceMode.ARMOR_TRIM;
+        if (ARMOR_TRIM_LAYER_NAMES.contains(layer.name)) return SurfaceMode.ARMOR_TRIM;
         // The core and halo share an unlit shader but have different coverage states.
         if (isBeaconBeam(layer)) return layer.hasBlending() ? SurfaceMode.EMISSIVE : SurfaceMode.EMISSIVE_CUTOUT;
         boolean emissive = pipeline == RenderPipelines.EYES

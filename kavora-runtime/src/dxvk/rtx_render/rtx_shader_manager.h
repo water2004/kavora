@@ -23,6 +23,7 @@
 
 #include <_built_shaders.h>
 
+#include <iterator>
 #include <vector>
 #include <windows.h>
 
@@ -67,6 +68,15 @@ private: \
 #define END_PARAMETER() }; \
 public: \
   static std::vector<dxvk::DxvkResourceSlot> getResourceSlots() { return resourceSlotList; }
+
+#define BEGIN_REFLECTED_PARAMETER() \
+private: \
+  inline static constexpr dxvk::DxvkResourceSlot resourceSlots[] = {
+
+#define END_REFLECTED_PARAMETER(Check) }; \
+  static_assert(Check(resourceSlots)); \
+public: \
+  static std::vector<dxvk::DxvkResourceSlot> getResourceSlots() { return { std::begin(resourceSlots), std::end(resourceSlots) }; }
 
 // Slang: RaytracingAccelerationStructure
 // GLSL: accelerationStructureEXT 

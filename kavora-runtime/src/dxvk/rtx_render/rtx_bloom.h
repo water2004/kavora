@@ -24,6 +24,7 @@
 #include "dxvk_include.h"
 #include "dxvk_context.h"
 #include "rtx_resources.h"
+#include "rtx_frame_resources.h"
 
 namespace dxvk {
 
@@ -32,6 +33,7 @@ namespace dxvk {
   class DxvkBloom: public RtxPass {
     
   public:
+    using DispatchResources = FrameResourceView<&RaytracingFrame::m_finalOutput>;
     explicit DxvkBloom(DxvkDevice* device);
     ~DxvkBloom();
 
@@ -42,8 +44,7 @@ namespace dxvk {
 
     void dispatch(
       Rc<RtxContext> ctx,
-      Rc<DxvkSampler> linearSampler,
-      const Resources::Resource& inOutColorBuffer);
+      DispatchResources resources);
 
     void showImguiSettings();
 

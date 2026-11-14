@@ -2689,7 +2689,6 @@ namespace dxvk {
     ImGui::EndDisabled();
 
     RemixGui::Separator();
-    RemixGui::Checkbox("Highlight Legacy Materials (flash red)", &RtxOptions::useHighlightLegacyModeObject());
 
   }
 
@@ -4680,7 +4679,6 @@ namespace dxvk {
         RemixGui::Separator();
         RemixGui::Checkbox("Anti-Culling Lights", &RtxOptions::AntiCulling::Light::enableObject());
         if (RtxOptions::AntiCulling::Light::enable()) {
-          RemixGui::InputInt("Max Number Of Lights", &RtxOptions::AntiCulling::Light::numLightsToKeepObject(), 1, 1, 0);
           RemixGui::InputInt("Max Number of Frames to keep lights", &RtxOptions::AntiCulling::Light::numFramesToExtendLightLifetimeObject(), 1, 1, 0);
           RemixGui::DragFloat("Anti-Culling Lights Fov Scale", &RtxOptions::AntiCulling::Light::fovScaleObject(), 0.01f, 0.1f, 2.0f);
         }

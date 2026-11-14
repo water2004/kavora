@@ -22,6 +22,7 @@
 #pragma once
 
 import "rtx/algorithm/cloud_sky.slang";
+import "rtx/utility/quaternion.slang";
 import "rtx/pass/gbuffer/gbuffer_motion.slang";
 #include "rtx/pass/gbuffer/gbuffer_debug.slangh"
 #include "rtx/pass/gbuffer/gbuffer_guides_output.slangh"

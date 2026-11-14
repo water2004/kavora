@@ -618,7 +618,6 @@ namespace dxvk {
       // ToDo: we don't support setting this to 0 at the moment, should revisit later
       ADVANCED(RemixGui::DragInt("Min Instance Frame Age", &OpacityMicromapOptions::BuildRequests::minInstanceFrameAgeObject(), 1.f, 0, 200, "%d", sliderFlags));
       ADVANCED(RemixGui::DragInt("Min Num Frames Requested", &OpacityMicromapOptions::BuildRequests::minNumFramesRequestedObject(), 1.f, 0, 200, "%d", sliderFlags));
-      ADVANCED(RemixGui::DragInt("Max Request Frame Age", &OpacityMicromapOptions::BuildRequests::maxRequestFrameAgeObject(), 1.f, 0, 60 * 3600, "%d", sliderFlags));
       ADVANCED(RemixGui::DragInt("Min Num Requests", &OpacityMicromapOptions::BuildRequests::minNumRequestsObject(), 1.f, 1, 1000, "%d", sliderFlags));
       ImGui::Unindent();
     }

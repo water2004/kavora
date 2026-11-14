@@ -25,6 +25,7 @@
 */
 
 #include "rtx_frame_pipeline.h"
+#include "rtx_frame_schedule.h"
 #include "rtx_context.h"
 #include "dxvk_device.h"
 #include "dxvk_scoped_annotation.h"
@@ -65,11 +66,9 @@ namespace dxvk {
 
     ctx.getCommonObjects()->getTextureManager().prepareSamplerFeedback(&ctx);
 
-    ctx.m_common->waterSimulation().prepare(&ctx, scene.hasSimulatedWater(), hasSludge);
-
-    // Generate ray tracing constant buffer
-    ctx.updateRaytraceArgsConstantBuffer(rtOutput, downscaledExtent, targetImage->info().extent);
-
+    using Prepare = frame::Schedule<prepareWater, prepareRayTracing>;
+    static_assert(Prepare::orders<prepareWater, prepareRayTracing>);
+    Prepare::record(ctx, rtOutput, Preparation { downscaledExtent, targetImage->info().extent, hasSludge });
     recordSceneLighting(ctx, rtOutput, capture);
 
     ctx.getCommonObjects()->getTextureManager().copySamplerFeedbackToHost(&ctx);
@@ -101,6 +100,14 @@ namespace dxvk {
     if (capture.screenImage) {
       ctx.getSceneManager().logStatistics();
     }
+  }
+
+  __forceinline void RtxFramePipeline::prepareWater(RtxContext& ctx, FrameResources&, const Preparation& preparation) {
+    ctx.m_common->waterSimulation().prepare(&ctx, ctx.getSceneManager().hasSimulatedWater(), preparation.hasSludge);
+  }
+
+  __forceinline void RtxFramePipeline::prepareRayTracing(RtxContext& ctx, FrameResources& frame, const Preparation& preparation) {
+    ctx.updateRaytraceArgsConstantBuffer(frame, preparation.traceExtent, preparation.displayExtent);
   }
 
   void RtxFramePipeline::dispatchDebugView(RtxContext& ctx, Rc<DxvkImage>& srcImage, const Resources::RaytracingOutput& rtOutput, bool captureScreenImage)  {

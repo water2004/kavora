@@ -97,6 +97,19 @@ public float cloudSampleSpacing(CloudArgs args, float3 direction)
 
 public static const float kOpaqueCloudTransmittance = 1e-8f;
 
+public struct VolumeCloud {
+  [ForceInline]
+  public static float2 interval(CloudArgs args, float3 origin, float3 direction) {
+    return args.transportMode == 0 ? cloudInterval(args, origin, direction, args.maxDistance) : float2(0);
+  }
+
+  [ForceInline]
+  public static float transmittance(CloudArgs args, float3 origin, float3 direction, float distance,
+    Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail) {
+    return args.transportMode == 0 ? cloudTransmittance(args, origin, direction, distance, weather, base, detail) : 1.0f;
+  }
+};
+
 // Clipped prefixes share the full ray's cells and density samples.
 public struct CloudRayGrid {
   public float2 interval;

@@ -7,7 +7,7 @@ import "rtx/utility/color_transfer.slang";
 // Receives linear post-tonemap RGB and returns linear graded RGB.
 // The pass owns transfer encoding, dithering and the output alpha.
 [ForceInline]
-public float3 gradeDisplayColor(float3 color, float3 balance, float contrast, float saturation)
+float3 gradeDisplayColor(float3 color, float3 balance, float contrast, float saturation)
 {
   color *= balance;
   color = saturate(contrast * (color - 0.18f) + 0.18f);
@@ -16,10 +16,28 @@ public float3 gradeDisplayColor(float3 color, float3 balance, float contrast, fl
 
 // The inversion works in display values even when the caller exports a linear image.
 [ForceInline]
-public float3 invertDisplayColor(float3 linearColor, float amount, uint mode, float threshold)
+float3 invertDisplayColor(float3 linearColor, float amount, uint mode, float threshold)
 {
   const float3 display = linearToGamma(saturate(linearColor));
   const float3 negative = 1.0f - display;
   const bool showNegative = mode == 0 || dot(display, float3(1.0f / 3.0f)) < threshold;
   return lerp(display, showNegative ? negative : float3(0.0f), amount);
+}
+
+[ForceInline]
+public float3 applyDisplayColor<let Inversion : bool>(float3 linearColor, bool convertToSrgb,
+  bool gradingEnabled, float3 balance, float contrast, float saturation,
+  float inversionAmount, uint inversionMode, float inversionThreshold)
+{
+  if (gradingEnabled)
+  {
+    linearColor = gradeDisplayColor(linearColor, balance, contrast, saturation);
+  }
+
+  if (Inversion)
+  {
+    const float3 inverted = invertDisplayColor(linearColor, inversionAmount, inversionMode, inversionThreshold);
+    return convertToSrgb ? inverted : gammaToLinear(inverted);
+  }
+  return convertToSrgb ? linearToGamma(linearColor) : linearColor;
 }

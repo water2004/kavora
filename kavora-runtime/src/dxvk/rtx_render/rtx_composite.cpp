@@ -25,6 +25,7 @@
 #include "rtx/pass/composite/composite_binding_indices.h"
 #include "rtx/pass/composite/composite_args.h"
 #include "composite_layout_asserts.h"
+#include "composite_alpha_blend_layout_asserts.h"
 #include "rtx/pass/raytrace_args.h"
 #include "rtx_shader_manager.h"
 #include <dxvk_scoped_annotation.h>
@@ -50,7 +51,7 @@ namespace dxvk {
     class CompositeAlphaBlendShader : public ManagedShader {
       SHADER_SOURCE(CompositeAlphaBlendShader, VK_SHADER_STAGE_COMPUTE_BIT, composite_alpha_blend)
 
-      BEGIN_PARAMETER()
+      BEGIN_REFLECTED_PARAMETER()
         RW_TEXTURE2D_READONLY(COMPOSITE_SHARED_FLAGS_INPUT)
         TEXTURE2D(COMPOSITE_SHARED_RADIANCE_RG_INPUT)
         TEXTURE2D(COMPOSITE_SHARED_RADIANCE_B_INPUT)
@@ -91,7 +92,7 @@ namespace dxvk {
         RW_TEXTURE2D(COMPOSITE_LAST_FINAL_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ALPHA_BLEND_RADIANCE_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_DEBUG_VIEW_OUTPUT)
-      END_PARAMETER()
+      END_REFLECTED_PARAMETER(checkCompositeAlphaBlendSlots)
     };
 
     PREWARM_SHADER_PIPELINE(CompositeAlphaBlendShader);
@@ -99,7 +100,7 @@ namespace dxvk {
     class CompositeShader : public ManagedShader {
       SHADER_SOURCE(CompositeShader, VK_SHADER_STAGE_COMPUTE_BIT, composite)
 
-      BEGIN_PARAMETER()
+      BEGIN_REFLECTED_PARAMETER()
         RW_TEXTURE2D_READONLY(COMPOSITE_SHARED_FLAGS_INPUT)
         TEXTURE2D(COMPOSITE_SHARED_RADIANCE_RG_INPUT)
         TEXTURE2D(COMPOSITE_SHARED_RADIANCE_B_INPUT)
@@ -148,7 +149,7 @@ namespace dxvk {
         RW_TEXTURE2D(COMPOSITE_RR_SPECULAR_MOTION_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_DLSS_NR_CONTROL_MASK_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_PRIMARY_COVERAGE_OUTPUT)
-      END_PARAMETER()
+      END_REFLECTED_PARAMETER(checkCompositeSlots)
     };
 
     PREWARM_SHADER_PIPELINE(CompositeShader);

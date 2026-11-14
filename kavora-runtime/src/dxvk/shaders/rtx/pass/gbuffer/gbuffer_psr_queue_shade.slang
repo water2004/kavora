@@ -75,15 +75,15 @@ struct QueuedPsrResolve : IRayResolveStep<GeometryPSRResolverState, EmptyExtraAr
 {
   [ForceInline]
   static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle,
-    inout GeometryPSRResolverState state)
+    __ref GeometryPSRResolverState state)
   {
     return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask), state.coneRadius, spreadAngle);
   }
 
   [ForceInline]
-  static void resolve(inout EmptyExtraArgs args, RayHitInfo hit, inout GeometryPSRResolverState state)
+  static void resolve(__ref EmptyExtraArgs args, RayHitInfo hit, __ref GeometryPSRResolverState state)
   {
-    geometryPSRResolverVertex(args, hit, state);
+    geometryPSRResolverVertex(hit, state);
   }
 };
 
@@ -127,7 +127,7 @@ void main()
   const uint seed = transmission && initial.geometryFlags.performPSRR
     ? PathStorage[seedOffset] : createRNG(invocation, cb.frameIdx, 555).seed;
 #else
-  const uint index = psrQueueIndex(invocation);
+  const uint index = gbufferQueueIndex(invocation);
   if (index >= PSRQueueInput[0]) return;
   const uint pixelIndex = PSRQueueInput[GBUFFER_PSR_QUEUE_HEADER_WORDS + index];
   // Only the ray and pixel key are needed until traversal and reordering finish.
@@ -163,7 +163,7 @@ void main()
   if (state.continuePSRResolving)
   {
     storePSRState(pixelIndex, state, resolveVertexUnorderedRng.seed);
-    enqueuePSRPixel(pixelIndex);
+    enqueueGBufferPixel(PSRQueueOutput, pixelIndex);
   }
   else
   {

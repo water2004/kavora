@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/algorithm/resolve.h"
+import "rtx/utility/quaternion.slang";
 #include "rtx/algorithm/resolve_medium.slangh"
 #include "rtx/algorithm/resolve_portal.slangh"
 #include "rtx/algorithm/resolve_surface_approximations.slangh"
@@ -241,7 +242,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   const bool floatingSludge = rayInteraction.materialType == surfaceMaterialTypeOpaque &&
     cb.sludgeWaterMaterialIndex != SURFACE_INDEX_INVALID && surface.isFloatingSludge && normalUp > 0.85f;
   if (floatingSludge && waterSludgeIsOpen(surfaceInteraction.position,
-      cb.isZUp != 0, cb.waterEffects, cb.waterImpactClip.xyz, WaterImpacts, LinearWrapSampler)) {
+      cb.isZUp != 0, cb.water.effects, cb.water.impactClip, WaterImpacts, LinearWrapSampler)) {
     rayInteraction.materialType = surfaceMaterialTypeTranslucent;
     surface.surfaceMaterialIndex = cb.sludgeWaterMaterialIndex;
     surface.isFullyOpaque = false;
@@ -333,8 +334,8 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
       opaqueSurfaceMaterialInteractionCreatePrepared(opaqueSurfaceMaterial, surface, surfaceInteraction, rayInteraction, materialSample);
 
 #ifdef WATER_SIM_SAMPLE
-    if (floatingSludge && (cb.waterEffects & (WATER_EFFECT_RIPPLES | WATER_EFFECT_WIND))) {
-      const float2 slope = sampleBoundWater<false>(surfaceInteraction.position, 0.0f).yz;
+    if (floatingSludge && (cb.water.effects & (WATER_EFFECT_RIPPLES | WATER_EFFECT_WIND))) {
+      const float2 slope = sampleWater<BoundWater, false>(surfaceInteraction.position, 0.0f).yz;
       opaqueSurfaceMaterialInteraction.shadingNormal = applyWaterSlope(opaqueSurfaceMaterialInteraction.shadingNormal, slope, 1.0f, cb.isZUp != 0);
     }
 #endif

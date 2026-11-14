@@ -210,6 +210,7 @@ dxvk_src = files([
   'rtx_render/rtx_context.cpp',
   'rtx_render/rtx_context.h',
   'rtx_render/rtx_frame_pipeline.h',
+  'rtx_render/rtx_frame_schedule.h',
   'rtx_render/rtx_frame_resources.h',
   'rtx_render/rtx_gpu_crash.cpp',
   'rtx_render/rtx_gpu_crash.h',
@@ -396,6 +397,7 @@ dxvk_src = files([
   'rtx_render/rtx_water_sim.cpp',
   'rtx_render/rtx_water_sim.h',
   'rtx_render/rtx_xess.cpp',
+  'shaders/rtx/pass/water_sim/water_surface_args.h',
   'shaders/rtx/utility/atlas_mip_bounds.h',
   'rtx_render/rtx_xess.h',
 
@@ -589,15 +591,21 @@ display_color_layout_checks = custom_target(
   depfile: 'display_color_layout.d',
   depend_files: shader_layout_flags,
   command: [python_interpreter, shader_layout_generator,
-    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'cb', '4'] + shader_layout_includes + ['--validate-srgb-dither'],
+    slang_compiler, '@INPUT@', '@OUTPUT@', '@DEPFILE@', 'cb', '4'] + shader_layout_includes
+    + ['--check-slots', 'checkDisplayColorSlots', '--variant', 'DISPLAY_COLOR_INVERSION'],
 )
 
 frame_pass_layout_checks = []
 foreach contract : [
-  ['composite', 'composite/composite.comp.slang', 'cb', '16', []],
-  ['ray_reconstruction', 'ray_reconstruction/prepare_ray_reconstruction.comp.slang', 'cb', '16', []],
-  ['dome_composite', 'dome_composite/dome_composite.comp.slang', 'cb', '16', []],
-  ['night_sky', 'dome_composite/dome_composite.comp.slang', 'night', '16', ['-DDOME_NIGHT_SKY']],
+  ['composite', 'composite/composite.comp.slang', 'cb', '16',
+    ['--check-slots', 'checkCompositeSlots', '--allow-unused-slots']],
+  ['composite_alpha_blend', 'composite/composite_alpha_blend.comp.slang', 'cb', '16',
+    ['--check-slots', 'checkCompositeAlphaBlendSlots', '--allow-unused-slots']],
+  ['ray_reconstruction', 'ray_reconstruction/prepare_ray_reconstruction.comp.slang', 'cb', '16',
+    ['--check-slots', 'checkRayReconstructionSlots']],
+  ['dome_composite', 'dome_composite/dome_composite.comp.slang', 'cb', '16',
+    ['--check-slots', 'checkDomeCompositeSlots', '--union-variant-slots', '--variant', 'DOME_NIGHT_SKY', '--variant', 'DOME_END_SKY']],
+  ['night_sky', 'dome_composite/dome_composite.comp.slang', 'night', '16', ['-DDOME_NIGHT_SKY', '--variant', 'DOME_END_SKY']],
 ]
   name = contract[0]
   frame_pass_layout_checks += custom_target(

@@ -25,6 +25,7 @@
 */
 
 #include "rtx_frame_pipeline.h"
+#include "rtx_frame_schedule.h"
 #include "rtx_context.h"
 #include "dxvk_device.h"
 #include "dxvk_scoped_annotation.h"
@@ -32,6 +33,8 @@
 #include "rtx_composite.h"
 #include "rtx_debug_view.h"
 #include "rtx_neural_radiance_cache.h"
+#include "rtx_pathtracer_integrate_direct.h"
+#include "rtx_pathtracer_integrate_indirect.h"
 #include "rtx_restir_gi_rayquery.h"
 #include "rtx_rtxdi_rayquery.h"
 #include "rtx_scene_manager.h"
@@ -41,8 +44,35 @@
 
 namespace dxvk {
   __forceinline void RtxFramePipeline::recordSceneLighting(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, RtxFrameCapture capture) {
-    ctx.m_common->metaGlobalVolumetrics().dispatchCloudSky(&ctx, rtOutput.m_raytraceArgs.volumeArgs.clouds);
+    constexpr auto resolveNrc = frame::BorrowedPass<&DxvkObjects::metaNeuralRadianceCache,
+      &NeuralRadianceCache::dispatchTrainingAndResolve, NrcResolveFrame>{};
+    constexpr auto rtxdiConfidence = frame::BorrowedPass<&DxvkObjects::metaRtxdiRayQuery,
+      &DxvkRtxdiRayQuery::dispatchConfidence, DxvkRtxdiRayQuery::ConfidenceDispatchResources>{};
+    constexpr auto restirGi = frame::BorrowedPass<&DxvkObjects::metaReSTIRGIRayQuery,
+      &DxvkReSTIRGIRayQuery::dispatch, DxvkReSTIRGIRayQuery::DispatchResources>{};
 
+    using Lighting = frame::Schedule<recordCloudSky, recordPrimaryTraversal, dispatchVolumetrics,
+      dispatchPathTracing, resolveNrc, rtxdiConfidence, restirGi>;
+    static_assert(Lighting::orders<recordCloudSky, recordPrimaryTraversal>);
+    static_assert(Lighting::orders<recordPrimaryTraversal, dispatchVolumetrics>);
+    static_assert(Lighting::orders<dispatchVolumetrics, dispatchPathTracing>);
+    static_assert(Lighting::orders<dispatchPathTracing, resolveNrc>);
+    static_assert(Lighting::orders<dispatchPathTracing, rtxdiConfidence>);
+    static_assert(Lighting::orders<resolveNrc, restirGi>);
+
+    using Composition = frame::Schedule<captureLighting, recordDemodulation, recordDenoising, recordComposition>;
+    static_assert(Composition::orders<captureLighting, recordDemodulation>);
+    static_assert(Composition::orders<recordDemodulation, recordDenoising>);
+    static_assert(Composition::orders<recordDenoising, recordComposition>);
+    Lighting::record(ctx, rtOutput);
+    Composition::record(ctx, rtOutput, capture);
+  }
+
+  __forceinline void RtxFramePipeline::recordCloudSky(RtxContext& ctx, const FrameResources& rtOutput) {
+    ctx.m_common->metaGlobalVolumetrics().dispatchCloudSky(&ctx, rtOutput.m_raytraceArgs.volumeArgs.clouds);
+  }
+
+  __forceinline void RtxFramePipeline::recordPrimaryTraversal(RtxContext& ctx, const FrameResources& rtOutput) {
     if (RtxAnimationTime::overridden()) {
       const auto& args = rtOutput.m_raytraceArgs;
       const auto name = str::format("Animation ms=", RtxAnimationTime::milliseconds(),
@@ -58,22 +88,9 @@ namespace dxvk {
     if (RtxAnimationTime::overridden()) {
       ctx.endDebugLabel();
     }
+  }
 
-    // Volumetric Lighting
-    dispatchVolumetrics(ctx, rtOutput);
-
-    // Path Tracing
-    dispatchPathTracing(ctx, rtOutput);
-
-    // Neural Radiance Cache
-    ctx.m_common->metaNeuralRadianceCache().dispatchTrainingAndResolve(ctx, NrcResolveFrame(rtOutput));
-
-    // RTXDI confidence
-    ctx.m_common->metaRtxdiRayQuery().dispatchConfidence(&ctx, DxvkRtxdiRayQuery::ConfidenceDispatchResources(rtOutput));
-
-    // ReSTIR GI
-    ctx.m_common->metaReSTIRGIRayQuery().dispatch(&ctx, DxvkReSTIRGIRayQuery::DispatchResources(rtOutput));
-
+  __forceinline void RtxFramePipeline::captureLighting(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture capture) {
     if (capture.capturesDebugImages()) {
       ctx.takeScreenshot("baseReflectivity", rtOutput.m_primaryBaseReflectivity.image(Resources::AccessType::Read));
       if (rtOutput.m_sharedSubsurfaceData.isValid()) {
@@ -96,8 +113,9 @@ namespace dxvk {
       ctx.takeScreenshot("sharedRadianceB", rtOutput.m_sharedRadianceB.image);
       ctx.takeScreenshot("primaryWorldPositionWorldTriangleNormal", rtOutput.getCompactedPrimaryWorldPositionWorldTriangleNormal().image(Resources::AccessType::Read));
     }
+  }
 
-    // Demodulation
+  __forceinline void RtxFramePipeline::recordDemodulation(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture capture) {
     {
       ScopedCpuProfileZoneN("dxvk::RtxContext::dispatchDemodulate");
       ctx.getCommonObjects()->metaDemodulate().dispatch(&ctx, DemodulateResources(rtOutput));
@@ -108,8 +126,9 @@ namespace dxvk {
       ctx.takeScreenshot("noisyDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
       ctx.takeScreenshot("noisySpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
     }
+  }
 
-    // Denoising
+  __forceinline void RtxFramePipeline::recordDenoising(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture capture) {
     dispatchDenoise(ctx, rtOutput);
 
     // Note: Primary direct diffuse/specular radiance textures denoised but in a still demodulated state after denoising step.
@@ -117,8 +136,9 @@ namespace dxvk {
       ctx.takeScreenshot("denoisedDiffuse", rtOutput.m_primaryDirectDiffuseRadiance.image(Resources::AccessType::Read));
       ctx.takeScreenshot("denoisedSpecular", rtOutput.m_primaryDirectSpecularRadiance.image(Resources::AccessType::Read));
     }
+  }
 
-    // Composition
+  __forceinline void RtxFramePipeline::recordComposition(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture capture) {
     if (capture.capturesDebugImages()) {
       ctx.takeScreenshot("primaryIndirectDiffuseComposite", rtOutput.m_primaryIndirectDiffuseRadiance.image(Resources::AccessType::Read));
       ctx.takeScreenshot("primaryIndirectSpecularComposite", rtOutput.m_primaryIndirectSpecularRadiance.image(Resources::AccessType::Read));
@@ -156,11 +176,14 @@ namespace dxvk {
   void RtxFramePipeline::dispatchIntegrate(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
     ScopedGpuProfileZone(&ctx, "Integrate Raytracing");
 
-    // Integrate direct
-    ctx.m_common->metaPathtracerIntegrateDirect().dispatch(&ctx, DirectIntegrationResources(rtOutput));
-
-    // RTXDI Gradient pass
-    ctx.m_common->metaRtxdiRayQuery().dispatchGradient(&ctx, DxvkRtxdiRayQuery::GradientDispatchResources(rtOutput));
+    // Integrate direct and prepare the RTXDI gradient before indirect integration.
+    constexpr auto direct = frame::BorrowedPass<&DxvkObjects::metaPathtracerIntegrateDirect,
+      &DxvkPathtracerIntegrateDirect::dispatch, DirectIntegrationResources>{};
+    constexpr auto gradient = frame::BorrowedPass<&DxvkObjects::metaRtxdiRayQuery,
+      &DxvkRtxdiRayQuery::dispatchGradient, DxvkRtxdiRayQuery::GradientDispatchResources>{};
+    using Direct = frame::Schedule<direct, gradient>;
+    static_assert(Direct::orders<direct, gradient>);
+    Direct::record(ctx, rtOutput);
 
     // Integrate indirect
     {
@@ -198,26 +221,28 @@ namespace dxvk {
     }
 
     // Integrate indirect - NEE Cache pass
-    ctx.m_common->metaPathtracerIntegrateIndirect().dispatchNEE(&ctx, NeeIntegrationResources(rtOutput));
+    frame::record<
+      frame::BorrowedPass<&DxvkObjects::metaPathtracerIntegrateIndirect, &DxvkPathtracerIntegrateIndirect::dispatchNEE, NeeIntegrationResources>{}
+    >(ctx, rtOutput);
   }
 
   void RtxFramePipeline::dispatchPathTracing(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
-
-    // Sparse Rendering: sampling rates + active-pixel mask + compaction.
-    // Runs before the Gbuffer, which stores active pixels at their compacted coordinates.
-    ctx.m_common->metaSparseRendering().dispatch(ctx, SparseRendering::DispatchResources(rtOutput));
-
-    // Gbuffer Raytracing
-    ctx.m_common->metaPathtracerGbuffer().dispatch(&ctx, DxvkPathtracerGbuffer::DispatchResources(rtOutput));
-
-    // RTXDI
-    ctx.m_common->metaRtxdiRayQuery().dispatch(&ctx, DxvkRtxdiRayQuery::DispatchResources(rtOutput));
-
-    // NEE Cache
-    ctx.getCommonObjects()->metaNeeCache().dispatch(&ctx, NeeCachePass::DispatchResources(rtOutput));
-
-    // Integration Raytracing
-    dispatchIntegrate(ctx, rtOutput);
+    // Sparse rendering prepares the compacted coordinates used by the G-buffer.
+    constexpr auto sparse = frame::BorrowedPass<&DxvkObjects::metaSparseRendering,
+      &SparseRendering::dispatch, SparseRendering::DispatchResources>{};
+    constexpr auto gbuffer = frame::BorrowedPass<&DxvkObjects::metaPathtracerGbuffer,
+      &DxvkPathtracerGbuffer::dispatch, DxvkPathtracerGbuffer::DispatchResources>{};
+    constexpr auto rtxdi = frame::BorrowedPass<&DxvkObjects::metaRtxdiRayQuery,
+      &DxvkRtxdiRayQuery::dispatch, DxvkRtxdiRayQuery::DispatchResources>{};
+    constexpr auto nee = frame::BorrowedPass<&DxvkObjects::metaNeeCache,
+      &NeeCachePass::dispatch, NeeCachePass::DispatchResources>{};
+    using PathTracing = frame::Schedule<sparse, gbuffer, rtxdi, nee, dispatchIntegrate>;
+    static_assert(PathTracing::orders<sparse, gbuffer>);
+    static_assert(PathTracing::orders<gbuffer, rtxdi>);
+    static_assert(PathTracing::orders<gbuffer, nee>);
+    static_assert(PathTracing::orders<rtxdi, dispatchIntegrate>);
+    static_assert(PathTracing::orders<nee, dispatchIntegrate>);
+    PathTracing::record(ctx, rtOutput);
   }
 
   void RtxFramePipeline::dispatchDenoise(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
@@ -275,18 +300,25 @@ namespace dxvk {
       }
     };
 
+    const auto primaryGuides = [&]() {
+      return DxvkDenoise::Input {
+        .normal_roughness = &rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.resource(Resources::AccessType::Read),
+        .linearViewZ = &rtOutput.m_primaryLinearViewZ,
+        .motionVector = &rtOutput.m_primaryVirtualMotionVector.resource(Resources::AccessType::Read),
+        .disocclusionThresholdMix = &rtOutput.m_primaryDisocclusionThresholdMix,
+        .reset = ctx.m_resetHistory,
+      };
+    };
+
     // Primary Direct light denoiser
     {
       ScopedGpuProfileZone(&ctx, "Primary Direct Denoising");
 
-      DxvkDenoise::Input denoiseInput = {};
-      denoiseInput.diffuse_hitT = &rtOutput.m_primaryDirectDiffuseRadiance.resource(Resources::AccessType::Read);
-      denoiseInput.specular_hitT = &rtOutput.m_primaryDirectSpecularRadiance.resource(Resources::AccessType::Read);
-      denoiseInput.normal_roughness = &rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.resource(Resources::AccessType::Read);
-      denoiseInput.linearViewZ = &rtOutput.m_primaryLinearViewZ;
-      denoiseInput.motionVector = &rtOutput.m_primaryVirtualMotionVector.resource(Resources::AccessType::Read);
-      denoiseInput.disocclusionThresholdMix = &rtOutput.m_primaryDisocclusionThresholdMix;
-      denoiseInput.reset = ctx.m_resetHistory;
+      const auto* diffuse = &rtOutput.m_primaryDirectDiffuseRadiance.resource(Resources::AccessType::Read);
+      const auto* specular = &rtOutput.m_primaryDirectSpecularRadiance.resource(Resources::AccessType::Read);
+      auto denoiseInput = primaryGuides();
+      denoiseInput.diffuse_hitT = diffuse;
+      denoiseInput.specular_hitT = specular;
 
       if (RtxOptions::useRTXDI() && ctx.m_common->metaRtxdiRayQuery().getEnableDenoiserConfidence(ctx)) {
         denoiseInput.confidence = &rtOutput.getCurrentRtxdiConfidence().resource(Resources::AccessType::Read);
@@ -304,14 +336,11 @@ namespace dxvk {
     {
       ScopedGpuProfileZone(&ctx, "Primary Indirect Denoising");
 
-      DxvkDenoise::Input denoiseInput = {};
-      denoiseInput.diffuse_hitT = &rtOutput.m_primaryIndirectDiffuseRadiance.resource(Resources::AccessType::Read);
-      denoiseInput.specular_hitT = &rtOutput.m_primaryIndirectSpecularRadiance.resource(Resources::AccessType::Read);
-      denoiseInput.normal_roughness = &rtOutput.m_primaryVirtualWorldShadingNormalPerceptualRoughnessDenoising.resource(Resources::AccessType::Read);
-      denoiseInput.linearViewZ = &rtOutput.m_primaryLinearViewZ;
-      denoiseInput.motionVector = &rtOutput.m_primaryVirtualMotionVector.resource(Resources::AccessType::Read);
-      denoiseInput.disocclusionThresholdMix = &rtOutput.m_primaryDisocclusionThresholdMix;
-      denoiseInput.reset = ctx.m_resetHistory;
+      const auto* diffuse = &rtOutput.m_primaryIndirectDiffuseRadiance.resource(Resources::AccessType::Read);
+      const auto* specular = &rtOutput.m_primaryIndirectSpecularRadiance.resource(Resources::AccessType::Read);
+      auto denoiseInput = primaryGuides();
+      denoiseInput.diffuse_hitT = diffuse;
+      denoiseInput.specular_hitT = specular;
 
       DxvkDenoise::Output denoiseOutput;
       denoiseOutput.diffuse_hitT = &rtOutput.m_primaryIndirectDiffuseRadiance.resource(Resources::AccessType::Write);

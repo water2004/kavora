@@ -680,7 +680,6 @@ namespace dxvk {
         friend class ImGUI;
         friend class RtxOptions;
         RTX_OPTION_ENV("rtx.antiCulling.light", bool, enable, false, "RTX_ANTI_CULLING_LIGHTS", "Enable Anti-Culling for lights.");
-        RTX_OPTION("rtx.antiCulling.light", uint32_t, numLightsToKeep, 1000, "(DEPRECATED)");
         RTX_OPTION("rtx.antiCulling.light", uint32_t, numFramesToExtendLightLifetime, 1000, "Maximum number of frames to keep  when Anti-Culling is enabled. Make sure not to set this too low (then the anti-culling won't work), nor too high (which will hurt the performance).");
         RTX_OPTION("rtx.antiCulling.light", float, fovScale, 1.0f, "Scalar of the FOV of lights Anti-Culling Frustum.");
       };
@@ -967,12 +966,6 @@ namespace dxvk {
                     "Texture hashes identifying ray portals.\n"
                     "Entries are interpreted as pairs of hashes; the list length must be even and will be clamped to the internal max portal count.",
                     args.onChangeCallback = &rayPortalModelTextureHashesOnChange);
-    // Todo: Add option for if a model to world transform matrix should be used or if PCA should be used instead to attempt to guess what the matrix should be (for games with
-    // pretransformed Ray Portal vertices).
-    // Note: Axes used for orienting the portal when PCA is used.
-    RTX_OPTION("rtx", Vector3, rayPortalModelNormalAxis, Vector3(0.0f, 0.0f, 1.0f), "The axis in object space to map the ray portal geometry's normal axis to. Currently unused (as PCA is not implemented).");
-    RTX_OPTION("rtx", Vector3, rayPortalModelWidthAxis, Vector3(1.0f, 0.0f, 0.0f), "The axis in object space to map the ray portal geometry's width axis to. Currently unused (as PCA is not implemented).");
-    RTX_OPTION("rtx", Vector3, rayPortalModelHeightAxis, Vector3(0.0f, 1.0f, 0.0f), "The axis in object space to map the ray portal geometry's height axis to. Currently unused (as PCA is not implemented).");
     public: static void rayPortalSamplingWeightMinDistanceOnChange(DxvkDevice* device);
     RTX_OPTION_ARGS("rtx", float, rayPortalSamplingWeightMinDistance, 10.0f,
                "The minimum distance from a portal which the interpolation of the probability of light sampling through portals will begin (and is at its maximum value).\n"
@@ -1000,7 +993,6 @@ namespace dxvk {
 
     RTX_OPTION_ARGS("rtx", bool, useWhiteMaterialMode, false, "Override all objects' materials by white material",
                     args.environment = "RTX_USE_WHITE_MATERIAL_MODE");
-    RTX_OPTION("rtx", bool, useHighlightLegacyMode, false, "");
     RTX_OPTION("rtx", float, nativeMipBias, 0.0f,
                "Specifies a mipmapping level bias to add to all material texture filtering. Stacks with the upscaling mip bias.\n"
                "Mipmaps are determined based on how far away a texture is, using this can bias the desired level in a lower quality direction (positive bias), or a higher quality direction with potentially more aliasing (negative bias).\n"

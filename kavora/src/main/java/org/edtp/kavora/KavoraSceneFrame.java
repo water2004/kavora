@@ -7,8 +7,6 @@ package org.edtp.kavora;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.phys.Vec3;
 import org.edtp.kavora.asset.KavoraInstanceStore;
 import org.edtp.kavora.asset.KavoraLightStore;
@@ -16,27 +14,20 @@ import org.edtp.kavora.asset.KavoraMaterialStore;
 import org.edtp.kavora.asset.KavoraMeshStore;
 import org.edtp.kavora.asset.KavoraTextureStore;
 import org.edtp.kavora.benchmark.BenchmarkController;
-import org.edtp.kavora.cloud.CloudRenderer;
-import org.edtp.kavora.entity.KavoraBlockDamagePass;
 import org.edtp.kavora.entity.KavoraBlockEntityPass;
-import org.edtp.kavora.entity.KavoraBlockOutlinePass;
 import org.edtp.kavora.entity.KavoraEntityPass;
 import org.edtp.kavora.entity.KavoraEntitySubmitter;
 import org.edtp.kavora.entity.KavoraFirstPersonPass;
 import org.edtp.kavora.light.LightManager;
 import org.edtp.kavora.logic.AtmosphereDimension;
-import org.edtp.kavora.logic.ConfLayerDriver;
 import org.edtp.kavora.particle.ParticleFramePipeline;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.render.KavoraFramePresentation;
 import org.edtp.kavora.render.KavoraInterop;
-import org.edtp.kavora.render.KavoraWaterRipples;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixException;
-import org.edtp.kavora.sky.SkyRenderer;
 import org.edtp.kavora.terrain.ChunkManager;
 import org.edtp.kavora.texture.BlockTextureManager;
-import org.edtp.kavora.texture.ParticleAtlasManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,13 +43,8 @@ final class KavoraSceneFrame {
     private final KavoraEntitySubmitter entitySubmitter;
     private final KavoraBlockEntityPass blockEntityPass;
     private final KavoraFirstPersonPass firstPersonPass;
-    private final KavoraBlockDamagePass blockDamagePass;
-    private final KavoraBlockOutlinePass blockOutlinePass;
-    private final SkyRenderer skyRenderer;
-    private final CloudRenderer cloudRenderer;
-    private final ConfLayerDriver confLayerDriver;
+    private final KavoraSceneEffects effects;
     private final BlockTextureManager textureManager;
-    private final ParticleAtlasManager particleAtlasManager;
     private final ParticleFramePipeline particles;
     private final KavoraFrameMetrics perfTimer;
     private final BenchmarkController benchmarkController;
@@ -69,10 +55,8 @@ final class KavoraSceneFrame {
             ChunkManager chunkManager, LightManager lightManager,
             KavoraEntityPass entityPass, KavoraEntitySubmitter entitySubmitter,
             KavoraBlockEntityPass blockEntityPass, KavoraFirstPersonPass firstPersonPass,
-            KavoraBlockDamagePass blockDamagePass, KavoraBlockOutlinePass blockOutlinePass,
-            SkyRenderer skyRenderer, CloudRenderer cloudRenderer,
-            ConfLayerDriver confLayerDriver, BlockTextureManager textureManager,
-            ParticleAtlasManager particleAtlasManager, ParticleFramePipeline particles,
+            KavoraSceneEffects effects, BlockTextureManager textureManager,
+            ParticleFramePipeline particles,
             KavoraFrameMetrics perfTimer, BenchmarkController benchmarkController) {
         this.interop = interop;
         this.presentation = presentation;
@@ -82,13 +66,8 @@ final class KavoraSceneFrame {
         this.entitySubmitter = entitySubmitter;
         this.blockEntityPass = blockEntityPass;
         this.firstPersonPass = firstPersonPass;
-        this.blockDamagePass = blockDamagePass;
-        this.blockOutlinePass = blockOutlinePass;
-        this.skyRenderer = skyRenderer;
-        this.cloudRenderer = cloudRenderer;
-        this.confLayerDriver = confLayerDriver;
+        this.effects = effects;
         this.textureManager = textureManager;
-        this.particleAtlasManager = particleAtlasManager;
         this.particles = particles;
         this.perfTimer = perfTimer;
         this.benchmarkController = benchmarkController;
@@ -131,20 +110,8 @@ final class KavoraSceneFrame {
 
             perfTimer.injectNanos(perfTimer.perfCamera, cameraUpdateNanos);
 
-            particles.submitPendingFrame(world);
-            particles.startPrepare(particleAtlasManager, tickDelta, ProfileScope.currentFrameIndex());
             Vec3 cameraPos = camera.position();
-
-            perfTimer.begin(perfTimer.perfLights);
-            try (ProfileScope lightsScope = ProfileScope.begin("Lights")) {
-                // Entity lights first: updateLights() draws them, so updating
-                // after it would submit last frame's positions. Visible as a
-                // one-frame lag between a spinning beacon and its beam.
-                lightManager.updateEntityLights(world, camera, tickDelta);
-                lightManager.updateLights(world, camera, tickDelta);
-            } finally {
-                perfTimer.end(perfTimer.perfLights);
-            }
+            SceneEffectSchedule.beforeGeometry(effects, world, camera, tickDelta);
 
             if (KavoraMod.isWorldEnabled()) {
                 try {
@@ -195,45 +162,7 @@ final class KavoraSceneFrame {
                 closeEntityFrame();
                 entityFrameClosed = true;
             }
-            blockDamagePass.finishFrame();
-
-            // Submit the targeted-block outline through Remix so it is
-            // depth-tested against the traced scene.
-            if (blockOutlinePass != null) {
-                try (ProfileScope blockOutlineScope = ProfileScope.begin("BlockOutline")) {
-                    blockOutlinePass.submit();
-                } catch (Exception e) {
-                    LOGGER.error("Error rendering targeted-block outline", e);
-                }
-            }
-
-            // The sky owner also clears host metadata when its rendering is disabled.
-            perfTimer.begin(perfTimer.perfSky);
-            try (ProfileScope skyScope = ProfileScope.begin("Sky")) {
-                skyRenderer.render(world, camera, cameraPos, tickDelta, confLayerDriver);
-            } catch (Exception e) {
-                LOGGER.error("Error rendering sky", e);
-            } finally {
-                perfTimer.end(perfTimer.perfSky);
-            }
-
-            if (KavoraMod.isWorldActive()) {
-                perfTimer.begin(perfTimer.perfClouds);
-                try (ProfileScope cloudScope = ProfileScope.begin("Clouds")) {
-                    cloudRenderer.render(world, camera, cameraPos, tickDelta, client.options.getCloudStatus());
-                    perfTimer.recordClouds(cloudScope, cloudRenderer);
-                } catch (Exception e) {
-                    LOGGER.error("Error rendering clouds", e);
-                } finally {
-                    perfTimer.end(perfTimer.perfClouds);
-                }
-            } else {
-                try {
-                    cloudRenderer.disable();
-                } catch (RuntimeException e) {
-                    LOGGER.error("Failed to disable cloud rendering", e);
-                }
-            }
+            SceneEffectSchedule.afterGeometry(effects, client, world, camera, cameraPos, tickDelta);
 
             // Forward atlas animation patches to Remix before presenting
             if (textureManager != null) {
@@ -247,23 +176,13 @@ final class KavoraSceneFrame {
 
             perfTimer.begin(perfTimer.perfSubmit);
             try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
-                if (KavoraWaterRipples.wantsRain()) {
-                    float rain = world.getRainLevel(tickDelta);
-                    if (rain > 0) {
-                        BlockPos position = BlockPos.containing(cameraPos);
-                        if (world.getBiome(position).value().getPrecipitationAt(position, world.getSeaLevel()) != Biome.Precipitation.RAIN) {
-                            rain = 0;
-                        }
-                    }
-                    KavoraWaterRipples.rain(rain);
-                }
+                SceneEffectSchedule.beforeSubmit(world, cameraPos, tickDelta);
                 presentation.submitScene();
             } finally {
                 perfTimer.end(perfTimer.perfSubmit);
             }
 
-            // The worker publishes CPU data for the next scene after this one is submitted.
-            particles.finishAfterSubmit(world);
+            SceneEffectSchedule.afterSubmit(effects, world);
 
         } catch (RemixException e) {
             LOGGER.error("Remix error during frame render: {} (code: {})",

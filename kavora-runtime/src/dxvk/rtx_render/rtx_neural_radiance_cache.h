@@ -75,7 +75,6 @@ namespace dxvk {
                  "The cache cannot accurately represent sharp emissive features, so this option defers termination\n"
                  "until after MIS-weighted emissive accumulation. May cause minor double-counting in rare cases.");
       RTX_OPTION("rtx.neuralRadianceCache", bool, resetHistory, false, "");
-      RTX_OPTION("rtx.neuralRadianceCache", bool, allowRussianRouletteOnUpdate, false, "");
       RTX_OPTION_ARGS("rtx.neuralRadianceCache", uint32_t, targetNumTrainingIterations, 4,
                  "This controls the target number of training iterations to perform each frame,\n"
                  "which in turn determines the ideal number of training records that\n"

@@ -26,11 +26,22 @@ import "rtx/concept/surface_material/opaque_lobe_sampling.slang";
 import "rtx/concept/surface_material/subsurface_material.slang";
 
 import "rtx/concept/surface_material/water_normal_coordinates.slang";
-import "rtx/concept/surface_material/end_portal_material.slang";
-import "rtx/concept/surface_material/surface_glint.slang";
+import "rtx/concept/surface_material/opaque_emission_inputs.slang";
+import "rtx/concept/surface_material/material_effects.slang";
+import "rtx/concept/surface_material/end_portal_emission_effect.slang";
+import "rtx/concept/surface_material/surface_glint_effect.slang";
+import "rtx/concept/surface_material/material_parameter_adjustment.slang";
 
 #include "opaque_surface_material_blending.slangh"
 #include "rtx/utility/debug_view_helpers.slangh"
+
+struct BindlessOpaqueEmissionResources : IOpaqueEmissionResources {
+  [ForceInline]
+  static Texture2D<float4> texture(uint index) { return textures[nonuniformEXT(index)]; }
+
+  [ForceInline]
+  static SamplerState sampler(uint index) { return samplers[nonuniformEXT(index)]; }
+};
 
 // Opaque Surface Material Interaction Helper Functions
 
@@ -589,10 +600,6 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
     storeColorOverlayedWithTextureResolutionCheckersInDebugView(roughness.xxx, opaqueSurfaceMaterial.roughnessTextureIndex, surfaceInteraction);
   }
 #endif  
-  // Apply material modifiers
-  const float roughnessScale = cb.opaqueMaterialArgs.roughnessScale * (isHairCardMaterial ? cb.hairCardRoughnessScale : 1.0f);
-  roughness = saturate(roughness * roughnessScale + cb.opaqueMaterialArgs.roughnessBias);
-
   // Load Metallic
 
   float metallic = opaqueSurfaceMaterial.metallicConstant;
@@ -601,8 +608,16 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
   {
     metallic = metallicSample.x;
   }
-    
-  metallic = saturate(metallic * cb.opaqueMaterialArgs.metallicScale + cb.opaqueMaterialArgs.metallicBias);
+
+  const OpaqueParameterSettings parameterSettings = {
+    cb.opaqueMaterialArgs.roughnessScale * (isHairCardMaterial ? cb.hairCardRoughnessScale : 1.0f),
+    cb.opaqueMaterialArgs.roughnessBias,
+    cb.opaqueMaterialArgs.metallicScale,
+    cb.opaqueMaterialArgs.metallicBias
+  };
+  OpaqueShadingParameters shadingParameters = { roughness, metallic };
+  applyMaterialEffects<OpaqueParameterSettings, OpaqueShadingParameters,
+    MaterialParameterAdjustment>(parameterSettings, shadingParameters);
 
   // Transform to desired Opaque Material Interaction values
 
@@ -614,11 +629,11 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
 
   // Note: Opacity factored into albedo and base reflectivity to ensure NEE and indirect lighting off of objects with opacity properly
   // account for how much light is being transmitted due to the opacity (similar to how Fresnel on glass works).
-  opaqueSurfaceMaterialInteraction.albedo = surface.isMatte ? vec3(0) : albedoToAdjustedAlbedo(albedo, metallic, opacity);
-  opaqueSurfaceMaterialInteraction.baseReflectivity = surface.isMatte ? vec3(0) : calcBaseReflectivity(albedo, metallic, opacity);
+  opaqueSurfaceMaterialInteraction.albedo = surface.isMatte ? vec3(0) : albedoToAdjustedAlbedo(albedo, shadingParameters.metallic, opacity);
+  opaqueSurfaceMaterialInteraction.baseReflectivity = surface.isMatte ? vec3(0) : calcBaseReflectivity(albedo, shadingParameters.metallic, opacity);
    
   // Note: Roughness loaded from texture is a perceptual roughness value (for optimal encoding), so this works as intended.
-  calcRoughness(roughness, opaqueSurfaceMaterial.anisotropy,
+  calcRoughness(shadingParameters.roughness, opaqueSurfaceMaterial.anisotropy,
     opaqueSurfaceMaterialInteraction.isotropicRoughness,
     opaqueSurfaceMaterialInteraction.anisotropicRoughness);
 
@@ -629,20 +644,17 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
 
   if (opaqueSurfaceMaterial.emissiveIntensity != 0.0)
   {
-    if (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_FLAG_IS_END_PORTAL)
+    typealias ReplacementEmission = EndPortalEmission<BindlessOpaqueEmissionResources>;
+    if (ReplacementEmission.replaces(opaqueSurfaceMaterial))
     {
       opaqueSurfaceMaterialInteraction.albedo = vec3(0.0f);
       opaqueSurfaceMaterialInteraction.baseReflectivity = vec3(0.0f);
-      if (opaqueSurfaceMaterial.secondaryTextureIndex != BINDING_INDEX_INVALID &&
-          opaqueSurfaceMaterial.emissiveColorTextureIndex != BINDING_INDEX_INVALID)
+      if (ReplacementEmission.hasTextures(opaqueSurfaceMaterial))
       {
-        const uint layerCount = (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_FLAG_IS_END_GATEWAY) ? 16u : 15u;
-        emissiveRadiance = endPortalEmission(
-          textures[nonuniformEXT(uint(opaqueSurfaceMaterial.secondaryTextureIndex))],
-          textures[nonuniformEXT(uint(opaqueSurfaceMaterial.emissiveColorTextureIndex))],
-          samplers[nonuniformEXT(uint(opaqueSurfaceMaterial.samplerIndex))],
+        const ProjectedEmissionInputs emission = { opaqueSurfaceMaterial,
           cb.camera.translatedWorldToProjectionJittered, cb.camera.resolution, cb.timeSinceStartSeconds,
-          minimalRayInteraction.viewDirection, layerCount, opaqueSurfaceMaterial.emissiveIntensity);
+          minimalRayInteraction.viewDirection };
+        applyMaterialEffects<ProjectedEmissionInputs, float3, ReplacementEmission>(emission, emissiveRadiance);
       }
     }
     else
@@ -676,18 +688,18 @@ OpaqueSurfaceMaterialInteraction opaqueSurfaceMaterialInteractionCreatePrepared(
     }
   }
 
-  if (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_GLINT_MODE_MASK)
+  const uint emissionMode = opaqueSurfaceMaterial.packedGlintMode();
+  if (emissionMode)
   {
     const float strength = cb.opaqueMaterialArgs.glintStrength;
     if (!(strength <= 0.f))
     {
-      const uint mode = (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_GLINT_MODE_MASK) >> OPAQUE_SURFACE_MATERIAL_GLINT_MODE_SHIFT;
-      const float scale = mode == OPAQUE_SURFACE_MATERIAL_GLINT_MODE_ITEM ? 8.f :
-        (mode == OPAQUE_SURFACE_MATERIAL_GLINT_MODE_ENTITY ? 0.5f : 0.16f);
-      emissiveRadiance += surfaceGlint(textures[nonuniformEXT(uint(opaqueSurfaceMaterial.glintTextureIndex))],
-        samplers[nonuniformEXT(uint(opaqueSurfaceMaterial.samplerIndex))],
-        surfaceInteraction.textureCoordinates, surfaceInteraction.textureGradientX, surfaceInteraction.textureGradientY,
-        albedo, materialLodBias, strength, cb.timeSinceStartSeconds, cb.opaqueMaterialArgs.glintSpeed, scale);
+      const uint mode = OpaqueSurfaceMaterial.decodeGlintMode(emissionMode);
+      const OpaqueEffectInputs effects = { opaqueSurfaceMaterial, surfaceInteraction.textureCoordinates,
+        surfaceInteraction.textureGradientX, surfaceInteraction.textureGradientY, albedo, materialLodBias,
+        mode, cb.timeSinceStartSeconds, strength, cb.opaqueMaterialArgs.glintSpeed };
+      applyMaterialEffects<OpaqueEffectInputs, float3,
+        EnchantmentGlint<BindlessOpaqueEmissionResources>>(effects, emissiveRadiance);
     }
   }
   opaqueSurfaceMaterialInteraction.emissiveRadiance = emissiveRadiance;

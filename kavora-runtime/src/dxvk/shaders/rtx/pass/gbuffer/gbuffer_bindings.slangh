@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
+#include "rtx/pass/gbuffer/gbuffer_water_bindings.h"
 
 #include "rtx/utility/shader_types.slangh"
 #include "rtx/pass/sharc/sharc.slangh"
@@ -34,12 +35,12 @@ layout(binding = GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
 SamplerState LinearWrapSampler;
 
 #ifdef WATER_SIM_SAMPLE
-[[vk::binding(GBUFFER_BINDING_WATER_SIMULATION)]]
-Texture2D<float4> WaterSimulation;
-[[vk::binding(GBUFFER_BINDING_WATER_WIND)]] Texture2DArray<float4> WaterWind;
-[[vk::binding(GBUFFER_BINDING_WATER_RINGS)]] Texture2D<float2> WaterRings;
-[[vk::binding(GBUFFER_BINDING_WATER_IMPACTS)]] Texture2D<float2> WaterImpacts;
-[[vk::binding(GBUFFER_BINDING_WATER_TILE_SAMPLER)]] SamplerState WaterTileSampler;
+#define GBUFFER_WATER_SLANG_BINDING(slot, descriptor, type, name, view) [[vk::binding(slot)]] type name;
+GBUFFER_WATER_IMAGES(GBUFFER_WATER_SLANG_BINDING)
+#undef GBUFFER_WATER_SLANG_BINDING
+[[vk::binding(GBUFFER_BINDING_WATER_TILE_SAMPLER)]]
+SamplerState WaterTileSampler;
+#include "rtx/pass/gbuffer/gbuffer_water.slangh"
 #endif
 
 layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)

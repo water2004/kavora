@@ -1437,16 +1437,7 @@ namespace dxvk {
     constants.enableDLSSRR = useRR;
     constants.setLogValueForDisocclusionMaskForDLSSRR = DxvkRayReconstruction::enableDisocclusionMaskBlur();
     constants.invalidateHistoryForAnimatedWater = DxvkRayReconstruction::invalidateHistoryForAnimatedWater();
-    constants.waterSimulation = m_common->waterSimulation().shaderArgs();
-    constants.waterImpactClip = m_common->waterSimulation().impactArgs();
-    constants.waterEffects = m_common->waterSimulation().effects();
-    constants.waterRain = m_common->waterSimulation().rain();
-    // 672 is the common repeat length of the two FFT cascades and rain tiles.
-    const int waterOriginZ = RtxOptions::zUp() ? 0 : sceneOrigin.y;
-    constants.waterTileOrigin = vec2(float(sceneOrigin.x % 672), float(waterOriginZ % 672));
-    constants.waterGustPhase = float(std::remainder(
-      double(sceneOrigin.x) * double(0.058f) + double(waterOriginZ) * double(0.041f),
-      6.2831853071795864769));
+    constants.water = m_common->waterSimulation().shaderArgs(sceneOrigin.x, RtxOptions::zUp() ? 0 : sceneOrigin.y);
     constants.sludgeWaterMaterialIndex = getSceneManager().getSludgeWaterMaterialIndex();
 
     // The denoising normals are consumed only by NRD. dispatchDenoise reads these back rather than

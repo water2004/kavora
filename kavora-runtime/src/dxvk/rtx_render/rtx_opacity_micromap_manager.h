@@ -87,7 +87,6 @@ namespace dxvk {
       RTX_OPTION("rtx.opacityMicromap.buildRequests", bool, enableAnimatedInstances, false, "Enables Opacity Micromaps for animated instances.");
 
       RTX_OPTION_ENV("rtx.opacityMicromap.buildRequests", int, minInstanceFrameAge, 1, "DXVK_OPACITY_MICROMAP_MIN_INSTANCE_FRAME_AGE", "Min instance's frame age which to allow building Opacity Micromaps for.");
-      RTX_OPTION("rtx.opacityMicromap.buildRequests", int, maxRequestFrameAge, 300, "Max request frame age to allow building Opacity Micromaps for. Any requests older than this are purged.");
       RTX_OPTION_ENV("rtx.opacityMicromap.buildRequests", int, minNumFramesRequested, 5, "DXVK_OPACITY_MICROMAP_OMM_BUILD_REQUESTED_MIN_NUM_FRAMES_REQUESTED",
                      "Min number of frames for a staged Opacity Micromap request before it is allowed to be built.");
       RTX_OPTION_ENV("rtx.opacityMicromap.buildRequests", int, minNumRequests, 10, "DXVK_OPACITY_MICROMAP_OMM_BUILD_REQUESTED_MIN_NUM_REQUESTS",

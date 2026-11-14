@@ -10,6 +10,7 @@ enum SettingCategory {
     LIGHTING("kavora.settings.category.lighting"),
     RAY_TRACING("kavora.settings.category.rayTracing"),
     MATERIALS("kavora.settings.category.materials"),
+    PARTICLES("kavora.settings.category.particles"),
     SKY("kavora.settings.category.sky"),
     WEATHER("kavora.settings.category.weather"),
     COLOR("kavora.settings.category.color"),

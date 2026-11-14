@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/gbuffer_features.slangh"
+import "rtx/utility/quaternion.slang";
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
 #include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
 #include "rtx/utility/gbuffer_helpers.slangh"

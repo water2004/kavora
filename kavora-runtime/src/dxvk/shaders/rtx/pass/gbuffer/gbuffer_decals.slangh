@@ -22,6 +22,7 @@
 #pragma once
 
 #include "rtx/algorithm/resolve_unordered.slangh"
+import "rtx/utility/quaternion.slang";
 
 #include "rtx/pass/gbuffer/gbuffer_debug.slangh"
 #include "rtx/pass/gbuffer/gbuffer_guides_output.slangh"

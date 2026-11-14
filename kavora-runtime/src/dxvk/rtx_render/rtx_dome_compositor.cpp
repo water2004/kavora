@@ -15,7 +15,7 @@ namespace dxvk {
     class DomeCompositeShader : public ManagedShader {
       SHADER_SOURCE(DomeCompositeShader, VK_SHADER_STAGE_COMPUTE_BIT, dome_composite)
       PUSH_CONSTANTS(DomeCompositeArgs)
-      BEGIN_PARAMETER()
+      BEGIN_REFLECTED_PARAMETER()
         SAMPLER2D(DOME_COMPOSITE_SOURCE)
         SAMPLER2D(DOME_COMPOSITE_NIGHT_FIELD)
         SAMPLER2D(DOME_COMPOSITE_GALAXY)
@@ -25,7 +25,7 @@ namespace dxvk {
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
         { DOME_COMPOSITE_BACKGROUND, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_VIEW_TYPE_2D,
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
-      END_PARAMETER()
+      END_REFLECTED_PARAMETER(checkDomeCompositeSlots)
     };
   }
 

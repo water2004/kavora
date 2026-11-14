@@ -94,9 +94,12 @@ namespace dxvk {
     ImGui::Unindent();
   }
 
-  void DxvkBloom::dispatch(Rc<RtxContext> ctx, 
-                           Rc<DxvkSampler> linearSampler,
-                           const Resources::Resource& inOutColorBuffer) {
+  void DxvkBloom::dispatch(Rc<RtxContext> ctx, DispatchResources resources) {
+    Rc<DxvkSampler> linearSampler = ctx->getResourceManager().getSampler(
+      VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    const Resources::Resource& inOutColorBuffer =
+      resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::ReadWrite);
+
     ScopedGpuProfileZone(ctx, "Bloom");
     ctx->setFramePassStage(RtxFramePassStage::Bloom);
 

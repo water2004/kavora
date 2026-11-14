@@ -4,6 +4,7 @@
  */
 package org.edtp.kavora;
 
+import org.edtp.kavora.logic.KavoraCameraEnvironment;
 import org.edtp.kavora.sdk.RemixException;
 import org.junit.jupiter.api.Test;
 
@@ -46,11 +47,8 @@ class KavoraRendererCameraFrameTest {
     }
 
     @Test
-    void mediumErrorsStayLocalToTheMediumUpdate() throws Exception {
-        KavoraRenderer renderer = new KavoraRenderer();
-        Method update = KavoraRenderer.class.getDeclaredMethod(
-                "updateCameraMedium", Camera.class, Vec3.class, float.class, float.class);
-        update.setAccessible(true);
+    void mediumErrorsStayLocalToTheMediumUpdate() {
+        var environment = new KavoraCameraEnvironment(null, null, null, null);
         for (RuntimeException error : new RuntimeException[] {
                 new RemixException("medium failed"), new IllegalStateException("medium failed")}) {
             Camera camera = new Camera() {
@@ -60,7 +58,7 @@ class KavoraRendererCameraFrameTest {
                 }
             };
 
-            assertDoesNotThrow(() -> update.invoke(renderer, camera, Vec3.ZERO, 0.0f, 0.0f));
+            assertDoesNotThrow(() -> environment.update(null, camera, Vec3.ZERO, 0.0f, 0.0f, 0.0f));
         }
     }
 }

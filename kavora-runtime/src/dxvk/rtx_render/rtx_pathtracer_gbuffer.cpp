@@ -31,6 +31,7 @@
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
+#include "rtx/pass/gbuffer/gbuffer_water_bindings.h"
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.h"
 #include "rtx/concept/surface_material/surface_material_hitgroup.h"
 
@@ -93,10 +94,9 @@ namespace dxvk {
         { GBUFFER_BINDING_FG_FOREGROUND_GUIDE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_VIEW_TYPE_2D,
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
-        TEXTURE2D(GBUFFER_BINDING_WATER_SIMULATION)
-        TEXTURE2DARRAY(GBUFFER_BINDING_WATER_WIND)
-        TEXTURE2D(GBUFFER_BINDING_WATER_RINGS)
-        TEXTURE2D(GBUFFER_BINDING_WATER_IMPACTS)
+#define GBUFFER_WATER_LAYOUT(binding, descriptor, type, name, view) descriptor(binding)
+        GBUFFER_WATER_IMAGES(GBUFFER_WATER_LAYOUT)
+#undef GBUFFER_WATER_LAYOUT
         SAMPLER(GBUFFER_BINDING_WATER_TILE_SAMPLER)
 
         SAMPLER3D(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
@@ -824,10 +824,9 @@ namespace dxvk {
 
     ctx->bindResourceSampler(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER, linearWrapSampler);
     const auto& water = ctx->getCommonObjects()->waterSimulation();
-    ctx->bindResourceView(GBUFFER_BINDING_WATER_SIMULATION, water.view(), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_WATER_WIND, water.windView(), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_WATER_RINGS, water.ringView(), nullptr);
-    ctx->bindResourceView(GBUFFER_BINDING_WATER_IMPACTS, water.impactView(), nullptr);
+#define GBUFFER_BIND_WATER_IMAGE(binding, descriptor, type, name, view) ctx->bindResourceView(binding, water.view(), nullptr);
+    GBUFFER_WATER_IMAGES(GBUFFER_BIND_WATER_IMAGE)
+#undef GBUFFER_BIND_WATER_IMAGE
     if (water.effects() & (WATER_EFFECT_WIND | WATER_EFFECT_RINGS)) {
       ctx->bindResourceSampler(GBUFFER_BINDING_WATER_TILE_SAMPLER, ctx->getResourceManager().getSampler(
         VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT));

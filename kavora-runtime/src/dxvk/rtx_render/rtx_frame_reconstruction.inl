@@ -25,6 +25,7 @@
 */
 
 #include "rtx_frame_pipeline.h"
+#include "rtx_frame_schedule.h"
 #include "rtx_context.h"
 #include "dxvk_device.h"
 #include "dxvk_scoped_annotation.h"
@@ -37,33 +38,49 @@
 
 namespace dxvk {
   __forceinline void RtxFramePipeline::reconstructSceneImage(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput, RtxFrameCapture capture) {
-    // Upscaling if DLSS/NIS enabled, or the Composition Pass will do upscaling
-    if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::DLSS) {
-      // xxxnsubtil: the DLSS indicator reads our exposure texture even with DLSS autoexposure on
-      // make sure it has been created, otherwise we run into trouble on the first frame
-      ctx.m_common->metaAutoExposure().createResources(&ctx);
-      dispatchDLSS(ctx, rtOutput);
-    } else if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::DLSS_RR) {
-      ctx.m_common->metaAutoExposure().createResources(&ctx);
-      dispatchRayReconstruction(ctx, rtOutput);
-    } else if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::XeSS) {
-      ctx.m_common->metaAutoExposure().createResources(&ctx);
-      dispatchXeSS(ctx, rtOutput);
-    } else if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::NIS) {
-      dispatchNIS(ctx, rtOutput);
-    } else if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::TAAU){
-      dispatchTemporalAA(ctx, rtOutput);
-    } else {
-      ctx.copyImage(
-        rtOutput.m_finalOutput.resource(Resources::AccessType::Write).image,
-        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        { 0, 0, 0 },
-        rtOutput.m_compositeOutput.image(Resources::AccessType::Read),
-        { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
-        { 0, 0, 0 },
-        rtOutput.m_compositeOutputExtent);
-    }
+    using Reconstruction = frame::Schedule<recordUpscaling, rememberUpscaler, captureReconstruction>;
+    static_assert(Reconstruction::orders<recordUpscaling, rememberUpscaler>);
+    static_assert(Reconstruction::orders<rememberUpscaler, captureReconstruction>);
+    Reconstruction::record(ctx, rtOutput, capture);
+  }
+
+  __forceinline void RtxFramePipeline::recordUpscaling(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture) {
+    using Mode = RtxContext::InternalUpscaler;
+    using DLSS = frame::Schedule<prepareReconstructionExposure, dispatchDLSS>;
+    using RayReconstruction = frame::Schedule<prepareReconstructionExposure, dispatchRayReconstruction>;
+    using XeSS = frame::Schedule<prepareReconstructionExposure, dispatchXeSS>;
+    static_assert(DLSS::orders<prepareReconstructionExposure, dispatchDLSS>);
+    static_assert(RayReconstruction::orders<prepareReconstructionExposure, dispatchRayReconstruction>);
+    static_assert(XeSS::orders<prepareReconstructionExposure, dispatchXeSS>);
+    frame::choose<copySceneImage,
+      frame::Choice<Mode::DLSS, DLSS>,
+      frame::Choice<Mode::DLSS_RR, RayReconstruction>,
+      frame::Choice<Mode::XeSS, XeSS>,
+      frame::Choice<Mode::NIS, frame::Schedule<dispatchNIS>>,
+      frame::Choice<Mode::TAAU, frame::Schedule<dispatchTemporalAA>>>(ctx.m_currentUpscaler, ctx, rtOutput);
+  }
+
+  __forceinline void RtxFramePipeline::rememberUpscaler(RtxContext& ctx, const FrameResources&, RtxFrameCapture) {
     ctx.m_previousUpscaler = ctx.m_currentUpscaler;
+  }
+
+  __forceinline void RtxFramePipeline::prepareReconstructionExposure(RtxContext& ctx, const FrameResources&) {
+    // Reconstruction can consume exposure resources before auto-exposure runs.
+    ctx.m_common->metaAutoExposure().createResources(&ctx);
+  }
+
+  __forceinline void RtxFramePipeline::copySceneImage(RtxContext& ctx, const FrameResources& rtOutput) {
+    ctx.copyImage(
+      rtOutput.m_finalOutput.resource(Resources::AccessType::Write).image,
+      { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+      { 0, 0, 0 },
+      rtOutput.m_compositeOutput.image(Resources::AccessType::Read),
+      { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
+      { 0, 0, 0 },
+      rtOutput.m_compositeOutputExtent);
+  }
+
+  __forceinline void RtxFramePipeline::captureReconstruction(RtxContext& ctx, const FrameResources& rtOutput, RtxFrameCapture capture) {
     if (capture.capturesDebugImages()) {
       ctx.takeScreenshot("rtxImagePostUpscaling", rtOutput.m_finalOutput.resource(Resources::AccessType::Read).image);
       if (ctx.m_currentUpscaler == RtxContext::InternalUpscaler::DLSS_RR) {

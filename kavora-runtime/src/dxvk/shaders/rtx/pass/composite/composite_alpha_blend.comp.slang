@@ -33,7 +33,7 @@
 #include "rtx/utility/debug_view_helpers.slangh"
 import "rtx/concept/camera/camera.slang";
 #include "rtx/concept/surface/alpha_blend_surface.slangh"
-#include "rtx/concept/surface/appearance_lighting.slangh"
+import "rtx/concept/surface/appearance_lighting.slang";
 #include "rtx/external/NRD.slangh"
 #include "rtx/utility/geometry_flags.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
@@ -273,7 +273,7 @@ void main(uint2 thread_id : SV_DispatchThreadID, uint2 localIndex : SV_GroupThre
   {
     if (surface.isSelfLit)
     {
-      surfaceLight += selfLitAppearanceRadiance(surface.color.rgb);
+      surfaceLight += evaluateAppearanceEmission(surface.color.rgb);
     }
     AlphaBlendRadiance[thread_id.xy] = vec4(surfaceLight * surface.color.a,1);
   }

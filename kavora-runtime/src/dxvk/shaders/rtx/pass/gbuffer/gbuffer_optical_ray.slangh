@@ -1,0 +1,66 @@
+// SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION. All rights reserved.
+// SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors.
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#include "rtx/pass/gbuffer/gbuffer_bindings.slangh"
+#include "rtx/pass/gbuffer/gbuffer_storage.slangh"
+#include "rtx/concept/ray/ray.slangh"
+#include "rtx/algorithm/geometry_resolver_state.slangh"
+
+import "rtx/concept/surface_material/material_scattering.slang";
+import "rtx/utility/quaternion.slang";
+
+[ForceInline]
+Ray createGBufferTransmissionRay(MinimalRayInteraction hit, MinimalSurfaceInteraction surface,
+  Ray incident, PolymorphicSurfaceMaterialInteraction material, vec3 direction, vec3 interfaceNormal,
+  bool penetrateSurface, uint8_t rayMask)
+{
+  Ray sampledRay = rayCreateDirection(hit, surface, incident, direction, penetrateSurface);
+#ifdef WATER_SIM_SAMPLE
+  if (penetrateSurface && hasWaterTransmissionOffset(material))
+  {
+    offsetWaterTransmissionRay(sampledRay, incident, surface.position, interfaceNormal, rayMask);
+  }
+#endif
+  return sampledRay;
+}
+
+// The callers supply the interface normal from their own hit representation.
+// Continuation storage aliases first-hit data, so callers decode it before publishing seeds.
+[ForceInline]
+void storeGBufferOpticalSeeds(uvec2 pixel, uint packedFlags, bool viewModel, bool hasReflection, bool hasTransmission, Ray incident,
+  MinimalRayInteraction hit, MinimalSurfaceInteraction surface, vec3 interfaceNormal,
+  PolymorphicSurfaceMaterialInteraction material, vec3 attenuation, vec4 rotation,
+  SurfaceMaterialInteractionPSRSample reflection, SurfaceMaterialInteractionPSRSample transmission,
+  uint transmissionMedium, bool penetrateSurface, uint8_t rayMask, inout bool alternateThreshold,
+  inout float coneRadius)
+{
+  if (hasReflection) {
+    if (GBUFFER_FEATURE_DLSSRR && cb.enableDLSSRR && hasTransmission) {
+      RayReconstructionSpecularMotion[pixel] = kRRSpecularMotionPending.xx;
+    }
+    const Ray reflected = rayCreateDirection(hit, surface, incident, reflection.inputDirection, false);
+    // Reflection keeps the medium on the incident side of the camera hit.
+    storeReflectionPSRData(packPSRData(reflected, cb.startInMediumMaterialIndex,
+      attenuation * reflection.attenuation, quaternionMultiply(rotation, reflection.vectorTransform, true), packedFlags), pixel);
+    coneRadius = reflected.coneRadius;
+    if (reflection.useAlternateDisocclusionThreshold) {
+      alternateThreshold = true;
+    }
+  }
+
+  if (hasTransmission) {
+    const Ray refracted = createGBufferTransmissionRay(hit, surface, incident, material,
+      transmission.inputDirection, interfaceNormal, penetrateSurface, rayMask);
+    storeTransmissionPSRData(packPSRData(refracted, transmissionMedium,
+      attenuation * transmission.attenuation, quaternionMultiply(rotation, transmission.vectorTransform, true), packedFlags), pixel);
+    coneRadius = refracted.coneRadius;
+    if (transmission.useAlternateDisocclusionThreshold) {
+      alternateThreshold = true;
+    }
+  }
+
+  geometryResolverStorePSRProjectionSeed(pixel,
+    hasTransmission ? transmission.relativeRefractiveIndex : 1.0f, viewModel);
+}

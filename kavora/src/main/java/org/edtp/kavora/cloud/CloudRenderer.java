@@ -30,7 +30,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.client.CloudStatus;
-import net.minecraft.client.Camera;
+import org.edtp.kavora.sky.EnvironmentSnapshot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.Identifier;
@@ -58,8 +58,6 @@ public final class CloudRenderer {
     private final Set<Long> pendingVanillaChunks = new HashSet<>();
     private final ConcurrentLinkedQueue<VanillaChunkResult> completedVanillaChunks = new ConcurrentLinkedQueue<>();
     private final Transform vanillaTransform = new Transform();
-    private final org.edtp.kavora.sky.EnvironmentSnapshot environment =
-            new org.edtp.kavora.sky.EnvironmentSnapshot();
     private ClientLevel currentWorld;
     private KavoraMaterial material;
     private int cloudColor = 0x00ff_ffff;
@@ -93,13 +91,12 @@ public final class CloudRenderer {
     }
 
     /** Publishes cloud state or classic cloud instances for the supplied world and camera. */
-    public void render(ClientLevel world, Camera camera, Vec3 cameraPos, float tickDelta, CloudStatus cloudStatus) {
+    public void render(ClientLevel world, Vec3 cameraPos, EnvironmentSnapshot environment, CloudStatus cloudStatus) {
         resetFrameStats();
         if (world != currentWorld) {
             releaseResources();
             currentWorld = world;
         }
-        environment.capture(world, camera, tickDelta);
         double frameGameTime = clock.animationGameTime(environment.gameTime);
         float cloudHeight = environment.cloudHeight;
         boolean visible = cloudStatus != CloudStatus.OFF

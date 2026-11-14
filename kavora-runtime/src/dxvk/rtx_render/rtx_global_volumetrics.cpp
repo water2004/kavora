@@ -687,7 +687,6 @@ namespace dxvk {
     volumeArgs.noiseFieldTimeScale = noiseFieldTimeScale();
     volumeArgs.noiseFieldDensityScale = noiseFieldDensityScale();
     volumeArgs.noiseFieldDensityExponent = noiseFieldDensityExponent();
-    volumeArgs.noiseFieldOctaves = noiseFieldOctaves();
     volumeArgs.noiseFieldInitialFrequency = noiseFieldInitialFrequencyPerMeter() / RtxOptions::getMeterToWorldUnitScale();
     volumeArgs.noiseFieldLacunarity = noiseFieldLacunarity();
     volumeArgs.noiseFieldGain = noiseFieldGain();
@@ -707,7 +706,6 @@ namespace dxvk {
 
     volumeArgs.enableAtmosphere = enableAtmosphere();
     volumeArgs.sceneUpDirection = sceneUpDirection;
-    volumeArgs.atmosphereHeight = atmosphereHeight;
     volumeArgs.planetCenter = planetCenter;
     volumeArgs.atmosphereRadiusSquared = atmosphereRadius * atmosphereRadius;
     volumeArgs.maxAttenuationDistanceForNoAtmosphere = transmittanceMeasurementDistance * 5;

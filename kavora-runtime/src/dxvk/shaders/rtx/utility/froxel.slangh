@@ -45,11 +45,6 @@ uvec3 froxelCoordinateToFroxelIndex(vec3 froxelCoordinate)
   return uvec3(froxelCoordinate);
 }
 
-vec3 froxelCoordinateToFroxelUVW(vec3 froxelCoordinate, uvec3 froxelDimensions)
-{
-  return froxelCoordinate / vec3(froxelDimensions);
-}
-
 vec3 froxelIndexToFroxelCoordinate(uvec3 froxelIndex)
 {
   // Note: Using the center of the froxel as the coordinate representation of the cell.
@@ -128,20 +123,6 @@ vec3 froxelCoordinateToTranslatedWorldPosition(
 
   // Note: Perspective divide required after an inverse projection transformation.
   return vec3(translatedWorldPosition.xyz) / translatedWorldPosition.w;
-}
-
-// Converts a screenspace UV from [0, 1) with a top left origin and a view space Z to a froxel UVW coordinate similar to
-// the translatedWorldPositionToFroxelUVW function.
-vec3 screenUVViewZToFroxelUVW(
-  uint depthSlices, float depthSliceDistributionExponent, float maxDistance, float nearPlane,
-  vec2 screenUV, float viewZ, bool invertViewZ, float depthOffset = 0.0)
-{
-  const float depthSlice = viewZToDepthSlice(
-    depthSlices, depthSliceDistributionExponent, maxDistance, nearPlane,
-    viewZ, invertViewZ);
-  const float froxelW = (depthSlice - depthOffset) / depthSlices;
-
-  return vec3(screenUV, froxelW);
 }
 
 // Converts a screenspace UV from [0, 1) with a top left origin and an infinite depth assumption to a froxel UVW coordinate similar to

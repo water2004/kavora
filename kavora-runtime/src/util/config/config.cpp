@@ -812,10 +812,6 @@ namespace dxvk {
   { "rtx.zUp",                   "True" },
   { "rtx.uniqueObjectDistance",  "300.0" }, // Game is 1unit=1cm - picking up objects can move them very quickly, 3m should be sufficient.
   { "rtx.rayPortalModelTextureHashes",        "5EC61BC800744B26, DFDACB6DE1C7741E" }, // Orange and Blue Portal textures
-  { "rtx.rayPortalEnabled",                   "True" },
-  { "rtx.rayPortalModelNormalAxis",           "1.0, 0.0, 0.0" },
-  { "rtx.rayPortalModelWidthAxis",            "0.0, 1.0, 0.0" },
-  { "rtx.rayPortalModelHeightAxis",           "0.0, 0.0, 1.0" },
   { "rtx.rayPortalSamplingWeightMinDistance", "100.0" },
   { "rtx.rayPortalSamplingWeightMaxDistance", "10000.0" },
   { "rtx.rayPortalCameraHistoryCorrection",   "True" },

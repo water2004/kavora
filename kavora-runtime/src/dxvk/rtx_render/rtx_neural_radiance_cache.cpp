@@ -309,7 +309,6 @@ namespace dxvk {
       RemixGui::DragInt("Max Path Bounces Bias for Quality Presets", &NrcOptions::trainingMaxPathBouncesBiasInQualityPresetsObject(), 0.1f, -15, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
 
       RemixGui::DragInt("Jitter Sequence Length", &NrcOptions::jitterSequenceLengthObject());
-      RemixGui::Checkbox("Allow Russian Roulette Usage", &NrcOptions::allowRussianRouletteOnUpdateObject());
 
       ImGui::Unindent();
     }

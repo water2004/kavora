@@ -40,6 +40,11 @@ import "rtx/pass/volume_parameters.slang";
 #endif
 #include "rtx/pass/material_args.h"
 #include "rtx/pass/view_distance_args.h"
+#ifdef __cplusplus
+#include "rtx/pass/water_sim/water_surface_args.h"
+#else
+import "rtx/pass/water_sim/water_surface_args.slang";
+#endif
 #include "rtx/concept/light/light_types.h"
 #include "rtx/concept/surface/surface_shared.h"
 #include "rtx/algorithm/nee_cache_data.h"
@@ -197,7 +202,8 @@ struct RaytraceArgs {
   // ------------------------- Structs above this line, non structs below this line -----------------------------------
 
   uint frameIdx;
-  float ambientIntensity;
+  // Explicit padding keeps the scalar shader layout aligned at debugKnob.
+  uint frameAlignmentPadding;
   uint16_t lightCount;
   uint16_t risTotalSampleCount;
   uint16_t volumeRISTotalSampleCount;
@@ -332,7 +338,8 @@ struct RaytraceArgs {
   float rtxdiDisocclusionFrames;
 
   uint enableDemodulateRoughness;
-  uint enableHitTFiltering;
+  // Explicit padding keeps the scalar shader layout aligned at WaterSurfaceArgs.
+  uint waterAlignmentPadding;
   uint enableReplaceDirectSpecularHitTWithIndirectSpecularHitT;
   uint enableSeparatedDenoisers;
 
@@ -469,18 +476,14 @@ struct RaytraceArgs {
 
   uint ignoreSkyIfCameraInMedium;
   uint pomSilhouettesBehindTranslucency;
-  vec4 waterSimulation;
-  vec4 waterImpactClip;
+  WaterSurfaceArgs water;
   uint renderTargetHistoryValid;
-  uint waterEffects;
   uint sludgeWaterMaterialIndex;
-  float waterRain;
   uint hasAlphaCoverage;
   int sceneOriginX;
   int sceneOriginZ;
-  float waterGustPhase;
   vec2 previousSceneOffset;
-  vec2 waterTileOrigin;
+  uint raytraceTailPadding;
 
   // NOTE: Add structs to the top section of RaytraceArgs, not the bottom.
   // NOTE: bool does not work in debug builds, use uint instead.

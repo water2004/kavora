@@ -263,16 +263,15 @@ namespace dxvk {
 
   void DxvkPostFx::dispatchMotionBlur(
     Rc<RtxContext> ctx,
-    Rc<DxvkSampler> nearestSampler,
-    Rc<DxvkSampler> linearSampler,
-    const uvec2& mainCameraResolution,
-    const uint32_t frameIdx,
-    MotionBlurResources resources,
-    const bool cameraCutDetected)
+    MotionBlurResources resources)
   {
     if (!enable()) {
       return;
     }
+
+    const RtCamera& mainCamera = ctx->getSceneManager().getCamera();
+    const uint32_t frameId = ctx->getDevice()->getCurrentFrameId();
+    const bool cameraCutDetected = mainCamera.isViewHistoryInvalidated(frameId);
     if (cameraCutDetected || !isMotionBlurEnabled()) {
       return;
     }
@@ -282,6 +281,12 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "PostFx Motion Blur");
     ctx->setFramePassStage(RtxFramePassStage::PostFX);
 
+    Resources& resourceManager = ctx->getResourceManager();
+    Rc<DxvkSampler> nearestSampler = resourceManager.getSampler(
+      VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    Rc<DxvkSampler> linearSampler = resourceManager.getSampler(
+      VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
     const Resources::Resource& inOutColorTexture = resources.get<&RaytracingFrame::m_finalOutput>().resource(Resources::AccessType::ReadWrite);
     const VkExtent3D& inputSize = inOutColorTexture.image->info().extent;
     const VkExtent3D workgroups = util::computeBlockCount(inputSize, VkExtent3D { POST_FX_TILE_SIZE , POST_FX_TILE_SIZE, 1 } );
@@ -289,9 +294,10 @@ namespace dxvk {
     PostFxArgs postFxArgs = {};
     postFxArgs.imageSize = { (uint)inputSize.width, (uint)inputSize.height };
     postFxArgs.invImageSize = { 1.0f / (float) inputSize.width, 1.0f / (float) inputSize.height };
+    const uvec2& mainCameraResolution = mainCamera.getShaderConstants().resolution;
     postFxArgs.invMainCameraResolution = float2(1.0f / (float)mainCameraResolution.x, 1.0f / (float)mainCameraResolution.y);
     postFxArgs.inputOverOutputViewSize = float2((float)mainCameraResolution.x * postFxArgs.invImageSize.x, (float)mainCameraResolution.y * postFxArgs.invImageSize.y);
-    postFxArgs.frameIdx = frameIdx;
+    postFxArgs.frameIdx = RtxOptions::rngSeedWithFrameIndex() ? frameId : 0;
     postFxArgs.enableMotionBlurNoiseSample = enableMotionBlurNoiseSample();
     postFxArgs.enableMotionBlurEmissive = enableMotionBlurEmissive();
     postFxArgs.motionBlurSampleCount = motionBlurSampleCount();
@@ -328,9 +334,7 @@ namespace dxvk {
 
   void DxvkPostFx::dispatchLensEffects(
     Rc<RtxContext> ctx,
-    Rc<DxvkSampler> linearSampler,
-    const Resources::AliasedResource& color,
-    const Resources::AliasedResource& scratch)
+    LensEffectsResources resources)
   {
     if (!enable()) {
       return;
@@ -341,6 +345,12 @@ namespace dxvk {
 
     ScopedGpuProfileZone(ctx, "PostFx Lens Effects");
     ctx->setFramePassStage(RtxFramePassStage::PostFX);
+
+    Rc<DxvkSampler> linearSampler = ctx->getResourceManager().getSampler(
+      VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
+    const Resources::AliasedResource& color = resources.get<&RaytracingFrame::m_finalOutput>();
+    const Resources::AliasedResource& scratch = resources.get<&RaytracingFrame::m_postFxIntermediateTexture>();
 
     const Resources::Resource& inOutColorTexture = color.resource(Resources::AccessType::ReadWrite);
     const VkExtent3D& inputSize = inOutColorTexture.image->info().extent;

@@ -30,7 +30,6 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -176,10 +175,8 @@ public class SkyRenderer {
     //  Main render entry
     // ====================================================================
 
-    private final EnvironmentSnapshot environment = new EnvironmentSnapshot();
-
     /** Publishes the sky after the frame's celestial lights and weather layers have been resolved. */
-    public void render(ClientLevel world, Camera camera, Vec3 cameraPos, float tickDelta, ConfLayerDriver confLayers) {
+    public void render(ClientLevel world, Vec3 cameraPos, EnvironmentSnapshot environment, ConfLayerDriver confLayers) {
         if (world == null || !enabled) {
             nightSky.disable();
             return;
@@ -192,10 +189,9 @@ public class SkyRenderer {
             currentWorld = world;
         }
 
-        environment.capture(world, camera, tickDelta);
         float[] fixedRadiance = fixedSkyRadiance(environment.skybox);
         if (fixedRadiance == null) {
-            renderAtmosphericSky(world, cameraPos, confLayers);
+            renderAtmosphericSky(world, cameraPos, environment, confLayers);
         } else {
             if (environment.skybox == DimensionType.Skybox.END) {
                 nightSky.updateEnd(clock.animationGameTime(environment.gameTime) * 0.05);
@@ -222,6 +218,7 @@ public class SkyRenderer {
     private void renderAtmosphericSky(
             ClientLevel world,
             Vec3 cameraPos,
+            EnvironmentSnapshot environment,
             ConfLayerDriver confLayers) {
         float skyAngle;
         LightManager.SkyLightState lightState;

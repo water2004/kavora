@@ -2,6 +2,10 @@
  * SPDX-License-Identifier: Apache-2.0 */
 package org.edtp.kavora.render;
 
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.phys.Vec3;
 import org.edtp.kavora.sdk.WaterSimulationFrame;
 
 /** Collects nearby splash impacts on the client thread for the next native submission. */
@@ -20,19 +24,26 @@ public final class KavoraWaterRipples {
 
     public static boolean isEnabled() { return enabled || rings || sludge; }
 
-    public static void updateOption(String id, boolean value) {
-        switch (id) {
-            case "water.simulation" -> enabled = value;
-            case "water.dropletRings" -> {
-                if (rings != value) lastRain = Float.NaN;
-                rings = value;
-            }
-            case "water.floatingSludge" -> sludge = value;
-            default -> { }
-        }
+    public static void setSimulationEnabled(boolean value) { enabled = value; }
+
+    public static void setDropletRingsEnabled(boolean value) {
+        if (rings != value) lastRain = Float.NaN;
+        rings = value;
     }
 
-    public static boolean wantsRain() { return rings; }
+    public static void setFloatingSludgeEnabled(boolean value) { sludge = value; }
+
+    public static void captureRain(ClientLevel world, Vec3 cameraPosition, float partialTick) {
+        if (!rings) return;
+        float amount = world.getRainLevel(partialTick);
+        if (amount > 0) {
+            BlockPos position = BlockPos.containing(cameraPosition);
+            if (world.getBiome(position).value().getPrecipitationAt(position, world.getSeaLevel()) != Biome.Precipitation.RAIN) {
+                amount = 0;
+            }
+        }
+        rain(amount);
+    }
 
     public static void rain(float intensity) {
         float amount = Math.round(intensity * 32) / 32.0f;

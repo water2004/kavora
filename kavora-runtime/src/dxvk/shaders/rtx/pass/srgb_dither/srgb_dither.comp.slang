@@ -47,17 +47,14 @@ void main(uint2 threadId : SV_DispatchThreadID)
     return;
   }
 
-  float3 inputColor = imageLoad(InOutColorBuffer, threadId).xyz;
-  if (cb.colorGradingEnabled)
-  {
-    inputColor = gradeDisplayColor(inputColor, cb.colorBalance, cb.contrast, cb.saturation);
-  }
 #ifdef DISPLAY_COLOR_INVERSION
-  const float3 inverted = invertDisplayColor(inputColor, cb.inversionAmount, cb.inversionMode, cb.inversionThreshold);
-  const float3 gammaColor = cb.performSRGBConversion ? inverted : gammaToLinear(inverted);
+  static const bool inversion = true;
 #else
-  const float3 gammaColor = (cb.performSRGBConversion > 0) ? linearToGamma(inputColor) : inputColor;
+  static const bool inversion = false;
 #endif
+  const float3 gammaColor = applyDisplayColor<inversion>(imageLoad(InOutColorBuffer, threadId).xyz,
+    cb.performSRGBConversion != 0, cb.colorGradingEnabled != 0, cb.colorBalance, cb.contrast, cb.saturation,
+    cb.inversionAmount, cb.inversionMode, cb.inversionThreshold);
 
   // Apply dithering as the last step before output to break up banding artifacts.
   // Dithering is performed in gamma space (when SRGB conversion is enabled) so the

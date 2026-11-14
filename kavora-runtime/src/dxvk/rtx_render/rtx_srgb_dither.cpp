@@ -37,10 +37,12 @@
 #include <rtx_shaders/srgb_dither_inversion.h>
 
 namespace dxvk {
+  extern bool g_allowSrgbConversionForOutput;
+
   namespace {
     template<uint32_t Slot, VkDescriptorType Type, VkImageViewType View, Resources::AccessType Access>
     struct ImageBinding {
-      static DxvkResourceSlot descriptor() {
+      static constexpr DxvkResourceSlot descriptor() {
         constexpr auto write = Access == Resources::AccessType::Read ? VK_ACCESS_NONE_KHR : VK_ACCESS_SHADER_WRITE_BIT;
         return { Slot, Type, View, write };
       }
@@ -60,10 +62,9 @@ namespace dxvk {
       VK_IMAGE_VIEW_TYPE_2D, Resources::AccessType::ReadWrite>;
 
     class SRGBDitherBindings : public ManagedShader {
-    public:
-      static std::vector<DxvkResourceSlot> getResourceSlots() {
-        return { BlueNoise::descriptor(), FinalColor::descriptor() };
-      }
+      BEGIN_REFLECTED_PARAMETER()
+        BlueNoise::descriptor(), FinalColor::descriptor(),
+      END_REFLECTED_PARAMETER(checkDisplayColorSlots)
 
       PUSH_CONSTANTS(SRGBDitherArgs)
     };
@@ -87,19 +88,20 @@ namespace dxvk {
 
   void DxvkSRGBDither::dispatch(
     Rc<RtxContext> ctx,
-    const Resources::AliasedResource& color,
-    bool performSRGBConversion) {
+    DispatchResources resources,
+    bool screenCapture) {
 
     ScopedGpuProfileZone(ctx, "sRGB + Dither");
 
     ctx->setPushConstantBank(DxvkPushConstantBank::RTX);
 
-    const Resources::Resource& inoutColorBuffer = FinalColor::resource(color);
+    const Resources::Resource& inoutColorBuffer = FinalColor::resource(
+      resources.get<&RaytracingFrame::m_finalOutput>());
 
     const VkExtent3D workgroups = util::computeBlockCount(inoutColorBuffer.view->imageInfo().extent, VkExtent3D{ 16, 16, 1 });
 
     SRGBDitherArgs pushArgs = {};
-    pushArgs.performSRGBConversion = performSRGBConversion;
+    pushArgs.performSRGBConversion = !screenCapture && g_allowSrgbConversionForOutput;
     pushArgs.colorGradingEnabled = DxvkToneMapping::colorGradingEnabled();
     pushArgs.colorBalance = DxvkToneMapping::colorBalance();
     pushArgs.contrast = DxvkToneMapping::contrast();

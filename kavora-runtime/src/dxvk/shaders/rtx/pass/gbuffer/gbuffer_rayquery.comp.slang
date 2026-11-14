@@ -81,7 +81,7 @@ void main(uint2 invocation : SV_DispatchThreadID)
   float remainingDistance;
   uint8_t iteration;
 #ifdef GBUFFER_PRIMARY_CONTINUATION
-  const uint index = invocation.x + invocation.y * GBUFFER_PSR_QUEUE_ROW_WIDTH;
+  const uint index = gbufferQueueIndex(invocation);
   if (index >= PrimaryQueue[0]) {
     return;
   }
@@ -94,22 +94,15 @@ void main(uint2 invocation : SV_DispatchThreadID)
   resolveVertexUnorderedRng.seed = seed;
 
   RayDesc ray;
+  ray.Origin = state.origin;
+  ray.Direction = state.direction;
   ray.TMin = 0.0f;
   ray.TMax = remainingDistance;
   const uint flags = primaryRayFlags();
   PrimaryResolveArgs extraArgs = { false };
-  for (iteration = uint8_t(2);; ++iteration) {
-    state.continueResolving = iteration < cb.primaryRayMaxInteractions;
-    ray.Origin = state.origin;
-    ray.Direction = state.direction;
-    const RayHitInfo hit = traceOrderedIntersection(ray, flags, uint(state.rayMask), state.coneRadius,
-      cb.screenSpacePixelSpreadHalfAngle);
-    geometryResolverVertex(extraArgs, hit, state);
-    if (!state.continueResolving) {
-      break;
-    }
-    ray.TMax = max(ray.TMax - state.segmentHitDistance, 0.0f);
-  }
+  iteration = resolveRayFromPayload<GeometryResolverState, PrimaryResolveArgs, PrimaryRayResolve, false, true, 2>(
+    ray, cb.screenSpacePixelSpreadHalfAngle, {},
+    flags, GBUFFER_SBT_OFFSET_STANDARD, cb.primaryRayMaxInteractions, extraArgs, state);
 #else
   if (any(invocation >= cb.camera.resolution)) {
     return;
@@ -128,7 +121,7 @@ void main(uint2 invocation : SV_DispatchThreadID)
     remainingDistance = max(primaryRay.tMax - state.segmentHitDistance, 0.0f);
     const uint pixelIndex = pixel.y * cb.camera.resolution.x + pixel.x;
     storePrimaryResolveState(pixelIndex, state, remainingDistance, resolveVertexUnorderedRng.seed);
-    enqueuePrimaryPixel(pixelIndex);
+    enqueueGBufferPixel(PrimaryQueue, pixelIndex);
     return;
   }
   iteration = uint8_t(1);
