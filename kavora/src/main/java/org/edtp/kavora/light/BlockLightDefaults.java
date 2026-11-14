@@ -44,7 +44,14 @@ final class BlockLightDefaults {
     static final float TORCH_RADIUS = 0.2f;
     private static final float AMETHYST_INTENSITY_SCALE = 2.0f;
     private static final Direction[] FACES = Direction.values();
+    private static final int ALL_FACES = (1 << FACES.length) - 1;
+    private static final int X_FACES = faceMask(Direction.EAST) | faceMask(Direction.WEST);
+    private static final int Y_FACES = faceMask(Direction.UP) | faceMask(Direction.DOWN);
+    private static final int Z_FACES = faceMask(Direction.NORTH) | faceMask(Direction.SOUTH);
     private static final float FACE_LIGHT_OFFSET = 1.0f / 1024.0f;
+    // Vanilla's glowing core sits inside the glass and directly above the obsidian base.
+    private static final BlockLightRuleManager.ModelBounds BEACON_CORE = new BlockLightRuleManager.ModelBounds(
+            3 / 16f, 3 / 16f, 3 / 16f, 13 / 16f, 14 / 16f, 13 / 16f);
     private static final float LICHEN_FILL_POWER = 0.09f;
     private static final float LICHEN_FILL_STANDOFF = 0.4375f;
     private static final float LANTERN_RADIUS = .12f;
@@ -111,6 +118,9 @@ final class BlockLightDefaults {
                 CAMPFIRE_AUTHORED_INTENSITY_MULTIPLIER);
         add(rules, "conduit", exact(Blocks.CONDUIT),
                 (id, state, pos, centroid) -> List.of(sphere(id, 0, state, pos, 0.5f, 0.5f, 0.5f, 0.1875f, CONDUIT_COLOR, null)));
+        add(rules, "beacon", exact(Blocks.BEACON),
+                (id, state, pos, sampler) -> surfaceEmitter(id, state, pos, sampler, BEACON_CORE,
+                        ALL_FACES & ~faceMask(Direction.DOWN)), 1.0f);
         add(rules, "light", state -> state.is(Blocks.LIGHT) && state.getValue(BlockStateProperties.LEVEL) > 0,
                 (id, state, pos, centroid) -> List.of(sphere(id, 0, state, pos, 0.5f, 0.5f, 0.5f, 0.2f, LightEntry.ColorOverride.of(1, 1, 1), null)));
         add(rules, "candles", state -> candles.contains(state.getBlock()) && state.getValue(CandleBlock.LIT),
@@ -230,16 +240,23 @@ final class BlockLightDefaults {
         Direction only = (state.is(Blocks.JACK_O_LANTERN)
                 || state.getBlock() instanceof net.minecraft.world.level.block.AbstractFurnaceBlock)
                 ? state.getValue(BlockStateProperties.HORIZONTAL_FACING) : null;
+        return surfaceEmitter(id, state, pos, sampler, null, only == null ? ALL_FACES : faceMask(only));
+    }
+
+    private static List<LightEntry> surfaceEmitter(Identifier id, BlockState state, BlockPos pos,
+                                                  BlockLightRuleManager.ModelSampler sampler,
+                                                  BlockLightRuleManager.ModelBounds bounds, int emittingFaces) {
         int exposed = 0;
         for (Direction face : FACES)
-            if ((only == null || face == only) && sampler.isFaceExposed(face)) exposed |= 1 << face.ordinal();
+            if ((emittingFaces & faceMask(face)) != 0 && sampler.isFaceExposed(face)) exposed |= faceMask(face);
         if (exposed == 0) return List.of();
-        var bounds = sampler.bounds();
+        if (bounds == null) bounds = sampler.bounds();
         float width = bounds.maxX() - bounds.minX();
         float height = bounds.maxY() - bounds.minY();
         float depth = bounds.maxZ() - bounds.minZ();
-        float area = 2 * (width * height + width * depth + height * depth);
-        if (only != null) area = only.getAxis() == Direction.Axis.X ? depth * height : width * height;
+        float area = depth * height * Integer.bitCount(emittingFaces & X_FACES)
+                + width * depth * Integer.bitCount(emittingFaces & Y_FACES)
+                + width * height * Integer.bitCount(emittingFaces & Z_FACES);
         if (!(area > 0)) return List.of();
         float intensity = torchMatchedIntensity(state.getLightEmission(), area);
         double cx = pos.getX() + (bounds.minX() + bounds.maxX()) * .5;
@@ -247,7 +264,7 @@ final class BlockLightDefaults {
         double cz = pos.getZ() + (bounds.minZ() + bounds.maxZ()) * .5;
         var lights = new ArrayList<LightEntry>(6);
         for (Direction face : FACES) {
-            if ((exposed & (1 << face.ordinal())) == 0) continue;
+            if ((exposed & faceMask(face)) == 0) continue;
             var axis = face.getAxis();
             float u = axis == Direction.Axis.X ? depth : width;
             float v = axis == Direction.Axis.Y ? depth : height;
@@ -260,6 +277,10 @@ final class BlockLightDefaults {
                     LightEntry.defaultVolumetricRadianceScale()));
         }
         return lights;
+    }
+
+    private static int faceMask(Direction face) {
+        return 1 << face.ordinal();
     }
 
     private static List<LightEntry> lichenFill(Identifier id, BlockState state, BlockPos pos) {

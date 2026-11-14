@@ -32,6 +32,7 @@ public final class BlockLightIntensityControls {
             control("campfire", "block.minecraft.campfire"),
             control("soul_campfire", "block.minecraft.soul_campfire"),
             control("conduit", "block.minecraft.conduit"),
+            control("beacon", "block.minecraft.beacon"),
             control("light", "block.minecraft.light"),
             control("candles", "kavora.setting.blockLights.candles"),
             control("candle_cakes", "kavora.setting.blockLights.candleCakes"),

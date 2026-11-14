@@ -56,6 +56,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class BlockLightRuleManagerTest {
 
     @Test
+    void beaconEmitsFromInsideItsGlassWithoutLightingThroughTheBase() {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+        var rules = BlockLightDefaults.create();
+        var state = Blocks.BEACON.defaultBlockState();
+        var rule = rules.get(BlockLightRuleIds.builtIn("beacon"));
+        var sampler = BlockLightRuleManager.fixedCentroid(new float[]{0.5f, 0.5f, 0.5f});
+        var lights = rule.resolve(state, BlockPos.ZERO, sampler);
+
+        assertEquals(15, state.getLightEmission());
+        assertFalse(rules.get(BlockLightRuleIds.builtIn("surface_emitters")).matches(state));
+        assertEquals(5, lights.size());
+        for (LightEntry light : lights) {
+            assertEquals(LightShape.RECT, light.shape());
+            assertTrue(light.x() > 0 && light.x() < 1);
+            assertTrue(light.y() > 0 && light.y() < 1);
+            assertTrue(light.z() > 0 && light.z() < 1);
+            assertTrue(light.directionY() >= 0);
+        }
+
+        // Compare authored power at the same reference color before material tint and occlusion.
+        var glowingBlocks = rules.get(BlockLightRuleIds.builtIn("glowing_blocks"));
+        double beaconPower = referencePower(lights);
+        for (var block : List.of(Blocks.SEA_LANTERN, Blocks.GLOWSTONE)) {
+            assertEquals(beaconPower, referencePower(glowingBlocks.resolve(
+                    block.defaultBlockState(), BlockPos.ZERO, sampler)), beaconPower * 1e-6);
+        }
+    }
+
+    private static double referencePower(List<LightEntry> lights) {
+        return lights.stream().mapToDouble(light -> {
+            float radiance = light.intensity() * light.authoredIntensityMultiplier();
+            return LightPower.of(light, radiance, radiance, radiance);
+        }).sum();
+    }
+
+    @Test
     void glowLichenFillsItsSupportWithMergeableRectangles() {
         SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();

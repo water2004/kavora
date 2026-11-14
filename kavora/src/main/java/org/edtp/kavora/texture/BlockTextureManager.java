@@ -1238,7 +1238,7 @@ public class BlockTextureManager {
 
             Map.entry("redstone_torch", RED), Map.entry("redstone_wall_torch", RED),
 
-            Map.entry("end_rod", WHITE), Map.entry("beacon", WHITE),
+            Map.entry("end_rod", WHITE),
             Map.entry("conduit", WHITE),
 
             Map.entry("glow_lichen", GREEN),

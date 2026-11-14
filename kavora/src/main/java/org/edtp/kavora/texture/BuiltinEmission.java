@@ -46,10 +46,10 @@ public final class BuiltinEmission {
         return SEA_PICKLE_TIP_PEAK * fromTip * fromTip;
     };
 
-    /** The beacon sprite paints a bright circular core inside a reflective border. */
+    /** Match the core's emission to the shipped level-15 lamps while keeping its rim dark. */
     static final Mask BEACON = (u, v, rgba) -> {
         float x = u - 0.5f, y = v - 0.5f;
-        return 0.12f * Math.clamp(1.5f - 12f * (x * x + y * y), 0f, 1f);
+        return 0.57f * Math.clamp(1.5f - 12f * (x * x + y * y), 0f, 1f);
     };
 
     /** Let the coral's own color and coverage define the emitting surface. */
