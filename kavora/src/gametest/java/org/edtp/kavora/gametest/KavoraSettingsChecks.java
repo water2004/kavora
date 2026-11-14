@@ -386,7 +386,8 @@ final class KavoraSettingsChecks {
             for (String id : new String[] {"clouds.coverage", "fog.overworld.transmittance.red", "fog.overworld.transmittance.green",
                     "fog.end.lowerHeightFalloff", "lava.nether.intensity", "lava.nether.saturation",
                     "image.inversionAmount", "water.ior", "water.red",
-                    "water.absorptionDistance"}) values.put(id, floating(id).get());
+                    "water.absorptionDistance", "water.cameraTransmittance", "water.fog.range",
+                    "water.windStrength"}) values.put(id, floating(id).get());
             return values;
         });
         try {
@@ -439,6 +440,7 @@ final class KavoraSettingsChecks {
             });
             var references = context.computeOnClient(client -> new org.edtp.kavora.asset.KavoraMaterial[] {
                     BlockTextureManager.get().getWaterSurfaceMaterial(), BlockTextureManager.get().getWaterCameraMediumMaterial()});
+            int waterRevision = context.computeOnClient(client -> BlockTextureManager.get().getWaterMaterialRevision());
             context.runOnClient(client -> {
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.back");
@@ -448,6 +450,15 @@ final class KavoraSettingsChecks {
                 editNumber("water.ior", "1.4");
                 editNumber("water.red", "0.7");
                 editNumber("water.absorptionDistance", "3.0");
+                press(client.gui.screen(), "kavora.settings.group.waterFog");
+                editNumber("water.cameraTransmittance", "0.85");
+                editNumber("water.fog.range", "37");
+                press(client.gui.screen(), "kavora.settings.back");
+                press(client.gui.screen(), "kavora.settings.group.waterWaves");
+                editNumber("water.windStrength", "0.5");
+                press(client.gui.screen(), "kavora.settings.back");
+                require(BlockTextureManager.get().getWaterMaterialRevision() == waterRevision,
+                        "A water setting changed the materials before Apply");
             });
             context.waitTicks(2);
             KavoraWorldGameTest.captureCompletedFrame(context, "settings-water");
@@ -459,6 +470,12 @@ final class KavoraSettingsChecks {
                         "Water parameters replaced live material handles");
                 require(Math.abs(textures.getWaterIor() - 1.4) < 1e-5 && textures.getWaterTransmittanceDistance() == 3,
                         "Water settings did not update the live material state");
+                require(Math.abs(textures.getWaterCameraTransmittance() - 0.85) < 1e-5
+                                && textures.getWaterMaterialRevision() == waterRevision + 1,
+                        "Water material edits must update both handles in one Apply");
+                require(floating("water.fog.range").get() == 37.0 && floating("water.windStrength").get() == 0.5,
+                        "Water fog and wave settings did not apply");
+                require(!KavoraMod.getRtxSettings().quality().customized(), "Water controls changed the preset label");
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.back");
                 press(client.gui.screen(), "kavora.settings.category.weather");

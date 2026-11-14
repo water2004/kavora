@@ -155,15 +155,18 @@ namespace dxvk {
     m_shaderArgs.effects = 0;
     const bool sludge = sludgeEnabled() && hasSludge;
     const bool surface = hasWater || sludge;
-    const bool ripples = surface && enable();
-    const bool wind = surface && windEnabled();
-    const bool rings = surface && ringsEnabled();
+    const float rippleScale = std::clamp(rippleStrength(), 0.0f, 2.0f);
+    const float windScale = std::clamp(windStrength(), 0.0f, 2.0f);
+    const float ringScale = std::clamp(ringStrength(), 0.0f, 2.0f);
+    const bool ripples = surface && enable() && rippleScale > 0.0f;
+    const bool wind = surface && windEnabled() && windScale > 0.0f;
+    const bool rings = surface && ringsEnabled() && ringScale > 0.0f;
     const uint32_t impactEffects = (sludge ? WATER_EFFECT_SLUDGE : 0u) | (rings ? WATER_EFFECT_RINGS : 0u);
     const float delta = std::clamp(GlobalTime::get().deltaTime(), 0.0f, 4.0f * kTimeStep);
     const uint64_t timeMs = GlobalTime::get().absoluteTimeMs();
 
     if (wind) {
-      prepareWind(ctx, float(timeMs % uint64_t(kWaterWindLoopSeconds * 1000.0f)) * 0.001f);
+      prepareWind(ctx, float(timeMs % uint64_t(kWaterWindLoopSeconds * 1000.0f)) * 0.001f, windScale);
       m_shaderArgs.effects |= WATER_EFFECT_WIND;
     } else if (m_windSeed != nullptr) {
       m_wind = {};
@@ -187,7 +190,7 @@ namespace dxvk {
     const bool runRipples = ripples && active;
     const bool runImpacts = impactEffects && active;
     if (rings && (m_shaderArgs.rain > 0.0f || runImpacts)) {
-      prepareRings(ctx, float(timeMs % 4096000u) * 0.001f);
+      prepareRings(ctx, float(timeMs % 4096000u) * 0.001f, ringScale);
       m_shaderArgs.effects |= WATER_EFFECT_RINGS;
     }
     if (!runRipples && !runImpacts) {
@@ -218,7 +221,7 @@ namespace dxvk {
       m_shaderArgs.effects |= WATER_EFFECT_IMPACTS | (impactEffects & WATER_EFFECT_SLUDGE);
     }
     if (runRipples) {
-      prepareRipples(ctx, origin, delta);
+      prepareRipples(ctx, origin, delta, rippleScale);
     } else {
       m_count = 0;
     }
@@ -228,7 +231,7 @@ namespace dxvk {
     m_activity = std::max(0.0f, m_activity - delta);
   }
 
-  void RtxWaterSimulation::prepareRipples(RtxContext* ctx, ivec2 origin, float delta) {
+  void RtxWaterSimulation::prepareRipples(RtxContext* ctx, ivec2 origin, float delta, float strength) {
     m_accumulatedTime += delta;
     const uint32_t steps = std::min(4u, uint32_t(m_accumulatedTime / kTimeStep));
     m_accumulatedTime -= steps * kTimeStep;
@@ -267,12 +270,12 @@ namespace dxvk {
     }
     if (!m_reset && m_state[m_current].view != nullptr) {
       m_shaderArgs.simulationClip = vec4(float(m_originX) * kCellSize, float(m_originZ) * kCellSize,
-        1.0f / (kCellSize * kWaterSimResolution), 1.0f);
+        1.0f / (kCellSize * kWaterSimResolution), strength);
       m_shaderArgs.effects |= WATER_EFFECT_RIPPLES;
     }
   }
 
-  void RtxWaterSimulation::prepareWind(RtxContext* ctx, float time) {
+  void RtxWaterSimulation::prepareWind(RtxContext* ctx, float time, float strength) {
     ScopedGpuProfileZone(ctx, "Water Wind FFT");
     if (m_windSeed == nullptr) {
       Rc<DxvkContext> owner(ctx);
@@ -284,7 +287,7 @@ namespace dxvk {
       m_windScratch = createWaterBuffer(ctx, sizeof(spectrum), "Water wind FFT scratch");
       ctx->writeToBuffer(m_windSeed, 0, sizeof(spectrum), spectrum.data());
     }
-    const WaterDetailStep args{ time };
+    const WaterDetailStep args{ time, strength };
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, WaterWindRows::getShader());
     ctx->bindResourceBuffer(WATER_DETAIL_BINDING_INPUT, DxvkBufferSlice(m_windSeed));
     ctx->bindResourceBuffer(WATER_DETAIL_BINDING_OUTPUT, DxvkBufferSlice(m_windScratch));
@@ -296,14 +299,14 @@ namespace dxvk {
     ctx->dispatch(kWaterWindResolution, kWaterWindCascades, 1);
   }
 
-  void RtxWaterSimulation::prepareRings(RtxContext* ctx, float time) {
+  void RtxWaterSimulation::prepareRings(RtxContext* ctx, float time, float strength) {
     ScopedGpuProfileZone(ctx, "Water Droplet Rings");
     if (m_rings.view == nullptr) {
       Rc<DxvkContext> owner(ctx);
       m_rings = Resources::createImageResource(owner, "Water droplet rings",
         VkExtent3D{ kWaterRingResolution, kWaterRingResolution, 1 }, VK_FORMAT_R16G16_SFLOAT);
     }
-    const WaterDetailStep args{ time };
+    const WaterDetailStep args{ time, strength };
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, WaterDropletRings::getShader());
     ctx->bindResourceView(WATER_DETAIL_BINDING_OUTPUT, m_rings.view, nullptr);
     ctx->pushConstants(0, sizeof(args), &args);

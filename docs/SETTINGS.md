@@ -241,14 +241,20 @@ textures keep their pixelated look, which removes banding from surface bumps
 and parallax depth. It is a Remix option, so its default is the value Remix
 loaded at launch. Like the other visual controls, it changes on Apply.
 
-Water controls expose index of refraction, RGB transmittance, absorption
-distance, and animation rate. They update existing material handles without
-recapturing terrain. Transparent normal strength also affects other transparent
-materials. Subsurface controls cover transmission, single scattering,
+**Materials → Water** exposes the surface's index of refraction, RGB
+transmittance and optical distance. **Underwater Medium & Fog** separates the
+camera medium's transmission and distance from the fog's color, optical
+distance, scattering albedo and anisotropy. Its fog controls apply while
+submerged. Reset releases the player override and restores the installed
+underwater profile. Water material edits update the existing handles once
+per Apply. **Transparent Normals** controls the normal maps of both water and
+glass. Subsurface controls cover transmission, single scattering,
 refraction visibility, and diffusion profile scale.
 
-**FFT Wind Waves**, **Droplet Rings**, and **Floating Sludge** are independent
-switches in the Water settings. Wind adds two wave scales to horizontal water.
+**Waves & Ripples** contains the normal animation rate and independent switches
+for splash ripples, FFT wind waves, droplet rings and floating sludge.
+The three wave strengths default to 1. Zero skips the corresponding GPU simulation work.
+Wind adds two wave scales to horizontal water.
 Rings use the rain strength of the camera's biome and appear around strong
 splashes even in clear weather. Floating Sludge applies to authored opaque
 surfaces tagged `remix_category:sludge` in USD or `FLOATING_SLUDGE` in the SDK.
@@ -260,7 +266,7 @@ Sodium's reset controls stage defaults; **Apply** commits them. Shader settings
 reset a folder, a category, or all visual settings, leaving performance
 settings alone. Their resets remain pending until Apply, including Block Lights.
 
-Visual settings use `config/kavora.json` format version 3. Earlier development
+Visual settings use `config/kavora.json` format version 5. Earlier development
 formats are not migrated. Preset-owned values and the source tier are saved;
 other visual controls are saved only when overridden, so unedited defaults
 remain available to world and biome profiles.
@@ -311,10 +317,13 @@ control is omitted so world and biome profiles can continue authoring it.
 The file remains present to retain the source profile. A missing file uses Ultra.
 
 The visual settings schema advances one version at a time. Kavora 1.0.0 and
-1.0.1 used schema 3. On upgrade, saved fog edits are carried into each vanilla
-dimension's profile. The old saturation setting is discarded and the preset
-label is recalculated from the saved preset-controlled values. The upgraded
-file is saved automatically. Unknown schema versions are preserved on disk.
+1.0.1 used schema 3. Its migration to schema 4 carries saved fog edits into the
+vanilla dimension profiles and removes the old saturation setting. Schema 5
+moves the shared transparent normal strength to Materials while keeping saved
+water edits. New water controls start at the previous runtime and underwater
+profile defaults. The preset label is recalculated from the saved
+preset-controlled values. The upgraded file is saved automatically. Unknown
+schema versions are preserved on disk.
 Unknown setting IDs and out-of-range values are logged and skipped while the
 remaining values load.
 

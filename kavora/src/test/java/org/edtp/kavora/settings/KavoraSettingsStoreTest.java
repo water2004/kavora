@@ -14,6 +14,7 @@ import org.edtp.kavora.QualityPreset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -103,7 +104,7 @@ class KavoraSettingsStoreTest {
         new KavoraSettingsStore(file).save(registryWith(f, i, b));
 
         JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
-        assertEquals(4, root.get("version").getAsInt());
+        assertEquals(5, root.get("version").getAsInt());
         JsonObject values = root.getAsJsonObject("settings");
         assertEquals(160, values.get("clouds.samples").getAsInt());
         assertEquals(42, values.get("i").getAsInt());
@@ -241,7 +242,7 @@ class KavoraSettingsStoreTest {
     @Test
     void loadRejectsAnyVersionItDoesNotOwn(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("kavora.json");
-        for (int version : new int[]{2, 5}) {
+        for (int version : new int[]{2, 6}) {
             Files.writeString(file, """
                     {"version":%d,"quality":{"base":"low","custom":true},"settings":{"f":9.0,"i":50,"b":false}}
                     """.formatted(version));
@@ -285,7 +286,7 @@ class KavoraSettingsStoreTest {
         assertEquals(new KavoraQualitySelection(QualityPreset.HIGH, false), settings.quality());
         String migrated = Files.readString(file);
         JsonObject root = JsonParser.parseString(migrated).getAsJsonObject();
-        assertEquals(4, root.get("version").getAsInt());
+        assertEquals(5, root.get("version").getAsInt());
         var values = root.getAsJsonObject("settings");
         assertFalse(values.has("fog.heightFalloff"));
         assertFalse(values.has("image.saturation"));
@@ -294,6 +295,56 @@ class KavoraSettingsStoreTest {
         assertEquals(9, values.get("unknown").getAsInt());
         store.load(settings);
         assertEquals(migrated, Files.readString(file));
+    }
+
+    @Test
+    void migratesSchema4WaterWithoutFreezingNewDefaultsOrChangingQuality(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("kavora.json");
+        Files.writeString(file, """
+                {"version":4,"quality":{"base":"medium","custom":false},
+                 "settings":{"water.ior":1.4,"water.red":0.7,"water.normalStrength":1.25,"water.simulation":true}}
+                """);
+        var optics = new LinkedHashMap<String, Double>(Map.of(
+                "water.ior", 1.33, "water.red", 0.6, "materials.translucentNormalStrength", 1.0,
+                "water.cameraTransmittance", 0.98, "water.fog.range", 23.0, "water.windStrength", 1.0));
+        var controls = new ArrayList<KavoraSetting<?>>();
+        optics.forEach((id, baseline) -> controls.add(KavoraSetting.ofFloat(id, SettingGroup.WATER,
+                "l", "t", 0.0, 128.0, baseline, () -> optics.get(id), next -> optics.put(id, next))));
+        boolean[] simulation = {false};
+        controls.add(KavoraSetting.ofBool("water.simulation", SettingGroup.WATER_WAVES, "l", "t", false,
+                () -> simulation[0], next -> simulation[0] = next));
+        var settings = new KavoraSettings(controls);
+        var store = new KavoraSettingsStore(file);
+        store.load(settings);
+
+        assertEquals(1.4, optics.get("water.ior"));
+        assertEquals(0.7, optics.get("water.red"));
+        assertEquals(1.25, optics.get("materials.translucentNormalStrength"));
+        assertTrue(simulation[0]);
+        assertEquals(0.98, optics.get("water.cameraTransmittance"));
+        assertEquals(23.0, optics.get("water.fog.range"));
+        assertEquals(1.0, optics.get("water.windStrength"));
+        assertEquals(new KavoraQualitySelection(QualityPreset.MEDIUM, false), settings.quality());
+        String migrated = Files.readString(file);
+        JsonObject root = JsonParser.parseString(migrated).getAsJsonObject();
+        assertEquals(5, root.get("version").getAsInt());
+        var values = root.getAsJsonObject("settings");
+        assertFalse(values.has("water.normalStrength"));
+        assertEquals(1.25, values.get("materials.translucentNormalStrength").getAsDouble());
+        assertFalse(values.has("water.fog.range"));
+        assertFalse(values.has("water.windStrength"));
+
+        store.load(settings);
+        assertEquals(migrated, Files.readString(file));
+        optics.put("water.windStrength", 0.5);
+        optics.put("water.fog.range", 38.0);
+        store.save(settings);
+        optics.put("water.windStrength", 1.0);
+        optics.put("water.fog.range", 23.0);
+        store.load(settings);
+        assertEquals(0.5, optics.get("water.windStrength"));
+        assertEquals(38.0, optics.get("water.fog.range"));
+        assertEquals(new KavoraQualitySelection(QualityPreset.MEDIUM, false), settings.quality());
     }
 
     private static KavoraSetting<Double> fog(String id, double[] value, double baseline, double max) {

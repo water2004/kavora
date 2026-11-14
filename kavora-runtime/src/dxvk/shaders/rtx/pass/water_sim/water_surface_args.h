@@ -11,7 +11,7 @@
 #endif
 
 WATER_SURFACE_PUBLIC struct WaterSurfaceArgs {
-  WATER_SURFACE_PUBLIC vec4 simulationClip;
+  WATER_SURFACE_PUBLIC vec4 simulationClip; // XY origin, inverse extent, ripple strength.
   WATER_SURFACE_PUBLIC vec3 impactClip;
   WATER_SURFACE_PUBLIC uint effects;
   WATER_SURFACE_PUBLIC vec2 tileOrigin;

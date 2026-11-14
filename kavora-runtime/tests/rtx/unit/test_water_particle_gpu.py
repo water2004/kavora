@@ -24,9 +24,9 @@ def check_bindings(directory, spirv_dis):
     contracts = {
         "water_sim": (clipmap_bindings, "WaterSimStep", [0, 8, 16, 20, 24, 28, 32, 36]),
         "water_impact_effects": (clipmap_bindings, "WaterImpactStep", [0, 8, 16, 20, 24, 28, 32, 36]),
-        "water_wind_rows": ({"Input": 0, "Output": 1}, "WaterDetailStep", [0]),
+        "water_wind_rows": ({"Input": 0, "Output": 1}, "WaterDetailStep", [0, 4]),
         "water_wind_columns": ({"Input": 0, "Output": 1}, None, []),
-        "water_droplet_rings": ({"Output": 1}, "WaterDetailStep", [0]),
+        "water_droplet_rings": ({"Output": 1}, "WaterDetailStep", [0, 4]),
     }
     for name, (expected, push, offsets) in contracts.items():
         code = check_output([str(spirv_dis), str(directory / (name + ".spv"))], text=True)
@@ -42,7 +42,9 @@ def check_bindings(directory, spirv_dis):
     code = check_output([str(spirv_dis), str(directory / gbuffer)], text=True)
     slots = {resource: int(index) for resource, index in re.findall(r"OpDecorate %(Water\w+) Binding (\d+)", code)}
     header = (SHADERS / "rtx/pass/gbuffer/gbuffer_binding_indices.h").read_text(encoding="utf-8")
+    images = (SHADERS / "rtx/pass/gbuffer/gbuffer_water_bindings.h").read_text(encoding="utf-8")
     native = (SHADERS.parent / "rtx_render/rtx_pathtracer_gbuffer.cpp").read_text(encoding="utf-8")
+    assert "GBUFFER_WATER_IMAGES(GBUFFER_WATER_LAYOUT)" in native
     expected = {
         "WaterSimulation": ("WATER_SIMULATION", "TEXTURE2D"),
         "WaterWind": ("WATER_WIND", "TEXTURE2DARRAY"),
@@ -54,7 +56,10 @@ def check_bindings(directory, spirv_dis):
     for name, (binding, descriptor) in expected.items():
         macro = "GBUFFER_BINDING_" + binding
         assert re.search(rf"#define\s+{macro}\s+{slots[name]}\b", header), (macro, slots[name])
-        assert re.search(rf"\b{descriptor}\({macro}\)", native), (descriptor, macro)
+        if descriptor == "SAMPLER":
+            assert re.search(rf"\bSAMPLER\({macro}\)", native), macro
+        else:
+            assert re.search(rf"\bX\({macro},\s*{descriptor},\s*[^,]+,\s*{name},", images), (descriptor, macro, name)
 
 
 def kernel(device, path, entry="main", defines=None):
@@ -82,7 +87,9 @@ def check_wind(device):
     rows = kernel(device, WATER + "water_wind_fft.comp.slang")
     columns = kernel(device, WATER + "water_wind_fft.comp.slang", defines={"WATER_FFT_COLUMNS": "1"})
     for time in (0.0, 0.75):
-        rows.dispatch(thread_count=[size * size, 2, 1], vars={"Step": {"time": time}, "Input": seed, "Output": scratch})
+        amplitude = 1.0 if time == 0.0 else 0.5
+        rows.dispatch(thread_count=[size * size, 2, 1], vars={"Step": {"time": time, "amplitude": amplitude},
+                                                           "Input": seed, "Output": scratch})
         columns.dispatch(thread_count=[size * size, 2, 1], vars={"Input": scratch, "Output": output})
         for layer, tile in enumerate((32.0, 7.0)):
             data = spectrum[layer]
@@ -93,18 +100,20 @@ def check_wind(device):
             k = np.fft.fftfreq(size) * size * (2 * np.pi / tile)
             expected = np.stack([np.fft.ifft2(field).real * size**2 for field in
                                  (height, 1j * k[None, :] * height, 1j * k[:, None] * height)], axis=-1)
-            np.testing.assert_allclose(output.to_numpy(layer=layer)[..., :3], expected, atol=3e-4, rtol=8e-4)
+            np.testing.assert_allclose(output.to_numpy(layer=layer)[..., :3], expected * amplitude, atol=3e-4, rtol=8e-4)
 
 
 def check_rings_and_impacts(device):
     rings = device.create_texture(format=spy.Format.rg16_float, width=128, height=128,
                                   usage=spy.TextureUsage.unordered_access)
     ring_kernel = kernel(device, WATER + "water_droplet_rings.comp.slang")
-    ring_kernel.dispatch(thread_count=[128, 128, 1], vars={"Step": {"time": 1.0}, "Output": rings})
+    ring_kernel.dispatch(thread_count=[128, 128, 1], vars={"Step": {"time": 1.0, "amplitude": 1.0}, "Output": rings})
     first = rings.to_numpy()
-    ring_kernel.dispatch(thread_count=[128, 128, 1], vars={"Step": {"time": 1.08}, "Output": rings})
+    ring_kernel.dispatch(thread_count=[128, 128, 1], vars={"Step": {"time": 1.08, "amplitude": 1.0}, "Output": rings})
     second = rings.to_numpy()
     assert np.isfinite(second).all() and np.count_nonzero(np.abs(second - first) > 0.01) > 1000
+    ring_kernel.dispatch(thread_count=[128, 128, 1], vars={"Step": {"time": 1.08, "amplitude": 0.5}, "Output": rings})
+    np.testing.assert_allclose(rings.to_numpy(), second * 0.5, atol=1e-4, rtol=1e-3)
 
     usage = spy.TextureUsage.unordered_access | spy.TextureUsage.shader_resource
     a, b = [device.create_texture(format=spy.Format.rg16_float, width=256, height=256, usage=usage) for _ in range(2)]

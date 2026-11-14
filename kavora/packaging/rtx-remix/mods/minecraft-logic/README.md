@@ -385,14 +385,13 @@ in step with the ramp. Thunder is stronger than rain.
 
 ### Water
 
-`water.conf` is the strongest profile and switches the moment the camera enters
+`water.conf` switches the moment the camera enters
 or leaves water. It is also the one profile every install must have: if it
 cannot be loaded, the whole system reports itself inactive.
 
-The water surface and the underwater fog are separate. `/kavora water color` and
-`/kavora water distance` rebuild the surface material, while `water.conf` owns the
-underwater volumetrics. Their distances are different values today, and keeping
-them equal is an art decision rather than a rule.
+**Materials → Water** controls the surface material. **Underwater Medium & Fog**
+controls the submerged camera medium and its fog. `water.conf` supplies the
+fog defaults and player edits override the edited values while submerged.
 
 The runtime has one global homogeneous volumetric medium, and this mod keys
 it to the camera. When submerged, `water.conf` supplies it. Otherwise it comes

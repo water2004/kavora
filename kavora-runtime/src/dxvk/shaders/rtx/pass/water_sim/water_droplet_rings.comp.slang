@@ -39,5 +39,5 @@ void main(uint2 thread : SV_DispatchThreadID) {
       }
     }
   }
-  Output[thread] = slope;
+  Output[thread] = slope * Step.amplitude;
 }

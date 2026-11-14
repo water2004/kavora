@@ -250,7 +250,10 @@ public final class KavoraSettingsFactory {
         KavoraEffectOptions.addTo(list, remix);
         var fogProfiles = new FogProfileOptions(list, environment, remix);
         LavaLightOptions.add(list, textures);
-        return new KavoraSettings(list, fogProfiles::publish);
+        return new KavoraSettings(list, () -> {
+            textures.commitWaterSettings();
+            fogProfiles.publish();
+        });
     }
 
     static KavoraSetting<Integer> unfocusedFramerate() {
@@ -265,22 +268,28 @@ public final class KavoraSettingsFactory {
 
     private static void addWaterSettings(List<KavoraSetting<?>> list, BlockTextureManager textures) {
         list.add(floatSetting("water.ior", SettingGroup.WATER, "kavora.effect.water.ior", 1, 2.5,
-                textures::getWaterIor, value -> textures.updateWaterIor(value)));
+                textures::getWaterIor, textures::setWaterIor));
         list.add(floatSetting("water.absorptionDistance", SettingGroup.WATER, "kavora.effect.water.absorptionDistance", 0.05, 128,
-                textures::getWaterTransmittanceDistance, value -> textures.updateWaterTransmittanceDistance(value)));
+                textures::getWaterTransmittanceDistance, textures::setWaterTransmittanceDistance));
         list.add(floatSetting("water.red", SettingGroup.WATER, "kavora.effect.water.red", 0, 1,
-                textures::getWaterTransmittanceR, value -> textures.updateWaterTransmittanceColor(
+                textures::getWaterTransmittanceR, value -> textures.setWaterTransmittanceColor(
                         value, textures.getWaterTransmittanceG(), textures.getWaterTransmittanceB())));
         list.add(floatSetting("water.green", SettingGroup.WATER, "kavora.effect.water.green", 0, 1,
-                textures::getWaterTransmittanceG, value -> textures.updateWaterTransmittanceColor(
+                textures::getWaterTransmittanceG, value -> textures.setWaterTransmittanceColor(
                         textures.getWaterTransmittanceR(), value, textures.getWaterTransmittanceB())));
         list.add(floatSetting("water.blue", SettingGroup.WATER, "kavora.effect.water.blue", 0, 1,
-                textures::getWaterTransmittanceB, value -> textures.updateWaterTransmittanceColor(
+                textures::getWaterTransmittanceB, value -> textures.setWaterTransmittanceColor(
                         textures.getWaterTransmittanceR(), textures.getWaterTransmittanceG(), value)));
-        list.add(KavoraSetting.ofInt("water.animationFps", SettingGroup.WATER,
+        list.add(floatSetting("water.cameraTransmittance", SettingGroup.WATER_FOG,
+                "kavora.effect.water.cameraTransmittance", 0, 1,
+                textures::getWaterCameraTransmittance, textures::setWaterCameraTransmittance));
+        list.add(floatSetting("water.cameraAbsorptionDistance", SettingGroup.WATER_FOG,
+                "kavora.effect.water.cameraAbsorptionDistance", 0.05, 128,
+                textures::getWaterCameraTransmittanceDistance, textures::setWaterCameraTransmittanceDistance));
+        list.add(KavoraSetting.ofInt("water.animationFps", SettingGroup.WATER_WAVES,
                 "kavora.effect.water.animationFps", "kavora.effect.water.animationFps.tip", 0, 120,
                 textures.getWaterAnimationFps(), textures::getWaterAnimationFps,
-                value -> textures.updateWaterAnimationFps(value)));
+                textures::setWaterAnimationFps));
     }
 
     /**

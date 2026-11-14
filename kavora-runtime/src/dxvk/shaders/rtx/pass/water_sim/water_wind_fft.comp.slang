@@ -73,6 +73,6 @@ void main(uint3 group : SV_GroupID, uint lane : SV_GroupIndex) {
 #ifdef WATER_FFT_COLUMNS
   Output[uint3(bin, cascade)] = float4(value.x, value.zw, 0.0f);
 #else
-  Output[spectrumIndex(bin, cascade)] = value;
+  Output[spectrumIndex(bin, cascade)] = value * Step.amplitude;
 #endif
 }

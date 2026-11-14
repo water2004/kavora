@@ -51,7 +51,7 @@ float3 sampleWaterSimulation<let Detail : bool>(float3 position, float footprint
     const float2 uv = (planar - settings.water.simulationClip.xy) * settings.water.simulationClip.z;
     const float fade = waterClipFade(uv);
     if (fade > 0.0f) {
-      wave = simulation.SampleLevel(clipSampler, uv, 0.0f).xzw * fade;
+      wave = simulation.SampleLevel(clipSampler, uv, 0.0f).xzw * (fade * settings.water.simulationClip.w);
     }
   }
   if (settings.water.effects & WATER_EFFECT_WIND) {

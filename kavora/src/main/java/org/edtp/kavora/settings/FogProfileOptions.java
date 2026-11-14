@@ -11,6 +11,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /** Editable optical properties, resolved by the runtime's existing option layers. */
 final class FogProfileOptions {
@@ -22,11 +23,12 @@ final class FogProfileOptions {
 
     private static final List<String> RGB = List.of("red", "green", "blue");
     private static final Parameter MIST_DENSITY = new Parameter("density", "groundMistExtinctionPerMeter", 0, 0.25);
-    private static final List<Parameter> PARAMETERS = List.of(
+    private static final List<Parameter> OPTICS = List.of(
             new Parameter("range", "transmittanceMeasurementDistanceMeters", 1, 2000),
             new Parameter("anisotropy", "anisotropy", -0.95, 0.95),
             new Parameter("transmittance", "transmittanceColor", 0, 1, true),
-            new Parameter("scatteringAlbedo", "singleScatteringAlbedo", 0, 1, true),
+            new Parameter("scatteringAlbedo", "singleScatteringAlbedo", 0, 1, true));
+    private static final List<Parameter> HEIGHT_AND_AMBIENT = List.of(
             new Parameter("ambientRadiance", "fogAmbientRadiance", 0, 1, true),
             new Parameter("baseHeight", "heightFogBaseHeightMeters", -64, 320),
             new Parameter("heightFalloff", "heightFogFalloffMeters", 0, 128),
@@ -43,33 +45,27 @@ final class FogProfileOptions {
 
     private final ConfLayerDriver driver;
     private final Map<AtmosphereDimension, List<Value>> profiles = new EnumMap<>(AtmosphereDimension.class);
+    private final List<Value> underwater;
     private boolean changed;
 
     static boolean contains(String id) {
         return id.startsWith("fog.overworld.") || id.startsWith("fog.nether.") || id.startsWith("fog.end.")
-                || id.equals("mist.density");
+                || id.startsWith("water.fog.") || id.equals("mist.density");
     }
 
     FogProfileOptions(List<KavoraSetting<?>> settings, ConfLayerDriver driver, RemixAPI api) {
         this.driver = driver;
+        var dimensionParameters = new ArrayList<>(OPTICS);
+        dimensionParameters.addAll(HEIGHT_AND_AMBIENT);
         Map<Parameter, float[]> runtimeDefaults = new LinkedHashMap<>();
-        for (var parameter : PARAMETERS) {
+        for (var parameter : dimensionParameters) {
             runtimeDefaults.put(parameter, parse(parameter, api.getConfigVariableResolved(parameter.runtimeKey())));
         }
         for (var scope : AtmosphereDimension.values()) {
             var authored = driver.fogProfileDefaults(scope);
             var values = new ArrayList<Value>();
-            for (var parameter : PARAMETERS) {
-                String text = authored.getProperty(parameter.runtimeKey());
-                float[] defaults = runtimeDefaults.get(parameter);
-                if (text != null) {
-                    try {
-                        defaults = parse(parameter, text);
-                    } catch (IllegalArgumentException ignored) {
-                        // Use the shared default when the authored value cannot be displayed.
-                    }
-                }
-                Value value = new Value(parameter, defaults);
+            for (var parameter : dimensionParameters) {
+                Value value = authoredValue(parameter, authored, runtimeDefaults);
                 values.add(value);
                 addControls(settings, SettingGroup.fog(scope), "fog." + scope.id(), "fog", value);
             }
@@ -80,6 +76,23 @@ final class FogProfileOptions {
             }
             profiles.put(scope, List.copyOf(values));
         }
+        var waterDefaults = driver.underwaterFogDefaults();
+        underwater = OPTICS.stream().map(parameter -> authoredValue(parameter, waterDefaults, runtimeDefaults)).toList();
+        for (var value : underwater) {
+            addControls(settings, SettingGroup.WATER_FOG, "water.fog", "fog", value);
+        }
+    }
+
+    private static Value authoredValue(Parameter parameter, Properties authored, Map<Parameter, float[]> runtimeDefaults) {
+        String text = authored.getProperty(parameter.runtimeKey());
+        if (text != null) {
+            try {
+                return new Value(parameter, parse(parameter, text));
+            } catch (IllegalArgumentException ignored) {
+                // Use the shared default when the authored value cannot be displayed.
+            }
+        }
+        return new Value(parameter, runtimeDefaults.get(parameter));
     }
 
     private void addControls(List<KavoraSetting<?>> settings, SettingGroup group, String idPrefix, String labelPrefix, Value value) {
@@ -103,16 +116,19 @@ final class FogProfileOptions {
 
     void publish() {
         if (!changed) return;
-        profiles.forEach((scope, values) -> {
-            Map<String, String> overrides = new LinkedHashMap<>();
-            for (var value : values) {
-                if (!Arrays.equals(value.defaults(), value.current())) {
-                    overrides.put(value.parameter().runtimeKey(), value.text());
-                }
-            }
-            driver.replaceFogOverrides(scope, overrides);
-        });
+        profiles.forEach((scope, values) -> driver.replaceFogOverrides(scope, overrides(values)));
+        driver.replaceUnderwaterFogOverrides(overrides(underwater));
         changed = false;
+    }
+
+    private static Map<String, String> overrides(List<Value> values) {
+        Map<String, String> overrides = new LinkedHashMap<>();
+        for (var value : values) {
+            if (!Arrays.equals(value.defaults(), value.current())) {
+                overrides.put(value.parameter().runtimeKey(), value.text());
+            }
+        }
+        return overrides;
     }
 
     private static float[] parse(Parameter parameter, String text) {

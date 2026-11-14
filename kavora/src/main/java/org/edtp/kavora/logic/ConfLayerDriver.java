@@ -145,6 +145,8 @@ public final class ConfLayerDriver {
     private static final float ZONE_BLEND_THRESHOLD = 0.01f;
     private static final float PLAYER_FOG_PRIORITY = 19000f;
     private static final float UNDERWATER_PRIORITY = 20000f;
+    private static final LayerSpec PLAYER_UNDERWATER_FOG = new LayerSpec(
+            LogicChannels.UNDERWATER, "fog-underwater", UNDERWATER_PRIORITY + 1f, 0.5f, false, LayerSource.PLAYER);
     // World profiles sit just above their mod counterparts, so a map's file
     // wins per option while the mod archetype still supplies keys the map
     // leaves out. Sparse override rather than wholesale replacement, which is
@@ -482,9 +484,17 @@ public final class ConfLayerDriver {
 
     /** Reads the dimension's flat authored defaults without activating its layer. */
     public Properties fogProfileDefaults(AtmosphereDimension scope) {
+        return scope.authoredProfile == null ? new Properties()
+                : readFogDefaults("confs/dimensions/" + scope.authoredProfile);
+    }
+
+    public Properties underwaterFogDefaults() {
+        return readFogDefaults("confs/water.conf");
+    }
+
+    private Properties readFogDefaults(String confPath) {
         Properties defaults = new Properties();
-        if (scope.authoredProfile == null) return defaults;
-        Path path = modRoot().resolve("confs/dimensions").resolve(scope.authoredProfile);
+        Path path = modRoot().resolve(confPath);
         try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             defaults.load(reader);
         } catch (IOException | IllegalArgumentException e) {
@@ -496,6 +506,15 @@ public final class ConfLayerDriver {
     /** Replaces one sparse player profile using the same runtime layers as authored fog. */
     public void replaceFogOverrides(AtmosphereDimension scope, Map<String, String> options) {
         LayerSpec spec = new LayerSpec(scope.channel, "fog-" + scope.id(), PLAYER_FOG_PRIORITY, 0.01f, false, LayerSource.PLAYER);
+        replaceFogOverrides(spec, options, currentDimension == scope ? 1.0f : 0.0f);
+    }
+
+    public void replaceUnderwaterFogOverrides(Map<String, String> options) {
+        var authored = layersById.get(LogicChannels.UNDERWATER);
+        replaceFogOverrides(PLAYER_UNDERWATER_FOG, options, authored == null ? 0.0f : authored.target);
+    }
+
+    private void replaceFogOverrides(LayerSpec spec, Map<String, String> options, float strength) {
         if (fogOverrides.getOrDefault(spec, Map.of()).equals(options)) return;
         LayerState old = layersById.get(spec.id());
         if (options.isEmpty()) {
@@ -507,10 +526,10 @@ public final class ConfLayerDriver {
                 try {
                     next.handle = acquirePlayerFogLayer(spec, options);
                 } catch (IOException | RemixException e) {
-                    throw new IllegalStateException("Could not apply " + scope.id() + " fog settings", e);
+                    throw new IllegalStateException("Could not apply " + spec.confPath() + " settings", e);
                 }
             }
-            next.target = next.current = currentDimension == scope ? 1.0f : 0.0f;
+            next.target = next.current = strength;
             if (next.handle != 0) sendIfChanged(next);
             fogOverrides.put(spec, Map.copyOf(options));
             layersById.put(spec.id(), next);

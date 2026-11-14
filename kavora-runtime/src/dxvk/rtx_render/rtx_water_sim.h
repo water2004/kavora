@@ -23,6 +23,9 @@ namespace dxvk {
     RTX_OPTION("rtx.waterSim", bool, windEnabled, false, "Enable FFT wind waves on simulated water.");
     RTX_OPTION("rtx.waterSim", bool, ringsEnabled, false, "Enable droplet rings from rain and splash spray.");
     RTX_OPTION("rtx.waterSim", bool, sludgeEnabled, false, "Open and heal holes in marked floating sludge.");
+    RTX_OPTION("rtx.waterSim", float, rippleStrength, 1.0f, "Scale the height and slopes of nearby splash ripples.");
+    RTX_OPTION("rtx.waterSim", float, windStrength, 1.0f, "Scale the height and slopes of FFT wind waves.");
+    RTX_OPTION("rtx.waterSim", float, ringStrength, 1.0f, "Scale the slopes of rain and spray rings.");
 
     void addImpulses(const WaterSimImpulse* impulses, uint32_t count, bool reset);
     void setRain(float amount) { m_shaderArgs.rain = amount; }
@@ -42,9 +45,9 @@ namespace dxvk {
     const Rc<DxvkImageView>& impactView() const { return m_impacts[m_currentImpact].view; }
 
   private:
-    void prepareRipples(RtxContext* ctx, ivec2 origin, float delta);
-    void prepareWind(RtxContext* ctx, float time);
-    void prepareRings(RtxContext* ctx, float time);
+    void prepareRipples(RtxContext* ctx, ivec2 origin, float delta, float strength);
+    void prepareWind(RtxContext* ctx, float time, float strength);
+    void prepareRings(RtxContext* ctx, float time, float strength);
     void prepareImpacts(RtxContext* ctx, ivec2 origin, float delta, uint32_t effects);
 
     std::array<Resources::Resource, 2> m_state;

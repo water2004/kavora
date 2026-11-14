@@ -815,8 +815,6 @@ public class BlockTextureManager {
     private static final float DEFAULT_WATER_TRANSMITTANCE_G = 0.9f;
     private static final float DEFAULT_WATER_TRANSMITTANCE_B = 0.89f;
     private static final float DEFAULT_WATER_TRANSMITTANCE_DISTANCE = 1f;
-    private static final float WATER_CAMERA_MEDIUM_TRANSMITTANCE = 0.98f;
-    private static final float WATER_CAMERA_MEDIUM_TRANSMITTANCE_DISTANCE = 1f;
     private static final String WATER_WHITE_TEXTURE_NAME = "water_white";
 
     private KavoraTexture waterWhiteTexture;
@@ -826,6 +824,9 @@ public class BlockTextureManager {
     private float waterTransmittanceB = DEFAULT_WATER_TRANSMITTANCE_B;
     private float waterTransmittanceDistance = DEFAULT_WATER_TRANSMITTANCE_DISTANCE;
     private int waterAnimationFps = 20;
+    private float waterCameraTransmittance = 0.98f;
+    private float waterCameraTransmittanceDistance = 1f;
+    private boolean waterMaterialsDirty;
 
     private void destroyManagedMaterial(KavoraMaterial material) {
         if (material == null) {
@@ -892,8 +893,9 @@ public class BlockTextureManager {
                                 + "(ior={}, surfaceTransmittance=({}, {}, {}), distance={}, "
                                 + "cameraTransmittance={}, cameraDistance={}, tileSize={})",
                         waterIor, waterTransmittanceR, waterTransmittanceG, waterTransmittanceB,
-                        waterTransmittanceDistance, WATER_CAMERA_MEDIUM_TRANSMITTANCE,
-                        WATER_CAMERA_MEDIUM_TRANSMITTANCE_DISTANCE, WATER_TILE_SIZE);
+                        waterTransmittanceDistance, waterCameraTransmittance,
+                        waterCameraTransmittanceDistance, WATER_TILE_SIZE);
+                waterMaterialsDirty = false;
                 success = true;
             }
         } catch (Exception e) {
@@ -915,6 +917,8 @@ public class BlockTextureManager {
     public float getWaterTransmittanceB() { return waterTransmittanceB; }
     public float getWaterTransmittanceDistance() { return waterTransmittanceDistance; }
     public int getWaterAnimationFps() { return waterAnimationFps; }
+    public float getWaterCameraTransmittance() { return waterCameraTransmittance; }
+    public float getWaterCameraTransmittanceDistance() { return waterCameraTransmittanceDistance; }
 
     private MaterialInfo waterSurfaceInfo() {
         return MaterialInfo.builder()
@@ -941,10 +945,8 @@ public class BlockTextureManager {
                 .translucentExt(MaterialInfoTranslucentEXT.builder()
                         .refractiveIndex(waterIor)
                         .transmittanceColor(
-                                WATER_CAMERA_MEDIUM_TRANSMITTANCE,
-                                WATER_CAMERA_MEDIUM_TRANSMITTANCE,
-                                WATER_CAMERA_MEDIUM_TRANSMITTANCE)
-                        .transmittanceMeasurementDistance(WATER_CAMERA_MEDIUM_TRANSMITTANCE_DISTANCE)
+                                waterCameraTransmittance, waterCameraTransmittance, waterCameraTransmittance)
+                        .transmittanceMeasurementDistance(waterCameraTransmittanceDistance)
                         .useDiffuseLayer(false)
                         .build())
                 .build();
@@ -987,20 +989,45 @@ public class BlockTextureManager {
     }
 
     public boolean updateWaterIor(float ior) {
-        waterIor = ior;
-        return updateWaterMaterials();
+        setWaterIor(ior);
+        return commitWaterSettings();
     }
 
     public boolean updateWaterTransmittanceColor(float r, float g, float b) {
-        waterTransmittanceR = r;
-        waterTransmittanceG = g;
-        waterTransmittanceB = b;
-        return updateWaterMaterials();
+        setWaterTransmittanceColor(r, g, b);
+        return commitWaterSettings();
     }
 
     public boolean updateWaterTransmittanceDistance(float distance) {
+        setWaterTransmittanceDistance(distance);
+        return commitWaterSettings();
+    }
+
+    public void setWaterIor(float ior) {
+        waterMaterialsDirty |= waterIor != ior;
+        waterIor = ior;
+    }
+
+    public void setWaterTransmittanceColor(float r, float g, float b) {
+        waterMaterialsDirty |= waterTransmittanceR != r || waterTransmittanceG != g || waterTransmittanceB != b;
+        waterTransmittanceR = r;
+        waterTransmittanceG = g;
+        waterTransmittanceB = b;
+    }
+
+    public void setWaterTransmittanceDistance(float distance) {
+        waterMaterialsDirty |= waterTransmittanceDistance != distance;
         waterTransmittanceDistance = distance;
-        return updateWaterMaterials();
+    }
+
+    public void setWaterCameraTransmittance(float value) {
+        waterMaterialsDirty |= waterCameraTransmittance != value;
+        waterCameraTransmittance = value;
+    }
+
+    public void setWaterCameraTransmittanceDistance(float distance) {
+        waterMaterialsDirty |= waterCameraTransmittanceDistance != distance;
+        waterCameraTransmittanceDistance = distance;
     }
 
     public boolean updateCutoutSssTransmissionDistance(float distance) {
@@ -1065,16 +1092,18 @@ public class BlockTextureManager {
                 atlasSssAlbedoTex);
     }
 
-    public boolean updateWaterAnimationFps(int fps) {
+    public void setWaterAnimationFps(int fps) {
         if (fps < 0 || fps > 120) throw new IllegalArgumentException("Water animation rate must be between 0 and 120 FPS");
+        waterMaterialsDirty |= waterAnimationFps != fps;
         waterAnimationFps = fps;
-        return updateWaterMaterials();
     }
 
-    private boolean updateWaterMaterials() {
+    public boolean commitWaterSettings() {
         if (waterSurfaceMaterial == null || waterCameraMediumMaterial == null) return false;
+        if (!waterMaterialsDirty) return true;
         KavoraMaterialStore.get().update(waterSurfaceMaterial, waterSurfaceInfo());
         KavoraMaterialStore.get().update(waterCameraMediumMaterial, waterCameraMediumInfo());
+        waterMaterialsDirty = false;
         waterMaterialRevision++;
         return true;
     }

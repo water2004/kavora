@@ -40,6 +40,7 @@ struct WaterSimImpulse {
 
 struct WaterDetailStep {
   float time;
+  float amplitude;
 };
 
 struct WaterImpactStep {

@@ -31,7 +31,7 @@ public final class KavoraSettingsStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(KavoraSettingsStore.class);
     private static final int FIRST_RELEASE_SCHEMA = 3;
-    private static final int VERSION = 4;
+    private static final int VERSION = 5;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final Path file;
@@ -147,6 +147,7 @@ public final class KavoraSettingsStore {
         while (version < VERSION) {
             switch (version) {
                 case 3 -> migrateRelease3To4(root.getAsJsonObject("settings"));
+                case 4 -> migrateRelease4To5(root.getAsJsonObject("settings"));
                 default -> throw new IllegalArgumentException("No migration from settings schema " + version);
             }
             root.addProperty("version", ++version);
@@ -165,6 +166,15 @@ public final class KavoraSettingsStore {
                 if (!values.has(scopedId)) values.add(scopedId, value.deepCopy());
             }
         }
+    }
+
+    private static void migrateRelease4To5(JsonObject values) {
+        // This control has always affected all translucent materials.
+        JsonElement strength = values.remove("water.normalStrength");
+        if (strength != null && !values.has("materials.translucentNormalStrength")) {
+            values.add("materials.translucentNormalStrength", strength);
+        }
+        // Absent water settings inherit the former constants and the installed underwater profile.
     }
 
     private Object readEntry(KavoraSetting<?> setting, JsonElement value) {

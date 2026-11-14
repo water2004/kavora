@@ -634,6 +634,31 @@ class ConfLayerDriverTest {
         assertTrue(api.isLive(worldZones.resolve("crypt.conf")));
     }
 
+    @Test
+    void underwaterFogEditIsSparseAndInactiveOnLand(@TempDir Path gameDir) throws IOException {
+        Path authored = gameDir.resolve("rtx-remix/mods/minecraft-logic/confs/water.conf");
+        Files.createDirectories(authored.getParent());
+        String distance = "rtx.volumetrics.transmittanceMeasurementDistanceMeters";
+        Files.writeString(authored, distance + " = 27\nrtx.volumetrics.enable = True\n");
+
+        var api = new FakeConfigLayerApi();
+        var driver = new ConfLayerDriver();
+        assertTrue(driver.acquireAll(api, gameDir));
+        assertEquals("27", driver.underwaterFogDefaults().getProperty(distance));
+
+        driver.replaceUnderwaterFogOverrides(Map.of(distance, "37.0"));
+        String overrideId = "player/" + LogicChannels.UNDERWATER;
+        String override = api.livePaths.values().stream().filter(path -> path.contains("kavora-fog-underwater-"))
+                .findFirst().orElseThrow();
+        assertTrue(api.priorities.get(override) > api.priorityOf(authored));
+        assertEquals(new ConfLayerDriver.LayerStatus(overrideId, 0.0f, true), statusesByName(driver).get(overrideId));
+
+        driver.replaceUnderwaterFogOverrides(Map.of());
+        assertFalse(api.livePaths.containsValue(override));
+        assertFalse(statusesByName(driver).containsKey(overrideId));
+        assertTrue(api.isLive(authored));
+    }
+
     private static Map<String, ConfLayerDriver.LayerStatus> statusesByName(ConfLayerDriver driver) {
         Map<String, ConfLayerDriver.LayerStatus> statuses = new HashMap<>();
         for (ConfLayerDriver.LayerStatus status : driver.snapshot()) {

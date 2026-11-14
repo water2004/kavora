@@ -22,6 +22,8 @@ public enum SettingGroup {
     MATERIALS(SettingCategory.MATERIALS, "kavora.settings.group.materials"),
     PARALLAX(MATERIALS, "kavora.settings.group.parallax"),
     WATER(SettingCategory.MATERIALS, "kavora.settings.group.water"),
+    WATER_WAVES(WATER, "kavora.settings.group.waterWaves"),
+    WATER_FOG(WATER, "kavora.settings.group.waterFog"),
     SUBSURFACE(SettingCategory.MATERIALS, "kavora.settings.group.subsurface"),
     SIMULATED_PARTICLES(SettingCategory.PARTICLES, "kavora.settings.group.simulatedParticles"),
     SKY(SettingCategory.SKY, "kavora.settings.group.sky"),
