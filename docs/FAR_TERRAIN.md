@@ -105,7 +105,7 @@ Build the base renderer with its matching source-built runtime first, then:
 .\gradlew.bat :kavora-horizon:fabric:build
 ```
 
-Install `kavora-horizon/fabric/build/libs/Kavora-horizon-1.1.0+mc26.3.jar`
+Install `kavora-horizon/fabric/build/libs/Kavora-horizon-1.1.1+mc26.3.jar`
 alongside the matching renderer, Sodium 0.9.2 and Fabric API. The addon contains
 neither the main mod nor the Remix native runtime. Its sources JAR includes both
 the core and Fabric sources. The base renderer still needs the native path tracer
