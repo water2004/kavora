@@ -66,13 +66,19 @@ public float cumulusDensity(CloudDensityArgs args, float3 position, Sampler2D<fl
   {
     return 0;
   }
-  const float4 base = baseSampler.SampleLevel(p, 0);
-  const float lowFrequency = dot(base.gba, float3(0.625f, 0.25f, 0.125f));
-  const float shape = saturate((base.r - lowFrequency + 1.0f) / (2.0f - lowFrequency));
   const float profile = smoothstep(0.0f, 0.1f, height) * (1.0f - smoothstep(lerp(0.3f, 0.75f, column.y), 1.0f, height));
   const float anvil = smoothstep(0.75f, 1.0f, column.y) * smoothstep(0.8f, 0.9f, height)
     * (1.0f - smoothstep(0.95f, 1.0f, height));
   const float coverage = saturate(column.x * (1.0f - 0.35f * height * (1.0f - column.y)) + 0.5f * anvil * column.x);
+  // A negative bound guarantees zero density for every possible noise shape.
+  // Leave a margin at zero for differences in floating-point evaluation.
+  if (profile - 1.0f + coverage < -1e-6f)
+  {
+    return 0;
+  }
+  const float4 base = baseSampler.SampleLevel(p, 0);
+  const float lowFrequency = dot(base.gba, float3(0.625f, 0.25f, 0.125f));
+  const float shape = saturate((base.r - lowFrequency + 1.0f) / (2.0f - lowFrequency));
   const float density = saturate((shape * profile - 1.0f + coverage) / max(coverage, 1e-4f)) * coverage;
   if (density <= 0)
   {
