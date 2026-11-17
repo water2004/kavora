@@ -17,6 +17,8 @@ layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT)
 Sampler3D<float2> VolumeFilteredRadianceCoCg;
 layout(binding = GBUFFER_BINDING_SKYPROBE)
 SamplerCube<float3> SkyProbe;
+layout(push_constant)
+ConstantBuffer<GbufferPushConstants> push;
 
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
@@ -24,8 +26,9 @@ SamplerCube<float3> SkyProbe;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void main(uint2 column : SV_DispatchThreadID)
+void main(uint2 invocation : SV_DispatchThreadID)
 {
+  const uint2 column = invocation + uint2(0, push.dispatchOffsetY);
   if (any(column >= atmosphereColumnExtent()))
   {
     return;
@@ -33,6 +36,8 @@ void main(uint2 column : SV_DispatchThreadID)
   const int stride = int(atmosphereColumnStride());
   const uint2 center = column * uint(stride);
   uint lastCheckpoint = 0;
+  bool needsFarCheckpoint = false;
+  const bool standard = cb.volumeArgs.fogIntegrationMode != 1;
   // Include every bilinear consumer, including zero-weight taps at even pixels.
   for (int y = -stride; y < stride; y++)
   {
@@ -41,12 +46,14 @@ void main(uint2 column : SV_DispatchThreadID)
       const int2 pixel = int2(center) + int2(x, y);
       if (all(pixel >= 0) && all(pixel < int2(cb.camera.resolution)))
       {
-        const uint needed = loadAtmosphereEndpoint(uint2(pixel)).y + uint(cb.volumeArgs.fogIntegrationMode == 1);
-        lastCheckpoint = max(lastCheckpoint, needed);
+        const uint needed = loadAtmosphereEndpoint(uint2(pixel)).y + uint(!standard);
+        const bool far = standard && needed == GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY;
+        needsFarCheckpoint = needsFarCheckpoint || far;
+        lastCheckpoint = max(lastCheckpoint, far ? 0u : needed);
       }
     }
   }
-  if (lastCheckpoint == 0)
+  if (lastCheckpoint == 0 && !needsFarCheckpoint)
   {
     return;
   }
@@ -59,14 +66,22 @@ void main(uint2 column : SV_DispatchThreadID)
     : float3(0);
   AtmosphereSegment accumulated = emptyAtmosphereSegment();
   float previous = 0;
-  for (uint checkpoint = 1; checkpoint <= lastCheckpoint; checkpoint++)
+  const float farDistance = needsFarCheckpoint ? atmosphereCheckpointMaxDistance() : 0.0f;
+  uint checkpoint = 1;
+  while (checkpoint <= lastCheckpoint || needsFarCheckpoint)
   {
-    const float next = max(previous, atmosphereCheckpointDistance(ray.fogProjection, checkpoint));
+    // The far slot stores a world distance. Projected near depths can follow it on grazing rays.
+    const bool hasNear = checkpoint <= lastCheckpoint;
+    const float nearDistance = hasNear ? atmosphereCheckpointDistance(ray.fogProjection, checkpoint) : 0.0f;
+    const bool storeFar = needsFarCheckpoint && (!hasNear || farDistance <= nearDistance);
+    const float next = max(previous, storeFar ? farDistance : nearDistance);
     const AtmosphereSegment segment = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
       VolumeFilteredRadianceCoCg,
       CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, previous, next, ambient, sceneAirTables(cb.volumeArgs.air, LinearWrapSampler));
     accumulated = composeAtmosphereSegments(accumulated, segment);
-    storeAtmosphereCheckpoint(column, checkpoint, accumulated);
+    storeAtmosphereCheckpoint(column, storeFar ? GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY : checkpoint, accumulated);
+    needsFarCheckpoint = needsFarCheckpoint && !storeFar;
+    checkpoint += uint(!storeFar);
     previous = next;
   }
 }

@@ -11,7 +11,7 @@ path-traced material transport with screen-space shader-pack rendering.
 ### Air-light disk quadrature
 
 For small celestial disks wholly above the local horizon and with
-`dot(localUp, lightDirection) >= 0.3`, evaluate the transmittance LUT once at
+`dot(localUp, lightDirection) >= 0.45`, evaluate the transmittance LUT once at
 the central light direction. Retain the original four-node disk quadrature
 for grazing rays, partially occulted disks, and larger emitters.
 
@@ -60,10 +60,10 @@ fallback behavior, and optical-depth arithmetic are unchanged.
 ## Validation
 
 - `tests/rtx/unit/test_air_disk_approximation.py`: CPU regression against
-  four-point disk quadrature over 972 spherical-atmosphere cases, plus horizon,
+  four-point disk quadrature over 1,458 spherical-atmosphere cases, plus horizon,
   partial-disk, large-emitter, and per-ray phase-invariance checks.
 - Current CPU result: maximum absolute transmittance difference
-  `4.400922e-05`; maximum relative difference `6.982272e-05`.
+  `2.238397e-05`; maximum relative difference `5.963259e-05`.
 - `tests/rtx/unit/cloud_lighting_contracts.comp.slang` adds a `reusedGrid`
   entry point. `test_cloud_lighting.py` compares the reused-grid lookup and
   containment results against the existing wrappers.
@@ -113,8 +113,12 @@ exceeds the froxel range. At 1920x1080 with the standard two-pixel column
 stride this is about 13.9 MiB. The slot is reserved based on configured range,
 not current coverage/weather, so rain and cloud-cover transitions do not
 reallocate PathStorage. The shader only writes/uses the far checkpoint when an
-active cloud family is present. This is a deliberate memory/performance
-tradeoff; it does not increase the per-pixel primary atmosphere record.
+active cloud family is present. The column pass writes checkpoints in ray
+distance order because a far cloud checkpoint can precede a projected froxel
+checkpoint at grazing angles. World-space cloud columns use the same bounded
+submissions as the full-resolution atmosphere and PSR dispatches. The extra
+allocation is confined to the column buffer. The size of the per-pixel primary
+atmosphere record stays fixed.
 
 The CPU checkpoint contract verifies that all six near checkpoint positions
 remain identical, endpoint selection never chooses a checkpoint beyond the

@@ -42,7 +42,7 @@ float atmosphereCheckpointDepth(uint checkpoint)
 float atmosphereCheckpointMaxDistance()
 {
   float distance = cb.volumeArgs.froxelMaxDistance;
-  const CloudArgs clouds = cb.volumeArgs.clouds;
+  let clouds = cb.volumeArgs.clouds;
   if (clouds.enable != 0)
   {
     if (clouds.coverage > 0 || clouds.weather > 0 || clouds.thunder > 0)

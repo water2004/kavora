@@ -158,9 +158,9 @@ float3 airTransmittanceToLight(AirArgs args, AirTables tables, float height, flo
   // full quadrature for grazing rays, partially occulted disks, and non-celestial
   // emitters: those are precisely where angular variation matters most.
   // The CPU regression test bounds this branch for radii up to 0.01 rad and
-  // light cosines >= 0.3 against the existing four-point rule.
+  // light cosines >= 0.45 against the existing four-point rule.
   const float lowerBoundary = airLowerBoundaryCosine(args, height);
-  if (angularRadius <= 0.01f && cosine >= 0.3f && cosine - extent > lowerBoundary)
+  if (angularRadius <= 0.01f && cosine >= 0.45f && cosine - extent > lowerBoundary)
   {
     return airTransmittanceToSpace(args, tables, height, cosine);
   }

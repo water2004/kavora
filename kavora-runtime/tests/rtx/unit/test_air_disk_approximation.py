@@ -54,7 +54,7 @@ def disk_four_point(height, mu, alpha):
 def fast_path_applies(height, mu, alpha):
     extent = math.sin(alpha) * math.sqrt(max(0.0, 1.0 - mu * mu))
     lower = -math.sqrt(max(0.0, height * (2.0 * R + height))) / (R + height)
-    return alpha <= 0.01 and mu >= 0.3 and mu - extent > lower
+    return alpha <= 0.01 and mu >= 0.45 and mu - extent > lower
 
 
 def phase_terms(direction, light_directions, anisotropy):
@@ -77,8 +77,8 @@ class AirDiskApproximationTests(unittest.TestCase):
         tested = 0
         for height in (0.0, 1.0, 5.0, 10.0, 20.0, 40.0):
             for mu_index in range(81):
-                mu = 0.3 + 0.7 * mu_index / 80.0
-                for alpha in (0.00465, 0.009):
+                mu = 0.45 + 0.55 * mu_index / 80.0
+                for alpha in (0.00465, 0.009, 0.01):
                     if not fast_path_applies(height, mu, alpha):
                         continue
                     reference = disk_four_point(height, mu, alpha)

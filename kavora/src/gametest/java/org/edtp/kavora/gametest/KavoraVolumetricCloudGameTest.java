@@ -266,8 +266,15 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 setCloudsEnabled(context, true);
                 System.out.println("Sunset fixture ready: " + fixture + " (1920x1080 DLAA, Ultra, no FG)");
                 if (captureComparison && fixture.equals("sunset-ocean")) {
-                    captureOceanClouds(context, server, 6000, "cloud-ocean-noon");
-                    captureOceanClouds(context, server, 12750, "cloud-ocean-sunset-1845");
+                    captureOceanClouds(context, server, 6000, -8, "cloud-ocean-noon");
+                    captureOceanClouds(context, server, 12750, -8, "cloud-ocean-sunset-1845");
+                    var sunrisePose = CompletableFuture.runAsync(() -> positionOceanCamera(server, -90), server);
+                    context.waitFor(client -> sunrisePose.isDone(), 200);
+                    sunrisePose.join();
+                    waitForOceanCamera(context, -90);
+                    captureOceanClouds(context, server, 23250, 8, "cloud-ocean-sunrise-0515");
+                    KavoraWorldGameTest.require(context.computeOnClient(client -> KavoraFrameProbe.failures == 0),
+                            "Ocean cloud fixture encountered a native frame failure");
                     continue;
                 }
                 int ticks = fixture.equals("sunset-ocean") ? 12250 : 12750;
@@ -313,17 +320,25 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
     }
 
     private static void positionOceanCamera(MinecraftServer server) {
+        positionOceanCamera(server, 90);
+    }
+
+    private static void positionOceanCamera(MinecraftServer server, float yaw) {
         var player = server.getPlayerList().getPlayers().getFirst();
         player.setGameMode(GameType.CREATIVE);
         player.getAbilities().flying = true;
         player.onUpdateAbilities();
-        KavoraWorldGameTest.require(player.teleportTo(server.overworld(), .5, 75, .5, Set.of(), 90, 0, true),
+        KavoraWorldGameTest.require(player.teleportTo(server.overworld(), .5, 75, .5, Set.of(), yaw, 0, true),
                 "Cloud fixture camera teleport failed");
     }
 
     private static void waitForOceanCamera(ClientGameTestContext context) {
+        waitForOceanCamera(context, 90);
+    }
+
+    private static void waitForOceanCamera(ClientGameTestContext context, float yaw) {
         context.waitFor(client -> client.player.position().distanceToSqr(.5, 75, .5) < .01
-                && Math.abs(Mth.wrapDegrees(client.player.getYRot() - 90)) < .1
+                && Math.abs(Mth.wrapDegrees(client.player.getYRot() - yaw)) < .1
                 && Math.abs(client.player.getXRot()) < .1, 200);
     }
 
@@ -348,17 +363,21 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         context.waitFor(client -> KavoraFrameProbe.raytracedPresents >= target && KavoraMod.renderer.isSceneReady(), 2400);
     }
 
-    private static void captureOceanClouds(ClientGameTestContext context, MinecraftServer server, int ticks, String label) {
+    private static void captureOceanClouds(ClientGameTestContext context, MinecraftServer server,
+                                           int ticks, int viewChunkX, String label) {
         setFixtureTime(context, server, ticks);
         waitForOceanTerrain(context, 502);
         context.waitFor(client -> {
             var chunks = KavoraMod.renderer.getChunkManager();
             for (int z = -4; z <= 4; z++) {
-                if (!chunks.hasTerrainGeometry(-8, z)) return false;
+                if (!chunks.hasTerrainGeometry(viewChunkX, z)) return false;
             }
             return true;
         }, 2400);
+        long begin = System.nanoTime();
         waitForRaytracedPresents(context, 24);
+        System.out.println("Cloud ocean stability: tick=" + ticks + " 24 presentations in "
+                + (System.nanoTime() - begin) / 1_000_000 + " ms");
         Path screenshot = KavoraWorldGameTest.captureCompletedFrame(context, label);
         KavoraWorldGameTest.requireVisibleWorld(screenshot);
         System.out.println("Cloud ocean screenshot: tick=" + ticks + " " + screenshot);

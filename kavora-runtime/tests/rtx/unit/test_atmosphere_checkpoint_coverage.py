@@ -16,7 +16,7 @@ def checkpoint_max_distance(froxel_distance, clouds_enabled, low_active,
             distance = max(distance, low_distance)
         if high_active:
             distance = max(distance, high_distance)
-    return max(distance, 1e-3)
+    return distance
 
 
 def cloud_checkpointing_enabled(froxel_distance, clouds_enabled, low_active,
@@ -63,6 +63,7 @@ class AtmosphereCheckpointCoverageTests(unittest.TestCase):
             24_000,
         )
         self.assertFalse(cloud_checkpointing_enabled(24_000, False, True, True, 96_000, 80_000))
+        self.assertFalse(cloud_checkpointing_enabled(0, True, False, False, 96_000, 80_000))
 
     def test_cloud_range_inside_froxel_keeps_legacy_mapping(self):
         self.assertFalse(cloud_checkpointing_enabled(24_000, True, True, True, 16_000, 20_000))
@@ -109,6 +110,18 @@ class AtmosphereCheckpointCoverageTests(unittest.TestCase):
                         checkpoint, froxel_distance, 96_000, exponent
                     ) / direction_depth
                 self.assertLessEqual(checkpoint_ray_distance, ray_distance + 1e-7)
+
+    def test_far_checkpoint_can_precede_projected_near_depths(self):
+        froxel_distance = 256
+        cloud_distance = 300
+        direction_depth = 0.5
+        near = [checkpoint_distance(i, froxel_distance, cloud_distance, 4) / direction_depth
+                for i in range(1, FROXEL_CAPACITY + 1)]
+        self.assertLess(near[4], cloud_distance)
+        self.assertGreater(near[5], cloud_distance)
+        requested = list(enumerate(near, start=1)) + [(CHECKPOINT_CAPACITY, cloud_distance)]
+        ordered = sorted(requested, key=lambda checkpoint: checkpoint[1])
+        self.assertEqual(ordered[-2:], [(CHECKPOINT_CAPACITY, 300), (FROXEL_CAPACITY, 512)])
 
     def test_near_checkpoint_positions_are_unchanged(self):
         old = [(i / FROXEL_CAPACITY) ** 4 * 24_000 for i in range(FROXEL_CAPACITY + 1)]
