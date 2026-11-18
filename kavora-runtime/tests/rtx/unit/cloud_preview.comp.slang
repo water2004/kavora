@@ -50,10 +50,17 @@ Sampler3D<float4>.Handle Detail;
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
 Sampler3D<float>.Handle CloudSunDepth;
 Sampler3D<float>.Handle CloudMoonDepth;
+#if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
+Sampler3D<float4>.Handle CloudLocalLight;
+#endif
 
 CloudLightingCache previewCloudLighting()
 {
+#if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(CloudLocalLight) };
+#else
   return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base), false };
+#endif
 }
 #endif
 RWStructuredBuffer<float4> Results;
@@ -200,6 +207,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
   float3 radiance = 0;
   float transmission = 1;
   float opticalDepth = 0;
+#if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
+  const CloudRayPhase phase = createCloudRayPhase(Clouds, direction);
+#endif
   for (uint intervalIndex = 0; intervalIndex < 4; intervalIndex++)
   {
     uint nearest = 0;
@@ -250,12 +260,17 @@ void main(uint2 pixel : SV_DispatchThreadID)
       opticalDepth += extinction * (next - previous);
       if (Radiance != 0 && extinction > 0)
       {
-        accumulateCloudPreviewStep(extinction, next - previous, Clouds.albedo,
-          cloudIncidentRadiance(Clouds, position, direction, ambient, weather, base, detail
+#if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
+        const float3 incident = cloudIncidentRadiance(Clouds, position, nearest / 2, ambient, weather, base, detail,
+          previewCloudLighting(), phase);
+#else
+        const float3 incident = cloudIncidentRadiance(Clouds, position, direction, ambient, weather, base, detail
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
-            , previewCloudLighting()
+          , previewCloudLighting()
 #endif
-            ), radiance, transmission);
+          );
+#endif
+        accumulateCloudPreviewStep(extinction, next - previous, Clouds.albedo, incident, radiance, transmission);
       }
       previous = next;
     }

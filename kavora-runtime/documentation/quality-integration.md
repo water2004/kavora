@@ -21,6 +21,14 @@ directional atlas shares distant air and cloud transport between escaped rays
 within its spatial support. Fog lighting uses the same transfer combined with the
 near atmosphere. Finite light paths resolve in world space.
 
+The cloud light atlas stores vertical optical depth and the isotropic radiance
+induced by each unit celestial beam. The same field serves the primary,
+reflection, transmission and indirect rays. The local diffuse solve uses finite
+optical-depth intervals, escape through the cloud layer and attenuation by
+exterior blockers. The existing multiple-scattering control scales this field.
+View extinction and the directional single-scattering term retain their own
+optical integration.
+
 ## Offset parallax
 
 `rtx.displacement.mode = 3` selects offset-limited parallax in the existing

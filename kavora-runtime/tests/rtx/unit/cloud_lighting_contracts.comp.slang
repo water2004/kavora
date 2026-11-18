@@ -10,7 +10,7 @@ Sampler3D<float4> UnusedLocalLight;
 CloudLightingCache directionalCache()
 {
   const Sampler3D<float> depth = Sampler3D<float>(Sun);
-  return { depth, depth, UnusedLocalLight, false };
+  return { depth, depth, UnusedLocalLight };
 }
 StructuredBuffer<float4> Origins;
 StructuredBuffer<float4> Directions;

@@ -68,7 +68,7 @@ void groundBoundary(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void directionalRadiance(uint index : SV_DispatchThreadID)
+void isotropicBeam(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
   {
@@ -76,20 +76,7 @@ void directionalRadiance(uint index : SV_DispatchThreadID)
   }
   const float4 sample = Inputs[index];
   const float4 extra = ExtraInputs[index];
-  Results[index] = float4(cloudDiffuseDirectionalRadiance(sample.xy, sample.z,
-    float2(sample.w, extra.x), extra.y, extra.z, sample.w + extra.x), 0, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void columnProjection(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  Results[index] = float4(cloudLinearColumnIntegral(Inputs[index].xy, Inputs[index].zw,
-    ExtraInputs[index].x, ExtraInputs[index].y), 0, 0, 0);
+  Results[index] = float4(cloudIsotropicBeamRadiance(sample.xy, sample.z, sample.w, extra.x, extra.y), 0, 0, 0);
 }
 
 [shader("compute")]

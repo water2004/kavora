@@ -410,6 +410,9 @@ def main():
     has_lighting_cache = (shaders / 'rtx/algorithm/cloud_lighting_cache.slang').exists()
     if has_lighting_cache:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LIGHTING_CACHE'] = '1'
+    has_local_light = 'buildCloudLocalLightColumn' in (shaders / 'rtx/algorithm/clouds.slang').read_text()
+    if has_local_light:
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LOCAL_LIGHT'] = '1'
     atmosphere = None
     if args.air and (not args.atmosphere_fixture or not args.radiance):
         parser.error('--air requires --atmosphere-fixture and --radiance')
@@ -515,7 +518,7 @@ def main():
         from cloud_lighting_preview import build_lighting_cache
         lighting_bindings, lighting_resources, lighting_metadata = build_lighting_cache(
             device, clouds, textures, shaders, args.radiance and any(view != 'top' for view in views),
-            args.warmup, args.repeat)
+            args.warmup, args.repeat, include_local=has_local_light)
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {'label': args.label, 'shaderRoot': str(shaders), 'textureCache': cache,
                 'textureSources': texture_sources,

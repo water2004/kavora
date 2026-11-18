@@ -67,52 +67,38 @@ public float cloudDiffuseBeamRadiance(float2 opticalDepth, float cosine)
   return normalization * (upper + lower);
 }
 
-// Exact integral of a linear vertical extinction segment along a finite ray.
-// The horizontal case is the continuous limit and never divides by its cosine.
-public float cloudLinearColumnIntegral(float2 interval, float2 extinction, float cosine, float distance)
+// Integral of exp(-rate * t). Retain the continuous limit at rate=0.
+float cloudExponentialIntegral(float rate, float depth)
 {
-  if (cosine == 0)
+  const float x = rate * depth;
+  if (x < 0.01f)
   {
-    if (interval.x > 0 || interval.y <= 0)
-    {
-      return 0;
-    }
-    return lerp(extinction.x, extinction.y, saturate(-interval.x / (interval.y - interval.x))) * distance;
+    return depth * (1.0f - x * (0.5f - x * (1.0f / 6.0f)));
   }
-  const float2 crossings = interval / cosine;
-  const float begin = max(0.0f, min(crossings.x, crossings.y));
-  const float end = min(distance, max(crossings.x, crossings.y));
-  if (end <= begin)
-  {
-    return 0;
-  }
-  const float middleHeight = cosine * (0.5f * (begin + end));
-  const float value = lerp(extinction.x, extinction.y,
-    saturate((middleHeight - interval.x) / (interval.y - interval.x)));
-  return value * (end - begin);
+  return (1.0f - exp(-x)) / rate;
 }
 
-// Compare two estimates over the SAME finite neighborhood. Exterior blockers
-// cannot change this geometric weight: otherwise a darker external boundary
-// could switch the blend back to a brighter planar branch.
-public float cloudFiniteSideWeight(float predictedLocalDepth, float measuredLocalDepth)
+// Integrate the unit beam's first-collision source against the symmetric
+// exponential diffusion kernel on a finite interval in optical depth.
+float cloudDiffuseBeamIntegral(float2 depth, float decay)
 {
-  return saturate((predictedLocalDepth - measuredLocalDepth) / (predictedLocalDepth + 1e-5f));
+  const float sunward = exp(-min(1.0f, decay) * depth.x) * cloudExponentialIntegral(abs(1.0f - decay), depth.x);
+  const float leeward = exp(-depth.x) * cloudExponentialIntegral(1.0f + decay, depth.y);
+  return sunward + leeward;
 }
 
-// Approximate the finite neighborhood by a slab along the beam, with measured
-// optical depths on both sides. Exterior clouds supply direct-beam extinction,
-// not local diffusion. A convex blend retains the vertical slab in its planar
-// limit. This is a local-neighborhood closure, not an exact 3D transport solve.
-public float cloudDiffuseDirectionalRadiance(float2 verticalDepth, float lightCosine,
-  float2 directionalDepth, float reverseLocalDepth, float predictedLocalDepth, float lightOpticalDepth)
+// Low-order local approximation to diffuse transport from a collimated beam.
+// The first transverse vacuum mode bounds escape even for unit albedo.
+// Subtract the part that retains the beam direction over its transport depth.
+// The remaining quantity is isotropic radiance per unit incident irradiance.
+public float cloudIsotropicBeamRadiance(float2 beamDepth, float transverseDepth, float externalDepth,
+  float albedo, float meanCosine)
 {
-  const float cosine = abs(lightCosine);
-  const float2 facingDepth = lightCosine >= 0 ? verticalDepth : verticalDepth.yx;
-  const float externalDepth = cosine > 0 ? max(lightOpticalDepth - facingDepth.x / cosine, 0.0f) : 0;
-  const float planar = cloudDiffuseBeamRadiance(facingDepth, cosine) * exp(-externalDepth);
-  const float sideWeight = cloudFiniteSideWeight(predictedLocalDepth, directionalDepth.x);
-  const float side = cloudDiffuseBeamRadiance(float2(directionalDepth.x, reverseLocalDepth), 1.0f)
-    * exp(-directionalDepth.y);
-  return lerp(planar, side, sideWeight);
+  const float pi = 3.14159265359f;
+  const float escape = pi / (transverseDepth + 4.0f / 3.0f);
+  const float decay = sqrt(3.0f * (1.0f - albedo) + escape * escape);
+  const float directionMemory = albedo * (1.0f - meanCosine);
+  const float diffuse = cloudDiffuseBeamIntegral(beamDepth, decay)
+    - cloudDiffuseBeamIntegral(beamDepth, decay + directionMemory);
+  return albedo * max(diffuse, 0.0f) * exp(-externalDepth) / (4.0f * pi);
 }

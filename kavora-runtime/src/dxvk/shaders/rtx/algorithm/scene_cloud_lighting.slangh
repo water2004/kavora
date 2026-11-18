@@ -6,5 +6,5 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 
 CloudLightingCache sceneCloudLightingCache()
 {
-  return { CloudSunDepthSampler, CloudMoonDepthSampler, CloudLocalLightSampler, true };
+  return { CloudSunDepthSampler, CloudMoonDepthSampler, CloudLocalLightSampler };
 }

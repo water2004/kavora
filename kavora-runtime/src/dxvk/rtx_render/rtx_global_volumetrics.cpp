@@ -828,7 +828,9 @@ namespace dxvk {
   }
 
   void RtxGlobalVolumetrics::dispatchCloudLighting(RtxContext* ctx, const CloudArgs& clouds) {
-    if (!clouds.enable || clouds.extinction <= 0 || clouds.thickness <= 0) {
+    const bool lowClouds = clouds.extinction > 0 && clouds.thickness > 0;
+    const bool highClouds = clouds.highExtinction > 0 && clouds.highThickness > 0 && clouds.highCoverage > 0;
+    if (!clouds.enable || (!lowClouds && !highClouds)) {
       m_cloudLightOpticalDepth[0].reset();
       m_cloudLightOpticalDepth[1].reset();
       m_cloudLocalLight.reset();
@@ -855,9 +857,13 @@ namespace dxvk {
       }
       return active;
     };
+    const bool activeBeam[2] = {
+      lowClouds && lightHasEnergy(clouds.lights[0]),
+      lowClouds && lightHasEnergy(clouds.lights[1])
+    };
     const bool cacheResourcesReady =
-      (!lightHasEnergy(clouds.lights[0]) || m_cloudLightOpticalDepth[0].isValid())
-      && (!lightHasEnergy(clouds.lights[1]) || m_cloudLightOpticalDepth[1].isValid())
+      (!activeBeam[0] || m_cloudLightOpticalDepth[0].isValid())
+      && (!activeBeam[1] || m_cloudLightOpticalDepth[1].isValid())
       && m_cloudLocalLight.isValid();
     if (m_cloudLightingArgsValid && cacheResourcesReady
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
@@ -875,7 +881,7 @@ namespace dxvk {
     ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, nullptr, nullptr);
     for (uint32_t lightIndex = 0; lightIndex < 2; lightIndex++) {
       auto& opticalDepth = m_cloudLightOpticalDepth[lightIndex];
-      if (!lightHasEnergy(clouds.lights[lightIndex])) {
+      if (!activeBeam[lightIndex]) {
         opticalDepth.reset();
         continue;
       }
@@ -891,16 +897,18 @@ namespace dxvk {
       ctx->dispatch((lightExtent.width + 7) / 8, (lightExtent.height + 7) / 8, 1);
     }
     {
-      ScopedGpuProfileZone(ctx, "Cloud Local Optical Depth");
-      constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES,
+      ScopedGpuProfileZone(ctx, "Cloud Local Lighting");
+      constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_PACKED_HEIGHT,
         CLOUD_LOCAL_LIGHT_RESOLUTION };
       if (!m_cloudLocalLight.isValid()) {
-        m_cloudLocalLight = Resources::createImageResource(resourceContext, "cloud local optical depth", localExtent,
+        m_cloudLocalLight = Resources::createImageResource(resourceContext, "cloud local lighting", localExtent,
           VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
       }
+      ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, getCloudLightOpticalDepth(0), nullptr);
+      ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, getCloudLightOpticalDepth(1), nullptr);
       ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, m_cloudLocalLight.view, nullptr);
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudLocalLightShader::getShader());
-      ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, 1);
+      ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, highClouds ? 2 : 1);
     }
     m_previousCloudLightingArgs = lightingKey;
     m_cloudLightingArgsValid = true;

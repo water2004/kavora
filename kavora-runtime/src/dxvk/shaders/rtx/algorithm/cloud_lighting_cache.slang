@@ -6,14 +6,13 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
-// One density field and two cumulative integrals serve every viewing ray.
-// These tables contain optical depth, not view-dependent cloud radiance.
+// The directional tables contain beam optical depth. The altitude atlas
+// contains vertical optical depths (xy) and unit-irradiance diffuse radiance (zw).
 public struct CloudLightingCache
 {
   public Sampler3D<float> sun;
   public Sampler3D<float> moon;
   public Sampler3D<float4> local;
-  public bool hasLocal;
 };
 
 [ForceInline]
@@ -47,19 +46,37 @@ public float cloudLightingRadius(CloudArgs args)
   return max(args.maxDistance, 4.0f * args.shapeScale);
 }
 
-public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude)
+public uint cloudLocalLightHeightSamples(uint layer)
+{
+  return layer == 0 ? CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES : CLOUD_LOCAL_LIGHT_HIGH_HEIGHT_SAMPLES;
+}
+
+public uint cloudLocalLightHeightOffset(uint layer)
+{
+  return layer == 0 ? 0 : CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES;
+}
+
+float cloudLocalLightRadius(CloudArgs args, uint layer)
+{
+  return max(layer == 0 ? args.maxDistance : args.highMaxDistance, 4.0f * args.shapeScale);
+}
+
+public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude, uint layer)
 {
   const float3 relative = position - args.groundReference;
   const float2 horizontal = float2(relative.x, dot(relative, cloudSecondHorizontalAxis(args)));
-  return float3(horizontal.x, altitude, horizontal.y)
-    / float3(2 * cloudLightingRadius(args), args.thickness, 2 * cloudLightingRadius(args))
-    + float3(0.5f, -args.baseHeight / args.thickness, 0.5f);
+  const float2 uv = horizontal / (2.0f * cloudLocalLightRadius(args, layer)) + 0.5f;
+  const float layerBase = layer == 0 ? args.baseHeight : args.highBaseHeight;
+  const float thickness = layer == 0 ? args.thickness : args.highThickness;
+  const float samples = float(cloudLocalLightHeightSamples(layer));
+  // Keep interpolation within the selected shell at the top and bottom.
+  const float slice = clamp((altitude - layerBase) / thickness * samples, 0.5f, samples - 0.5f);
+  return float3(uv.x, (cloudLocalLightHeightOffset(layer) + slice) / CLOUD_LOCAL_LIGHT_PACKED_HEIGHT, uv.y);
 }
 
-public float3 cloudLocalLightPosition(CloudArgs args, float3 coordinate)
+public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude, uint layer)
 {
-  const float2 horizontal = (coordinate.xz - 0.5f) * (2 * cloudLightingRadius(args));
-  const float altitude = args.baseHeight + coordinate.y * args.thickness;
+  const float2 horizontal = (uv - 0.5f) * (2.0f * cloudLocalLightRadius(args, layer));
   const float radius = args.planetRadius + altitude;
   const float horizontalSquared = dot(horizontal, horizontal);
   const float offset = horizontalSquared / (radius + sqrt(max(0.0f, radius * radius - horizontalSquared)));
