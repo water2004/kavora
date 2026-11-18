@@ -46,9 +46,18 @@ export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b
 Use `scripts-common/export_cloud_neural_weights.py` to reproduce the packed
 float32 weights from that export. The build embeds those bytes directly.
 
+`rtx.clouds.neuralTensorCores` defaults to enabled. A Vulkan device with
+the FP16 cooperative-vector compute format uses it to bake the same field.
+The runtime converts the embedded checkpoint to the device's optimal
+inference layout once. The shared features and harmonic projection use
+float32 arithmetic. The scalar bake remains available for other devices
+and as a comparison mode.
+
 The `neuralCloudComparison` client GameTest option captures both solvers at
 matching solar times and frozen exposure in the `sunset-ocean` fixture.
 Use it with `cloudsOnly`, `sunsetRecovery` and `sunsetFixtures=sunset-ocean`.
+Use `neuralTensorProfile` with `cloudsOnly` and `cloudProfileStartFile` to
+record both neural backends with advancing time and the normal wind speed.
 
 ## Offset parallax
 

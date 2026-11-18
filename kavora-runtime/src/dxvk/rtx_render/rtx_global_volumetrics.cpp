@@ -45,8 +45,8 @@
 #include <rtx_shaders/generate_cloud_light_moon.h>
 #include <rtx_shaders/generate_cloud_local_light.h>
 #include <rtx_shaders/generate_cloud_neural_light.h>
+#include <rtx_shaders/generate_cloud_neural_light_tensor.h>
 #include <rtx_shaders/generate_cloud_sky.h>
-#include <cloud_neural_sun.bin.h>
 #include <rtx_shaders/volume_filter.h>
 #include <rtx_shaders/volume_restir_initial.h>
 #include <rtx_shaders/volume_restir_visibility.h>
@@ -97,6 +97,15 @@ namespace dxvk {
 
     class GenerateCloudNeuralLightShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudNeuralLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_neural_light)
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        RW_TEXTURE3D(CLOUD_NEURAL_OUTPUT_BINDING)
+        STRUCTURED_BUFFER(CLOUD_NEURAL_WEIGHTS_BINDING)
+      END_PARAMETER()
+    };
+
+    class GenerateCloudNeuralLightTensorShader : public ManagedShader {
+      SHADER_SOURCE(GenerateCloudNeuralLightTensorShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_neural_light_tensor)
       BEGIN_PARAMETER()
         COMMON_RAYTRACING_BINDINGS
         RW_TEXTURE3D(CLOUD_NEURAL_OUTPUT_BINDING)
@@ -876,12 +885,13 @@ namespace dxvk {
       lowClouds && lightHasEnergy(clouds.lights[1])
     };
     const bool neuralActive = clouds.neuralScattering && activeBeam[clouds.neuralScattering - 1];
+    const bool useTensor = neuralActive && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
     const bool cacheResourcesReady =
       (!activeBeam[0] || m_cloudLightOpticalDepth[0].isValid())
       && (!activeBeam[1] || m_cloudLightOpticalDepth[1].isValid())
       && m_cloudLocalLight.isValid()
       && (!neuralActive || m_cloudNeuralLight.isValid());
-    if (m_cloudLightingArgsValid && cacheResourcesReady
+    if (m_cloudLightingArgsValid && cacheResourcesReady && m_cloudLightingUsesTensor == useTensor
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
       return;
     }
@@ -928,36 +938,28 @@ namespace dxvk {
       ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, highClouds ? 2 : 1);
     }
     if (neuralActive) {
-      ScopedGpuProfileZone(ctx, "Cloud Neural Lighting");
       constexpr VkExtent3D extent { CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT * CLOUD_NEURAL_BANDS, CLOUD_NEURAL_RESOLUTION };
       if (!m_cloudNeuralLight.isValid()) {
         m_cloudNeuralLight = Resources::createImageResource(resourceContext, "cloud neural scattering", extent,
           VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
       }
-      if (!m_cloudNeuralWeights.ptr()) {
-        constexpr uint32_t width = CLOUD_NEURAL_WIDTH;
-        constexpr uint32_t weightCount = (CLOUD_NEURAL_INPUTS + 1) * width
-          + (CLOUD_NEURAL_HIDDEN_LAYERS - 1) * (width + 1) * width + width + 1
-          + (3 + 9) * CLOUD_NEURAL_DIRECTIONS;
-        static_assert(sizeof(___cloud_neural_sun) == weightCount * sizeof(float));
-        DxvkBufferCreateInfo info = {};
-        info.size = sizeof(___cloud_neural_sun);
-        info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        info.stages = VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-        info.access = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        m_cloudNeuralWeights = m_device->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-          DxvkMemoryStats::Category::RTXBuffer, "Cloud neural weights");
-        ctx->writeToBuffer(m_cloudNeuralWeights, 0, info.size, ___cloud_neural_sun);
-      }
       ctx->bindResourceView(CLOUD_NEURAL_OUTPUT_BINDING, m_cloudNeuralLight.view, nullptr);
-      ctx->bindResourceBuffer(CLOUD_NEURAL_WEIGHTS_BINDING, DxvkBufferSlice(m_cloudNeuralWeights));
-      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudNeuralLightShader::getShader());
-      ctx->dispatch(CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT, CLOUD_NEURAL_RESOLUTION);
+      ctx->bindResourceBuffer(CLOUD_NEURAL_WEIGHTS_BINDING, DxvkBufferSlice(m_cloudNeuralModel.weights(*ctx, useTensor)));
+      if (useTensor) {
+        ScopedGpuProfileZone(ctx, "Cloud Neural Tensor");
+        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudNeuralLightTensorShader::getShader());
+        ctx->dispatch(CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT, CLOUD_NEURAL_RESOLUTION);
+      } else {
+        ScopedGpuProfileZone(ctx, "Cloud Neural Scalar");
+        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudNeuralLightShader::getShader());
+        ctx->dispatch(CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT, CLOUD_NEURAL_RESOLUTION);
+      }
     } else {
       m_cloudNeuralLight.reset();
     }
     m_previousCloudLightingArgs = lightingKey;
     m_cloudLightingArgsValid = true;
+    m_cloudLightingUsesTensor = useTensor;
   }
 
   void RtxGlobalVolumetrics::dispatchCloudSky(RtxContext* ctx, const VolumeArgs& volume) {

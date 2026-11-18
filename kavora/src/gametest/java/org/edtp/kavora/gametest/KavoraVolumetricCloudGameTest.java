@@ -400,7 +400,8 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
 
     private static void profileOceanClouds(ClientGameTestContext context, Path startFile) {
         context.waitFor(client -> KavoraMod.renderer != null && KavoraMod.renderer.isInitialized(), 2400);
-        boolean fullDay = Boolean.getBoolean("kavora.gametest.cloudFullDayProfile");
+        boolean tensorProfile = Boolean.getBoolean("kavora.gametest.neuralTensorProfile");
+        boolean fullDay = tensorProfile || Boolean.getBoolean("kavora.gametest.cloudFullDayProfile");
         if (fullDay) {
             context.runOnClient(client -> {
                 client.options.renderDistance().set(16);
@@ -450,13 +451,23 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 var diagnostics = KavoraMod.renderer.getChunkManager().getTerrainDiagnostics();
                 System.out.println("KAVORA_PROFILE_TERRAIN " + diagnostics);
             });
-            measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
-            if (fullDay) {
-                prepareOceanProfileView(context, server, 23250, -90);
-                measureOceanProfileView(context, "sunrise", true);
-                prepareOceanProfileView(context, server, 12750, 90);
-                measureOceanProfileView(context, "sunset", true);
+            if (tensorProfile) {
+                try (var neural = RuntimeOptionScope.acquire(context, "rtx.clouds.neuralScattering", "true")) {
+                    profileNeuralOceanTime(context, server, 6000, 90, "noon");
+                    profileNeuralOceanTime(context, server, 23250, -90, "sunrise");
+                    profileNeuralOceanTime(context, server, 12750, 90, "sunset");
+                }
+            } else {
+                measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
+                if (fullDay) {
+                    prepareOceanProfileView(context, server, 23250, -90);
+                    measureOceanProfileView(context, "sunrise", true);
+                    prepareOceanProfileView(context, server, 12750, 90);
+                    measureOceanProfileView(context, "sunset", true);
+                }
             }
+            KavoraWorldGameTest.require(context.computeOnClient(client -> KavoraFrameProbe.failures == 0),
+                    "Ocean cloud profile encountered a native frame failure");
         } finally {
             closeCloudFixture(context, server);
         }
@@ -464,6 +475,12 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
 
     private static void prepareOceanProfileView(ClientGameTestContext context, MinecraftServer server,
                                                 int tick, float yaw) {
+        positionOceanProfileView(context, server, tick, yaw);
+        resumeOceanProfileTime(context, server);
+    }
+
+    private static void positionOceanProfileView(ClientGameTestContext context, MinecraftServer server,
+                                                 int tick, float yaw) {
         var setup = CompletableFuture.runAsync(() -> {
             server.getGameRules().set(GameRules.ADVANCE_TIME, false, server);
             positionOceanCamera(server, yaw);
@@ -473,9 +490,29 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         waitForOceanCamera(context, yaw);
         setFixtureTime(context, server, tick);
         waitForRaytracedPresents(context, 8);
+    }
+
+    private static void resumeOceanProfileTime(ClientGameTestContext context, MinecraftServer server) {
         var resume = CompletableFuture.runAsync(() -> server.getGameRules().set(GameRules.ADVANCE_TIME, true, server), server);
         context.waitFor(client -> resume.isDone(), 200);
         resume.join();
+    }
+
+    private static void profileNeuralOceanTime(ClientGameTestContext context, MinecraftServer server,
+                                               int tick, float yaw, String view) {
+        positionOceanProfileView(context, server, tick, yaw);
+        try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
+            for (boolean tensor : new boolean[] {false, true}) {
+                String variant = view + (tensor ? "-tensor" : "-scalar");
+                try (var backend = RuntimeOptionScope.acquire(context, "rtx.clouds.neuralTensorCores", Boolean.toString(tensor))) {
+                    positionOceanProfileView(context, server, tick, yaw);
+                    Path image = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-neural-" + variant);
+                    KavoraWorldGameTest.requireVisibleWorld(image);
+                    resumeOceanProfileTime(context, server);
+                    measureOceanProfileView(context, variant, false);
+                }
+            }
+        }
     }
 
     private static void measureOceanProfileView(ClientGameTestContext context, String view, boolean screenshot) {

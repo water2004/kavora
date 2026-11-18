@@ -68,6 +68,9 @@ namespace dxvk {
     // NV-DXVK start: Present metering must be enabled as a device feature.
     VkPhysicalDevicePresentMeteringFeaturesNV                  nvPresentMetering;
     // NV-DXVK end
+    // NV-DXVK start: FP16 cooperative vector inference on the graphics device.
+    uint32_t cooperativeVectorFp16Components = 0;
+    // NV-DXVK end
   };
 
 }

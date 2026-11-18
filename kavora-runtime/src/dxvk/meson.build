@@ -252,6 +252,7 @@ dxvk_src = files([
   'rtx_render/rtx_game_capturer_utils.h',
   'rtx_render/rtx_geometry_utils.cpp',
   'rtx_render/rtx_geometry_utils.h',
+  'rtx_render/rtx_cloud_neural_model.cpp',
   'rtx_render/rtx_global_volumetrics.cpp',
   'rtx_render/rtx_global_volumetrics.h',
   'shaders/rtx/utility/height_fog.h',

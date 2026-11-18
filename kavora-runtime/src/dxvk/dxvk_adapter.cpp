@@ -345,6 +345,43 @@ namespace dxvk {
     return driverStr;
   }
 
+  // NV-DXVK start: Negotiate the compute FP16 cooperative-vector format.
+  static uint32_t queryCooperativeVectorFp16(const vk::InstanceFn& instance, VkPhysicalDevice physicalDevice,
+                                           VkPhysicalDeviceCooperativeVectorFeaturesNV& feature) {
+    VkPhysicalDeviceFeatures2 features { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &feature };
+    instance.vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+    if (!feature.cooperativeVector) {
+      return 0;
+    }
+    VkPhysicalDeviceCooperativeVectorPropertiesNV limits { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_PROPERTIES_NV };
+    VkPhysicalDeviceProperties2 properties { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &limits };
+    instance.vkGetPhysicalDeviceProperties2(physicalDevice, &properties);
+    if (!(limits.cooperativeVectorSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT)) {
+      return 0;
+    }
+    const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceCooperativeVectorPropertiesNV>(
+      instance.sym("vkGetPhysicalDeviceCooperativeVectorPropertiesNV"));
+    uint32_t count = 0;
+    if (!query || query(physicalDevice, &count, nullptr) != VK_SUCCESS || !count) {
+      return 0;
+    }
+    std::vector<VkCooperativeVectorPropertiesNV> formats(count, { VK_STRUCTURE_TYPE_COOPERATIVE_VECTOR_PROPERTIES_NV });
+    if (query(physicalDevice, &count, formats.data()) != VK_SUCCESS) {
+      return 0;
+    }
+    constexpr auto fp16 = VK_COMPONENT_TYPE_FLOAT16_KHR;
+    for (uint32_t i = 0; i < count; i++) {
+      const auto& format = formats[i];
+      if (format.inputType == fp16 && format.inputInterpretation == fp16 && format.matrixInterpretation == fp16
+          && format.biasInterpretation == fp16 && format.resultType == fp16) {
+        feature.cooperativeVectorTraining = VK_FALSE;
+        return limits.maxCooperativeVectorComponents;
+      }
+    }
+    return 0;
+  }
+  // NV-DXVK end
+
   Rc<DxvkDevice> DxvkAdapter::createDevice(
     const Rc<DxvkInstance>&   instance,
     // NV-DXVK start: Shared host device creation.
@@ -481,6 +518,15 @@ namespace dxvk {
 
     // Enable additional extensions if necessary
     extensionsEnabled.merge(m_extraExtensions);
+    // NV-DXVK start: Add cooperative-vector inference to the shared logical device.
+    VkPhysicalDeviceCooperativeVectorFeaturesNV cooperativeVector { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV };
+    if (m_deviceExtensions.supports(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME) && m_deviceFeatures.vulkan12Features.shaderFloat16) {
+      enabledFeatures.cooperativeVectorFp16Components = queryCooperativeVectorFp16(*m_vki.ptr(), m_handle, cooperativeVector);
+      if (enabledFeatures.cooperativeVectorFp16Components) {
+        extensionsEnabled.add(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
+      }
+    }
+    // NV-DXVK end
     // NV-DXVK start: The device enables both clients' requested extensions.
     if (host) {
       for (uint32_t i = 0; i < host->application.enabledExtensionCount; ++i) {
@@ -576,6 +622,12 @@ namespace dxvk {
 
     enabledFeatures.vulkan12Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     enabledFeatures.vulkan12Features.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.vulkan12Features);
+
+    // NV-DXVK start: Enable the negotiated inference feature when creating the device.
+    if (enabledFeatures.cooperativeVectorFp16Components) {
+      cooperativeVector.pNext = std::exchange(enabledFeatures.core.pNext, &cooperativeVector);
+    }
+    // NV-DXVK end
 
 #ifdef _WIN64
     if (devExtensions.khrAccelerationStructure) {
