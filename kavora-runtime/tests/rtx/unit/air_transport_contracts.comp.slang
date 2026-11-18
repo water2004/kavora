@@ -62,7 +62,8 @@ void integrate(uint index : SV_DispatchThreadID)
   const AtmosphereRay ray = createAtmosphereRay<NoFog>(volume, Origins[index].xyz, Directions[index].xyz, 0, MediumExtinction);
   const float end = Origins[index].w;
   const float split = end * Directions[index].w;
-  const CloudLightingCache noCloudLighting = { Sampler3D<float>(CloudDepth), Sampler3D<float>(CloudDepth) };
+  const CloudLightingCache noCloudLighting = { Sampler3D<float>(CloudDepth), Sampler3D<float>(CloudDepth),
+    Sampler3D<float4>(Volume), false };
   const AtmosphereSegment full = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
     Sampler3D<float2>(Chroma), Sampler2D<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, end, 0, tables);

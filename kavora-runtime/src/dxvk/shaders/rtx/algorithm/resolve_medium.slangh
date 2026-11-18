@@ -37,6 +37,8 @@ import "rtx/algorithm/atmosphere.slang";
 #endif
 #ifdef RESOLVER_ATMOSPHERE_CALLABLE
 #include "rtx/pass/gbuffer/atmosphere_call.slangh"
+#else
+#include "rtx/algorithm/scene_atmosphere.slangh"
 #endif
 
 float2 resolveAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
@@ -55,18 +57,12 @@ float2 resolveAtmosphere(float3 origin, float3 direction, float distance, uint v
   data.distance = distance;
   data.volumeHint = volumeHint;
   data.mediumExtinction = mediumExtinction;
+  data.allowFarTail = mediumState == SURFACE_INDEX_INVALID;
   CallShader(0, data);
   const AtmosphereSegment segment = { data.radiance, data.transmittance, data.cloudMoments };
 #else
-  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, origin, direction,
-    volumeHint, mediumExtinction);
-  float3 ambient = ray.hasCloud
-    ? sampleCloudAmbientRadiance(cb.volumeArgs.clouds)
-    : float3(0);
-  AtmosphereSegment segment = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
-    VolumeFilteredRadianceCoCg,
-    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, 0, distance, ambient,
-    sceneAirTables(cb.volumeArgs.air, LinearWrapSampler));
+  const AtmosphereSegment segment = resolveSceneAtmosphere(origin, direction, distance, volumeHint,
+    mediumExtinction, mediumState == SURFACE_INDEX_INVALID);
 #endif
   radiance += attenuation * segment.radiance;
   attenuation *= segment.transmittance;

@@ -112,12 +112,7 @@ void main(uint2 invocation : SV_DispatchThreadID)
   state = geometryResolverBegin(ivec2(pixel));
   Ray primaryRay;
   preprocessPrimaryRayState(primaryRay, state);
-  state.origin = primaryRay.origin;
-  state.coneRadius = primaryRay.coneRadius;
-  state.direction = primaryRay.direction;
-  state.continueResolving = uint8_t(1) < cb.primaryRayMaxInteractions;
-  PrimaryResolveArgs extraArgs = { true };
-  geometryResolverVertex(extraArgs, loadPrimaryIntersection(pixel), state);
+  resolvePrimaryFirstSegment(primaryRay, state);
   if (state.continueResolving) {
     remainingDistance = max(primaryRay.tMax - state.segmentHitDistance, 0.0f);
     const uint pixelIndex = pixel.y * cb.camera.resolution.x + pixel.x;

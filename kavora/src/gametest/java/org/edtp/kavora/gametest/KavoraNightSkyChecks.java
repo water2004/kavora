@@ -39,8 +39,6 @@ final class KavoraNightSkyChecks {
             rtx.enableRayReconstruction = true
             rtx.dlfg.enable = false
             rtx.debugView.debugViewIdx = 0
-            rtx.clouds.transportMode = 1
-            rtx.clouds.skyResolution = 768
             rtx.clouds.windSpeed = 0
             """;
     private static final String MEASUREMENT = """
@@ -56,7 +54,7 @@ final class KavoraNightSkyChecks {
     private static final List<String> KEYS = List.of(NIGHT + "enabled", NIGHT + "starIntensity",
             NIGHT + "milkyWayIntensity", NIGHT + "meteorRate", NIGHT + "meteorIntensity",
             "rtx.upscalerType", "rtx.qualityDLSS", "rtx.enableRayReconstruction", "rtx.dlfg.enable",
-            "rtx.debugView.debugViewIdx", "rtx.clouds.transportMode", "rtx.clouds.skyResolution",
+            "rtx.debugView.debugViewIdx",
             "rtx.clouds.windSpeed", "rtx.clouds.coverage", "rtx.clouds.extinctionPerMeter",
             "rtx.autoExposure.autoExposureSpeed", "rtx.rngSeedWithFrameIndex", "rtx.tonemappingMode",
             "rtx.tonemap.tonemappingEnabled", "rtx.tonemap.exposureBias", "rtx.tonemap.colorGradingEnabled",
@@ -126,8 +124,7 @@ final class KavoraNightSkyChecks {
         boolean hidden = context.computeOnClient(client -> client.gui.hud.isHidden());
         boolean procedural = context.computeOnClient(client -> KavoraMod.renderer.getCloudRenderer().isProceduralClouds());
         Captures evidence = new Captures();
-        try (RuntimeOptionScope transport = RuntimeOptionScope.acquire(context, "rtx.clouds.transportMode", "1");
-             Layer display = Layer.acquire(context, "display", DISPLAY); evidence) {
+        try (Layer display = Layer.acquire(context, "display", DISPLAY); evidence) {
             context.runOnClient(client -> {
                 client.options.cloudStatus().set(CloudStatus.OFF);
                 client.options.fov().set(90);
@@ -219,8 +216,7 @@ final class KavoraNightSkyChecks {
                 dimensionCleanup(context, world, evidence);
             }
         } finally {
-            RuntimeOptionScope.apply(context, Map.of("rtx.volumetrics.maxAccumulationFrames", original.get("rtx.volumetrics.maxAccumulationFrames"),
-                    "rtx.clouds.transportMode", original.get("rtx.clouds.transportMode")));
+            RuntimeOptionScope.apply(context, Map.of("rtx.volumetrics.maxAccumulationFrames", original.get("rtx.volumetrics.maxAccumulationFrames")));
             world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server, "tick unfreeze"));
             context.runOnClient(client -> {
                 client.options.cloudStatus().set(clouds);

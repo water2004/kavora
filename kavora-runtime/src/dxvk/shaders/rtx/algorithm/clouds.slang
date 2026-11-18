@@ -5,6 +5,7 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+#include "rtx/pass/clouds/cloud_lighting_cache.h"
 
 static const float kFloatMax = 3.402823466e+38f;
 
@@ -176,23 +177,6 @@ public float cloudSampleSpacing(CloudArgs args, float3 direction, uint layer = 0
 }
 
 public static const float kOpaqueCloudTransmittance = 1e-8f;
-
-public struct VolumeCloud
-{
-  [ForceInline]
-  public static float2 interval(CloudArgs args, float3 origin, float3 direction, uint layer = 0, uint segment = 0)
-  {
-    return args.transportMode == 0
-      ? cloudLayerInterval(args, origin, direction, cloudLayerMaxDistance(args, layer), layer, segment) : float2(0);
-  }
-
-  [ForceInline]
-  public static float transmittance(CloudArgs args, float3 origin, float3 direction, float distance,
-    Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
-  {
-    return args.transportMode == 0 ? cloudTransmittance(args, origin, direction, distance, weather, base, detail) : 1.0f;
-  }
-};
 
 // Clipped prefixes share the full ray's cells and density samples.
 public struct CloudRayGrid
@@ -644,10 +628,10 @@ public float3 cloudLightIrradiance(CloudLight light, float altitude)
   return lower.rgb;
 }
 
-struct CloudLocalDepth
+public struct CloudLocalDepth
 {
-  float2 vertical;
-  float2 lightProjection;
+  public float2 vertical;
+  public float2 lightProjection;
 };
 
 void cloudAccumulateColumnSegment(inout CloudLocalDepth depth, float2 interval, float2 extinction,
@@ -666,7 +650,17 @@ void cloudAccumulateColumnSegment(inout CloudLocalDepth depth, float2 interval, 
   }
 }
 
-CloudLocalDepth cloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2D<float4> weatherSampler,
+public struct CloudLocalColumn
+{
+  public float bottom;
+  public float span;
+  public float2 lightCosine;
+  public uint steps;
+  public bool upperCloud;
+  public float extinction[CLOUD_LIGHTING_MAX_QUALITY];
+};
+
+public CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, float3 position, Sampler2D<float4> weatherSampler,
   Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
 {
   const uint layer = cloudLayerAt(args, position);
@@ -677,7 +671,7 @@ CloudLocalDepth cloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2
   const CloudDensityArgs densityArgs = cloudDensityParameters(args);
   const float altitude = cloudAltitude(densityArgs, position);
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
-  const uint steps = layer == 0 ? max(2u, args.lightSteps) : 2u;
+  const uint steps = layer == 0 ? clamp(args.lightSteps, 2u, uint(CLOUD_LIGHTING_MAX_QUALITY)) : 2u;
   const float3 coordinates = cloudCoordinates(densityArgs, position);
   CloudColumn column = {};
   float thickness = args.highThickness;
@@ -687,24 +681,38 @@ CloudLocalDepth cloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2
     column = cloudColumn(densityArgs, coordinates.xz, weatherSampler, args.thickness / float(steps));
     thickness = cloudColumnThickness(densityArgs, column);
   }
-  const float begin = cloudLayerBase(args, layer) - altitude;
-  const float span = thickness / float(steps);
-  CloudLocalDepth opticalDepth = {};
-  const float2 lightCosine = float2(dot(args.lights[0].directionToLight, radialUp),
+  CloudLocalColumn result;
+  result.bottom = cloudLayerBase(args, layer);
+  result.span = thickness / float(steps);
+  result.steps = steps;
+  result.upperCloud = layer != 0;
+  result.lightCosine = float2(dot(args.lights[0].directionToLight, radialUp),
     dot(args.lights[1].directionToLight, radialUp));
+  for (uint cell = 0; cell < steps; cell++)
+  {
+    const float height = result.bottom + (float(cell) + 0.5f) * result.span;
+    const float3 samplePosition = position + radialUp * (height - altitude);
+    result.extinction[cell] = layer == 0
+      ? args.extinction * cloudDensityInColumn(densityArgs, cloudCoordinates(densityArgs, samplePosition), column,
+          baseSampler, detailSampler, result.span, result.span)
+      : cloudExtinction(args, samplePosition, weatherSampler, baseSampler, detailSampler, 0, result.span);
+  }
+  return result;
+}
+
+public CloudLocalDepth evaluateCloudLocalColumn(CloudLocalColumn column, float altitude, float shapeScale)
+{
+  const float begin = column.bottom - altitude;
+  const float span = column.span;
+  CloudLocalDepth opticalDepth = {};
   float previousMiddle = begin;
   float previousExtinction = 0;
-  for (uint cell = 0; cell < steps; cell++)
+  for (uint cell = 0; cell < column.steps; cell++)
   {
     const float lower = begin + float(cell) * span;
     const float upper = lower + span;
-    const float3 samplePosition = position + radialUp * (0.5f * (lower + upper));
-    // The isotropic base/detail mip averages a cell-sized neighborhood around the radial column.
-    const float extinction = layer == 0
-      ? args.extinction * cloudDensityInColumn(densityArgs, cloudCoordinates(densityArgs, samplePosition), column,
-          baseSampler, detailSampler, span, span)
-      : cloudExtinction(args, samplePosition, weatherSampler, baseSampler, detailSampler, 0, span);
-    if (layer != 0)
+    const float extinction = column.extinction[cell];
+    if (column.upperCloud)
     {
       const float below = clamp(min(upper, 0.0f) - lower, 0.0f, span);
       opticalDepth.vertical += extinction * float2(span - below, below);
@@ -714,11 +722,11 @@ CloudLocalDepth cloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2
     // Adjacent fixed samples define a continuous profile, so the horizontal
     // projected ray has the same limit from either side of a column cell.
     cloudAccumulateColumnSegment(opticalDepth, float2(previousMiddle, middle),
-      float2(cell == 0 ? extinction : previousExtinction, extinction), lightCosine, args.shapeScale);
-    if (cell + 1 == steps)
+      float2(cell == 0 ? extinction : previousExtinction, extinction), column.lightCosine, shapeScale);
+    if (cell + 1 == column.steps)
     {
       cloudAccumulateColumnSegment(opticalDepth, float2(middle, upper),
-        extinction.xx, lightCosine, args.shapeScale);
+        extinction.xx, column.lightCosine, shapeScale);
     }
     previousMiddle = middle;
     previousExtinction = extinction;
@@ -726,12 +734,29 @@ CloudLocalDepth cloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2
   return opticalDepth;
 }
 
+CloudLocalDepth sampleCloudLocalOpticalDepth(CloudArgs args, float3 position, Sampler2D<float4> weatherSampler,
+  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, CloudLightingCache cache)
+{
+  if (cache.hasLocal && cloudLayerAt(args, position) == 0 && args.thickness > 0 && args.extinction > 0)
+  {
+    const float altitude = cloudAltitude(cloudDensityParameters(args), position);
+    const float3 coordinate = cloudLocalLightCoordinates(args, position, altitude);
+    if (all(coordinate >= 0) && all(coordinate <= 1))
+    {
+      const float4 depth = cache.local.SampleLevel(coordinate, 0);
+      return { depth.xy, depth.zw };
+    }
+  }
+  const CloudLocalColumn column = prepareCloudLocalColumn(args, position, weatherSampler, baseSampler, detailSampler);
+  return evaluateCloudLocalColumn(column, cloudAltitude(cloudDensityParameters(args), position), args.shapeScale);
+}
+
 public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 direction, float3 ambientRadiance,
   Sampler2D<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
 {
   float3 source = 0.0f;
-  const CloudLocalDepth localDepth = cloudLocalOpticalDepth(args, position, weatherSampler, baseSampler, detailSampler);
+  const CloudLocalDepth localDepth = sampleCloudLocalOpticalDepth(args, position, weatherSampler, baseSampler, detailSampler, cache);
   const float2 verticalDepth = localDepth.vertical;
   const float meanCosine = 0.85f * args.anisotropy - 0.15f * 0.25f;
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;

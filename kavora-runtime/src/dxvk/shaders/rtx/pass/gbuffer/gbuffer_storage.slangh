@@ -143,6 +143,14 @@ void geometryResolverStoreDlssNrControlMask(
   uvec2 pixelCoordinate,
   vec4 dlssControlMask)
 {
+#ifdef GBUFFER_PSR
+  if (cb.enableDlssNrVolumetricControlMask)
+  {
+    // Surface replacement can update the material mask but the camera-side
+    // cloud transport is already resolved in the alpha channel.
+    dlssControlMask.a = DlssNrControlMask[pixelCoordinate].a;
+  }
+#endif
   DlssNrControlMask[pixelCoordinate] = dlssControlMask;
 }
 

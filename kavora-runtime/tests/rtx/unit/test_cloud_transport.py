@@ -33,7 +33,7 @@ def cloud_parameters(**changes):
         "albedo": 1.0, "steps": 160, "lightSteps": 16,
         "anisotropy": 0.65, "multipleScattering": 0.8, "weather": 0.0,
         "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
-        "transportMode": 0, "skyResolution": 512, "night": 0.0,
+        "night": 0.0,
         "lightMaxDistance": 60000.0, "previousWindDelta": [0, 0, 0],
         "lightingNearDistance": 24000.0,
         "viewAngularFootprint": 0.0, "highBaseHeight": 6000.0,

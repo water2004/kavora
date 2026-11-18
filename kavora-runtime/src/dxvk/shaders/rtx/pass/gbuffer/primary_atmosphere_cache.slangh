@@ -2,13 +2,8 @@
 #pragma once
 
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.h"
-#include "rtx/pass/gbuffer/primary_intersection.slangh"
-#include "rtx/utility/brdf.slangh"
-import "rtx/concept/surface_material/translucent_medium.slang";
-import "rtx/algorithm/atmosphere.slang";
-import "rtx/algorithm/fog_radiance_cache.slang";
-#include "rtx/algorithm/volume_lighting.slangh"
-#include "rtx/algorithm/view_distance.slangh"
+#include "rtx/pass/gbuffer/primary_atmosphere.slangh"
+#include "rtx/utility/math.slangh"
 
 uint atmosphereColumnStride()
 {
@@ -18,204 +13,73 @@ uint atmosphereColumnStride()
 
 uint2 atmosphereColumnExtent()
 {
-  return cb.camera.resolution / atmosphereColumnStride() + 1;
+  const uint stride = atmosphereColumnStride();
+  return (cb.camera.resolution + stride - 1) / stride;
 }
 
-uint atmosphereCheckpointStride()
+// The endpoint record is private to this pixel until reconstruction overwrites it.
+void storeAtmosphereEndpoint(uint2 pixel, float distance)
 {
-  return max(8u, (uint(cb.volumeArgs.froxelDepthSlices) + GBUFFER_ATMOSPHERE_FROXEL_CHECKPOINT_CAPACITY - 1)
-    / GBUFFER_ATMOSPHERE_FROXEL_CHECKPOINT_CAPACITY);
+  PathStorage[primaryAtmosphereOffset(pixel)] = asuint(distance);
 }
 
-float atmosphereCheckpointDepth(uint checkpoint)
+float loadAtmosphereEndpoint(uint2 pixel)
 {
-  const float w = cb.volumeArgs.fogIntegrationMode == 1
-    ? float(checkpoint) / float(min(cb.volumeArgs.froxelDepthSlices, GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY))
-    : float(checkpoint * atmosphereCheckpointStride()) / float(cb.volumeArgs.froxelDepthSlices);
-  return cb.volumeArgs.cameras[0].nearPlane
-    + pow(w, cb.volumeArgs.froxelDepthSliceDistributionExponent) * cb.volumeArgs.froxelMaxDistance;
+  return asfloat(PathStorage[primaryAtmosphereOffset(pixel)]);
 }
 
-// Standard mode also transports clouds beyond the froxel fog range. Place its
-// sparse checkpoints over the complete cloud view distance so the full-resolution
-// endpoint pass does not have to ray-integrate the entire distant cloud tail.
-float atmosphereCheckpointMaxDistance()
-{
-  float distance = cb.volumeArgs.froxelMaxDistance;
-  let clouds = cb.volumeArgs.clouds;
-  if (clouds.enable != 0)
-  {
-    if (clouds.coverage > 0 || clouds.weather > 0 || clouds.thunder > 0)
-    {
-      distance = max(distance, clouds.maxDistance);
-    }
-    if (clouds.highCoverage > 0)
-    {
-      distance = max(distance, clouds.highMaxDistance);
-    }
-  }
-  return distance;
-}
-
-bool atmosphereCloudCheckpointingEnabled()
-{
-  return atmosphereCheckpointMaxDistance() > cb.volumeArgs.froxelMaxDistance;
-}
-
-float atmosphereCheckpointDistance(FogRayProjection projection, uint checkpoint)
-{
-  if (cb.volumeArgs.fogIntegrationMode != 1 && atmosphereCloudCheckpointingEnabled()
-      && checkpoint == GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY)
-  {
-    return atmosphereCheckpointMaxDistance();
-  }
-  return max(0.0f, (atmosphereCheckpointDepth(checkpoint) - projection.originDepth) / projection.directionDepth);
-}
-
-Ray primaryAtmosphereRay(uint2 pixel)
-{
-  Ray ray = rayCreatePrimaryFromPixel(cb.camera, pixel);
-  ray.spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
-  return ray;
-}
-
-float primaryAtmosphereDistance(Ray ray, RayHitInfo hit)
-{
-  if (hit.hasHit)
-  {
-    const RayInteraction interaction = rayInteractionCreate(ray, hit);
-    const Surface surface = surfaces[uint(interaction.surfaceIndex)];
-    const SurfaceInteraction point = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, interaction, ray);
-    const bool clipped = isSurfaceClipped(surface, point) && 1 < cb.primaryRayMaxInteractions;
-    if (clipped || evalViewDistance(cb.viewDistanceArgs, cb.isZUp, cb.camera, point.position))
-    {
-      return hit.hitDistance;
-    }
-  }
-  return floatMax;
-}
-
-// The endpoint record is consumed before this pixel's transfer and motion guide replace it.
-void storeAtmosphereEndpoint(uint2 pixel, RayHitInfo hit)
-{
-  const Ray ray = primaryAtmosphereRay(pixel);
-  const float distance = primaryAtmosphereDistance(ray, hit);
-  uint checkpoint;
-  if (cb.volumeArgs.fogIntegrationMode == 1)
-  {
-    const FogRayProjection projection = createFogRayProjection(cb.volumeArgs, ray.origin, ray.direction, 0);
-    const float depth = min(projection.originDepth + projection.directionDepth * distance,
-      projection.nearPlane + cb.volumeArgs.froxelMaxDistance);
-    const float w = pow(saturate((depth - projection.nearPlane) / cb.volumeArgs.froxelMaxDistance),
-      1.0f / cb.volumeArgs.froxelDepthSliceDistributionExponent);
-    const uint count = min(cb.volumeArgs.froxelDepthSlices, GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY);
-    checkpoint = min(count - 1, uint(floor(w * float(count))));
-    if (checkpoint > 0 && atmosphereCheckpointDistance(projection, checkpoint) > distance)
-    {
-      checkpoint--;
-    }
-  }
-  else if (atmosphereCloudCheckpointingEnabled()
-      && distance >= atmosphereCheckpointMaxDistance())
-  {
-    checkpoint = GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY;
-  }
-  else
-  {
-    const FogRayProjection projection = createFogRayProjection(cb.volumeArgs, ray.origin, ray.direction, 0);
-    const float depth = min(projection.originDepth + projection.directionDepth * distance,
-      projection.nearPlane + cb.volumeArgs.froxelMaxDistance);
-    const float w = pow(saturate((depth - projection.nearPlane) / cb.volumeArgs.froxelMaxDistance),
-      1.0f / cb.volumeArgs.froxelDepthSliceDistributionExponent);
-    const uint stride = atmosphereCheckpointStride();
-    checkpoint = min(uint(cb.volumeArgs.froxelDepthSlices) / stride,
-      uint(floor(w * float(cb.volumeArgs.froxelDepthSlices) / float(stride))));
-    if (checkpoint > 0 && atmosphereCheckpointDistance(projection, checkpoint) > distance)
-    {
-      checkpoint--;
-    }
-  }
-  const uint offset = primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
-  PathStorage[offset] = asuint(distance);
-  PathStorage[offset + 1] = checkpoint;
-}
-
-uint2 loadAtmosphereEndpoint(uint2 pixel)
-{
-  const uint offset = primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
-  return uint2(PathStorage[offset], PathStorage[offset + 1]);
-}
-
-// Checkpoints occupy Primary's tail slab until the dense transfer dispatch completes.
-uint atmosphereCheckpointOffset(uint2 column, uint checkpoint)
+// Endpoint transfers live in Primary's tail slab until Primary consumes the reconstructed image.
+uint atmosphereColumnEndpointOffset(uint2 column, uint endpoint)
 {
   const uint2 extent = atmosphereColumnExtent();
-  return primaryTailBase(0)
-    + ((checkpoint - 1) * extent.y * extent.x + column.y * extent.x + column.x)
-      * GBUFFER_ATMOSPHERE_CHECKPOINT_WORDS;
+  return primaryTailBase(0) + ((column.y * extent.x + column.x)
+    * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS + endpoint) * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS;
 }
 
-void storeAtmosphereCheckpoint(uint2 column, uint checkpoint, AtmosphereSegment segment)
+void storeAtmosphereColumnEndpoint(uint2 column, uint endpoint, float distance, AtmosphereSegment transfer)
 {
-  const uint offset = atmosphereCheckpointOffset(column, checkpoint);
-  PathStorage[offset] = asuint(segment.radiance.x);
-  PathStorage[offset + 1] = asuint(segment.radiance.y);
-  PathStorage[offset + 2] = asuint(segment.radiance.z);
-  PathStorage[offset + 3] = asuint(segment.transmittance.x);
-  PathStorage[offset + 4] = asuint(segment.transmittance.y);
-  PathStorage[offset + 5] = asuint(segment.transmittance.z);
-  PathStorage[offset + 6] = packCloudMoments(segment.cloudMoments);
+  const uint offset = atmosphereColumnEndpointOffset(column, endpoint);
+  PathStorage[offset] = asuint(distance);
+  storeAtmosphereTransfer(offset + 1, transfer);
 }
 
-AtmosphereSegment loadAtmosphereCheckpoint(uint2 column, uint checkpoint)
+float4 loadAtmosphereColumnDepths(uint2 column)
 {
-  const uint offset = atmosphereCheckpointOffset(column, checkpoint);
-  AtmosphereSegment segment;
-  segment.radiance = asfloat(uint3(PathStorage[offset], PathStorage[offset + 1], PathStorage[offset + 2]));
-  segment.transmittance = asfloat(uint3(PathStorage[offset + 3], PathStorage[offset + 4], PathStorage[offset + 5]));
-  segment.cloudMoments = unpackCloudMoments(PathStorage[offset + 6]);
-  return segment;
-}
-
-AtmosphereSegment interpolateAtmosphereCheckpoints(uint2 pixel, uint checkpoint)
-{
-  if (checkpoint == 0)
+  float4 depths;
+  [unroll]
+  for (uint i = 0; i < GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS; i++)
   {
-    return emptyAtmosphereSegment();
+    depths[i] = asfloat(PathStorage[atmosphereColumnEndpointOffset(column, i)]);
   }
-  const uint stride = atmosphereColumnStride();
-  const uint2 left = pixel / stride;
-  const uint2 right = min(left + 1, atmosphereColumnExtent() - 1);
-  const uint2 leftPixel = left * stride;
-  const uint2 rightPixel = min(right * stride, cb.camera.resolution - 1);
-  const float2 blend = float2(pixel - leftPixel) / float2(max(uint2(1), rightPixel - leftPixel));
-  const AtmosphereSegment a = loadAtmosphereCheckpoint(left, checkpoint);
-  const AtmosphereSegment b = loadAtmosphereCheckpoint(uint2(right.x, left.y), checkpoint);
-  const AtmosphereSegment c = loadAtmosphereCheckpoint(uint2(left.x, right.y), checkpoint);
-  const AtmosphereSegment d = loadAtmosphereCheckpoint(right, checkpoint);
-  AtmosphereSegment result;
-  result.radiance = lerp(lerp(a.radiance, b.radiance, blend.x), lerp(c.radiance, d.radiance, blend.x), blend.y);
-  result.transmittance = lerp(lerp(a.transmittance, b.transmittance, blend.x),
-    lerp(c.transmittance, d.transmittance, blend.x), blend.y);
-  result.cloudMoments = lerp(lerp(a.cloudMoments, b.cloudMoments, blend.x),
-    lerp(c.cloudMoments, d.cloudMoments, blend.x), blend.y);
-  return result;
+  return depths;
 }
 
-AtmosphereSegment samplePreintegratedAtmosphere(uint2 pixel, FogRayProjection projection,
-  float distance, uint checkpoint)
+// World-distance anchors are sorted. A finite endpoint cannot interpolate towards
+// a sky miss: the miss may include cloud and air well beyond the requested surface.
+AtmosphereSegment sampleAtmosphereColumn(uint2 column, float4 depths, float distance)
 {
-  const float begin = checkpoint ? atmosphereCheckpointDistance(projection, checkpoint) : 0.0f;
-  const float end = atmosphereCheckpointDistance(projection, checkpoint + 1);
-  const float fraction = saturate((distance - begin) / max(end - begin, 1e-6f));
-  const AtmosphereSegment from = interpolateAtmosphereCheckpoints(pixel, checkpoint);
-  const AtmosphereSegment to = interpolateAtmosphereCheckpoints(pixel, checkpoint + 1);
-  const float3 ratio = saturate(to.transmittance / max(from.transmittance, 1e-30f));
-  const float3 partial = exp(log(max(ratio, 1e-30f)) * fraction);
-  const float3 weight = select(ratio < 0.9999f, (1.0f - partial) / max(1.0f - ratio, 1e-30f), fraction.xxx);
-  AtmosphereSegment result;
-  result.radiance = from.radiance + (to.radiance - from.radiance) * weight;
-  result.transmittance = from.transmittance * partial;
-  result.cloudMoments = lerp(from.cloudMoments, to.cloudMoments, fraction);
-  return result;
+  const uint below = uint(depths.x < distance) + uint(depths.y < distance) + uint(depths.z < distance);
+  const uint offset = atmosphereColumnEndpointOffset(column, below);
+  const AtmosphereSegment to = loadAtmosphereTransfer(offset + 1);
+  if (depths[below] == distance)
+  {
+    return to;
+  }
+  const float begin = below > 0 ? depths[below - 1] : 0.0f;
+  const AtmosphereSegment from = below > 0
+    ? loadAtmosphereTransfer(offset + 1 - GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS)
+    : emptyAtmosphereSegment();
+  if (depths[below] == floatMax || distance > depths[below])
+  {
+    return depths[below] == floatMax ? from : to;
+  }
+  const float fraction = saturate((distance - begin) / max(depths[below] - begin, 1e-6f));
+  const float3 endT = saturate(to.transmittance / max(from.transmittance, 1e-30f));
+  const float3 partialT = pow(max(endT, 1e-30f), fraction);
+  const float3 weight = select(endT < 0.9999f, (1.0f - partialT) / max(1.0f - endT, 1e-30f), fraction.xxx);
+  AtmosphereSegment transfer;
+  transfer.radiance = lerp(from.radiance, to.radiance, weight);
+  transfer.transmittance = from.transmittance * partialT;
+  transfer.cloudMoments = lerp(from.cloudMoments, to.cloudMoments, fraction);
+  return transfer;
 }

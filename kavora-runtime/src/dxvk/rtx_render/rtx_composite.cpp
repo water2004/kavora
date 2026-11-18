@@ -84,7 +84,6 @@ namespace dxvk {
         SAMPLER3D(COMPOSITE_CLOUD_BASE_SAMPLER)
         SAMPLER3D(COMPOSITE_CLOUD_DETAIL_SAMPLER)
         SAMPLER2D(COMPOSITE_CLOUD_WEATHER_SAMPLER)
-        SAMPLER2D(COMPOSITE_CLOUD_SKY_SAMPLER)
 
         RW_TEXTURE2D(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ACCUMULATED_FINAL_OUTPUT_INPUT_OUTPUT)
@@ -136,13 +135,13 @@ namespace dxvk {
         SAMPLER3D(COMPOSITE_CLOUD_BASE_SAMPLER)
         SAMPLER3D(COMPOSITE_CLOUD_DETAIL_SAMPLER)
         SAMPLER2D(COMPOSITE_CLOUD_WEATHER_SAMPLER)
-        SAMPLER2D(COMPOSITE_CLOUD_SKY_SAMPLER)
         TEXTURE2D(COMPOSITE_CLOUD_AMBIENT_INPUT)
         TEXTURE2D(COMPOSITE_AIR_TRANSMITTANCE_INPUT)
         TEXTURE2D(COMPOSITE_AIR_SCATTERING_INPUT)
         SAMPLER(COMPOSITE_AIR_LINEAR_SAMPLER)
         SAMPLER3D(COMPOSITE_CLOUD_SUN_DEPTH_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
+        SAMPLER3D(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
 
         RW_TEXTURE2D(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ACCUMULATED_FINAL_OUTPUT_INPUT_OUTPUT)
@@ -412,8 +411,6 @@ namespace dxvk {
     ctx->bindResourceSampler(COMPOSITE_CLOUD_DETAIL_SAMPLER, valueNoiseSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_WEATHER_SAMPLER, ctx->getResourceManager().getCloudWeatherLut(), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_WEATHER_SAMPLER, valueNoiseSampler);
-    ctx->bindResourceView(COMPOSITE_CLOUD_SKY_SAMPLER, ctx->getCommonObjects()->metaGlobalVolumetrics().getCloudSky(), nullptr);
-    ctx->bindResourceSampler(COMPOSITE_CLOUD_SKY_SAMPLER, valueNoiseSampler);
 
     DebugView& debugView = ctx->getDevice()->getCommon()->metaDebugView();
     ctx->bindResourceView(COMPOSITE_DEBUG_VIEW_OUTPUT, debugView.getDebugOutput(), nullptr);
@@ -429,6 +426,8 @@ namespace dxvk {
     ctx->bindResourceSampler(COMPOSITE_CLOUD_SUN_DEPTH_INPUT, cloudDepthSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(1), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudDepthSampler);
+    ctx->bindResourceView(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
+    ctx->bindResourceSampler(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, cloudDepthSampler);
 
     compositeArgs.camera = sceneManager.getCamera().getShaderConstants();
     compositeArgs.frameIdx = frameIdx;

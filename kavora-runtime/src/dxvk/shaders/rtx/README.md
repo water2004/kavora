@@ -103,9 +103,9 @@ as Kavora's passes.
 | --- | --- | --- |
 | Final color grading | [`display_color_grade.slang`](pass/srgb_dither/display_color_grade.slang) | Linear post-tonemap RGB and grading values in. Linear graded RGB out. The entry point owns sRGB conversion and dither. |
 | Cloud shape and motion | [`cloud_density.slang`](utility/cloud_density.slang) | World position, selected cloud parameters, and weather, base, and detail samplers yield density. The same density feeds view rays, light visibility and the sky map. |
-| Cloud sky contribution | [`cloud_sky_transport.slang`](pass/clouds/cloud_sky_transport.slang) | Extinction, step length, albedo and incident radiance update the accumulated radiance and transmittance. The entry point owns the ray grid and termination. |
+| Sky transport atlas | [`generate_cloud_sky.comp.slang`](pass/clouds/generate_cloud_sky.comp.slang) | Integrates the far atmosphere once per direction. Fog lighting combines that result with the near segment and the sky boundary. |
 | Cloud light and visibility | [`clouds.slang`](algorithm/clouds.slang) | Cloud parameters, a world-space ray and supplied cloud samplers yield transmittance or incident radiance. |
-| Cloud sky map | [`cloud_sky.slang`](algorithm/cloud_sky.slang) | Converts world-space directions to sky-map coordinates and combines supplied cloud radiance and transmittance with the background. |
+| Cloud sky sampling | [`cloud_sky.slang`](algorithm/cloud_sky.slang) | Maps a world-space direction to the atlas and defines where the shared far transfer begins. |
 | Fog cache sampling | [`fog_radiance_cache.slang`](algorithm/fog_radiance_cache.slang) | Volume cameras, depth parameters and supplied radiance volumes yield cached fog radiance. |
 | Fog and ground mist | [`fog_medium.slang`](algorithm/fog_medium.slang) | World-space segments, medium parameters and a supplied noise texture yield extinction and scattering. The SDK adapter supplies heterogeneous base density. |
 | Atmosphere integration | [`atmosphere.slang`](algorithm/atmosphere.slang) | Integrates fog, clouds and medium extinction along a clipped ray. Receives samplers explicitly and specializes its fog provider at compile time. |

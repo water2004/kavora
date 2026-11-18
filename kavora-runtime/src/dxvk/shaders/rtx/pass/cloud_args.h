@@ -39,8 +39,6 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float thunder;
   CLOUD_PARAMETER vec3 groundReference;
   CLOUD_PARAMETER float planetRadius;
-  CLOUD_PARAMETER uint transportMode;
-  CLOUD_PARAMETER uint skyResolution;
   CLOUD_PARAMETER float night;
   CLOUD_PARAMETER float lightMaxDistance;
   CLOUD_PARAMETER vec3 previousWindDelta;
@@ -53,7 +51,7 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float groundAlbedo;
   // World-space radius of the full-resolution directional shadow field.
   CLOUD_PARAMETER float lightingNearDistance;
-  CLOUD_PARAMETER float padding4;
+  CLOUD_PARAMETER vec3 padding; // Keep the shared record aligned to 16 bytes.
 };
 
 #undef CLOUD_PARAMETER

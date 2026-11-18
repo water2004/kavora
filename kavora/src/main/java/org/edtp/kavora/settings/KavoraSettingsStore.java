@@ -181,7 +181,10 @@ public final class KavoraSettingsStore {
     private static void migrateRelease5To6(JsonObject root) {
         JsonObject selection = root.getAsJsonObject("quality");
         JsonObject values = root.getAsJsonObject("settings");
-        if (selection == null || values == null || !selection.has("base")) return;
+        if (values == null) return;
+        values.remove("clouds.transport");
+        values.remove("clouds.skyResolution");
+        if (selection == null || !selection.has("base")) return;
         JsonElement custom = selection.get("custom");
         if (custom == null || !custom.isJsonPrimitive() || !custom.getAsJsonPrimitive().isBoolean()
                 || custom.getAsBoolean()) return;

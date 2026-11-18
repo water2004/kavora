@@ -1,76 +1,56 @@
 /* SPDX-License-Identifier: MIT */
 #define RAY_TRACING_PRIMARY_RAY 1
 #define GBUFFER_FEATURE_DEBUG_VIEW 0
-import "rtx/algorithm/fog_froxel_sampling.slang";
-
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
-#include "rtx/algorithm/scene_air.slangh"
-#include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
-#include "rtx/utility/shader_types.slangh"
-#include "rtx/utility/brdf.slangh"
-
-layout(binding = GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
-SamplerState LinearWrapSampler;
-layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT)
-Sampler3D<float4> VolumeFilteredRadianceY;
-layout(binding = GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT)
-Sampler3D<float2> VolumeFilteredRadianceCoCg;
-layout(binding = GBUFFER_BINDING_SKYPROBE)
-SamplerCube<float3> SkyProbe;
-layout(push_constant)
-ConstantBuffer<GbufferPushConstants> push;
-
-#include "rtx/pass/gbuffer/primary_intersection.slangh"
-#include "rtx/pass/gbuffer/primary_atmosphere.slangh"
-#include "rtx/algorithm/environment_radiance.slangh"
-#include "rtx/algorithm/scene_cloud_lighting.slangh"
-#include "rtx/algorithm/view_distance.slangh"
-
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void main(uint2 invocation : SV_DispatchThreadID)
+void main(uint2 pixel : SV_DispatchThreadID)
 {
-  const uint2 pixel = invocation + uint2(0, push.dispatchOffsetY);
   if (any(pixel >= cb.camera.resolution))
   {
     return;
   }
-  const uint2 endpoint = loadAtmosphereEndpoint(pixel);
-  const float distance = asfloat(endpoint.x);
-  const uint checkpoint = endpoint.y;
-  const Ray cameraRay = primaryAtmosphereRay(pixel);
-  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction,
-    0, translucentMediumExtinction(cb.startInMediumMaterialIndex, surfaceMaterials));
-  if (!ray.hasFog && !ray.hasCloud && !ray.hasAir)
+  const float distance = loadAtmosphereEndpoint(pixel);
+  const uint stride = atmosphereColumnStride();
+  const uint2 center = pixel / stride;
+  const float2 sampleOffset = (float2(pixel % stride) + 0.5f) / float(stride) - 0.5f;
+  const int2 neighborDirection = int2(select(sampleOffset < 0.0f, -1, 1));
+  const float2 neighborWeight = abs(sampleOffset);
+  const uint2 last = atmosphereColumnExtent() - 1;
+
+  AtmosphereSegment result = {};
+  float weightSum = 0.0f;
+  [unroll]
+  for (uint tap = 0; tap < 4; tap++)
   {
-    storePrimaryAtmosphere(pixel, integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
-      VolumeFilteredRadianceCoCg,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, 0, distance, float3(0), sceneAirTables(cb.volumeArgs.air, LinearWrapSampler)));
-    return;
+    const int2 delta = int2(tap & 1, tap >> 1);
+    const int2 column = int2(center) + delta * neighborDirection;
+    if (any(column < 0) || any(column > int2(last)))
+    {
+      continue;
+    }
+    const float4 depths = loadAtmosphereColumnDepths(uint2(column));
+    // Never borrow a sky sample across a terrain silhouette. Only endpoints
+    // close enough in depth can contribute from another tile.
+    if (tap != 0 && (distance == floatMax ? depths.w != floatMax
+      : !any(abs(depths - distance) <= max(0.25f, distance * 0.02f))))
+    {
+      continue;
+    }
+    const AtmosphereSegment transfer = sampleAtmosphereColumn(uint2(column), depths, distance);
+    const float2 bilinear = select(delta == 0, 1.0f - neighborWeight, neighborWeight);
+    const float w = bilinear.x * bilinear.y;
+    result.radiance += transfer.radiance * w;
+    result.transmittance += transfer.transmittance * w;
+    result.cloudMoments += transfer.cloudMoments * w;
+    weightSum += w;
   }
-  const float3 ambient = ray.hasCloud
-    ? sampleCloudAmbientRadiance(cb.volumeArgs.clouds)
-    : float3(0);
-  if (cb.volumeArgs.fogIntegrationMode == 1)
-  {
-    const uint count = min(cb.volumeArgs.froxelDepthSlices, GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY);
-    const float cacheEnd = atmosphereCheckpointDistance(ray.fogProjection, count);
-    const AtmosphereSegment prefix = samplePreintegratedAtmosphere(pixel, ray.fogProjection,
-      min(distance, cacheEnd), checkpoint);
-    const AtmosphereSegment tail = distance > cacheEnd
-      ? integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg,
-          CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, cacheEnd, distance, ambient, sceneAirTables(cb.volumeArgs.air, LinearWrapSampler)) : emptyAtmosphereSegment();
-    storePrimaryAtmosphere(pixel, composeAtmosphereSegments(prefix, tail));
-    return;
-  }
-  const float begin = checkpoint == 0 ? 0.0f
-    : atmosphereCheckpointDistance(ray.fogProjection, checkpoint);
-  const AtmosphereSegment prefix = interpolateAtmosphereCheckpoints(pixel, checkpoint);
-  const AtmosphereSegment tail = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
-    VolumeFilteredRadianceCoCg,
-    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, begin, distance, ambient, sceneAirTables(cb.volumeArgs.air, LinearWrapSampler));
-  storePrimaryAtmosphere(pixel, composeAtmosphereSegments(prefix, tail));
+  const float normalizer = rcp(weightSum);
+  result.radiance *= normalizer;
+  result.transmittance *= normalizer;
+  result.cloudMoments *= normalizer;
+  storePrimaryAtmosphere(pixel, result);
 }

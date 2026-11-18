@@ -44,7 +44,7 @@ import net.minecraft.world.level.Level;
 
 /** Exercises the visual and Sodium settings transactions with native option readback. */
 final class KavoraSettingsChecks {
-    private static final String CLOUD_TRANSPORT = "rtx.clouds.transportMode";
+    private static final String CLOUD_SAMPLES = "rtx.clouds.steps";
     private static final String BOUNCES_ID = "lighting.bounces";
     private static final String[] QUALITY_SNAPSHOT_KEYS = {
         "rtx.graphicsPreset",
@@ -603,6 +603,8 @@ final class KavoraSettingsChecks {
         var ultra = new KavoraQualitySelection(QualityPreset.ULTRA, false);
         var high = new KavoraQualitySelection(QualityPreset.HIGH, false);
         var customHigh = new KavoraQualitySelection(QualityPreset.HIGH, true);
+        String highCloudSamples = KavoraQualityPresets.values(QualityPreset.HIGH).get("clouds.samples").toString();
+        String ultraCloudSamples = KavoraQualityPresets.values(QualityPreset.ULTRA).get("clouds.samples").toString();
         int highBounces = (Integer) KavoraQualityPresets.values(QualityPreset.HIGH).get(BOUNCES_ID);
         int ultraBounces = (Integer) KavoraQualityPresets.values(QualityPreset.ULTRA).get(BOUNCES_ID);
         int editedBounces = java.util.stream.IntStream.of(3, 4, 5)
@@ -612,24 +614,24 @@ final class KavoraSettingsChecks {
                 KavoraQualityPresets.apply(settings, QualityPreset.ULTRA);
                 KavoraSodiumConfig.openEffects(sodiumScreen);
             });
-            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("0"), 100);
+            context.waitFor(client -> read(CLOUD_SAMPLES).equals(ultraCloudSamples), 100);
             context.runOnClient(client -> {
                 selectQuality(client.gui.screen(), ultra, QualityPreset.HIGH);
                 requireQualityLabel(client.gui.screen(), high);
             });
             context.waitTicks(3);
             context.runOnClient(client -> {
-                require(read(CLOUD_TRANSPORT).equals("0") && settings.quality().equals(ultra),
+                require(read(CLOUD_SAMPLES).equals(ultraCloudSamples) && settings.quality().equals(ultra),
                         "Selecting High changed the committed settings before Apply");
                 press(client.gui.screen(), "gui.cancel");
                 require(client.gui.screen() == sodiumScreen, "Cancel did not return to Sodium");
                 KavoraSodiumConfig.openEffects(sodiumScreen);
                 requireQualityLabel(client.gui.screen(), ultra);
-                require(read(CLOUD_TRANSPORT).equals("0"), "Cancel changed native cloud transport");
+                require(read(CLOUD_SAMPLES).equals(ultraCloudSamples), "Cancel changed the cloud sample budget");
                 selectQuality(client.gui.screen(), ultra, QualityPreset.HIGH);
                 press(client.gui.screen(), "kavora.settings.apply");
             });
-            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("1"), 100);
+            context.waitFor(client -> read(CLOUD_SAMPLES).equals(highCloudSamples), 100);
             context.runOnClient(client -> {
                 require(settings.quality().equals(high), "Apply did not commit High");
                 require(displaySettings().equals(originalDisplay), "High changed display reconstruction or frame generation");
@@ -656,7 +658,7 @@ final class KavoraSettingsChecks {
                     && read("rtx.volumetrics.fogIntegrationPixelStride").equals("7"), 100);
             context.runOnClient(client -> {
                 require(settings.quality().equals(customHigh), "Editing a High value lost its preset source");
-                require(read(CLOUD_TRANSPORT).equals("1") && read("rtx.displacement.mode").equals("2")
+                require(read(CLOUD_SAMPLES).equals(highCloudSamples) && read("rtx.displacement.mode").equals("2")
                         && displaySettings().equals(originalDisplay), "An individual fog edit changed other quality mechanisms");
                 KavoraQualityPresets.apply(settings, QualityPreset.ULTRA);
                 require(settings.quality().equals(ultra) && setting(BOUNCES_ID).get().equals(ultraBounces),
@@ -669,7 +671,7 @@ final class KavoraSettingsChecks {
                 selectQuality(client.gui.screen(), customHigh, QualityPreset.ULTRA);
                 press(client.gui.screen(), "kavora.settings.apply");
             });
-            context.waitFor(client -> read(CLOUD_TRANSPORT).equals("0"), 100);
+            context.waitFor(client -> read(CLOUD_SAMPLES).equals(ultraCloudSamples), 100);
             context.runOnClient(client -> {
                 require(settings.quality().equals(ultra), "Ultra did not clear the custom label");
                 require(displaySettings().equals(originalDisplay), "Ultra changed display reconstruction or frame generation");

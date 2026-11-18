@@ -3,16 +3,14 @@
 
 #include "rtx/pass/gbuffer/path_storage.slangh"
 import "rtx/algorithm/atmosphere.slang";
-#include "rtx/algorithm/volume_lighting.slangh"
 
 uint primaryAtmosphereOffset(uint2 pixel)
 {
   return primaryAtmosphereBase(pixel.y * cb.camera.resolution.x + pixel.x);
 }
 
-void storePrimaryAtmosphere(uint2 pixel, AtmosphereSegment segment)
+void storeAtmosphereTransfer(uint offset, AtmosphereSegment segment)
 {
-  const uint offset = primaryAtmosphereOffset(pixel);
   PathStorage[offset] = asuint(segment.radiance.x);
   PathStorage[offset + 1] = asuint(segment.radiance.y);
   PathStorage[offset + 2] = asuint(segment.radiance.z);
@@ -22,12 +20,21 @@ void storePrimaryAtmosphere(uint2 pixel, AtmosphereSegment segment)
   PathStorage[offset + 6] = packCloudMoments(segment.cloudMoments);
 }
 
-AtmosphereSegment loadPrimaryAtmosphere(uint2 pixel)
+AtmosphereSegment loadAtmosphereTransfer(uint offset)
 {
-  const uint offset = primaryAtmosphereOffset(pixel);
   AtmosphereSegment segment;
   segment.radiance = asfloat(uint3(PathStorage[offset], PathStorage[offset + 1], PathStorage[offset + 2]));
   segment.transmittance = asfloat(uint3(PathStorage[offset + 3], PathStorage[offset + 4], PathStorage[offset + 5]));
   segment.cloudMoments = unpackCloudMoments(PathStorage[offset + 6]);
   return segment;
+}
+
+void storePrimaryAtmosphere(uint2 pixel, AtmosphereSegment segment)
+{
+  storeAtmosphereTransfer(primaryAtmosphereOffset(pixel), segment);
+}
+
+AtmosphereSegment loadPrimaryAtmosphere(uint2 pixel)
+{
+  return loadAtmosphereTransfer(primaryAtmosphereOffset(pixel));
 }

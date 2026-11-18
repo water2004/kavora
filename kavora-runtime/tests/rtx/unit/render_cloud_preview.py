@@ -520,6 +520,7 @@ def main():
     manifest = {'label': args.label, 'shaderRoot': str(shaders), 'textureCache': cache,
                 'textureSources': texture_sources,
                 'previewShaderHash': hashlib.sha256((HERE / 'cloud_preview.comp.slang').read_bytes()).hexdigest(),
+                'previewIntegralHash': hashlib.sha256((HERE / 'cloud_preview_integral.slang').read_bytes()).hexdigest(),
                 'previewDefines': support.OPTIONS['defines'],
                 'camera': args.origin, 'verticalFovDegrees': args.vfov, 'resolution': [args.width, args.height],
                 'layers': args.layers, 'radiance': bool(args.radiance),
@@ -536,7 +537,6 @@ def main():
                 'sourceHashes': {str(path.relative_to(shaders)): hashlib.sha256(path.read_bytes()).hexdigest()
                                  for path in sorted({*(shaders / 'rtx/algorithm').glob('cloud*.slang'),
                                                      *(shaders / 'rtx/utility').glob('cloud*.slang*'),
-                                                     shaders / 'rtx/pass/clouds/cloud_sky_transport.slang',
                                                      shaders / 'rtx/pass/cloud_parameters.slang',
                                                      shaders / 'rtx/utility/lat_long_projection.slang'})}}
     display_metadata(manifest, args, shaders)

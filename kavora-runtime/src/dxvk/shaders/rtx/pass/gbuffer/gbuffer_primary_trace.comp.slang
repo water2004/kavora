@@ -22,13 +22,29 @@
 
 #define RAY_TRACING_PRIMARY_RAY
 #define GBUFFER_FEATURE_DEBUG_VIEW 0
-import "rtx/algorithm/fog_froxel_sampling.slang";
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/gbuffer/primary_intersection.slangh"
 #include "rtx/algorithm/ordered_intersection.slangh"
+#include "rtx/algorithm/view_distance.slangh"
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
+
+float primaryAtmosphereDistance(Ray ray, RayHitInfo hit)
+{
+  if (hit.hasHit)
+  {
+    const RayInteraction interaction = rayInteractionCreate(ray, hit);
+    const Surface surface = surfaces[uint(interaction.surfaceIndex)];
+    const SurfaceInteraction point = surfaceInteractionCreate<SurfaceGenerateTangents>(surface, interaction, ray);
+    const bool clipped = isSurfaceClipped(surface, point) && 1 < cb.primaryRayMaxInteractions;
+    if (clipped || evalViewDistance(cb.viewDistanceArgs, cb.isZUp, cb.camera, point.position))
+    {
+      return hit.hitDistance;
+    }
+  }
+  return floatMax;
+}
 
 [shader("compute")]
 [numthreads(16, 8, 1)]
@@ -50,6 +66,6 @@ void main(uint2 pixel : SV_DispatchThreadID)
   storePrimaryIntersection(pixel, hit);
   if (cb.volumeArgs.enable || cb.volumeArgs.clouds.enable || cb.volumeArgs.air.enable)
   {
-    storeAtmosphereEndpoint(pixel, hit);
+    storeAtmosphereEndpoint(pixel, primaryAtmosphereDistance(cameraRay, hit));
   }
 }

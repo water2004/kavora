@@ -26,7 +26,7 @@ class QualityPresetTest {
     @Test
     void everyTierOwnsTheSameVisualSettings() {
         var owned = KavoraQualityPresets.values(QualityPreset.ULTRA).keySet();
-        assertTrue(owned.containsAll(Set.of("clouds.transport", "lighting.bounces")));
+        assertTrue(owned.containsAll(Set.of("clouds.samples", "lighting.bounces")));
         for (QualityPreset preset : QualityPreset.values()) {
             assertEquals(owned, KavoraQualityPresets.values(preset).keySet(), preset.id());
         }

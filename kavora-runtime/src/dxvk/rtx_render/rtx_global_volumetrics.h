@@ -31,13 +31,6 @@
 namespace dxvk {
 
   struct CloudOptions {
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, transportMode, 0u,
-      "Cloud transport. 0: World-space volumetric integration. 1: Camera-centered sky map shared by background rays. "
-      "A host-provided physical atmosphere uses world-space integration at every quality level.",
-      args.minValue = 0u, args.maxValue = 1u);
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, skyResolution, 1024u,
-      "Height of the 2:1 cloud sky map. Used only by the sky-map transport mode.",
-      args.minValue = 128u, args.maxValue = 2048u);
     RTX_OPTION_FLAG("rtx.clouds", bool, sceneEnabled, false, RtxOptionFlags::NoSave,
       "Whether the host world's current sky and cloud style allow volumetric clouds.");
     RTX_OPTION_FLAG("rtx.clouds", float, worldTimeSeconds, 0.0f, RtxOptionFlags::NoSave,
@@ -135,10 +128,10 @@ namespace dxvk {
     static void onFroxelResourceOptionsChanged(DxvkDevice* device);
 
     RTX_OPTION_ARGS("rtx.volumetrics", uint32_t, fogIntegrationMode, 0,
-      "Fog integration: 0 evaluates each primary ray's remaining segment, 1 samples a preintegrated view volume. Both retain depth-dependent visibility, height fog and scattering. Reflection and transmission segments integrate in world space.",
+      "Primary atmosphere sampling: 0 shares one integration column per 2x2 pixel block, 1 uses the configured column width. Both resolve at the scene depth.",
       args.minValue = 0u, args.maxValue = 1u);
     RTX_OPTION_ARGS("rtx.volumetrics", uint32_t, fogIntegrationPixelStride, 8,
-      "Pixel spacing of the preintegrated fog columns. Smaller spacing sharpens light-beam boundaries at additional cost. Depth sampling retains the lighting grid's nonlinear distribution.",
+      "Pixel width of a configurable atmosphere column. Smaller spacing preserves narrower light beams and cloud edges at additional cost.",
       args.minValue = 2u, args.maxValue = 32u);
 
     // Froxel Radiance Cache/Volumetric Lighting ptions
@@ -342,9 +335,9 @@ namespace dxvk {
     // Prepares shared cloud lighting and publishes sky radiance, transmittance and opacity moments.
     void dispatchCloudSky(class RtxContext* ctx, const VolumeArgs& volume);
     Rc<DxvkImageView> getCloudLightOpticalDepth(uint32_t light) const { return m_cloudLightOpticalDepth[light].view; }
+    Rc<DxvkImageView> getCloudLocalLight() const { return m_cloudLocalLight.view; }
     Rc<DxvkImageView> getCloudAmbient() const { return m_cloudAmbient.view; }
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
-    Rc<DxvkImageView> getCloudSkyDistanceMoment() const { return m_cloudSkyDistanceMoment.view; }
     
     const Resources::Resource& getCurrentVolumeReservoirs() const { return m_volumeReservoirs[0]; }
     const Resources::Resource& getPreviousVolumeReservoirs() const { return m_volumeReservoirs[1]; }
@@ -373,9 +366,9 @@ namespace dxvk {
     void dispatchCloudLighting(class RtxContext* ctx, const CloudArgs& clouds);
 
     Resources::Resource m_cloudLightOpticalDepth[2];
+    Resources::Resource m_cloudLocalLight;
     Resources::Resource m_cloudAmbient;
     Resources::Resource m_cloudSky;
-    Resources::Resource m_cloudSkyDistanceMoment;
     CloudArgs m_previousCloudLightingArgs{};
     bool m_cloudLightingArgsValid = false;
     Vector3 m_previousCloudWindOffset = Vector3(0.f);

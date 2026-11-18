@@ -7,28 +7,19 @@ reconstruction and frame generation have separate owners.
 
 ## Fog lighting integration
 
-`rtx.volumetrics.fogIntegrationMode` chooses lighting-grid ray integration
-(`0`) or a preintegrated primary-view volume (`1`). The latter keeps one
-cumulative radiance/transmittance transfer per spatial column and depth slice.
-`rtx.volumetrics.fogIntegrationPixelStride` sets the column width, from 2 to 32
-pixels. Depth resolution follows the fog depth slices, capped at 48 checkpoints.
-Both options occupy existing padding in `VolumeArgs`; the public Remix C API
-is unchanged.
+`rtx.volumetrics.fogIntegrationMode` uses two-pixel primary columns (`0`)
+or the width specified by `rtx.volumetrics.fogIntegrationPixelStride` (`1`).
+The configurable width accepts 2 to 32 pixels. A two-pixel column records
+transfer at every endpoint in its 2×2 block. Wider columns retain a bounded
+set of depth anchors with a separate sky endpoint when present.
 
-The column pass uses the existing world-space `integrateAtmosphereRange` at
-the radiance cache's depth boundaries. The dense primary pass interpolates
-transmittance exponentially in optical depth, and radiance using the matching
-Beer-Lambert scattering weight. It resolves the transfer at the actual surface
-distance. Segments beyond the finite volume use world-space integration.
-Reflection and refraction rays also retain world-space integration. All methods
-use `fogSegmentDensity` and `fogSegmentMedium`, preserving density noise,
-ground mist and the existing ray-traced lighting cache.
-
-Column prefix storage aliases Primary's existing tail slab until dense
-integration finishes. Its allocation accounts for the selected spatial stride
-and checkpoint capacity. Higher pixel strides reduce work and storage while
-softening narrow spatial features; they do not replace depth-resolved lighting
-with a uniform color over a long view segment.
+The full-resolution pass reconstructs the recorded scattering, transmittance
+and cloud distance. Neighboring columns contribute where the scene depths
+match. The input slab is reused by the ray queues after primary shading.
+Camera and wind reprojection use the existing cloud motion guides. The
+directional atlas shares distant air and cloud transport between escaped rays
+within its spatial support. Fog lighting uses the same transfer combined with the
+near atmosphere. Finite light paths resolve in world space.
 
 ## Offset parallax
 

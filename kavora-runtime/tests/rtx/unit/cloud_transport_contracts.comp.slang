@@ -3,7 +3,7 @@
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
-import "rtx/pass/clouds/cloud_sky_transport.slang";
+import "cloud_preview_integral.slang";
 import "rtx/utility/cloud_density.slang";
 
 ConstantBuffer<CloudArgs> Clouds;
@@ -19,7 +19,7 @@ uint Count;
 
 CloudLightingCache lightingCache()
 {
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth) };
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base), false };
 }
 
 [shader("compute")]
@@ -36,7 +36,7 @@ void homogeneous(uint index : SV_DispatchThreadID)
   float transmittance = 1;
   for (uint step = 0; step < steps; step++)
   {
-    accumulateCloudSkyStep(sample.x, sample.y / float(steps), sample.z, float3(1, 2, 4),
+    accumulateCloudPreviewStep(sample.x, sample.y / float(steps), sample.z, float3(1, 2, 4),
       radiance, transmittance);
   }
   Results[index] = float4(radiance, transmittance);

@@ -1,0 +1,73 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/algorithm/scene_air.slangh"
+#include "rtx/algorithm/scene_cloud_lighting.slangh"
+#include "rtx/algorithm/environment_radiance.slangh"
+#include "rtx/algorithm/volume_lighting.slangh"
+import "rtx/concept/camera/camera.slang";
+import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_sky.slang";
+
+// A cached tail begins on the plane perpendicular to its sampled ray. Shift
+// an escaped ray's local integration endpoint onto that plane before composing.
+bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distance, uint volumeHint,
+  out float begin, out float2 uv)
+{
+  begin = 0;
+  uv = 0;
+  if (distance != floatMax || volumeHint != 0
+      || !ray.hasCloud || any(ray.mediumExtinction > 0))
+  {
+    return false;
+  }
+  const float3 relative = ray.origin - cameraGetWorldPosition(cb.camera);
+  const float along = dot(relative, ray.direction);
+  begin = cloudSkyTailStart(volume) - along;
+  if (begin <= 0 || ray.intervals.ends[0] > begin)
+  {
+    return false;
+  }
+
+  float cloudEnd = 0;
+  [unroll]
+  for (uint i = 1; i <= 4; i++)
+  {
+    cloudEnd = max(cloudEnd, ray.intervals.ends[i]);
+  }
+  // Keep actual ray integration where the parallax exceeds the local cloud
+  // detail scale, or where the ray clears the clouds before the cached interval.
+  const float3 lateral = relative - along * ray.direction;
+  const float parallaxLimit = volume.clouds.shapeScale * 0.125f;
+  if (cloudEnd <= begin || dot(lateral, lateral) > parallaxLimit * parallaxLimit)
+  {
+    return false;
+  }
+  uv = cloudSkyUv(volume.clouds, ray.direction);
+  return true;
+}
+
+AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
+  float3 mediumExtinction, bool allowFarTail)
+{
+  const VolumeArgs volume = cb.volumeArgs;
+  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
+    volumeHint, mediumExtinction);
+  const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
+  float cachedBegin;
+  float2 cachedUV;
+  const bool useTail = allowFarTail && findSharedAtmosphereTail(volume, ray, distance, volumeHint, cachedBegin, cachedUV);
+  AtmosphereSegment transfer = integrateAtmosphereRange<SceneAtmosphereFog>(volume, VolumeFilteredRadianceY,
+    VolumeFilteredRadianceCoCg, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
+    sceneCloudLightingCache(), ray, 0, useTail ? cachedBegin : distance, ambient, sceneAirTables(volume.air, LinearWrapSampler));
+  if (useTail)
+  {
+    const float4 radiance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailRadianceLayer), 0);
+    const float4 transmittance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailTransmittanceLayer), 0);
+    AtmosphereSegment tail = { radiance.xyz, transmittance.xyz,
+      float2(max(0.0f, transmittance.w - radiance.w * (cloudSkyTailStart(volume) - cachedBegin)
+        / cloudMaxViewDistance(volume.clouds)), radiance.w) };
+    transfer = composeAtmosphereSegments(transfer, tail);
+  }
+  return transfer;
+}

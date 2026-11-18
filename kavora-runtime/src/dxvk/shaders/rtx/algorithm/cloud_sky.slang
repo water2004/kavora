@@ -2,6 +2,12 @@
 module cloud_sky;
 
 import "rtx/pass/cloud_parameters.slang";
+import "rtx/pass/volume_parameters.slang";
+#include "rtx/pass/clouds/cloud_sky_binding_indices.h"
+
+public static const uint kCloudSkyIrradianceLayer = 0;
+public static const uint kCloudSkyTailRadianceLayer = 1;
+public static const uint kCloudSkyTailTransmittanceLayer = 2;
 
 static const float kCloudSkyPi = 3.141592653589793f;
 public static const uint kCloudAmbientSampleCount = 8192;
@@ -46,31 +52,20 @@ public float3 cloudSkyDirection(float2 uv, float3 up)
 public float2 cloudSkyUv(CloudArgs args, float3 direction)
 {
   const float3 local = args.up.z > 0.5f ? direction.xzy : direction;
-  const float halfTexel = 0.5f / float(args.skyResolution);
+  const float halfTexel = 0.5f / float(CLOUD_SKY_RESOLUTION);
   return float2(atan2(local.z, local.x) / (2.0f * kCloudSkyPi) + 0.5f,
     clamp(acos(clamp(local.y, -1.0f, 1.0f)) / kCloudSkyPi, halfTexel, 1.0f - halfTexel));
 }
 
-public float4 sampleCloudSkyMap(CloudArgs args, Sampler2D<float4> sky, float3 direction)
+public float cloudSkyTailStart(VolumeArgs volume)
 {
-  if (!args.enable)
-  {
-    return float4(0, 0, 0, 1);
-  }
-  return sky.SampleLevel(cloudSkyUv(args, direction), 0);
+  const float fogDistance = volume.enable
+    ? max(volume.froxelMaxDistance, volume.maxAttenuationDistanceForNoAtmosphere) : 0;
+  // Leave room for paths which enter the fog interval from a secondary origin.
+  return fogDistance + volume.clouds.shapeScale;
 }
 
-public float4 sampleCloudSky(CloudArgs args, Sampler2D<float4> sky, float3 direction)
+public float3 sampleCloudSkyIncidentRadiance(CloudArgs args, Sampler2DArray<float4> sky, float3 direction)
 {
-  return args.transportMode == 1 ? sampleCloudSkyMap(args, sky, direction) : float4(0, 0, 0, 1);
-}
-
-public float3 composeCloudSky(float4 cloud, float3 background)
-{
-  return cloud.rgb + cloud.a * background;
-}
-
-public float3 applyCloudSky(CloudArgs args, Sampler2D<float4> sky, float3 direction, float3 background)
-{
-  return composeCloudSky(sampleCloudSky(args, sky, direction), background);
+  return sky.SampleLevel(float3(cloudSkyUv(args, direction), kCloudSkyIrradianceLayer), 0).rgb;
 }

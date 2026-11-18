@@ -58,8 +58,9 @@
 #define BINDING_CLOUD_SKY_SAMPLER                26
 #define BINDING_CLOUD_SUN_DEPTH_INPUT            27
 #define BINDING_CLOUD_MOON_DEPTH_INPUT           28
+#define BINDING_CLOUD_LOCAL_LIGHT_INPUT          29
 
-#define COMMON_MAX_BINDING                       BINDING_CLOUD_MOON_DEPTH_INPUT
+#define COMMON_MAX_BINDING                       BINDING_CLOUD_LOCAL_LIGHT_INPUT
 #define COMMON_NUM_BINDINGS                      (COMMON_MAX_BINDING + 1)
 
 // Note: Used to represent a non-existent buffer
@@ -105,9 +106,10 @@
   SAMPLER3D(BINDING_CLOUD_DETAIL_SAMPLER)                            \
   TEXTURE2D(BINDING_CLOUD_AMBIENT_INPUT)                            \
   SAMPLER2D(BINDING_CLOUD_WEATHER_SAMPLER)                      \
-  SAMPLER2D(BINDING_CLOUD_SKY_SAMPLER)                              \
+  SAMPLER2DARRAY(BINDING_CLOUD_SKY_SAMPLER)                         \
   SAMPLER3D(BINDING_CLOUD_SUN_DEPTH_INPUT)                         \
   SAMPLER3D(BINDING_CLOUD_MOON_DEPTH_INPUT)                        \
+  SAMPLER3D(BINDING_CLOUD_LOCAL_LIGHT_INPUT)                       \
   RW_STRUCTURED_BUFFER(BINDING_SAMPLER_READBACK_BUFFER)             \
   STRUCTURED_BUFFER(BINDING_LIGHT_IDENTITY_BUFFER)                  \
   STRUCTURED_BUFFER(BINDING_VOXEL_COVERAGE_BUFFER)

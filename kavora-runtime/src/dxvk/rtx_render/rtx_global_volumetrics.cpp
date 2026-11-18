@@ -42,6 +42,7 @@
 #include <rtx_shaders/generate_cloud_ambient.h>
 #include <rtx_shaders/generate_cloud_light_sun.h>
 #include <rtx_shaders/generate_cloud_light_moon.h>
+#include <rtx_shaders/generate_cloud_local_light.h>
 #include <rtx_shaders/generate_cloud_sky.h>
 #include <rtx_shaders/volume_filter.h>
 #include <rtx_shaders/volume_restir_initial.h>
@@ -80,6 +81,17 @@ namespace dxvk {
 
     PREWARM_SHADER_PIPELINE(GenerateCloudMoonShader);
 
+    class GenerateCloudLocalLightShader : public ManagedShader {
+      SHADER_SOURCE(GenerateCloudLocalLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_local_light)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        RW_TEXTURE3D(CLOUD_LIGHTING_BINDING_OUTPUT)
+      END_PARAMETER()
+    };
+
+    PREWARM_SHADER_PIPELINE(GenerateCloudLocalLightShader);
+
     class GenerateCloudAmbientShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudAmbientShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_ambient)
       BINDLESS_ENABLED()
@@ -98,8 +110,9 @@ namespace dxvk {
       BINDLESS_ENABLED()
       BEGIN_PARAMETER()
         COMMON_RAYTRACING_BINDINGS
-        RW_TEXTURE2D(CLOUD_SKY_BINDING_OUTPUT)
-        RW_TEXTURE2D(CLOUD_SKY_BINDING_DISTANCE_MOMENT_OUTPUT)
+        RW_TEXTURE2DARRAY(CLOUD_SKY_BINDING_OUTPUT)
+        SAMPLERCUBE(CLOUD_SKY_BINDING_PROBE)
+        SAMPLER(CLOUD_SKY_BINDING_AIR_SAMPLER)
       END_PARAMETER()
     };
 
@@ -647,9 +660,6 @@ namespace dxvk {
     const float cloudWorldScale = RtxOptions::getMeterToWorldUnitScale();
     auto& clouds = volumeArgs.clouds;
     clouds.enable = CloudOptions::sceneEnabled();
-    clouds.transportMode = volumeArgs.air.enable ? 0u : CloudOptions::transportMode();
-    // World-space view rays integrate clouds directly. Fog lighting only needs a low-frequency sky map.
-    clouds.skyResolution = clouds.transportMode == 1 ? CloudOptions::skyResolution() : 64u;
     const auto renderExtent = m_device->getCommon()->getResources().getDownscaleDimensions();
     clouds.viewAngularFootprint = 2.0f * std::tan(mainCamera.getFov() * 0.5f) / float(std::max(renderExtent.height, 1u));
     clouds.up = RtxOptions::zUp() ? Vector3(0, 0, 1) : Vector3(0, 1, 0);
@@ -821,6 +831,7 @@ namespace dxvk {
     if (!clouds.enable || clouds.extinction <= 0 || clouds.thickness <= 0) {
       m_cloudLightOpticalDepth[0].reset();
       m_cloudLightOpticalDepth[1].reset();
+      m_cloudLocalLight.reset();
       m_cloudLightingArgsValid = false;
       return;
     }
@@ -846,7 +857,8 @@ namespace dxvk {
     };
     const bool cacheResourcesReady =
       (!lightHasEnergy(clouds.lights[0]) || m_cloudLightOpticalDepth[0].isValid())
-      && (!lightHasEnergy(clouds.lights[1]) || m_cloudLightOpticalDepth[1].isValid());
+      && (!lightHasEnergy(clouds.lights[1]) || m_cloudLightOpticalDepth[1].isValid())
+      && m_cloudLocalLight.isValid();
     if (m_cloudLightingArgsValid && cacheResourcesReady
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
       return;
@@ -860,16 +872,10 @@ namespace dxvk {
     ctx->bindCommonRayTracingResources();
     ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, nullptr, nullptr);
     ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, nullptr, nullptr);
+    ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, nullptr, nullptr);
     for (uint32_t lightIndex = 0; lightIndex < 2; lightIndex++) {
-      const auto& light = clouds.lights[lightIndex];
-      bool active = light.irradiance.x > 0 || light.irradiance.y > 0 || light.irradiance.z > 0;
-      if (light.hasRadianceProfile) {
-        for (const auto& sample : light.radianceProfile) {
-          active |= sample.x > 0 || sample.y > 0 || sample.z > 0;
-        }
-      }
       auto& opticalDepth = m_cloudLightOpticalDepth[lightIndex];
-      if (!active) {
+      if (!lightHasEnergy(clouds.lights[lightIndex])) {
         opticalDepth.reset();
         continue;
       }
@@ -884,6 +890,18 @@ namespace dxvk {
         lightIndex == 0 ? GenerateCloudSunShader::getShader() : GenerateCloudMoonShader::getShader());
       ctx->dispatch((lightExtent.width + 7) / 8, (lightExtent.height + 7) / 8, 1);
     }
+    {
+      ScopedGpuProfileZone(ctx, "Cloud Local Optical Depth");
+      constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES,
+        CLOUD_LOCAL_LIGHT_RESOLUTION };
+      if (!m_cloudLocalLight.isValid()) {
+        m_cloudLocalLight = Resources::createImageResource(resourceContext, "cloud local optical depth", localExtent,
+          VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
+      }
+      ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, m_cloudLocalLight.view, nullptr);
+      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudLocalLightShader::getShader());
+      ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, 1);
+    }
     m_previousCloudLightingArgs = lightingKey;
     m_cloudLightingArgsValid = true;
   }
@@ -894,7 +912,6 @@ namespace dxvk {
     if (!clouds.enable) {
       m_cloudAmbient.reset();
       m_cloudSky.reset();
-      m_cloudSkyDistanceMoment.reset();
       return;
     }
     const auto clampSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
@@ -917,23 +934,18 @@ namespace dxvk {
       ctx->dispatch(1, 1, 1);
       ctx->bindResourceView(BINDING_CLOUD_AMBIENT_INPUT, m_cloudAmbient.view, nullptr);
     }
-    if (clouds.transportMode != 1 && !volume.enable) {
-      m_cloudSky.reset();
-      m_cloudSkyDistanceMoment.reset();
-      return;
-    }
     ScopedGpuProfileZone(ctx, "Cloud Sky Generation");
-    const VkExtent3D extent { clouds.skyResolution * 2, clouds.skyResolution, 1 };
-    if (!m_cloudSky.isValid() || m_cloudSky.image->info().extent != extent) {
+    constexpr VkExtent3D extent { CLOUD_SKY_RESOLUTION * 2, CLOUD_SKY_RESOLUTION, 1 };
+    if (!m_cloudSky.isValid()) {
       Rc<DxvkContext> resourceContext = ctx;
       m_cloudSky = Resources::createImageResource(resourceContext, "cloud sky radiance and transmittance", extent,
-        VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
-      m_cloudSkyDistanceMoment = Resources::createImageResource(resourceContext, "cloud sky distance moment", extent,
-        VK_FORMAT_R16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
+        VK_FORMAT_R16G16B16A16_SFLOAT, CLOUD_SKY_LAYER_COUNT, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY);
     }
     ctx->bindCommonRayTracingResources();
     ctx->bindResourceView(CLOUD_SKY_BINDING_OUTPUT, m_cloudSky.view, nullptr);
-    ctx->bindResourceView(CLOUD_SKY_BINDING_DISTANCE_MOMENT_OUTPUT, m_cloudSkyDistanceMoment.view, nullptr);
+    ctx->bindResourceView(CLOUD_SKY_BINDING_PROBE, ctx->getResourceManager().getSkyProbe(ctx).view, nullptr);
+    ctx->bindResourceSampler(CLOUD_SKY_BINDING_PROBE, clampSampler);
+    ctx->bindResourceSampler(CLOUD_SKY_BINDING_AIR_SAMPLER, wrapSampler);
     ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudSkyShader::getShader());
     ctx->dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
   }

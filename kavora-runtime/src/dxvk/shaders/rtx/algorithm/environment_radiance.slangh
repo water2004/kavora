@@ -3,7 +3,6 @@
 
 #include "rtx/concept/light/light_helper.slangh"
 import "rtx/pass/cloud_parameters.slang";
-import "rtx/algorithm/cloud_sky.slang";
 
 float3 sampleEnvironmentRadiance(DomeLightArgs dome, float brightness, SamplerCube<float3> probe,
   SamplerState sampler, float3 direction)
@@ -27,15 +26,13 @@ float3 sampleCloudAmbientRadiance(CloudArgs clouds)
 
 float3 sampleIndirectEnvironmentRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler)
 {
-  // The sky map carries the cloud-scattered radiance for an escaped path.
-  // World-space cloud transport has already integrated it in resolveAtmosphere.
+  // World-space transport has already composed any cached sky tail for this ray.
   DomeLightArgs dome = cb.domeLightArgs;
   if (cb.volumeArgs.air.enable)
   {
     dome.textureIndex = dome.boundaryTextureIndex;
   }
-  return applyCloudSky(cb.volumeArgs.clouds, CloudSkySampler, direction,
-    sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction));
+  return sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction);
 }
 
 // Analytic emitters already participate in direct-light sampling. Their visible disks
@@ -44,8 +41,4 @@ float3 sampleClearBackgroundRadiance(float3 direction, SamplerCube<float3> probe
   DomeLightArgs dome = cb.domeLightArgs;
   dome.textureIndex = cb.volumeArgs.air.enable ? dome.backgroundBoundaryTextureIndex : dome.backgroundTextureIndex;
   return sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction);
-}
-
-float3 sampleBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
-  return applyCloudSky(cb.volumeArgs.clouds, CloudSkySampler, direction, sampleClearBackgroundRadiance(direction, probe, sampler));
 }

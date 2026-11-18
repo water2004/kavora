@@ -6,6 +6,7 @@
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
 #include "rtx/algorithm/resolve_medium.slangh"
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_sky.slang";
 
 float3 volumeLightAttenuation(Ray ray)
 {
@@ -86,10 +87,9 @@ SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 
       direction = sampleVolumeSkyDirection(cell, sample.solidAnglePdf);
       sample.position = volume.position + direction;
       sample.normal = -direction;
-      const float3 dome = sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness,
-        VolumeSkyProbe, VolumeSkySampler, direction);
-      sample.radiance = cb.volumeArgs.enable
-        ? composeCloudSky(sampleCloudSkyMap(cb.volumeArgs.clouds, CloudSkySampler, direction), dome) : dome;
+      sample.radiance = cb.volumeArgs.enable && cb.volumeArgs.clouds.enable
+        ? sampleCloudSkyIncidentRadiance(cb.volumeArgs.clouds, CloudSkySampler, direction)
+        : sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, VolumeSkyProbe, VolumeSkySampler, direction);
       if (!any(sample.radiance > 0))
       {
         continue;

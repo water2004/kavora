@@ -258,7 +258,7 @@ void geometryPSRResolverVertex(
   }
   else
   {
-    segment.emission += sampleBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler) * segment.attenuation;
+    segment.emission += sampleClearBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler) * segment.attenuation;
   }
 
   accumulateGBufferSegment(segment, geometryPSRResolverState.radiance, geometryPSRResolverState.attenuation);

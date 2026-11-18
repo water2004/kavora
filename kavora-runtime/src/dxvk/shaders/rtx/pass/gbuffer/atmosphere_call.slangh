@@ -10,6 +10,7 @@ struct AtmosphereCallData
   float3 direction;
   uint volumeHint;
   float3 mediumExtinction;
+  bool allowFarTail;
   float3 radiance;
   float3 transmittance;
   float2 cloudMoments;

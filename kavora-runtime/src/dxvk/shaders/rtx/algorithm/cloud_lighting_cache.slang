@@ -12,6 +12,8 @@ public struct CloudLightingCache
 {
   public Sampler3D<float> sun;
   public Sampler3D<float> moon;
+  public Sampler3D<float4> local;
+  public bool hasLocal;
 };
 
 [ForceInline]
@@ -43,6 +45,26 @@ float3 cloudSecondHorizontalAxis(CloudArgs args)
 public float cloudLightingRadius(CloudArgs args)
 {
   return max(args.maxDistance, 4.0f * args.shapeScale);
+}
+
+public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude)
+{
+  const float3 relative = position - args.groundReference;
+  const float2 horizontal = float2(relative.x, dot(relative, cloudSecondHorizontalAxis(args)));
+  return float3(horizontal.x, altitude, horizontal.y)
+    / float3(2 * cloudLightingRadius(args), args.thickness, 2 * cloudLightingRadius(args))
+    + float3(0.5f, -args.baseHeight / args.thickness, 0.5f);
+}
+
+public float3 cloudLocalLightPosition(CloudArgs args, float3 coordinate)
+{
+  const float2 horizontal = (coordinate.xz - 0.5f) * (2 * cloudLightingRadius(args));
+  const float altitude = args.baseHeight + coordinate.y * args.thickness;
+  const float radius = args.planetRadius + altitude;
+  const float horizontalSquared = dot(horizontal, horizontal);
+  const float offset = horizontalSquared / (radius + sqrt(max(0.0f, radius * radius - horizontalSquared)));
+  return args.groundReference + float3(horizontal.x, 0, 0) + horizontal.y * cloudSecondHorizontalAxis(args)
+    + args.up * (altitude - offset);
 }
 
 public struct CloudLightGrid

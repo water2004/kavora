@@ -50,7 +50,6 @@ import "rtx/algorithm/atmosphere.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/utility/lat_long_projection.slang";
 #include "rtx/algorithm/volume_lighting.slangh"
-import "rtx/algorithm/cloud_sky.slang";
 #include "rtx/algorithm/accumulate.slangh"
 #include "rtx/pass/sparse_rendering/sparse_rendering.slangh"
 #include "rtx/pass/sparse_rendering/compact_active_pixels.slangh"
@@ -528,6 +527,7 @@ vec4 compositeResult(
   GeometryFlags geometryFlags,
   float primaryLinearViewZ,
   bool primaryMiss,
+  float primaryCloudTransmittance,
   out float controlMaskTransmittance)
 {
   // Load GBuffer Information.
@@ -611,19 +611,12 @@ vec4 compositeResult(
   radianceOutput += sharedRadiance;
 
   vec3 controlMaskVolumeAttenuation = vec3(1);
-  if (cb.enableDlssNrVolumetricControlMask || cb.debugViewIdx == DEBUG_VIEW_PRIMARY_VOLUME_TRANSMITTANCE
-      || cb.debugViewIdx == DEBUG_VIEW_CLOUD_TRANSMITTANCE)
+  if (cb.enableDlssNrVolumetricControlMask || cb.debugViewIdx == DEBUG_VIEW_PRIMARY_VOLUME_TRANSMITTANCE)
   {
-    float distance = primaryMiss ? floatMax : viewDistance;
     float3 origin = cameraGetWorldPosition(cb.camera);
-    float cloudAttenuation = cb.volumeArgs.clouds.transportMode == 0
-      ? cloudTransmittance(cb.volumeArgs.clouds, origin, primaryRayDirections.worldDirection, distance,
-        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler)
-      : (primaryMiss ? sampleCloudSky(cb.volumeArgs.clouds, CloudSkySampler, primaryRayDirections.worldDirection).a : 1.0f);
     vec3 fogAttenuation = calcVolumetricAttenuation(cb.volumeArgs, none, primaryMiss, viewDistance, origin, primaryRayDirections.worldDirection);
-    controlMaskVolumeAttenuation = fogAttenuation * cloudAttenuation;
+    controlMaskVolumeAttenuation = fogAttenuation * primaryCloudTransmittance;
     if (cb.debugViewIdx == DEBUG_VIEW_PRIMARY_VOLUME_TRANSMITTANCE) storeInDebugView(pixelCoordinate, fogAttenuation);
-    if (cb.debugViewIdx == DEBUG_VIEW_CLOUD_TRANSMITTANCE) storeInDebugView(pixelCoordinate, cloudAttenuation);
   }
   if (cb.debugViewIdx == DEBUG_VIEW_CLOUD_LIGHT_IRRADIANCE)
   {
@@ -705,15 +698,15 @@ void main(uint2 threadIndex : SV_DispatchThreadID, uint2 localIndex : SV_GroupTh
   }
 
   float controlMaskTransmittance;
+  const float4 surfaceControlMask = cb.enableDlssNrVolumetricControlMask ? DlssNrControlMask[pixelCoordinate] : 1.0f.xxxx;
   vec4 finalOutput = compositeResult(
     pixelCoordinate, compactedCoordinate, pixelIsActive, geometryFlags, primaryLinearViewZ, primaryMiss,
-    controlMaskTransmittance);
+    surfaceControlMask.a, controlMaskTransmittance);
 
   if (cb.enableDlssNrVolumetricControlMask)
   {
     // Fog and alpha-blended volumetrics carry no stable surface detail for DLSS-NR to enhance.
     // Transmittance preserves the surface controls in clear regions and suppresses them as fog becomes opaque.
-    const vec4 surfaceControlMask = DlssNrControlMask[pixelCoordinate];
     DlssNrControlMask[pixelCoordinate] = vec4(surfaceControlMask.rgb * controlMaskTransmittance, 1.f);
   }
 

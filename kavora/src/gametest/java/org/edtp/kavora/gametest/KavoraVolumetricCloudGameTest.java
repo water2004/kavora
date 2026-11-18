@@ -52,7 +52,6 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         String originalDlssPreset = context.computeOnClient(client -> KavoraMod.renderer.getRemixApi()
                 .getConfigVariableResolved("rtx.dlssPreset"));
         String[] controls = {"rtx.upscalerType", "rtx.qualityDLSS", "rtx.enableRayReconstruction", "rtx.sparseRendering.enableSparseRendering",
-                "rtx.clouds.transportMode",
                 "rtx.dlfg.enable", "rtx.clouds.windSpeed", "rtx.clouds.lightSteps", "rtx.clouds.multipleScattering", "rtx.autoExposure.autoExposureSpeed",
                 "rtx.captureDebugImage", "rtx.captureNextFrame",
                 "rtx.debugView.debugViewIdx", "rtx.debugView.maxValue", "rtx.debugView.replaceCompositeOutput"};
@@ -85,7 +84,6 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 api.setConfigVariable("rtx.qualityDLSS", "5");
                 api.setConfigVariable("rtx.enableRayReconstruction", "true");
                 api.setConfigVariable("rtx.sparseRendering.enableSparseRendering", "true");
-                api.setConfigVariable("rtx.clouds.transportMode", "0");
                 api.setConfigVariable("rtx.dlfg.enable", "false");
                 api.setConfigVariable("rtx.clouds.windSpeed", "0");
                 api.setConfigVariable("rtx.debugView.debugViewIdx", "0");
@@ -98,7 +96,6 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                         && api.getConfigVariableResolved("rtx.qualityDLSS").equals("5")
                         && api.getConfigVariableResolved("rtx.enableRayReconstruction").equalsIgnoreCase("true")
                         && api.getConfigVariableResolved("rtx.sparseRendering.enableSparseRendering").equalsIgnoreCase("true")
-                        && cloudValue("transportMode") == 0
                         && api.getConfigVariableResolved("rtx.dlfg.enable").equalsIgnoreCase("false")
                         && api.getConfigVariableResolved("rtx.debugView.debugViewIdx").equals("0")
                         && cloudValue("windSpeed") == 0;
@@ -112,7 +109,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             if (Boolean.getBoolean("kavora.gametest.cloudWorldSpace")) {
                 checkCameraTranslation(context, world, base - 260);
                 if (System.getenv("RTX_DLFG_CAPTURE_PATH") != null) {
-                    captureSkyMapFrameGeneration(context, world, base - 260);
+                    captureCloudFrameGeneration(context, world, base - 260);
                 }
                 return;
             }
@@ -236,7 +233,6 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             api.setConfigVariable("rtx.dlfg.enable", "false");
             api.setConfigVariable("rtx.display.hdrMode", "0");
             api.setConfigVariable("rtx.gbuffer.logDispatch", "true");
-            api.setConfigVariable("rtx.clouds.transportMode", "0");
             api.setConfigVariable("rtx.clouds.windSpeed", "0");
             KavoraMod.renderer.getCloudRenderer().setProceduralClouds(true);
             client.options.cloudStatus().set(CloudStatus.FANCY);
@@ -353,8 +349,8 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         context.waitFor(client -> {
             var chunks = KavoraMod.renderer.getChunkManager();
             var terrain = chunks.getTerrainDiagnostics();
-            return terrain.columnsWithGeometry() >= minimumColumns && terrain.columnsMissingGeometry() == 0
-                    && terrain.pendingBuilds() == 0 && terrain.readyMeshes() == 0 && terrain.captureQueue() == 0;
+            return terrain.columnsPublished() >= minimumColumns && terrain.columnsWithGeometry() > 0
+                    && terrain.columnsMissingGeometry() == 0;
         }, 2400);
     }
 
@@ -385,8 +381,28 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
 
     private static void profileOceanClouds(ClientGameTestContext context, Path startFile) {
         context.waitFor(client -> KavoraMod.renderer != null && KavoraMod.renderer.isInitialized(), 2400);
+        boolean fullDay = Boolean.getBoolean("kavora.gametest.cloudFullDayProfile");
+        if (fullDay) {
+            context.runOnClient(client -> {
+                client.options.renderDistance().set(16);
+                client.options.pauseOnLostFocus = false;
+                UnfocusedFramerateLimit.set(UnfocusedFramerateLimit.UNLIMITED);
+                if (!client.gui.hud.isHidden()) client.gui.hud.toggle();
+            });
+        }
         MinecraftServer server = openCloudFixture(context, "sunset-ocean", true);
         try {
+            if (fullDay) {
+                context.runOnClient(client -> {
+                    var api = KavoraMod.renderer.getRemixApi();
+                    api.setConfigVariable("rtx.graphicsPreset", "4");
+                    api.setConfigVariable("rtx.dlssPreset", "2");
+                });
+                context.waitFor(client -> KavoraMod.renderer.getRemixApi()
+                        .getConfigVariableResolved("rtx.graphicsPreset").equals("4"), 100);
+                RuntimeOptionScope.apply(context, Map.of("rtx.upscalerType", "1", "rtx.qualityDLSS", "5",
+                        "rtx.enableRayReconstruction", "true", "rtx.dlfg.enable", "false"));
+            }
             // The copied screenshot fixture left simulation time paused. Restore the ordinary game rules.
             var pose = CompletableFuture.runAsync(() -> {
                 server.getGameRules().set(GameRules.ADVANCE_TIME, true, server);
@@ -397,39 +413,79 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             pose.join();
             waitForOceanCamera(context);
             setCloudsEnabled(context, true);
+            if (fullDay) {
+                prepareOceanProfileView(context, server, 6000, 90);
+            }
             waitForRaytracedPresents(context, 12);
-            waitForOceanTerrain(context, 1);
+            waitForOceanTerrain(context, fullDay ? 502 : 1);
             System.out.println("KAVORA_PROFILE_READY");
             context.waitFor(client -> Files.isRegularFile(startFile), 2400);
             context.runOnClient(client -> {
                 var api = KavoraMod.renderer.getRemixApi();
                 for (String key : List.of("rtx.graphicsPreset", "rtx.upscalerType", "rtx.qualityDLSS",
                         "rtx.enableRayReconstruction", "rtx.dlfg.enable", "rtx.clouds.sceneEnabled",
-                        "rtx.clouds.transportMode", "rtx.clouds.windSpeed", "rtx.clouds.coverage",
+                        "rtx.clouds.windSpeed", "rtx.clouds.coverage",
                         "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters")) {
                     System.out.println("KAVORA_PROFILE_OPTION " + key + "=" + api.getConfigVariableResolved(key));
                 }
                 var diagnostics = KavoraMod.renderer.getChunkManager().getTerrainDiagnostics();
                 System.out.println("KAVORA_PROFILE_TERRAIN " + diagnostics);
             });
-            long begin = markCloudProfile(context, "BEGIN");
-            waitForRaytracedPresents(context, 24);
-            long end = markCloudProfile(context, "END");
-            KavoraWorldGameTest.require(end > begin, "Cloud profiling requires advancing simulation time");
+            measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
+            if (fullDay) {
+                prepareOceanProfileView(context, server, 23250, -90);
+                measureOceanProfileView(context, "sunrise", true);
+                prepareOceanProfileView(context, server, 12750, 90);
+                measureOceanProfileView(context, "sunset", true);
+            }
         } finally {
             closeCloudFixture(context, server);
         }
     }
 
-    private static long markCloudProfile(ClientGameTestContext context, String phase) {
+    private static void prepareOceanProfileView(ClientGameTestContext context, MinecraftServer server,
+                                                int tick, float yaw) {
+        var setup = CompletableFuture.runAsync(() -> {
+            server.getGameRules().set(GameRules.ADVANCE_TIME, false, server);
+            positionOceanCamera(server, yaw);
+        }, server);
+        context.waitFor(client -> setup.isDone(), 200);
+        setup.join();
+        waitForOceanCamera(context, yaw);
+        setFixtureTime(context, server, tick);
+        waitForRaytracedPresents(context, 8);
+        var resume = CompletableFuture.runAsync(() -> server.getGameRules().set(GameRules.ADVANCE_TIME, true, server), server);
+        context.waitFor(client -> resume.isDone(), 200);
+        resume.join();
+    }
+
+    private static void measureOceanProfileView(ClientGameTestContext context, String view, boolean screenshot) {
+        var begin = markCloudProfile(context, "BEGIN", view);
+        waitForRaytracedPresents(context, 24);
+        var end = markCloudProfile(context, "END", view);
+        long frames = end.presentations() - begin.presentations();
+        double frameMillis = (double) (end.nanoTime() - begin.nanoTime()) / frames / 1_000_000;
+        System.out.printf(java.util.Locale.ROOT, "Cloud ocean timing: %s, %d presentations, %.2f ms/frame, %.1f fps%n",
+                view, frames, frameMillis, 1000 / frameMillis);
+        KavoraWorldGameTest.require(end.tick() > begin.tick(), "Cloud profiling requires advancing simulation time");
+        if (screenshot) {
+            Path image = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-profile-" + view);
+            KavoraWorldGameTest.requireVisibleWorld(image);
+        }
+    }
+
+    private record CloudProfileMark(long tick, long presentations, long nanoTime) {}
+
+    private static CloudProfileMark markCloudProfile(ClientGameTestContext context, String phase, String view) {
         return context.computeOnClient(client -> {
             long clock = client.level.getOverworldClockTime();
+            var mark = new CloudProfileMark(clock, KavoraFrameProbe.raytracedPresents, System.nanoTime());
             var api = KavoraMod.renderer.getRemixApi();
             System.out.println("KAVORA_PROFILE_" + phase + " " + clock + " " + System.currentTimeMillis()
-                    + " cloudsTime=" + api.getConfigVariableResolved("rtx.clouds.worldTimeSeconds")
+                    + " view=" + view + " cloudsTime=" + api.getConfigVariableResolved("rtx.clouds.worldTimeSeconds")
                     + " rain=" + api.getConfigVariableResolved("rtx.clouds.weather")
                     + " thunder=" + api.getConfigVariableResolved("rtx.clouds.thunder"));
-            return clock;
+            return mark;
         });
     }
 
@@ -437,36 +493,32 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         try (var upscaler = RuntimeOptionScope.acquire(context, "rtx.upscalerType", "0");
              var reconstruction = RuntimeOptionScope.acquire(context, "rtx.enableRayReconstruction", "false");
              var coverage = RuntimeOptionScope.acquire(context, "rtx.clouds.coverage", "0.65")) {
-            for (int mode : new int[] {1, 0}) {
-                try (var transport = RuntimeOptionScope.acquire(context, "rtx.clouds.transportMode", Integer.toString(mode))) {
-                    pose(context, world, 0, height, -2000, 0, -25);
-                    waitPresentedFrames(context, 12);
-                    try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
-                        setCloudsEnabled(context, false);
-                        waitPresentedFrames(context, 8);
-                        Path clear = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-clear");
-                        setCloudsEnabled(context, true);
-                        waitPresentedFrames(context, 12);
-                        Path start = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-start");
-                        requireDifference(clear, start);
-                        pose(context, world, 256, height, -2000, 0, -25);
-                        waitPresentedFrames(context, 12);
-                        Path translated = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-translated");
-                        pose(context, world, 0, height, -2000, 0, -25);
-                        waitPresentedFrames(context, 12);
-                        Path returned = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-" + mode + "-returned");
-                        double moved = skyImageDifference(start, translated);
-                        double restored = skyImageDifference(start, returned);
-                        KavoraWorldGameTest.require(moved > 10 && moved > 2 * restored,
-                                "Cloud field did not follow world-space parallax in mode " + mode + ": " + moved + " vs " + restored);
-                        if (mode == 1) checkSkyMapMotionVectors(context);
-                    }
-                }
+            pose(context, world, 0, height, -2000, 0, -25);
+            waitPresentedFrames(context, 12);
+            try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
+                setCloudsEnabled(context, false);
+                waitPresentedFrames(context, 8);
+                Path clear = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-clear");
+                setCloudsEnabled(context, true);
+                waitPresentedFrames(context, 12);
+                Path start = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-start");
+                requireDifference(clear, start);
+                pose(context, world, 256, height, -2000, 0, -25);
+                waitPresentedFrames(context, 12);
+                Path translated = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-translated");
+                pose(context, world, 0, height, -2000, 0, -25);
+                waitPresentedFrames(context, 12);
+                Path returned = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-position-returned");
+                double moved = skyImageDifference(start, translated);
+                double restored = skyImageDifference(start, returned);
+                KavoraWorldGameTest.require(moved > 10 && moved > 2 * restored,
+                        "Cloud field did not follow world-space parallax: " + moved + " vs " + restored);
+                checkCloudMotionVectors(context);
             }
         }
     }
 
-    private static void checkSkyMapMotionVectors(ClientGameTestContext context) {
+    private static void checkCloudMotionVectors(ClientGameTestContext context) {
         try (var maximum = RuntimeOptionScope.acquire(context, "rtx.debugView.maxValue", "2");
              var view = RuntimeOptionScope.acquire(context, "rtx.debugView.debugViewIdx", "21")) {
             waitPresentedFrames(context, 8);
@@ -482,14 +534,13 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             }
             double difference = skyImageDifference(stationary, moving);
             org.slf4j.LoggerFactory.getLogger(KavoraVolumetricCloudGameTest.class)
-                    .info("Sky-map motion guide difference during translation: {}", difference);
-            KavoraWorldGameTest.require(difference > 4, "Sky-map cloud pixels lost the camera's translation");
+                    .info("Cloud motion guide difference during translation: {}", difference);
+            KavoraWorldGameTest.require(difference > 4, "Cloud pixels lost the camera's translation");
         }
     }
 
-    private static void captureSkyMapFrameGeneration(ClientGameTestContext context, TestSingleplayerContext world, double height) {
-        try (var transport = RuntimeOptionScope.acquire(context, "rtx.clouds.transportMode", "1");
-             var coverage = RuntimeOptionScope.acquire(context, "rtx.clouds.coverage", "0.65");
+    private static void captureCloudFrameGeneration(ClientGameTestContext context, TestSingleplayerContext world, double height) {
+        try (var coverage = RuntimeOptionScope.acquire(context, "rtx.clouds.coverage", "0.65");
              var quality = RuntimeOptionScope.acquire(context, "rtx.qualityDLSS", "0");
              var frames = RuntimeOptionScope.acquire(context, "rtx.dlfg.maxInterpolatedFrames", "1")) {
             pose(context, world, 0, height, -2000, 0, -25);

@@ -61,8 +61,6 @@ final class KavoraEffectOptions {
         decimal("endSky.animationSpeed", SettingGroup.END_SKY, "rtx.endSky.animationSpeed", 0, 4),
         decimal("endSky.rotation", SettingGroup.END_SKY, "rtx.endSky.rotation", 0, 360),
         decimal("endSky.elevation", SettingGroup.END_SKY, "rtx.endSky.elevation", -90, 90),
-        choice("clouds.transport", SettingGroup.CLOUD_QUALITY, "rtx.clouds.transportMode", 0, 1),
-        integer("clouds.skyResolution", SettingGroup.CLOUD_QUALITY, "rtx.clouds.skyResolution", 128, 2048),
         decimal("clouds.windSpeed", SettingGroup.CLOUDS, "rtx.clouds.windSpeed", 0, 5),
         decimal("clouds.anisotropy", SettingGroup.CLOUDS, "rtx.clouds.anisotropy", 0, 0.95),
         decimal("clouds.multipleScattering", SettingGroup.CLOUDS, "rtx.clouds.multipleScattering", 0, 1),

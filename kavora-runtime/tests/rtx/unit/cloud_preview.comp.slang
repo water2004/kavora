@@ -3,7 +3,7 @@
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_sky.slang";
 import "rtx/pass/cloud_parameters.slang";
-import "rtx/pass/clouds/cloud_sky_transport.slang";
+import "cloud_preview_integral.slang";
 import "rtx/utility/lat_long_projection.slang";
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
 import "rtx/algorithm/cloud_lighting_cache.slang";
@@ -53,7 +53,7 @@ Sampler3D<float>.Handle CloudMoonDepth;
 
 CloudLightingCache previewCloudLighting()
 {
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth) };
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base), false };
 }
 #endif
 RWStructuredBuffer<float4> Results;
@@ -250,7 +250,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
       opticalDepth += extinction * (next - previous);
       if (Radiance != 0 && extinction > 0)
       {
-        accumulateCloudSkyStep(extinction, next - previous, Clouds.albedo,
+        accumulateCloudPreviewStep(extinction, next - previous, Clouds.albedo,
           cloudIncidentRadiance(Clouds, position, direction, ambient, weather, base, detail
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
             , previewCloudLighting()

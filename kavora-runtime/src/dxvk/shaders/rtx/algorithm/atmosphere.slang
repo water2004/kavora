@@ -74,6 +74,56 @@ public interface IAtmosphereFog
   static float3 transmittance(VolumeArgs args, float3 origin, float3 direction, float distance);
 };
 
+public struct ClearAtmosphereFog : IAtmosphereFog
+{
+  public static bool interval(VolumeArgs args, float3 origin, float3 direction, float distance, out float2 range)
+  {
+    range = 0;
+    return false;
+  }
+
+  public static FogMedium sampleMedium(VolumeArgs args, float3 from, float3 to, float distance)
+  {
+    return {};
+  }
+
+  public static float3 transmittance(VolumeArgs args, float3 origin, float3 direction, float distance)
+  {
+    return 1;
+  }
+}
+
+public interface IAtmosphereFogRadiance
+{
+  float3 incident(VolumeArgs args, float3 position, FogRayProjection projection, float distance, float4 phase);
+};
+
+public struct FroxelFogRadiance : IAtmosphereFogRadiance
+{
+  public Sampler3D<float4> radianceY;
+  public Sampler3D<float2> radianceCoCg;
+
+  public __init(Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg)
+  {
+    this.radianceY = radianceY;
+    this.radianceCoCg = radianceCoCg;
+  }
+
+  public float3 incident(VolumeArgs args, float3 position, FogRayProjection projection, float distance, float4 phase)
+  {
+    return fogIncidentRadiance(args, radianceY, radianceCoCg, position, projection, distance)
+      .evaluate(phase, args.multiScatteringEstimate);
+  }
+}
+
+public struct ClearFogRadiance : IAtmosphereFogRadiance
+{
+  public float3 incident(VolumeArgs args, float3 position, FogRayProjection projection, float distance, float4 phase)
+  {
+    return 0;
+  }
+}
+
 public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
   Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
   float3 origin, float3 direction, float distance,
@@ -81,7 +131,7 @@ public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
 {
   return Fog.transmittance(args, origin, direction, distance)
     * airTransmittance(args.air, origin, direction, distance)
-    * VolumeCloud::transmittance(args.clouds, origin, direction, distance, weather, base, detail)
+    * cloudTransmittance(args.clouds, origin, direction, distance, weather, base, detail)
     * volumeTransmittance(mediumExtinction, distance);
 }
 
@@ -135,6 +185,7 @@ public struct AtmosphereRay
   public AtmosphereIntervals intervals;
   public float4 projectedPhase;
   public float3 mediumExtinction;
+  public float cloudAngularFootprint;
   public AirRayPhase airPhase;
   public CloudRayPhase cloudPhase;
   public bool hasFog;
@@ -161,19 +212,22 @@ public AtmosphereSegment composeAtmosphereSegments(AtmosphereSegment first, Atmo
 }
 
 public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
-  float3 origin, float3 direction, uint volumeHint = 0, float3 mediumExtinction = float3(0))
+  float3 origin, float3 direction, uint volumeHint = 0, float3 mediumExtinction = float3(0),
+  float cloudAngularFootprint = 0)
 {
   AtmosphereRay ray;
   ray.origin = origin;
   ray.direction = direction;
   ray.mediumExtinction = mediumExtinction;
+  ray.cloudAngularFootprint = max(args.clouds.viewAngularFootprint, cloudAngularFootprint);
   float2 fog;
   ray.hasFog = Fog.interval(args, origin, direction, floatMax, fog);
   ray.hasCloud = false;
   [unroll]
   for (uint i = 0; i < 4; i++)
   {
-    const float2 cloud = VolumeCloud::interval(args.clouds, origin, direction, i / 2, i % 2);
+    const uint layer = i / 2;
+    const float2 cloud = cloudLayerInterval(args.clouds, origin, direction, cloudLayerMaxDistance(args.clouds, layer), layer, i % 2);
     ray.intervals.starts[i + 1] = cloud.x;
     ray.intervals.ends[i + 1] = cloud.y;
     ray.hasCloud = ray.hasCloud || cloud.y > cloud.x;
@@ -228,8 +282,8 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
 }
 
 // Integrates a clipped range without moving the ray origin or its medium boundaries.
-public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeArgs args,
-  Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+  FogRadiance fogRadiance,
   Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
@@ -277,7 +331,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeAr
         cloudActive = true;
         cloudLayer = i / 2;
         cloudGrid = createCloudRayGrid(cloud, cloudSampleSpacing(args.clouds, direction, i / 2),
-          args.clouds.viewAngularFootprint, args.clouds.steps);
+          ray.cloudAngularFootprint, args.clouds.steps);
       }
     }
     if (!fogActive && !cloudActive && !airActive)
@@ -331,9 +385,8 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeAr
       float3 source = 0;
       if (any(fogMedium.scattering > 0))
       {
-        const FogRadianceSample sample = fogIncidentRadiance(args, radianceY, radianceCoCg,
-          position, ray.fogProjection, (previous + next) * 0.5f);
-        source = fogMedium.scattering * sample.evaluate(ray.projectedPhase, args.multiScatteringEstimate);
+        source = fogMedium.scattering
+          * fogRadiance.incident(args, position, ray.fogProjection, (previous + next) * 0.5f, ray.projectedPhase);
       }
       if (airActive && !airSampleValid)
       {
@@ -348,10 +401,10 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeAr
         const float cloudSample = cloudGrid.sampleAt(cloudCell);
         const float3 cloudPosition = origin + direction * cloudSample;
         const float cloudFootprint = cloudDensityFootprint(args.clouds, direction, cloudGrid.spanAt(cloudCell),
-          args.clouds.viewAngularFootprint * cloudSample, cloudLayer);
+          ray.cloudAngularFootprint * cloudSample, cloudLayer);
         cloudSigma = cloudViewExtinction(args.clouds, cloudPosition, cloudSample, weather, base, detail, cloudFootprint,
           cloudHeightFootprint(args.clouds, cloudPosition, direction, cloudGrid.spanAt(cloudCell),
-            args.clouds.viewAngularFootprint * cloudSample, cloudLayer));
+            ray.cloudAngularFootprint * cloudSample, cloudLayer));
         cloudSource = cloudSigma > 0 ? cloudSigma * args.clouds.albedo
           * cloudIncidentRadiance(args.clouds, cloudPosition, direction, cloudAmbient, weather, base, detail, cloudLighting, cloudPhase) : 0;
         cloudSampleValid = true;
@@ -402,6 +455,15 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeAr
   }
   result.transmittance *= volumeTransmittance(ray.mediumExtinction, max(0.0f, rangeEnd - previousEnd));
   return result;
+}
+
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeArgs args,
+  Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
+  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
+  AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
+{
+  return integrateAtmosphereRange<Fog, FroxelFogRadiance>(args, FroxelFogRadiance(radianceY, radianceCoCg),
+    weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 
 public AtmosphereSegment integrateAtmosphereSegment<Fog : IAtmosphereFog>(VolumeArgs args,

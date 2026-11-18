@@ -126,7 +126,7 @@ namespace dxvk {
 
   private:
     void ensurePathBuffers(const VkExtent3D& rayDims, bool atmosphereCache,
-      uint32_t atmosphereStride, uint32_t checkpointCapacity);
+      uint32_t atmosphereStride);
 
     Rc<DxvkBuffer> m_pathStorage;
     Rc<DxvkBuffer> m_psrQueues[2];

@@ -46,7 +46,7 @@ class KavoraVideoSettingsTest {
         assertFalse(KavoraVideoSettings.valid("rtx.graphicsPreset", "4"));
         assertFalse(KavoraVideoSettings.valid("rtx.pathMaxBounces", "3"));
         assertFalse(KavoraVideoSettings.valid("rtx.bloom.enable", "false"));
-        assertFalse(KavoraVideoSettings.valid("rtx.clouds.transportMode", "1"));
+        assertFalse(KavoraVideoSettings.valid("rtx.clouds.steps", "384"));
     }
 
     @Test

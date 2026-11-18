@@ -356,7 +356,7 @@ class KavoraSettingsStoreTest {
                 Path file = dir.resolve(entry.getKey().id() + "-" + custom + ".json");
                 Files.writeString(file, """
                         {"version":5,"quality":{"base":"%s","custom":%s},
-                         "settings":{"clouds.samples":%d,"f":2.5,"unknown":9}}
+                         "settings":{"clouds.samples":%d,"clouds.transport":1,"clouds.skyResolution":768,"f":2.5,"unknown":9}}
                         """.formatted(entry.getKey().id(), custom, entry.getValue()));
                 double[] artistic = {1};
                 KavoraSettings settings = registryWith(artistic, new int[]{0}, new boolean[]{true});
@@ -372,6 +372,8 @@ class KavoraSettingsStoreTest {
                 var root = JsonParser.parseString(migrated).getAsJsonObject();
                 assertEquals(6, root.get("version").getAsInt());
                 assertEquals(9, root.getAsJsonObject("settings").get("unknown").getAsInt());
+                assertFalse(root.getAsJsonObject("settings").has("clouds.transport"));
+                assertFalse(root.getAsJsonObject("settings").has("clouds.skyResolution"));
                 store.load(settings);
                 assertEquals(migrated, Files.readString(file));
             }

@@ -30,7 +30,7 @@
 //!> axis features rr_no_psr GBUFFER_FEATURE_DLSSRR=1 GBUFFER_FEATURE_OBJECT_PICKING=0 GBUFFER_FEATURE_RAYTRACED_RENDER_TARGET=0 GBUFFER_FEATURE_STOCHASTIC_ALPHA=0 GBUFFER_FEATURE_PSR_REPLACEMENT=0 GBUFFER_FEATURE_DEBUG_VIEW=0
 //!> axis pipeline raygen.rgen RT_TRACE_RAY RAY_PIPELINE
 //!> axis pipeline raygen_ser.rgen RT_TRACE_RAY RAY_PIPELINE RT_SHADER_EXECUTION_REORDERING
-//!> axis pipeline rayquery_raygen.rgen RAY_PIPELINE RESOLVER_PRECOMPUTED_PRIMARY_ATMOSPHERE
+//!> axis pipeline rayquery_raygen.rgen RAY_PIPELINE
 //!> axis radiance_cache -
 //!> axis radiance_cache nrc ENABLE_NRC=1
 //!> axis radiance_cache sharc SHARC_UPDATE=1
@@ -51,6 +51,7 @@
 #endif
 
 #define RESOLVER_USE_VOLUMETRIC_ATTENUATION 1
+#define RESOLVER_PRECOMPUTED_PRIMARY_ATMOSPHERE 1
 
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"

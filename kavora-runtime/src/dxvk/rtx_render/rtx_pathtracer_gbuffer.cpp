@@ -81,16 +81,9 @@ namespace dxvk {
 
   // Defined within an unnamed namespace to ensure unique definition across binary
   namespace {
-    uint32_t atmosphereCheckpointCapacity(const VolumeArgs& volume) {
-      if (volume.fogIntegrationMode == 1) {
-        return GBUFFER_ATMOSPHERE_PREINTEGRATED_CAPACITY;
-      }
-
-      const auto& clouds = volume.clouds;
-      // Reserve the far slot by configured range so weather does not replace PathStorage.
-      const bool reserveFar = clouds.enable
-        && std::max(clouds.maxDistance, clouds.highMaxDistance) > volume.froxelMaxDistance;
-      return reserveFar ? GBUFFER_ATMOSPHERE_CHECKPOINT_CAPACITY : GBUFFER_ATMOSPHERE_FROXEL_CHECKPOINT_CAPACITY;
+    uint32_t atmosphereColumnStride(const VolumeArgs& volume) {
+      return volume.fogIntegrationMode == 1
+        ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
     }
 
     class GbufferRayGenShader : public ManagedShader {
@@ -179,7 +172,6 @@ namespace dxvk {
         RW_TEXTURE2D(GBUFFER_BINDING_ALPHA_BLEND_GBUFFER_OUTPUT)
         SAMPLER2D(GBUFFER_BINDING_SKYMATTE)
         SAMPLERCUBE(GBUFFER_BINDING_SKYPROBE)
-        TEXTURE2D(GBUFFER_BINDING_CLOUD_SKY_DISTANCE_MOMENT)
 
         RW_TEXTURE2D(GBUFFER_BINDING_REFLECTION_PSR_DATA_STORAGE_0)
         RW_TEXTURE2D(GBUFFER_BINDING_PRIMARY_WORLD_POSITION_OUTPUT)
@@ -748,15 +740,11 @@ namespace dxvk {
       assert(false && "Invalid RaytraceMode in DxvkPathtracerGbuffer::dispatchPrimaryTraversal");
       return;
     }
-    if (raytraceMode == RaytraceMode::TraceRay) {
-      return;
-    }
     ctx->setFramePassStage(RtxFramePassStage::GBufferPrimaryRays);
     ctx->bindCommonRayTracingResources();
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
     ensurePathBuffers(rayDims, volume.enable || volume.clouds.enable || volume.air.enable,
-      volume.fogIntegrationMode == 1 ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE,
-      atmosphereCheckpointCapacity(volume));
+      atmosphereColumnStride(volume));
     ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE,
       DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
     ScopedGpuProfileZone(ctx, "Primary Traversal");
@@ -765,7 +753,7 @@ namespace dxvk {
   }
 
   void DxvkPathtracerGbuffer::ensurePathBuffers(const VkExtent3D& rayDims, bool atmosphereCache,
-    uint32_t atmosphereStride, uint32_t checkpointCapacity) {
+    uint32_t atmosphereStride) {
     static_assert(GBUFFER_PRIMARY_INTERSECTION_WORDS == 5);
     static_assert(GBUFFER_PRIMARY_ATMOSPHERE_WORDS == 7);
     static_assert(GBUFFER_PRIMARY_TAIL_WORDS == 7);
@@ -806,12 +794,12 @@ namespace dxvk {
       buffer = device()->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         DxvkMemoryStats::Category::RTXBuffer, name);
     };
-    const VkDeviceSize columns = (VkDeviceSize(rayDims.width) / atmosphereStride + 1)
-      * (VkDeviceSize(rayDims.height) / atmosphereStride + 1);
-    const VkDeviceSize prefixWords = atmosphereCache
-      ? columns * checkpointCapacity * GBUFFER_ATMOSPHERE_CHECKPOINT_WORDS : 0;
+    const VkDeviceSize columns = VkDeviceSize(util::ceilDivide(rayDims.width, atmosphereStride))
+      * util::ceilDivide(rayDims.height, atmosphereStride);
+    const VkDeviceSize atmosphereWords = atmosphereCache
+      ? columns * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS : 0;
     const VkDeviceSize primaryWords = pixels * (GBUFFER_PRIMARY_INTERSECTION_WORDS + GBUFFER_PRIMARY_ATMOSPHERE_WORDS)
-      + std::max(pixels * GBUFFER_PRIMARY_TAIL_WORDS, prefixWords);
+      + std::max(pixels * GBUFFER_PRIMARY_TAIL_WORDS, atmosphereWords);
     ensureBuffer(m_pathStorage, std::max(pixels * GBUFFER_PSR_STATE_WORDS, primaryWords) * sizeof(uint32_t),
       "GBuffer path storage", false);
     const VkDeviceSize queueBytes = (pixels + GBUFFER_PSR_QUEUE_HEADER_WORDS) * sizeof(uint32_t);
@@ -861,7 +849,6 @@ namespace dxvk {
     ctx->bindResourceSampler(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_Y_INPUT, linearClampSampler);
     ctx->bindResourceView(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT, globalVolumetrics.getFilteredRadianceCoCg().view, nullptr);
     ctx->bindResourceSampler(GBUFFER_BINDING_VOLUME_FILTERED_RADIANCE_CO_CG_INPUT, linearClampSampler);
-    ctx->bindResourceView(GBUFFER_BINDING_CLOUD_SKY_DISTANCE_MOMENT, globalVolumetrics.getCloudSkyDistanceMoment(), nullptr);
 
     ctx->bindResourceView(GBUFFER_BINDING_SKYMATTE, ctx->getResourceManager().getSkyMatte(ctx).view, nullptr);
     ctx->bindResourceSampler(GBUFFER_BINDING_SKYMATTE, linearClampSampler);
@@ -1153,7 +1140,7 @@ namespace dxvk {
     // GPU watchdog. Bound the rays in each launch while keeping their samples.
     constexpr uint32_t kAtmospherePixelsPerDispatch = GBUFFER_PSR_QUEUE_ROW_WIDTH;
     constexpr uint32_t kAtmosphereGroupHeight = 8;
-    const bool worldSpaceClouds = volume.clouds.enable && volume.clouds.transportMode == 0;
+    const bool worldSpaceClouds = volume.clouds.enable;
     auto dispatchBands = [&](VkExtent3D extent, auto&& dispatchBand) {
       const uint32_t bandHeight = worldSpaceClouds
         ? std::max(1u, kAtmospherePixelsPerDispatch / extent.width / kAtmosphereGroupHeight) * kAtmosphereGroupHeight
@@ -1168,18 +1155,17 @@ namespace dxvk {
         }
       }
     };
-    const uint32_t atmosphereStride = volume.fogIntegrationMode == 1
-      ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
-    ensurePathBuffers(rayDims, raytraceMode != RaytraceMode::TraceRay && (volume.enable || volume.clouds.enable || volume.air.enable),
-      atmosphereStride, atmosphereCheckpointCapacity(volume));
+    const uint32_t atmosphereStride = atmosphereColumnStride(volume);
+    const bool hasAtmosphere = volume.enable || volume.clouds.enable || volume.air.enable;
+    ensurePathBuffers(rayDims, hasAtmosphere, atmosphereStride);
     ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE, DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
-    if (raytraceMode != RaytraceMode::TraceRay && (volume.enable || volume.clouds.enable || volume.air.enable)) {
+    if (hasAtmosphere) {
       // Primary consumes the atmospheric transfers and motion guides before PSR reuses the storage.
       ScopedGpuCommandStreamZone(ctx, "Primary Atmosphere");
       {
-        ScopedGpuProfileZone(ctx, "Column Prefix");
-        const VkExtent3D columnExtent = { rayDims.width / atmosphereStride + 1,
-          rayDims.height / atmosphereStride + 1, 1 };
+        ScopedGpuProfileZone(ctx, "Integrate Columns");
+        const VkExtent3D columnExtent = { util::ceilDivide(rayDims.width, atmosphereStride),
+          util::ceilDivide(rayDims.height, atmosphereStride), 1 };
         ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getGbufferAtmosphereColumnsComputeShader());
         dispatchBands(columnExtent, [&](VkExtent3D extent) {
           const auto groups = util::computeBlockCount(extent, VkExtent3D { 8, 8, 1 });
@@ -1187,12 +1173,12 @@ namespace dxvk {
         });
       }
       {
-        ScopedGpuCommandStreamZone(ctx, "Dense Endpoint");
+        ScopedGpuProfileZone(ctx, "Reconstruct Atmosphere");
+        pushArgs.dispatchOffsetY = 0;
+        ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
         ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getGbufferPrimaryAtmosphereComputeShader());
-        dispatchBands(rayDims, [&](VkExtent3D extent) {
-          const auto groups = util::computeBlockCount(extent, VkExtent3D { 8, kAtmosphereGroupHeight, 1 });
-          ctx->dispatch(groups.width, groups.height, groups.depth);
-        });
+        const auto groups = util::computeBlockCount(rayDims, VkExtent3D { 8, 8, 1 });
+        ctx->dispatch(groups.width, groups.height, groups.depth);
       }
     }
 

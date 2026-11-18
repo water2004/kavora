@@ -254,23 +254,11 @@ void geometryResolverVertex(
     {
       const float3 direction = geometryResolverState.direction;
       const CloudArgs clouds = cb.volumeArgs.clouds;
-      float3 background = sampleClearBackgroundRadiance(direction, SkyProbe, LinearWrapSampler);
-      if (clouds.enable && clouds.transportMode == 0 && geometryResolverState.cloudMoments.y > 0.0f)
+      const float3 background = sampleClearBackgroundRadiance(direction, SkyProbe, LinearWrapSampler);
+      if (geometryResolverState.cloudMoments.y > 0.0f)
       {
         cloudDistance = geometryResolverState.cloudMoments.x / geometryResolverState.cloudMoments.y
           * cloudMaxViewDistance(clouds);
-      }
-      if (clouds.enable && clouds.transportMode == 1)
-      {
-        const float2 uv = cloudSkyUv(clouds, direction);
-        const float4 cloud = CloudSkySampler.SampleLevel(uv, 0);
-        background = cloud.rgb + cloud.a * background;
-        const float opacity = 1.0f - cloud.a;
-        if (opacity > 0.0f)
-        {
-          const float moment = CloudSkyDistanceMoment.SampleLevel(LinearWrapSampler, uv, 0);
-          cloudDistance = saturate(moment / opacity) * cloudMaxViewDistance(clouds);
-        }
       }
       geometryResolverState.radiance += geometryResolverState.attenuation * background;
     }
@@ -318,7 +306,7 @@ void geometryResolverVertex(
 #endif
       if (!cb.ignoreSkyIfCameraInMedium)
       {
-        background += transmittance * sampleBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler);
+        background += transmittance * sampleClearBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler);
       }
       geometryResolverState.radiance += geometryResolverState.attenuation * fade * background;
       geometryResolverState.attenuation *= 1.0f - fade;
@@ -604,6 +592,10 @@ void preprocessPrimaryRayState(inout Ray originalCameraRay, inout GeometryResolv
 }
 
 GeometryResolverState geometryResolverBegin(ivec2 pixelCoordinate) {
+  if (cb.enableDlssNrVolumetricControlMask)
+  {
+    geometryResolverStoreDlssNrControlMask(pixelCoordinate, 1.0f.rrrr);
+  }
 #ifdef GBUFFER_FG_GUIDE
   if (push.writeFgForegroundGuide)
   {
@@ -645,6 +637,17 @@ GeometryResolverState geometryResolverBegin(ivec2 pixelCoordinate) {
 void geometryResolverEnd(GeometryResolverState geometryResolverState)
 {
   const uvec2 pixelCoordinate = geometryResolverState.pixelCoordinate;
+  const float cloudTransmittance = saturate(1.0f - geometryResolverState.cloudMoments.y);
+  if (cb.enableDlssNrVolumetricControlMask)
+  {
+    float4 controlMask = DlssNrControlMask[pixelCoordinate];
+    controlMask.a = cloudTransmittance;
+    geometryResolverStoreDlssNrControlMask(pixelCoordinate, controlMask);
+  }
+  if (gbufferDebugViewEnabled && cb.debugView == DEBUG_VIEW_CLOUD_TRANSMITTANCE)
+  {
+    storeInDebugView(pixelCoordinate, cloudTransmittance);
+  }
   // Inline PSR pixels, raytraced render targets and resolves that ran out of interactions stored no alpha blend surface,
   // but the PSR pass and composite read one.
   if (GBUFFER_FEATURE_STOCHASTIC_ALPHA && cb.enableStochasticAlphaBlend && !geometryResolverState.alphaBlendSurfaceStored)
@@ -739,39 +742,39 @@ struct PrimaryRayResolve : IRayResolveStep<GeometryResolverState, PrimaryResolve
   }
 };
 
+void resolvePrimaryFirstSegment(Ray ray, __ref GeometryResolverState state)
+{
+  state.origin = ray.origin;
+  state.coneRadius = ray.coneRadius;
+  state.direction = ray.direction;
+  state.continueResolving = uint8_t(1) < cb.primaryRayMaxInteractions;
+  PrimaryResolveArgs args = { true };
+  geometryResolverVertex(args, loadPrimaryIntersection(uint2(state.pixelCoordinate)), state);
+}
+
 void geometryResolver(ivec2 pixelCoordinate)
 {
   GeometryResolverState geometryResolverState = geometryResolverBegin(pixelCoordinate);
-  // Resolve First Hit Geometry
+  Ray primaryRay;
+  preprocessPrimaryRayState(primaryRay, geometryResolverState);
+  resolvePrimaryFirstSegment(primaryRay, geometryResolverState);
+  uint8_t interactions = 1;
+  if (geometryResolverState.continueResolving)
   {
-    // Pass specific set up
-    Ray primaryRay;
-    preprocessPrimaryRayState(primaryRay, geometryResolverState);
-
-    // If starting inside a medium, need to include back faces to detect an exit.
-    uint flags = primaryRayFlags();
-
-    // Raytrace
-
-    PrimaryResolveArgs extraArgs = { true };
-
-#if !defined(RT_TRACE_RAY) && !defined(RT_MIXED_TRACE_RAY) && !defined(GBUFFER_PSR)
-    const bool hasInitialHit = true;
-    const RayHitInfo initialHit = loadPrimaryIntersection(uint2(pixelCoordinate));
-#else
-    const bool hasInitialHit = false;
-    const RayHitInfo initialHit = {};
-#endif
-    const uint8_t interactions = resolveRay<GeometryResolverState, PrimaryResolveArgs, PrimaryRayResolve, hasInitialHit, true>(
-      rayToRayDesc(primaryRay), primaryRay.coneRadius, primaryRay.spreadAngle, initialHit,
-      flags, GBUFFER_SBT_OFFSET_STANDARD, cb.primaryRayMaxInteractions, extraArgs, geometryResolverState);
-    if (gbufferDebugViewEnabled)
-    {
-      recordResolveInteractions(geometryResolverState.pixelCoordinate, interactions,
-        DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS);
-    }
-
-    if (gbufferDebugViewEnabled && cb.debugView == DEBUG_VIEW_PRIMARY_RAY_BOUNCES)
+    RayDesc continuation = rayToRayDesc(primaryRay);
+    continuation.Origin = geometryResolverState.origin;
+    continuation.Direction = geometryResolverState.direction;
+    continuation.TMax = max(continuation.TMax - geometryResolverState.segmentHitDistance, 0.0f);
+    PrimaryResolveArgs args = { false };
+    interactions = resolveRayFromPayload<GeometryResolverState, PrimaryResolveArgs, PrimaryRayResolve, false, true, 2>(
+      continuation, primaryRay.spreadAngle, {}, primaryRayFlags(), GBUFFER_SBT_OFFSET_STANDARD,
+      cb.primaryRayMaxInteractions, args, geometryResolverState);
+  }
+  if (gbufferDebugViewEnabled)
+  {
+    recordResolveInteractions(geometryResolverState.pixelCoordinate, interactions,
+      DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS);
+    if (cb.debugView == DEBUG_VIEW_PRIMARY_RAY_BOUNCES)
     {
       accumulateInDebugViewAdd(geometryResolverState.pixelCoordinate, 1);
     }

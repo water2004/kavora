@@ -134,7 +134,7 @@ layout(binding = BINDING_CLOUD_WEATHER_SAMPLER)
 Sampler2D<float4> CloudWeatherSampler;
 
 layout(binding = BINDING_CLOUD_SKY_SAMPLER)
-Sampler2D<float4> CloudSkySampler;
+Sampler2DArray<float4> CloudSkySampler;
 
 layout(binding = BINDING_CLOUD_AMBIENT_INPUT)
 Texture2D<float4> CloudAmbientInput;
@@ -143,6 +143,8 @@ layout(binding = BINDING_CLOUD_SUN_DEPTH_INPUT)
 Sampler3D<float> CloudSunDepthSampler;
 layout(binding = BINDING_CLOUD_MOON_DEPTH_INPUT)
 Sampler3D<float> CloudMoonDepthSampler;
+layout(binding = BINDING_CLOUD_LOCAL_LIGHT_INPUT)
+Sampler3D<float4> CloudLocalLightSampler;
 
 layout(binding = BINDING_SAMPLER_READBACK_BUFFER) 
 RWStructuredBuffer<uint32_t> SamplerFeedbackBuffer;

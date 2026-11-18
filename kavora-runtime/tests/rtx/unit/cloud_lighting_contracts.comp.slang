@@ -5,6 +5,13 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
 ConstantBuffer<CloudArgs> Clouds;
 Sampler3D<float>.Handle Sun;
+Sampler3D<float4> UnusedLocalLight;
+
+CloudLightingCache directionalCache()
+{
+  const Sampler3D<float> depth = Sampler3D<float>(Sun);
+  return { depth, depth, UnusedLocalLight, false };
+}
 StructuredBuffer<float4> Origins;
 StructuredBuffer<float4> Directions;
 RWStructuredBuffer<float4> Results;
@@ -18,7 +25,7 @@ void depths(uint index : SV_DispatchThreadID)
   {
     return;
   }
-  CloudLightingCache cache = { Sampler3D<float>(Sun), Sampler3D<float>(Sun) };
+  const CloudLightingCache cache = directionalCache();
   const float3 origin = Origins[index].xyz;
   const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
   float depth;
@@ -34,7 +41,7 @@ void cascadeDepths(uint index : SV_DispatchThreadID)
   {
     return;
   }
-  CloudLightingCache cache = { Sampler3D<float>(Sun), Sampler3D<float>(Sun) };
+  const CloudLightingCache cache = directionalCache();
   const uint cascade = uint(Directions[index].w);
   const float3 origin = Origins[index].xyz;
   const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
@@ -90,7 +97,7 @@ void energyParts(uint index : SV_DispatchThreadID)
   {
     return;
   }
-  CloudLightingCache cache = { Sampler3D<float>(Sun), Sampler3D<float>(Sun) };
+  const CloudLightingCache cache = directionalCache();
   const float3 origin = Origins[index].xyz;
   const float3 middle = origin + Directions[index].xyz * (Origins[index].w * Directions[index].w);
   const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
@@ -111,7 +118,7 @@ void reusedGrid(uint index : SV_DispatchThreadID)
   {
     return;
   }
-  CloudLightingCache cache = { Sampler3D<float>(Sun), Sampler3D<float>(Sun) };
+  const CloudLightingCache cache = directionalCache();
   const uint cascade = uint(Directions[index].w);
   const float3 origin = Origins[index].xyz;
   const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;

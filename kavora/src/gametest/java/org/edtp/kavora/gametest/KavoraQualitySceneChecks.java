@@ -68,8 +68,8 @@ final class KavoraQualitySceneChecks {
         for (var preset : new QualityPreset[] {QualityPreset.ULTRA, QualityPreset.HIGH, QualityPreset.MEDIUM,
                 QualityPreset.LOW, QualityPreset.ULTRA}) {
             context.runOnClient(client -> KavoraQualityPresets.apply(KavoraMod.getRtxSettings(), preset));
-            int mode = preset == QualityPreset.ULTRA ? 0 : 1;
-            context.waitFor(client -> read("rtx.clouds.transportMode").equals(Integer.toString(mode))
+            String cloudSamples = KavoraQualityPresets.values(preset).get("clouds.samples").toString();
+            context.waitFor(client -> read("rtx.clouds.steps").equals(cloudSamples)
                     && read("rtx.clouds.sceneEnabled").equalsIgnoreCase("true")
                     && read("rtx.qualityDLSS").equals("5")
                     && !Boolean.parseBoolean(read("rtx.dlfg.enable")), 200);
@@ -100,7 +100,7 @@ final class KavoraQualitySceneChecks {
 
     private static Map<String, String> resolvedQuality() {
         Map<String, String> values = new LinkedHashMap<>();
-        for (String key : List.of("rtx.clouds.transportMode", "rtx.clouds.steps", "rtx.clouds.lightSteps",
+        for (String key : List.of("rtx.clouds.steps", "rtx.clouds.lightSteps",
                 "rtx.volumetrics.fogIntegrationMode", "rtx.volumetrics.fogIntegrationPixelStride",
                 "rtx.volumetrics.initialRISSampleCount", "rtx.volumetrics.spatialReuseMaxSampleCount",
                 "rtx.volumetrics.restirGridScale", "rtx.volumetrics.restirFroxelDepthSlices", "rtx.risLightSampleCount",

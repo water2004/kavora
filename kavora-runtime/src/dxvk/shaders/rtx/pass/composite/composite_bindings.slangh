@@ -102,8 +102,6 @@ Sampler3D<float4> CloudDetailSampler;
 layout(binding = COMPOSITE_CLOUD_WEATHER_SAMPLER)
 Sampler2D<float4> CloudWeatherSampler;
 
-layout(binding = COMPOSITE_CLOUD_SKY_SAMPLER)
-Sampler2D<float4> CloudSkySampler;
 
 layout(r8ui, binding = COMPOSITE_ACTIVE_PIXEL_MASK_INPUT)
 Texture2D<uint> SparseRenderingActivePixelMask;
@@ -134,6 +132,8 @@ layout(binding = COMPOSITE_CLOUD_SUN_DEPTH_INPUT)
 Sampler3D<float> CloudSunDepthSampler;
 layout(binding = COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
 Sampler3D<float> CloudMoonDepthSampler;
+layout(binding = COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
+Sampler3D<float4> CloudLocalLightSampler;
 
 // Inputs/Outputs
 layout(binding = COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)
