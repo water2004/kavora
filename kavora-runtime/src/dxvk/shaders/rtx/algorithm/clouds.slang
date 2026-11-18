@@ -5,6 +5,7 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_neural_scattering.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
 static const float kFloatMax = 3.402823466e+38f;
@@ -756,7 +757,7 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   }
 }
 
-public float3 cloudIncidentRadiance(CloudArgs args, float3 position, uint layer, float3 ambientRadiance,
+public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 direction, uint layer, float3 ambientRadiance,
   Sampler2D<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
 {
@@ -783,7 +784,12 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, uint layer,
       weatherSampler, baseSampler, detailSampler, cache, 0, localBeamDepth - log(kOpaqueCloudTransmittance), int(lightIndex));
     const float opticalDepth = directionalDepth.total;
     const float singleScattering = rayPhase.phase[lightIndex] * exp(-opticalDepth);
-    source += irradiance * (singleScattering + args.multipleScattering * localLight[lightIndex + 2]);
+    float diffuse = localLight[lightIndex + 2];
+    if (args.neuralScattering == lightIndex + 1 && layer == 0)
+    {
+      diffuse = cloudNeuralDiffuse(args, cache.neural, position, altitude, cloudNeuralFrame(args, direction), diffuse);
+    }
+    source += irradiance * (singleScattering + args.multipleScattering * diffuse);
     if (groundReceivesBeam)
     {
       const float externalTransmission = exp(-max(opticalDepth - localBeamDepth, 0.0f));

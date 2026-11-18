@@ -1,0 +1,13 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
+// SPDX-License-Identifier: MIT
+#pragma once
+
+#define CLOUD_NEURAL_RESOLUTION 24
+#define CLOUD_NEURAL_HEIGHT 12
+#define CLOUD_NEURAL_BANDS 3
+#define CLOUD_NEURAL_DIRECTIONS 25
+#define CLOUD_NEURAL_INPUTS 15
+#define CLOUD_NEURAL_WIDTH 96
+#define CLOUD_NEURAL_HIDDEN_LAYERS 4
+#define CLOUD_NEURAL_OUTPUT_BINDING 40
+#define CLOUD_NEURAL_WEIGHTS_BINDING 41

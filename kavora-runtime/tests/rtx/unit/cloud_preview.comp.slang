@@ -57,10 +57,11 @@ Sampler3D<float4>.Handle CloudLocalLight;
 CloudLightingCache previewCloudLighting()
 {
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(CloudLocalLight) };
+  const Sampler3D<float4> local = Sampler3D<float4>(CloudLocalLight);
 #else
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base), false };
+  const Sampler3D<float4> local = Sampler3D<float4>(Base);
 #endif
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local };
 }
 #endif
 RWStructuredBuffer<float4> Results;

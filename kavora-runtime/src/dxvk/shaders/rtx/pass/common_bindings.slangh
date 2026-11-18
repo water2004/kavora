@@ -145,6 +145,8 @@ layout(binding = BINDING_CLOUD_MOON_DEPTH_INPUT)
 Sampler3D<float> CloudMoonDepthSampler;
 layout(binding = BINDING_CLOUD_LOCAL_LIGHT_INPUT)
 Sampler3D<float4> CloudLocalLightSampler;
+layout(binding = BINDING_CLOUD_NEURAL_LIGHT_INPUT)
+Sampler3D<float4> CloudNeuralLightSampler;
 
 layout(binding = BINDING_SAMPLER_READBACK_BUFFER) 
 RWStructuredBuffer<uint32_t> SamplerFeedbackBuffer;

@@ -19,7 +19,8 @@ uint Count;
 
 CloudLightingCache lightingCache()
 {
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base) };
+  const Sampler3D<float4> local = Sampler3D<float4>(Base);
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local };
 }
 
 [shader("compute")]

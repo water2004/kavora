@@ -13,6 +13,7 @@ public struct CloudLightingCache
   public Sampler3D<float> sun;
   public Sampler3D<float> moon;
   public Sampler3D<float4> local;
+  public Sampler3D<float4> neural;
 };
 
 [ForceInline]
@@ -77,6 +78,11 @@ public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float 
 public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude, uint layer)
 {
   const float2 horizontal = (uv - 0.5f) * (2.0f * cloudLocalLightRadius(args, layer));
+  return cloudLightPositionAtAltitude(args, horizontal, altitude);
+}
+
+public float3 cloudLightPositionAtAltitude(CloudArgs args, float2 horizontal, float altitude)
+{
   const float radius = args.planetRadius + altitude;
   const float horizontalSquared = dot(horizontal, horizontal);
   const float offset = horizontalSquared / (radius + sqrt(max(0.0f, radius * radius - horizontalSquared)));

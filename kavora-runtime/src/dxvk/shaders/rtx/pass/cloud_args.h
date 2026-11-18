@@ -51,7 +51,9 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float groundAlbedo;
   // World-space radius of the full-resolution directional shadow field.
   CLOUD_PARAMETER float lightingNearDistance;
-  CLOUD_PARAMETER vec3 padding; // Keep the shared record aligned to 16 bytes.
+  CLOUD_PARAMETER uint neuralScattering; // Solar light slot plus one, or zero when inactive.
+  CLOUD_PARAMETER float meterToWorld;
+  CLOUD_PARAMETER float padding; // Keep the shared record aligned to 16 bytes.
 };
 
 #undef CLOUD_PARAMETER

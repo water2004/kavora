@@ -28,7 +28,8 @@ RWTexture3D<float4> LocalLightOutput;
 [numthreads(8, 8, 1)]
 void buildLocalLight(uint3 index : SV_DispatchThreadID)
 {
-  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float4>(Base) };
+  const Sampler3D<float4> local = Sampler3D<float4>(Base);
+  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local };
   buildCloudLocalLightColumn(Clouds, index.xy, index.z, Sampler2D<float4>(Weather),
     Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache, LocalLightOutput);
 }

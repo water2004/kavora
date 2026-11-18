@@ -29,6 +29,27 @@ exterior blockers. The existing multiple-scattering control scales this field.
 View extinction and the directional single-scattering term retain their own
 optical integration.
 
+### Experimental solar multiple scattering
+
+`rtx.clouds.neuralScattering` selects the experimental solar scattering cache.
+It runs the `depth64_angles/model_last.pt` network from `Neural_Volumetric_Cloud`
+in a Vulkan compute pass. The pass projects 25 directional responses at each
+node of a 24×12×24 wind-aligned grid onto nine second-order harmonics. The
+shared atmosphere integrator reads this field when tracing the lower cloud
+layer. It blends to the analytic solar approximation at the grid boundary.
+Moonlight, upper clouds, direct solar light, sky and ground boundaries and
+visibility continue through their existing evaluators. The host supplies the
+solar direction so light ordering cannot substitute the moon for the sun.
+
+The embedded `cloud_neural_sun.bin` comes from the demo's selected `sun.npz`
+export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b9`).
+Use `scripts-common/export_cloud_neural_weights.py` to reproduce the packed
+float32 weights from that export. The build embeds those bytes directly.
+
+The `neuralCloudComparison` client GameTest option captures both solvers at
+matching solar times and frozen exposure in the `sunset-ocean` fixture.
+Use it with `cloudsOnly`, `sunsetRecovery` and `sunsetFixtures=sunset-ocean`.
+
 ## Offset parallax
 
 `rtx.displacement.mode = 3` selects offset-limited parallax in the existing

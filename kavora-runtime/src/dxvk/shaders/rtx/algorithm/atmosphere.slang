@@ -406,7 +406,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
           cloudHeightFootprint(args.clouds, cloudPosition, direction, cloudGrid.spanAt(cloudCell),
             ray.cloudAngularFootprint * cloudSample, cloudLayer));
         cloudSource = cloudSigma > 0 ? cloudSigma * args.clouds.albedo
-          * cloudIncidentRadiance(args.clouds, cloudPosition, cloudLayer, cloudAmbient, weather, base, detail, cloudLighting, cloudPhase) : 0;
+          * cloudIncidentRadiance(args.clouds, cloudPosition, direction, cloudLayer, cloudAmbient, weather, base, detail, cloudLighting, cloudPhase) : 0;
         cloudSampleValid = true;
       }
       const float3 extinction = fogMedium.extinction + cloudSigma + airMedium.extinction + ray.mediumExtinction;

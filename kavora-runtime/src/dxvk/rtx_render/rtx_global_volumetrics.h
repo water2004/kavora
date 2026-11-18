@@ -41,6 +41,8 @@ namespace dxvk {
       "World rain strength supplied by the host.");
     RTX_OPTION_FLAG("rtx.clouds", float, thunder, 0.0f, RtxOptionFlags::NoSave,
       "World thunderstorm strength supplied by the host.");
+    RTX_OPTION_FLAG("rtx.clouds", Vector3, solarDirection, Vector3(0.f), RtxOptionFlags::NoSave,
+      "Host direction to the sun. Zero means no solar light is available.");
     RTX_OPTION_ARGS("rtx.clouds", float, coverage, 0.45f, "Coverage of fair-weather cumulus formations. Rain increases coverage.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, windSpeed, 1.0f, "Multiplier on world-synchronized cloud advection.",
@@ -49,6 +51,8 @@ namespace dxvk {
       args.minValue = 0.0f, args.maxValue = 0.95f);
     RTX_OPTION_ARGS("rtx.clouds", float, multipleScattering, 0.8f, "Strength of the higher-order cloud illumination approximation.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
+    RTX_OPTION("rtx.clouds", bool, neuralScattering, false,
+      "Use the experimental learned solar multiple scattering for lower clouds within the local lighting field.");
     RTX_OPTION_ARGS("rtx.clouds", float, groundAlbedo, 0.18f,
       "Mean Lambertian terrain reflectance used by the local cloud illumination approximation. Surface path tracing still uses each material's actual albedo.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
@@ -336,6 +340,7 @@ namespace dxvk {
     void dispatchCloudSky(class RtxContext* ctx, const VolumeArgs& volume);
     Rc<DxvkImageView> getCloudLightOpticalDepth(uint32_t light) const { return m_cloudLightOpticalDepth[light].view; }
     Rc<DxvkImageView> getCloudLocalLight() const { return m_cloudLocalLight.view; }
+    Rc<DxvkImageView> getCloudNeuralLight() const { return m_cloudNeuralLight.view; }
     Rc<DxvkImageView> getCloudAmbient() const { return m_cloudAmbient.view; }
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
     
@@ -367,6 +372,8 @@ namespace dxvk {
 
     Resources::Resource m_cloudLightOpticalDepth[2];
     Resources::Resource m_cloudLocalLight;
+    Resources::Resource m_cloudNeuralLight;
+    Rc<DxvkBuffer> m_cloudNeuralWeights;
     Resources::Resource m_cloudAmbient;
     Resources::Resource m_cloudSky;
     CloudArgs m_previousCloudLightingArgs{};

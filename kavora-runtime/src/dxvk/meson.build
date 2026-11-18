@@ -565,7 +565,8 @@ rtx_shaders = custom_target(
 dxvk_embedded_data_files = files([
   '../../external/fonts/NVIDIASans/NVIDIASansMd.ttf',
   '../../external/fonts/NVIDIASans/NVIDIASansBd.ttf',
-  '../../external/fonts/RobotoMono/RobotoMonoRg.ttf'
+  '../../external/fonts/RobotoMono/RobotoMonoRg.ttf',
+  'rtx_render/cloud_neural_sun.bin'
 ])
 
 dxvk_generated_embedded_files = embedding_compiler.process(dxvk_embedded_data_files)

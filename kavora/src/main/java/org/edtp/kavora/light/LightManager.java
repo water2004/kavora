@@ -1071,6 +1071,7 @@ public class LightManager {
                 : Float.NaN;
         // Only a NORMAL sky has a sun and a moon. The End and the Nether pin their time, so
         // evaluating them would light a permanent noon or midnight that vanilla never draws.
+        SkyLightState previousSky = skyLightState;
         skyLightState = world.dimensionType().skybox() == DimensionType.Skybox.OVERWORLD
                 ? evaluateSkyLightState(
                         attributes.getValue(EnvironmentAttributes.SUN_ANGLE, tickDelta) / 360.0f,
@@ -1086,6 +1087,10 @@ public class LightManager {
             boolean cloudProfile = Float.isFinite(cloudHeight);
             if (cloudProfile) {
                 updateCloudProfiles(cloudHeight + seaLevel, seaLevel);
+            }
+            float[] sun = skyLightState.sunPosition();
+            if (!java.util.Arrays.equals(previousSky.sunPosition(), sun)) {
+                api.setConfigVariable("rtx.clouds.solarDirection", sun[0] + ", " + sun[1] + ", " + sun[2]);
             }
             sunLight = updateDistantLight(sunLight, skyLightState.sunPosition(), skyLightState.sunDirectRadiance(),
                     skyLightState.sunCloudRadiance(), cloudProfile ? sunCloudProfile : null, SUN_ANGULAR_DIAMETER_DEGREES);

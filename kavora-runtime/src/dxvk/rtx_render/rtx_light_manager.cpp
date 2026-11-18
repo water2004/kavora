@@ -27,6 +27,7 @@
 
 #include "rtx_light_manager.h"
 #include "rtx_context.h"
+#include "rtx_global_volumetrics.h"
 #include "rtx_options.h"
 #include "rtx_utils.h"
 
@@ -961,6 +962,17 @@ namespace dxvk {
               cloudLights[index].radianceProfile[sampleIndex] = Vector4(
                 sample.x * 3.14159265359f, sample.y * 3.14159265359f, sample.z * 3.14159265359f, sample.w);
             }
+          }
+        }
+      }
+      auto& clouds = raytraceArgs.volumeArgs.clouds;
+      if (CloudOptions::neuralScattering() && clouds.multipleScattering > 0 && clouds.extinction > 0 && clouds.thickness > 0) {
+        const Vector3 sun = CloudOptions::solarDirection();
+        for (uint32_t i = 0; i < 2; i++) {
+          const auto& direction = cloudLights[i].directionToLight;
+          if (dot(Vector3(direction.x, direction.y, direction.z), sun) > 0.999999f) {
+            clouds.neuralScattering = i + 1;
+            break;
           }
         }
       }

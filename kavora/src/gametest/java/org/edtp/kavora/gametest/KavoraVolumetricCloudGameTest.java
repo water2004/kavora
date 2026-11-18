@@ -237,8 +237,9 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             KavoraMod.renderer.getCloudRenderer().setProceduralClouds(true);
             client.options.cloudStatus().set(CloudStatus.FANCY);
         });
-        boolean captureComparison = Boolean.getBoolean("kavora.gametest.captureCloudComparison");
-        if (captureComparison) {
+        boolean neuralComparison = Boolean.getBoolean("kavora.gametest.neuralCloudComparison");
+        boolean captureComparison = neuralComparison || Boolean.getBoolean("kavora.gametest.captureCloudComparison");
+        if (captureComparison && !neuralComparison) {
             RuntimeOptionScope.apply(context, Map.of(
                     "rtx.clouds.maxDistanceMeters", "24000", "rtx.clouds.highMaxDistanceMeters", "24000",
                     "rtx.clouds.coverage", "0.52"));
@@ -262,13 +263,13 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 setCloudsEnabled(context, true);
                 System.out.println("Sunset fixture ready: " + fixture + " (1920x1080 DLAA, Ultra, no FG)");
                 if (captureComparison && fixture.equals("sunset-ocean")) {
-                    captureOceanClouds(context, server, 6000, -8, "cloud-ocean-noon");
-                    captureOceanClouds(context, server, 12750, -8, "cloud-ocean-sunset-1845");
+                    captureOceanLighting(context, server, 6000, -8, "cloud-ocean-noon", neuralComparison);
+                    captureOceanLighting(context, server, 12750, -8, "cloud-ocean-sunset-1845", neuralComparison);
                     var sunrisePose = CompletableFuture.runAsync(() -> positionOceanCamera(server, -90), server);
                     context.waitFor(client -> sunrisePose.isDone(), 200);
                     sunrisePose.join();
                     waitForOceanCamera(context, -90);
-                    captureOceanClouds(context, server, 23250, 8, "cloud-ocean-sunrise-0515");
+                    captureOceanLighting(context, server, 23250, 8, "cloud-ocean-sunrise-0515", neuralComparison);
                     KavoraWorldGameTest.require(context.computeOnClient(client -> KavoraFrameProbe.failures == 0),
                             "Ocean cloud fixture encountered a native frame failure");
                     continue;
@@ -377,6 +378,24 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         Path screenshot = KavoraWorldGameTest.captureCompletedFrame(context, label);
         KavoraWorldGameTest.requireVisibleWorld(screenshot);
         System.out.println("Cloud ocean screenshot: tick=" + ticks + " " + screenshot);
+    }
+
+    private static void captureOceanLighting(ClientGameTestContext context, MinecraftServer server,
+                                             int ticks, int viewChunkX, String label, boolean neuralComparison) {
+        if (!neuralComparison) {
+            captureOceanClouds(context, server, ticks, viewChunkX, label);
+            return;
+        }
+        setFixtureTime(context, server, ticks);
+        try (var analytic = RuntimeOptionScope.acquire(context, "rtx.clouds.neuralScattering", "false")) {
+            waitForRaytracedPresents(context, 24);
+            try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
+                captureOceanClouds(context, server, ticks, viewChunkX, label + "-analytic");
+                try (var neural = RuntimeOptionScope.acquire(context, "rtx.clouds.neuralScattering", "true")) {
+                    captureOceanClouds(context, server, ticks, viewChunkX, label + "-neural");
+                }
+            }
+        }
     }
 
     private static void profileOceanClouds(ClientGameTestContext context, Path startFile) {

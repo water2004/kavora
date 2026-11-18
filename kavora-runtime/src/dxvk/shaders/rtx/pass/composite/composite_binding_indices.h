@@ -78,6 +78,7 @@
 #define COMPOSITE_CLOUD_SUN_DEPTH_INPUT                              45
 #define COMPOSITE_CLOUD_MOON_DEPTH_INPUT                             46
 #define COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT                           47
+#define COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT                          48
 
 // Inputs/Outputs
 
