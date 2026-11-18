@@ -5,6 +5,7 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
@@ -757,7 +758,50 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   }
 }
 
-public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 direction, uint layer, float3 ambientRadiance,
+float2 traceCloudDirectLight(CloudArgs args, float3 position, uint lightIndex, float localBeamDepth,
+  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
+{
+  const float opticalDepth = cloudLightOpticalDepth(args, position, args.lights[lightIndex].directionToLight, kFloatMax,
+    weather, base, detail, cache, 0, localBeamDepth - log(kOpaqueCloudTransmittance), int(lightIndex)).total;
+  return exp(-float2(opticalDepth, max(opticalDepth - localBeamDepth, 0.0f)));
+}
+
+public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2D<float4> weather,
+  Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
+{
+  const uint layer = index.y < CLOUD_DIRECT_LIGHT_LOW_HEIGHT ? 0u : 1u;
+  if (!cloudLayerEnabled(args, layer))
+  {
+    return 0;
+  }
+  const bool farField = index.y >= cloudDirectLightHeightOffset(layer, true);
+  const uint sampleIndex = index.y - cloudDirectLightHeightOffset(layer, farField);
+  const float fraction = (float(sampleIndex) + 0.5f) / float(cloudDirectLightHeightSamples(layer, farField));
+  const float altitude = lerp(cloudLayerBase(args, layer), cloudLayerTop(args, layer), fraction);
+  const CloudDirectLightGrid grid = cloudDirectLightGrid(args, farField);
+  const float3 position = cloudLightPositionAtAltitude(args, grid.position(index.xz), altitude);
+  const float aboveDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0).x;
+  const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
+  float4 beam = 0;
+  [unroll]
+  for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
+  {
+    const CloudLight light = args.lights[lightIndex];
+    if (cloudLightHasEnergy(light))
+    {
+      const float cosine = dot(light.directionToLight, radialUp);
+      const float localBeamDepth = cosine > 0 && args.groundAlbedo > 0 ? aboveDepth / cosine : 0;
+      const float2 transmitted = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
+        weather, base, detail, cache);
+      beam[2 * lightIndex] = transmitted.x;
+      beam[2 * lightIndex + 1] = transmitted.y;
+    }
+  }
+  return beam;
+}
+
+public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 direction, float distance,
+  uint layer, float3 ambientRadiance,
   Sampler2D<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
 {
@@ -769,6 +813,8 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;
   float3 groundBeamIrradianceOverPi = 0;
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
+  float cacheWeight;
+  const float4 cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
   for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
   {
     const CloudLight light = args.lights[lightIndex];
@@ -779,11 +825,15 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
     }
     const float lightCosine = dot(light.directionToLight, radialUp);
     const bool groundReceivesBeam = lightCosine > 0 && args.groundAlbedo > 0;
-    const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
-    const CloudOpticalDepth directionalDepth = cloudLightOpticalDepth(args, position, light.directionToLight, kFloatMax,
-      weatherSampler, baseSampler, detailSampler, cache, 0, localBeamDepth - log(kOpaqueCloudTransmittance), int(lightIndex));
-    const float opticalDepth = directionalDepth.total;
-    const float singleScattering = rayPhase.phase[lightIndex] * exp(-opticalDepth);
+    float2 beam = lightIndex == 0 ? cachedBeam.xy : cachedBeam.zw;
+    if (cacheWeight < 1)
+    {
+      const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
+      const float2 resolved = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
+        weatherSampler, baseSampler, detailSampler, cache);
+      beam = lerp(resolved, beam, cacheWeight);
+    }
+    const float singleScattering = rayPhase.phase[lightIndex] * beam.x;
     float diffuse = localLight[lightIndex + 2];
     if (args.neuralScattering == lightIndex + 1 && layer == 0)
     {
@@ -792,13 +842,12 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
     source += irradiance * (singleScattering + args.multipleScattering * diffuse);
     if (groundReceivesBeam)
     {
-      const float externalTransmission = exp(-max(opticalDepth - localBeamDepth, 0.0f));
       const float direct = lightCosine * exp(-totalVerticalDepth / lightCosine) / 3.14159265359f;
       // At the black lower boundary the two-stream diffuse exit flux is
       // 4*pi*J (beam ordinates have cosine one). It includes beam collisions
       // already, so only the reflected flux returns as a boundary condition.
       const float diffuse = 4.0f * cloudDiffuseBeamRadiance(float2(totalVerticalDepth, 0), lightCosine);
-      groundBeamIrradianceOverPi += light.irradiance * externalTransmission * (direct + diffuse);
+      groundBeamIrradianceOverPi += light.irradiance * beam.y * (direct + diffuse);
     }
   }
   // The supplied upper-hemisphere integral is normalized by 4 pi.

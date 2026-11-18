@@ -1573,6 +1573,8 @@ namespace dxvk {
     bindResourceSampler(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudDepthSampler);
     bindResourceView(BINDING_CLOUD_NEURAL_LIGHT_INPUT, cloudVolumes.getCloudNeuralLight(), nullptr);
     bindResourceSampler(BINDING_CLOUD_NEURAL_LIGHT_INPUT, cloudDepthSampler);
+    bindResourceView(BINDING_CLOUD_DIRECT_LIGHT_INPUT, cloudVolumes.getCloudDirectLight(), nullptr);
+    bindResourceSampler(BINDING_CLOUD_DIRECT_LIGHT_INPUT, cloudDepthSampler);
     bindResourceBuffer(BINDING_SAMPLER_READBACK_BUFFER, DxvkBufferSlice(samplerFeedbackBuffer, 0, samplerFeedbackBuffer.ptr() ? samplerFeedbackBuffer->info().size : 0));
   }
 

@@ -343,6 +343,7 @@ namespace dxvk {
     void dispatchCloudSky(class RtxContext* ctx, const VolumeArgs& volume);
     Rc<DxvkImageView> getCloudLightOpticalDepth(uint32_t light) const { return m_cloudLightOpticalDepth[light].view; }
     Rc<DxvkImageView> getCloudLocalLight() const { return m_cloudLocalLight.view; }
+    Rc<DxvkImageView> getCloudDirectLight() const { return m_cloudDirectLight.view; }
     Rc<DxvkImageView> getCloudNeuralLight() const { return m_cloudNeuralLight.view; }
     Rc<DxvkImageView> getCloudAmbient() const { return m_cloudAmbient.view; }
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
@@ -375,6 +376,7 @@ namespace dxvk {
 
     Resources::Resource m_cloudLightOpticalDepth[2];
     Resources::Resource m_cloudLocalLight;
+    Resources::Resource m_cloudDirectLight;
     Resources::Resource m_cloudNeuralLight;
     CloudNeuralModel m_cloudNeuralModel;
     Resources::Resource m_cloudAmbient;

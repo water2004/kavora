@@ -251,6 +251,8 @@ run_target('test_cloud_transport',
   command: [python_interpreter, files('test_cloud_transport.py')])
 run_target('test_cloud_lighting',
   command: [python_interpreter, files('test_cloud_lighting.py')])
+run_target('test_cloud_direct_light',
+  command: [python_interpreter, files('test_cloud_direct_light.py')])
 run_target('test_cloud_scattering',
   command: [python_interpreter, files('test_cloud_scattering.py'), '--device', 'vulkan'])
 foreach test_name : ['test_cloud_morphology', 'test_cloud_density_math', 'test_cloud_filtering',

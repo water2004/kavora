@@ -147,6 +147,8 @@ layout(binding = BINDING_CLOUD_LOCAL_LIGHT_INPUT)
 Sampler3D<float4> CloudLocalLightSampler;
 layout(binding = BINDING_CLOUD_NEURAL_LIGHT_INPUT)
 Sampler3D<float4> CloudNeuralLightSampler;
+layout(binding = BINDING_CLOUD_DIRECT_LIGHT_INPUT)
+Sampler3D<float4> CloudDirectLightSampler;
 
 layout(binding = BINDING_SAMPLER_READBACK_BUFFER) 
 RWStructuredBuffer<uint32_t> SamplerFeedbackBuffer;

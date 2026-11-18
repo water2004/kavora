@@ -136,6 +136,8 @@ layout(binding = COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
 Sampler3D<float4> CloudLocalLightSampler;
 layout(binding = COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT)
 Sampler3D<float4> CloudNeuralLightSampler;
+layout(binding = COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT)
+Sampler3D<float4> CloudDirectLightSampler;
 
 // Inputs/Outputs
 layout(binding = COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)

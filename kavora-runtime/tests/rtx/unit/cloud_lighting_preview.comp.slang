@@ -29,8 +29,27 @@ RWTexture3D<float4> LocalLightOutput;
 void buildLocalLight(uint3 index : SV_DispatchThreadID)
 {
   const Sampler3D<float4> local = Sampler3D<float4>(Base);
-  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local };
+  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local
+#if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
+    , local
+#endif
+  };
   buildCloudLocalLightColumn(Clouds, index.xy, index.z, Sampler2D<float4>(Weather),
     Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache, LocalLightOutput);
 }
+
+#if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
+Sampler3D<float4>.Handle CloudLocalLight;
+RWTexture3D<float4> DirectLightOutput;
+
+[shader("compute")]
+[numthreads(8, 4, 2)]
+void buildDirectLight(uint3 index : SV_DispatchThreadID)
+{
+  const Sampler3D<float4> local = Sampler3D<float4>(CloudLocalLight);
+  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local, local };
+  DirectLightOutput[index] = buildCloudDirectLightCell(Clouds, index, Sampler2D<float4>(Weather),
+    Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache);
+}
+#endif
 #endif

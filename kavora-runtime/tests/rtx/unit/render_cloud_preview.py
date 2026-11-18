@@ -413,6 +413,9 @@ def main():
     has_local_light = 'buildCloudLocalLightColumn' in (shaders / 'rtx/algorithm/clouds.slang').read_text()
     if has_local_light:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LOCAL_LIGHT'] = '1'
+    direct_shader = shaders / 'rtx/pass/clouds/generate_cloud_direct_light.comp.slang'
+    if direct_shader.is_file():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DIRECT_LIGHT'] = '1'
     atmosphere = None
     if args.air and (not args.atmosphere_fixture or not args.radiance):
         parser.error('--air requires --atmosphere-fixture and --radiance')
@@ -548,6 +551,8 @@ def main():
         for relative in ('rtx/pass/clouds/cloud_lighting_cache.h',
                          'rtx/pass/clouds/generate_cloud_lighting.comp.slang'):
             manifest['sourceHashes'][relative] = hashlib.sha256((shaders / relative).read_bytes()).hexdigest()
+        if direct_shader.is_file():
+            manifest['sourceHashes'][direct_shader.relative_to(shaders).as_posix()] = hashlib.sha256(direct_shader.read_bytes()).hexdigest()
         manifest['lightingHarnessHashes'] = {
             name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
             for name in ('cloud_lighting_preview.py', 'cloud_lighting_preview.comp.slang')}

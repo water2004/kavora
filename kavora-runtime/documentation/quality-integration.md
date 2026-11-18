@@ -26,8 +26,13 @@ induced by each unit celestial beam. The same field serves the primary,
 reflection, transmission and indirect rays. The local diffuse solve uses finite
 optical-depth intervals, escape through the cloud layer and attenuation by
 exterior blockers. The existing multiple-scattering control scales this field.
-View extinction and the directional single-scattering term retain their own
-optical integration.
+
+The shared direct-light field bakes the solar and lunar transmission to points
+in both cloud layers, including the transmission used for ground bounce.
+Its two wind-aligned grids blend across their edges and use resolved transport
+for short segments and positions beyond the field. Primary rays, PSR and sky
+generation sample the same field. View extinction is still integrated along
+each ray.
 
 ### Experimental solar multiple scattering
 

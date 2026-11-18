@@ -14,6 +14,7 @@ public struct CloudLightingCache
   public Sampler3D<float> moon;
   public Sampler3D<float4> local;
   public Sampler3D<float4> neural;
+  public Sampler3D<float4> direct;
 };
 
 [ForceInline]
@@ -41,6 +42,11 @@ float3 cloudSecondHorizontalAxis(CloudArgs args)
   return args.up.z > 0.5f ? float3(0, 1, 0) : float3(0, 0, 1);
 }
 
+public float2 cloudLightHorizontal(CloudArgs args, float3 position)
+{
+  return float2(position.x, dot(position, cloudSecondHorizontalAxis(args)));
+}
+
 [ForceInline]
 public float cloudLightingRadius(CloudArgs args)
 {
@@ -64,8 +70,7 @@ float cloudLocalLightRadius(CloudArgs args, uint layer)
 
 public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude, uint layer)
 {
-  const float3 relative = position - args.groundReference;
-  const float2 horizontal = float2(relative.x, dot(relative, cloudSecondHorizontalAxis(args)));
+  const float2 horizontal = cloudLightHorizontal(args, position - args.groundReference);
   const float2 uv = horizontal / (2.0f * cloudLocalLightRadius(args, layer)) + 0.5f;
   const float layerBase = layer == 0 ? args.baseHeight : args.highBaseHeight;
   const float thickness = layer == 0 ? args.thickness : args.highThickness;

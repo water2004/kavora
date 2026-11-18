@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
 # SPDX-License-Identifier: MIT
-"""Build the production cloud optical-depth tables for offline ray consumers."""
+"""Build the production cloud lighting fields for offline ray consumers."""
 import re
 import time
 
@@ -71,34 +71,43 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
         high = clouds['highCoverage'] > 0 and clouds['highExtinction'] > 0 and clouds['highThickness'] > 0
         active = lighting_enabled and clouds['enable'] and (enabled or high)
         local_resolution = constant('CLOUD_LOCAL_LIGHT_RESOLUTION')
-        height = constant('CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES') + constant('CLOUD_LOCAL_LIGHT_HIGH_HEIGHT_SAMPLES')
-        extent = [local_resolution, height, local_resolution] if active else [1, 1, 1]
-        texture = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba16_float,
-                                        width=extent[0], height=extent[1], depth=extent[2], mip_count=1, usage=usage)
-        if not active:
-            texture.copy_from_numpy(np.zeros((1, 1, 1, 4), np.float16))
-        else:
-            local_program = device.load_program('cloud_lighting_preview.comp.slang', ['buildLocalLight'])
-            local_kernel = device.create_compute_kernel(local_program)
-            local_bindings = {**bindings, **result, 'LocalLightOutput': texture}
-            local_threads = [local_resolution, local_resolution, 2 if high else 1]
-            if warmup:
-                local_kernel.dispatch(thread_count=local_threads, vars=local_bindings)
-                device.wait_for_idle()
-        samples = []
-        for _ in range(repeats):
-            started = time.monotonic()
+        local_height = constant('CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES') + constant('CLOUD_LOCAL_LIGHT_HIGH_HEIGHT_SAMPLES')
+        local_extent = [local_resolution, local_height, local_resolution]
+        fields = [('LocalLight', local_extent, [local_resolution, local_resolution, 2 if high else 1])]
+        if 'CLOUD_DIRECT_LIGHT_RESOLUTION' in source:
+            resolution = constant('CLOUD_DIRECT_LIGHT_RESOLUTION')
+            height = (constant('CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES') +
+                      constant('CLOUD_DIRECT_LIGHT_LOW_FAR_SAMPLES') +
+                      2 * constant('CLOUD_DIRECT_LIGHT_HIGH_SAMPLES'))
+            extent = [resolution, height, resolution]
+            fields.append(('DirectLight', extent, extent))
+        for field, extent, threads in fields:
+            width, height, depth = extent if active else [1, 1, 1]
+            texture = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba16_float,
+                                            width=width, height=height, depth=depth, mip_count=1, usage=usage)
+            samples = []
             if active:
-                local_kernel.dispatch(thread_count=local_threads, vars=local_bindings)
-                device.wait_for_idle()
-            samples.append(time.monotonic() - started)
-        view = texture.create_view(sampler=sampler)
-        resources.extend((texture, view))
-        result['CloudLocalLight'] = view.descriptor_handle_combined
-        measurements['volumes'].append({'name': 'CloudLocalLight', 'extent': extent, 'active': bool(active),
-                                       'bytes': int(np.prod(extent)) * 8,
-                                       'dispatchWaitSeconds': float(np.median(samples)),
-                                       'dispatchWaitSamplesSeconds': samples, 'warmedUp': bool(warmup)})
+                program = device.load_program('cloud_lighting_preview.comp.slang', ['build' + field])
+                kernel = device.create_compute_kernel(program)
+                field_bindings = {**bindings, **result, field + 'Output': texture}
+                if warmup:
+                    kernel.dispatch(thread_count=threads, vars=field_bindings)
+                    device.wait_for_idle()
+                for _ in range(repeats):
+                    started = time.monotonic()
+                    kernel.dispatch(thread_count=threads, vars=field_bindings)
+                    device.wait_for_idle()
+                    samples.append(time.monotonic() - started)
+            else:
+                texture.copy_from_numpy(np.zeros((1, 1, 1, 4), np.float16))
+            view = texture.create_view(sampler=sampler)
+            resources.extend((texture, view))
+            name = 'Cloud' + field
+            result[name] = view.descriptor_handle_combined
+            measurements['volumes'].append({'name': name, 'extent': [width, height, depth], 'active': bool(active),
+                                           'bytes': width * height * depth * 8,
+                                           'dispatchWaitSeconds': float(np.median(samples)) if samples else 0.0,
+                                           'dispatchWaitSamplesSeconds': samples, 'warmedUp': active and warmup})
     measurements['bytes'] = sum(v['bytes'] for v in measurements['volumes'])
     measurements['dispatchWaitSeconds'] = sum(v['dispatchWaitSeconds'] for v in measurements['volumes'])
     measurements['scope'] = 'Software or hardware Vulkan dispatch and host wait; not a game frame time.'
