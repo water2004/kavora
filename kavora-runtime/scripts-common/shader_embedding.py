@@ -30,8 +30,9 @@ def _is_shared(path):
 
 def restore_inline_shaders(entries):
     for binary, header in entries:
-        if _is_shared(header):
-            xxd_c_array(Path(binary).read_bytes(), header)
+        binary, header = Path(binary), Path(header)
+        if not header.exists() or binary.stat().st_mtime_ns > header.stat().st_mtime_ns or _is_shared(header):
+            xxd_c_array(binary.read_bytes(), header)
 
 
 def deduplicate_shaders(entries, shared_header, shared_sources, header_prefix=''):

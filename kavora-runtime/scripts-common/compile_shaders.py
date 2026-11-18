@@ -12,7 +12,7 @@ import threading
 import ctypes
 import depfile
 from shader_dependencies import ShaderDependencyCache
-from shader_generation import publish_shader_generation, shader_generation_include
+from shader_generation import publish_shader_dependencies, publish_shader_generation, shader_generation_include
 from shader_embedding import deduplicate_shaders, restore_inline_shaders
 from slang_spirv_layout import LAYOUT_FLAGS
 
@@ -41,6 +41,7 @@ parser.add_argument('-slang-debug-variant', action='append', dest='slang_debug_v
                     default=[name.strip() for name in os.environ.get('RTX_SLANG_DEBUG_VARIANTS', '').split(',') if name.strip()],
                     help='Embed optimized Slang source debug information for this exact variant name; may be repeated.')
 parser.add_argument('-build-stamp', type=str, default=None, dest='build_stamp')
+parser.add_argument('-build-depfile', dest='build_depfile')
 parser.add_argument('-shared-header', type=str, default=None, dest='shared_header')
 parser.add_argument('-shared-sources', nargs='*', default=[], dest='shared_sources')
 args = parser.parse_args()
@@ -124,7 +125,8 @@ class Task:
             inputs = depfile.parse(dependencyFile.readlines(), self.depTarget)
         if not inputs:
             raise ValueError('Compiler produced no dependencies for ' + self.getName())
-        dependencyCache.record_success(self.outputs[0], inputs + self.extraInputs, self.commands)
+        self.inputs = inputs
+        dependencyCache.record_success(self.outputs[0], self.inputs, self.commands)
         return (0, allCommandOutputs, commandName)
 
 
@@ -186,7 +188,6 @@ def createBasicTask(inputFile, destFile, targetName, depFile):
     task = Task()
     task.depFile = depFile
     task.depTarget = targetName
-    task.extraInputs = []
     try:
         lines = open(depFile, 'r').readlines()
         task.inputs = depfile.parse(lines, targetName)
@@ -245,22 +246,10 @@ def createSlangTask(inputFile, variantSpec):
 
     command1.extend(['-o', destFile])
 
-    # -binary switch just writes the SPV binary
-    if args.binary:
-        task.commands = [command1]
-    else:
-        # NOTE: rebuild shader if its generated header is missing
-        task.outputs.append(headerFile)
-
-        # Command to convert SPV into c array header
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        shader_xxd = os.path.join(script_dir, 'shader_xxd.py')
-        task.inputs.append(shader_xxd)
-        task.extraInputs.append(shader_xxd)
-        command2 = [sys.executable, shader_xxd, '-i', destFile, '-o', headerFile]
-
-        task.commands = [command1, command2]
-
+    # The binary is shared by runtime reloads and native builds. Embedding it
+    # in C++ is a separate step and does not change the Slang cache key.
+    task.commands = [command1]
+    task.embeddedHeader = headerFile
     return task
 
 # Read the shader variant specifications from the source code.
@@ -357,6 +346,7 @@ def writeVariantMatrixHeader(inputFile, matrix, axisOrder, variants):
 
     baseToken = getVariantMatrixToken(matrix["base"])
     destFile = os.path.join(args.output, matrix["base"] + "_variants.h")
+    matrixHeaders.append(destFile)
     lines = [
         "#pragma once",
         "",
@@ -604,6 +594,8 @@ def parseShaderVariants(inputFile):
     return result
 
 tasks = []
+allTasks = []
+matrixHeaders = []
 embeddedShaders = []
 slangVariantNames = set()
 
@@ -622,6 +614,7 @@ for root, dirs, files in os.walk(args.input):
         or name.endswith(".rint") \
         or name.endswith(".rcall"):
             task = createGlslangTask(inputFile)
+            allTasks.append(task)
             if task.needsBuild():
                 tasks.append(task)
 
@@ -642,8 +635,9 @@ for root, dirs, files in os.walk(args.input):
             for variantSpec in variants:
                 slangVariantNames.add(os.path.splitext(variantSpec[0])[0])
                 task = createSlangTask(inputFile, variantSpec)
+                allTasks.append(task)
                 if not args.binary:
-                    embeddedShaders.append((task.outputs[0], task.outputs[2]))
+                    embeddedShaders.append((task.outputs[0], task.embeddedHeader))
                 if task.needsBuild():
                     tasks.append(task)
 
@@ -680,3 +674,15 @@ if not args.binary:
 
 if args.build_stamp and not args.binary:
     publish_shader_generation(args.output, args.build_stamp)
+
+if args.build_depfile:
+    if not args.build_stamp:
+        parser.error('-build-depfile requires -build-stamp')
+    inputs = set([*tools, *matrixHeaders])
+    inputs.update(os.path.join(os.path.dirname(__file__), name)
+                  for name in ('shader_embedding.py', 'shader_generation.py', 'shader_xxd.py'))
+    for task in allTasks:
+        inputs.update(task.inputs)
+        inputs.update(task.outputs)
+    inputs.update(header for _, header in embeddedShaders)
+    publish_shader_dependencies(args.build_depfile, args.build_stamp, inputs)

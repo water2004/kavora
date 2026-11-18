@@ -545,12 +545,21 @@ foreach part : range(8)
   rtx_shader_outputs += ['shared_shader_bytecode_' + part.to_string() + '.cpp']
   rtx_shader_embedding_args += ['@OUTPUT' + (part + 2).to_string() + '@']
 endforeach
+rtx_shader_inventory = custom_target(
+  'rtx_shader_inventory',
+  build_always_stale: true,
+  output: 'rtx_shader_sources.txt',
+  command: [python_interpreter, files('../../scripts-common/shader_inventory.py'),
+    meson.current_source_dir() / 'shaders/rtx', '@OUTPUT@']
+)
 rtx_shaders = custom_target(
   'rtx_shaders',
   build_by_default: true,
-  build_always_stale: true,
+  input: rtx_shader_inventory,
   output: rtx_shader_outputs,
+  depfile: 'rtx_shaders.d',
   command: [ python_interpreter ] + rtx_shaders_command_arguments + rtx_shader_embedding_args
+    + ['-build-depfile', '@DEPFILE@']
 )
 
 dxvk_embedded_data_files = files([

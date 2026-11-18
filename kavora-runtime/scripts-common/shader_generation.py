@@ -10,6 +10,19 @@ def shader_generation_include(output, stamp):
     return '#include "' + os.path.relpath(Path(stamp).resolve(), Path(output).resolve()).replace("\\", "/") + '"\n'
 
 
+def publish_shader_dependencies(depfile, target, dependencies):
+    """Publish the inputs for Ninja's aggregate shader target."""
+    def escape(path):
+        return Path(path).as_posix().replace("$", "$$").replace("#", "\\#").replace(" ", "\\ ")
+
+    target = escape(target)
+    inputs = sorted({escape(Path(path).absolute()) for path in dependencies})
+    destination = Path(depfile)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    temporary.write_text(target + ": " + " ".join(inputs) + "\n", encoding="utf-8")
+    os.replace(temporary, destination)
+
+
 def publish_shader_generation(output, stamp):
     output = Path(output).resolve()
     stamp = Path(stamp).resolve()
