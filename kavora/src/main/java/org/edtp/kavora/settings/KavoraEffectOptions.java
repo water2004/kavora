@@ -115,7 +115,6 @@ final class KavoraEffectOptions {
         decimal("lighting.samplingExponent", SettingGroup.SAMPLING, "rtx.sparseRendering.samplingRateResolutionExponent", 0, 2),
         toggle("lighting.sparseTransparency", SettingGroup.SAMPLING, "rtx.sparseRendering.enableSparseAwareAlphaBlendSearch"),
         integer("cache.records", SettingGroup.RADIANCE_CACHE, "rtx.spatiallyHashedRadianceCache.targetNumUpdateRecords", 0, 262144),
-        toggle("cache.combine", SettingGroup.RADIANCE_CACHE, "rtx.spatiallyHashedRadianceCache.combineUpdateAndQuery"),
         toggle("cache.primary", SettingGroup.RADIANCE_CACHE, "rtx.spatiallyHashedRadianceCache.queryForThinOpaquePrimaryView"),
         choice("cache.filter", SettingGroup.RADIANCE_CACHE, "rtx.spatiallyHashedRadianceCache.cellFilterMode", 0, 2),
         toggle("cache.spatialJitter", SettingGroup.RADIANCE_CACHE, "rtx.spatiallyHashedRadianceCache.primaryQuerySpatialJitter"),

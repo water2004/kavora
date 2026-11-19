@@ -403,7 +403,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       if (airActive && !airSampleValid)
       {
         const float3 airPosition = origin + direction * airGrid.sampleAt(airCell);
-        airMedium = sampleAirMedium(args.air, airTables, airPosition, direction, airPhase);
+        airMedium = sampleAirMedium(args.air, airTables, airPosition, airPhase);
         airMedium.source /= max(airMedium.extinction, 1e-20f);
         airSampleValid = true;
       }

@@ -36,13 +36,6 @@ namespace dxvk {
     RTX_OPTION_FLAG("rtx.gbuffer", bool, logDispatch, false, RtxOptionFlags::NoSave,
       "Logs selected G-buffer shaders, dispatch dimensions and ray settings when they change.");
 
-    enum class RaytraceMode {
-      RayQuery = 0,
-      RayQueryRayGen,
-      TraceRay,
-      Count
-    };
-
     explicit DxvkPathtracerGbuffer(DxvkDevice* device);
     ~DxvkPathtracerGbuffer() = default;
 
@@ -122,7 +115,6 @@ namespace dxvk {
       &RaytracingFrame::m_compositeOutputExtent>;
     void dispatch(class RtxContext* ctx, DispatchResources frame);
 
-    static const char* raytraceModeToString(RaytraceMode raytraceMode);
 
   private:
     void ensurePathBuffers(const VkExtent3D& rayDims, bool atmosphereCache,
@@ -132,6 +124,5 @@ namespace dxvk {
     Rc<DxvkBuffer> m_psrQueues[2];
     size_t m_loggedDispatchHash[2] = {};
 
-    static DxvkRaytracingPipelineShaders getPrimaryPipelineShaders(const uint32_t featureVariant, const bool useRayQuery, const bool serEnabled, const bool ommEnabled, const bool includePortals, const bool nrcEnabled, const bool sharcEnabled, const bool wboitEnabled);
   };
 }

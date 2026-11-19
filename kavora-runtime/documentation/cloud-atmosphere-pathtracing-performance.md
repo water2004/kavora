@@ -25,8 +25,7 @@ Rayleigh and Mie phase terms depend on the fixed view-ray direction and light
 directions, not on the position of an air sample along that ray. Compute these
 terms once in `createAtmosphereRay`, store them in the transient
 `AtmosphereRay`, and reuse them across all clipped-range integrations of that
-ray (including atmosphere checkpoints). Inactive lights are skipped. The
-four-argument `sampleAirMedium` entry point remains available as a wrapper.
+ray (including atmosphere checkpoints). Inactive lights are skipped.
 
 This is an exact algebraic hoist; it does not change the phase functions,
 extinction profile, LUTs, or quadrature.

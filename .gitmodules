@@ -39,10 +39,6 @@
 [submodule "kavora-runtime/submodules/Detours"]
 	path = kavora-runtime/submodules/Detours
 	url = https://github.com/microsoft/Detours.git
-[submodule "kavora-runtime/submodules/xess"]
-	path = kavora-runtime/submodules/xess
-	url = https://github.com/intel/xess.git
-	shallow = false
 [submodule "kavora-runtime/include/MathLib/External/sse2neon"]
 	path = kavora-runtime/include/MathLib/External/sse2neon
 	url = https://github.com/DLTcollab/sse2neon.git

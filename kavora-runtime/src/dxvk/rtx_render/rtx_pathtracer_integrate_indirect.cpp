@@ -38,66 +38,12 @@
 
 #include <rtx_shaders/integrate_indirect_raygen_neeCache.h>
 #include <rtx_shaders/integrate_indirect_raygen_ser_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen.h>
-#include <rtx_shaders/integrate_indirect_raygen.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser.h>
 #include <rtx_shaders/integrate_indirect_raygen_nrc_neeCache.h>
 #include <rtx_shaders/integrate_indirect_raygen_ser_nrc_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_nrc_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_nrc.h>
-#include <rtx_shaders/integrate_indirect_raygen_nrc.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_nrc.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_update_neeCache.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_update_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_update_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_update.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_update.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_update.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_query_neeCache.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_query_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_query_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_query.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_query.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_query.h>
 #include <rtx_shaders/integrate_indirect_raygen_sharc_combined_neeCache.h>
 #include <rtx_shaders/integrate_indirect_raygen_ser_sharc_combined_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_combined_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_combined.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_combined.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_combined.h>
 
-#include <rtx_shaders/integrate_indirect_rayquery_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery.h>
-#include <rtx_shaders/integrate_indirect_rayquery_nrc_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_nrc.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_update_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_update.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_query_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_query.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_combined_neeCache.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_combined.h>
 
-#include <rtx_shaders/integrate_indirect_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_pom_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_nrc_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_nrc_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_nrc_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_nrc_pom_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_pom_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_pom_material_rayPortal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_material_rayportal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_pom_material_rayportal_closestHit.h>
 
 #include <rtx_shaders/integrate_indirect_neeCache_material_rayportal_closestHit.h>
 #include <rtx_shaders/integrate_indirect_neeCache_material_opaque_translucent_closestHit.h>
@@ -107,125 +53,20 @@
 #include <rtx_shaders/integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit.h>
 #include <rtx_shaders/integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit.h>
 #include <rtx_shaders/integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit.h>
 #include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit.h>
 #include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit.h>
 #include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit.h>
 #include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit.h>
 
-#include <rtx_shaders/integrate_indirect_miss.h>
 #include <rtx_shaders/integrate_indirect_miss_neeCache.h>
-#include <rtx_shaders/integrate_indirect_miss_nrc.h>
 #include <rtx_shaders/integrate_indirect_miss_nrc_neeCache.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_update.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_update_neeCache.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_query.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_query_neeCache.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_combined.h>
 #include <rtx_shaders/integrate_indirect_miss_sharc_combined_neeCache.h>
 
 
 
-#include <rtx_shaders/integrate_indirect_raygen_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_nrc_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_update_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_query_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_nrc_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_update_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_query_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_nrc_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_update_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_query_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_nrc_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_update_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_query_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_nrc_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_update_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_query_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_nrc_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_update_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_query_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_combined_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_combined_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_combined_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_raygen_sharc_combined_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_sharc_combined_wboit.h>
-#include <rtx_shaders/integrate_indirect_raygen_ser_sharc_combined_wboit.h>
 
-#include <rtx_shaders/integrate_indirect_rayquery_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_nrc_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_update_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_query_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_nrc_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_update_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_query_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_combined_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_rayquery_sharc_combined_wboit.h>
 
-#include <rtx_shaders/integrate_indirect_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_pom_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_pom_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_pom_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_pom_material_rayPortal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_neeCache_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_neeCache_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_neeCache_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_neeCache_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit_wboit.h>
-#include <rtx_shaders/integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit_wboit.h>
 
-#include <rtx_shaders/integrate_indirect_miss_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_nrc_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_nrc_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_update_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_update_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_query_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_query_neeCache_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_combined_wboit.h>
-#include <rtx_shaders/integrate_indirect_miss_sharc_combined_neeCache_wboit.h>
 
 #include <rtx_shaders/integrate_nee.h>
 #include <rtx_shaders/integrate_nee_restir_gi.h>
@@ -320,7 +161,6 @@ namespace dxvk {
         RW_TEXTURE2D(INTEGRATE_INDIRECT_BINDING_NEE_CACHE_THREAD_TASK)
 
 
-        RW_TEXTURE2D(INTEGRATE_INSTRUMENTATION)
 
       END_PARAMETER()
     };
@@ -458,34 +298,15 @@ namespace dxvk {
       getIntegrateNEEShader(true);
 
       for (int32_t nrcEnabled = isNrcSupported ? 1 : 0; nrcEnabled >= 0; nrcEnabled--) {
-        for (int32_t useNeeCache = 1; useNeeCache >= 0; useNeeCache--) {
-          for (int32_t wboitEnabled = 1; wboitEnabled >= 0; wboitEnabled--) {
-            for (int32_t includesPortals = portalsEnabled; includesPortals >= 0; includesPortals--) {
-              for (int32_t useRayQuery = 1; useRayQuery >= 0; useRayQuery--) {
-                for (int32_t serEnabled = isShaderExecutionReorderingSupported; serEnabled >= 0; serEnabled--) {
-                  for (int32_t ommEnabled = isOpacityMicromapSupported; ommEnabled >= 0; ommEnabled--) {
-                    for (int32_t pomEnabled = 1; pomEnabled >= 0; pomEnabled--) {
-                      pipelineManager.registerRaytracingShaders(getPipelineShaders(useRayQuery, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, false, false, wboitEnabled));
-
-                      // Register SHaRC variants
-                      if (!nrcEnabled && isSharcSupported) {
-                        pipelineManager.registerRaytracingShaders(getPipelineShaders(useRayQuery, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, true, false, wboitEnabled));
-                        pipelineManager.registerRaytracingShaders(getPipelineShaders(useRayQuery, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, false, true, wboitEnabled));
-                        pipelineManager.registerRaytracingShaders(getPipelineShaders(useRayQuery, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, true, true, wboitEnabled));
-                      }
-                    }
-                  }
+        for (int32_t includesPortals = portalsEnabled; includesPortals >= 0; includesPortals--) {
+          for (int32_t serEnabled = isShaderExecutionReorderingSupported; serEnabled >= 0; serEnabled--) {
+            for (int32_t ommEnabled = isOpacityMicromapSupported; ommEnabled >= 0; ommEnabled--) {
+              for (int32_t pomEnabled = 1; pomEnabled >= 0; pomEnabled--) {
+                pipelineManager.registerRaytracingShaders(getPipelineShaders(serEnabled, ommEnabled, includesPortals, pomEnabled, nrcEnabled, false));
+                if (!nrcEnabled && isSharcSupported) {
+                  pipelineManager.registerRaytracingShaders(getPipelineShaders(serEnabled, ommEnabled, includesPortals, pomEnabled, false, true));
                 }
               }
-            }
-
-            getComputeShader(useNeeCache, nrcEnabled, false, false, wboitEnabled);
-
-            if (!nrcEnabled && isSharcSupported) {
-              // Register SHaRC variants
-              getComputeShader(useNeeCache, nrcEnabled, true, false, wboitEnabled);
-              getComputeShader(useNeeCache, nrcEnabled, false, true, wboitEnabled);
-              getComputeShader(useNeeCache, nrcEnabled, true, true, wboitEnabled);
             }
           }
         }
@@ -494,50 +315,15 @@ namespace dxvk {
       // Note: The getters for these SER/OMM enabled flags also check if SER/OMMs are supported, so we do not need to check for that manually.
       const bool serEnabled = RtxOptions::isShaderExecutionReorderingInPathtracerIntegrateIndirectEnabled();
       const bool ommEnabled = OpacityMicromapManager::checkIsOpacityMicromapSupported(*m_device) && RtxOptions::OpacityMicromap::enable();
-      const bool useNeeCache = NeeCachePass::enable();
       const bool nrcEnabled = RtxOptions::integrateIndirectMode() == IntegrateIndirectMode::NeuralRadianceCache;
       const bool sharcEnabled = isSharcSupported && RtxOptions::integrateIndirectMode() == IntegrateIndirectMode::SHaRC;
-      const bool wboitEnabled = RtxOptions::wboitEnabled();
-      const bool sharcCombinedEnabled = sharcEnabled && SpatiallyHashedRadianceCache::SharcOptions::combineUpdateAndQuery();
 
       getIntegrateNEEShader(RtxOptions::useReSTIRGI());
 
       for (int32_t includesPortals = portalsEnabled; includesPortals >= 0; includesPortals--) {
         // Prewarm POM on and off, as that can change based on game content (if nothing in the frame has a height texture, then POM turns off)
         for (int32_t pomEnabled = 1; pomEnabled >= 0; pomEnabled--) {
-          DxvkComputePipelineShaders shaders;
-          switch (RtxOptions::renderPassIntegrateIndirectRaytraceMode()) {
-          case RaytraceMode::RayQuery:
-            getComputeShader(useNeeCache, nrcEnabled, sharcEnabled, false, wboitEnabled);
-            if (sharcEnabled) {
-              getComputeShader(useNeeCache, nrcEnabled, false, true, wboitEnabled);
-            }
-            if (sharcCombinedEnabled) {
-              getComputeShader(useNeeCache, nrcEnabled, true, true, wboitEnabled);
-            }
-            break;
-          case RaytraceMode::RayQueryRayGen:
-            pipelineManager.registerRaytracingShaders(getPipelineShaders(true, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, sharcEnabled, false, wboitEnabled));
-            if (sharcEnabled) {
-              pipelineManager.registerRaytracingShaders(getPipelineShaders(true, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, false, true, wboitEnabled));
-            }
-            if (sharcCombinedEnabled) {
-              pipelineManager.registerRaytracingShaders(getPipelineShaders(true, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, true, true, wboitEnabled));
-            }
-            break;
-          case RaytraceMode::TraceRay:
-            pipelineManager.registerRaytracingShaders(getPipelineShaders(false, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, sharcEnabled, false, wboitEnabled));
-            if (sharcEnabled) {
-              pipelineManager.registerRaytracingShaders(getPipelineShaders(false, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, false, true, wboitEnabled));
-            }
-            if (sharcCombinedEnabled) {
-              pipelineManager.registerRaytracingShaders(getPipelineShaders(false, serEnabled, ommEnabled, useNeeCache, includesPortals, pomEnabled, nrcEnabled, true, true, wboitEnabled));
-            }
-            break;
-          case RaytraceMode::Count:
-            assert(false && "Invalid RaytraceMode in DxvkPathtracerIntegrateIndirect::prewarmShaders");
-            break;
-          }
+          pipelineManager.registerRaytracingShaders(getPipelineShaders(serEnabled, ommEnabled, includesPortals, pomEnabled, nrcEnabled, sharcEnabled));
         }
       }
     }
@@ -569,8 +355,7 @@ namespace dxvk {
 
   void DxvkPathtracerIntegrateIndirect::dispatch(
     RtxContext* ctx,
-    IndirectIntegrationResources resources,
-    const bool doSharcUpdate) {
+    IndirectIntegrationResources resources) {
 
     const uint32_t frameIdx = ctx->getDevice()->getCurrentFrameId();
 
@@ -665,55 +450,28 @@ namespace dxvk {
 
     ctx->bindResourceView(INTEGRATE_INDIRECT_BINDING_INDIRECT_RADIANCE_HIT_DISTANCE_OUTPUT, resources.get<&RaytracingFrame::m_indirectRadianceHitDistance>().view(Resources::AccessType::Write), nullptr);
 
-    DebugView& debugView = ctx->getDevice()->getCommon()->metaDebugView();
-    ctx->bindResourceView(INTEGRATE_INSTRUMENTATION, debugView.getInstrumentation(), nullptr);
-
     const bool nrcEnabled = nrc.isActive();
 
-    const bool sharcQueryEnabled = !doSharcUpdate && sharc.isActive();
-    // The variant that enables both traces the update paths in the query dispatch.
-    const bool sharcUpdateEnabled = doSharcUpdate || (sharcQueryEnabled && sharc.isUpdateCombinedWithQuery());
+    const bool sharcEnabled = sharc.isActive();
 
     VkExtent3D rayDims = resources.get<&RaytracingFrame::m_compositeOutputExtent>();
 
     if (nrcEnabled) {
       rayDims = nrc.calcRaytracingResolution();
-    } else if (sharc.isActive()) {
-      rayDims = sharc.calcRaytracingResolution(rayDims, doSharcUpdate);
+    } else if (sharcEnabled) {
+      rayDims = sharc.calcRaytracingResolution();
     }
 
     const bool serEnabled = RtxOptions::isShaderExecutionReorderingInPathtracerIntegrateIndirectEnabled();
     const bool ommEnabled = RtxOptions::getEnableOpacityMicromap();
     const bool includePortals = RtxOptions::rayPortalModelTextureHashes().size() > 0 || resources.get<&RaytracingFrame::m_raytraceArgs>().numActiveRayPortals > 0;
     const bool pomEnabled = resources.get<&RaytracingFrame::m_raytraceArgs>().pomMode != DisplacementMode::Off && RtxOptions::Displacement::enableIndirectHit();
-    const bool wboitEnabled = RtxOptions::wboitEnabled();
 
     // Trace indirect ray
     {
       ScopedGpuProfileZone(ctx, "Integrate Indirect Raytracing");
-      const NeeCachePass& neeCache = ctx->getCommonObjects()->metaNeeCache();
-      const bool neeCacheEnabled = neeCache.isActive();
-      const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
-
-      // Launched over the grid rather than the compacted list,
-      // because the 1D dispatch measures as a wash here and only adds complexity.
-      switch (RtxOptions::renderPassIntegrateIndirectRaytraceMode()) {
-      case RaytraceMode::RayQuery:
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getComputeShader(neeCacheEnabled, nrcEnabled, sharcUpdateEnabled, sharcQueryEnabled, wboitEnabled));
-        ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
-        break;
-      case RaytraceMode::RayQueryRayGen:
-        ctx->bindRaytracingPipelineShaders(getPipelineShaders(true, serEnabled, ommEnabled, neeCacheEnabled, includePortals, pomEnabled, nrcEnabled, sharcUpdateEnabled, sharcQueryEnabled, wboitEnabled));
-        ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
-        break;
-      case RaytraceMode::TraceRay:
-        ctx->bindRaytracingPipelineShaders(getPipelineShaders(false, serEnabled, ommEnabled, neeCacheEnabled, includePortals, pomEnabled, nrcEnabled, sharcUpdateEnabled, sharcQueryEnabled, wboitEnabled));
-        ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
-        break;
-      case RaytraceMode::Count:
-        assert(false && "Invalid RaytraceMode in DxvkPathtracerIntegrateIndirect::dispatch");
-        break;
-      }
+      ctx->bindRaytracingPipelineShaders(getPipelineShaders(serEnabled, ommEnabled, includePortals, pomEnabled, nrcEnabled, sharcEnabled));
+      ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
     }
   }
 
@@ -805,611 +563,88 @@ namespace dxvk {
   }
 
   DxvkRaytracingPipelineShaders DxvkPathtracerIntegrateIndirect::getPipelineShaders(
-    const bool useRayQuery,
     const bool serEnabled,
     const bool ommEnabled,
-    const bool useNeeCache,
     const bool includePortals,
     const bool pomEnabled,
     const bool nrcEnabled,
-    const bool sharcUpdateEnabled,
-    const bool sharcQueryEnabled,
-    const bool wboitEnabled) {
+    const bool sharcEnabled) {
+    assert(!(nrcEnabled && sharcEnabled) && "NRC and SHaRC cannot be enabled at once");
 
-    // Enabling both SHaRC update and query selects the variant that traces both in one dispatch.
-    const bool sharcCombinedEnabled = sharcUpdateEnabled && sharcQueryEnabled;
-
-    assert(!(nrcEnabled && (sharcUpdateEnabled || sharcQueryEnabled)) && "NRC and SHaRC cannot be enabled at once");
-
-    const Rc<DxvkShader> coverageAnyHit = useRayQuery ? nullptr
-      : OrderedCoverageAnyHitShader::getPathShader(nrcEnabled, sharcUpdateEnabled, sharcQueryEnabled, useNeeCache);
+    const Rc<DxvkShader> coverageAnyHit = OrderedCoverageAnyHitShader::getPathShader(nrcEnabled, sharcEnabled);
     DxvkRaytracingPipelineShaders shaders;
-    if (wboitEnabled) {
-      if (useRayQuery) {
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_nrc_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_nrc_wboit));
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_combined_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_combined_wboit));
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_update_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_update_wboit));
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_query_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_query_wboit));
-          }
-        } else {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_wboit));
-          }
-        }
-        shaders.debugName = "Integrate Indirect RayQuery (RGS)";
+    if (nrcEnabled) {
+      if (serEnabled) {
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_nrc_neeCache));
       } else {
-        if (nrcEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_nrc_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_nrc_wboit));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_nrc_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_nrc_wboit));
-            }
-          }
-        } else if (sharcCombinedEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_combined_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_combined_wboit));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_combined_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_combined_wboit));
-            }
-          }
-        } else if (sharcUpdateEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_update_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_update_wboit));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_update_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_update_wboit));
-            }
-          }
-        } else if (sharcQueryEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_query_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_query_wboit));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_query_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_query_wboit));
-            }
-          }
-        } else {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_wboit));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_neeCache_wboit));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_wboit));
-            }
-          }
-        }
-
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_nrc_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_nrc_wboit));
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_combined_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_combined_wboit));
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_update_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_update_wboit));
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_query_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_query_wboit));
-          }
-        } else {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_neeCache_wboit));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_wboit));
-          }
-        }
-
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit_wboit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit_wboit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        }
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_nrc_neeCache));
       }
-      shaders.debugName = "Integrate Indirect TraceRay (RGS)";
-    } else {
-      if (useRayQuery) {
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_nrc_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_nrc));
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_combined_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_combined));
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_update_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_update));
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_query_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_sharc_query));
-          }
-        } else {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_raygen));
-          }
-        }
-        shaders.debugName = "Integrate Indirect RayQuery (RGS)";
+    } else if (sharcEnabled) {
+      if (serEnabled) {
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_combined_neeCache));
       } else {
-        if (nrcEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_nrc_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_nrc));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_nrc_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_nrc));
-            }
-          }
-        } else if (sharcCombinedEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_combined_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_combined));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_combined_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_combined));
-            }
-          }
-        } else if (sharcUpdateEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_update_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_update));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_update_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_update));
-            }
-          }
-        } else if (sharcQueryEnabled) {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_query_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_sharc_query));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_query_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_query));
-            }
-          }
-        } else {
-          if (serEnabled) {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser));
-            }
-          } else {
-            if (useNeeCache) {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_neeCache));
-            } else {
-              shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen));
-            }
-          }
-        }
-
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_nrc_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_nrc));
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_combined_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_combined));
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_update_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_update));
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_query_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_query));
-          }
-        } else {
-          if (useNeeCache) {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_neeCache));
-          } else {
-            shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss));
-          }
-        }
-
-        if (nrcEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcCombinedEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcUpdateEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_update_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else if (sharcQueryEnabled) {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_query_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        } else {
-          if (useNeeCache) {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          } else {
-            if (pomEnabled) {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            } else {
-              if (includePortals) {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_rayportal_closestHit), coverageAnyHit, nullptr);
-              } else {
-                shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
-              }
-            }
-          }
-        }
-
-        shaders.debugName = "Integrate Indirect TraceRay (RGS)";
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_sharc_combined_neeCache));
+      }
+    } else {
+      if (serEnabled) {
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_ser_neeCache));
+      } else {
+        shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateIndirectRayGenShader, integrate_indirect_raygen_neeCache));
       }
     }
+
+    if (nrcEnabled) {
+      shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_nrc_neeCache));
+    } else if (sharcEnabled) {
+      shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_sharc_combined_neeCache));
+    } else {
+      shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_MISS_BIT_KHR, IntegrateIndirectMissShader, integrate_indirect_miss_neeCache));
+    }
+
+    if (nrcEnabled) {
+      if (pomEnabled) {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      } else {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      }
+    } else if (sharcEnabled) {
+      if (pomEnabled) {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      } else {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      }
+    } else {
+      if (pomEnabled) {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      } else {
+        if (includePortals) {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_rayportal_closestHit), coverageAnyHit, nullptr);
+        } else {
+          shaders.addHitGroup(GET_SHADER_VARIANT(VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, IntegrateIndirectClosestHitShader, integrate_indirect_neeCache_material_opaque_translucent_closestHit), coverageAnyHit, nullptr);
+        }
+      }
+    }
+    shaders.debugName = "Integrate Indirect TraceRay (RGS)";
 
     if (ommEnabled)
       shaders.pipelineFlags |= VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT;
@@ -1417,89 +652,4 @@ namespace dxvk {
     return shaders;
   }
 
-  Rc<DxvkShader> DxvkPathtracerIntegrateIndirect::getComputeShader(const bool useNeeCache, const bool nrcEnabled, const bool sharcUpdateEnabled, const bool sharcQueryEnabled, const bool wboitEnabled) const {
-    // Enabling both SHaRC update and query selects the variant that traces both in one dispatch.
-    const bool sharcCombinedEnabled = sharcUpdateEnabled && sharcQueryEnabled;
-
-    assert(!(nrcEnabled && (sharcUpdateEnabled || sharcQueryEnabled)) && "NRC and SHaRC cannot be enabled at once");
-
-    if (wboitEnabled) {
-      if (nrcEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_nrc_neeCache_wboit);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_nrc_wboit);
-        }
-      } else if (sharcCombinedEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_combined_neeCache_wboit);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_combined_wboit);
-        }
-      } else if (sharcUpdateEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_update_neeCache_wboit);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_update_wboit);
-        }
-      } else if (sharcQueryEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_query_neeCache_wboit);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_query_wboit);
-        }
-      } else {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_neeCache_wboit);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_wboit);
-        }
-      }
-    } else {
-      if (nrcEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_nrc_neeCache);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_nrc);
-        }
-      } else if (sharcCombinedEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_combined_neeCache);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_combined);
-        }
-      } else if (sharcUpdateEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_update_neeCache);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_update);
-        }
-      } else if (sharcQueryEnabled) {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_query_neeCache);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_sharc_query);
-        }
-      } else {
-        if (useNeeCache) {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery_neeCache);
-        } else {
-          return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateIndirectRayGenShader, integrate_indirect_rayquery);
-        }
-      }
-    }
-  }
-
-  const char* DxvkPathtracerIntegrateIndirect::raytraceModeToString(RaytraceMode raytraceMode) {
-    switch (raytraceMode) {
-    case RaytraceMode::RayQuery:
-      return "Ray Query [CS]";
-    case RaytraceMode::RayQueryRayGen:
-      return "Ray Query [RGS]";
-    case RaytraceMode::TraceRay:
-      return "Trace Ray [RGS]";
-    default:
-      return "Unknown";
-    }
-  }
 }

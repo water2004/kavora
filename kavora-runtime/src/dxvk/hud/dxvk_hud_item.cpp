@@ -196,19 +196,19 @@ namespace dxvk::hud {
       renderer.drawText(14.0f,
         { position.x, position.y },
         { 1.0f, 1.0f, 1.0f, 1.0f },
-        str::format("GBuffer [", DxvkPathtracerGbuffer::raytraceModeToString(RtxOptions::renderPassGBufferRaytraceMode()), "]"));
+        "GBuffer [Ray Query (CS)]");
 
       position.y += 16.0f;
       renderer.drawText(14.0f,
         { position.x, position.y },
         { 1.0f, 1.0f, 1.0f, 1.0f },
-        str::format("Integrate Direct [", DxvkPathtracerIntegrateDirect::raytraceModeToString(RtxOptions::renderPassIntegrateDirectRaytraceMode()), "]"));
+        "Integrate Direct [Ray Query (RGS)]");
 
       position.y += 16.0f;
       renderer.drawText(14.0f,
         { position.x, position.y },
         { 1.0f, 1.0f, 1.0f, 1.0f },
-        str::format("Integrate Indirect [", DxvkPathtracerIntegrateIndirect::raytraceModeToString(RtxOptions::renderPassIntegrateIndirectRaytraceMode()), "]"));
+        "Integrate Indirect [Trace Ray (RGS)]");
     } else {
       position.y += 16.0f;
       renderer.drawText(14.0f,

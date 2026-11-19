@@ -2542,8 +2542,7 @@ namespace dxvk {
       const XXH64_hash_t posHash = XXH3_64bits(&pos, sizeof(pos));
       XXH64_hash_t antiCullingHash = XXH3_64bits_withSeed(&m_materialDataHash, sizeof(XXH64_hash_t), posHash);
 
-      if (RtxOptions::AntiCulling::Object::hashInstanceWithBoundingBoxHash() &&
-          RtxOptions::needsMeshBoundingBox()) {
+      if (RtxOptions::AntiCulling::Object::hashInstanceWithBoundingBoxHash()) {
         const AxisAlignedBoundingBox& boundingBox = getBlas()->input.getGeometryData().boundingBox;
         const XXH64_hash_t bboxHash = boundingBox.calculateHash();
         antiCullingHash = XXH3_64bits_withSeed(&bboxHash, sizeof(antiCullingHash), antiCullingHash);

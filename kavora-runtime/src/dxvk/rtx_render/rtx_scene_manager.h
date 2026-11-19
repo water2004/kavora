@@ -227,7 +227,6 @@ public:
   uint32_t getSludgeWaterMaterialIndex() const { return m_sludgeWaterMaterialIndex; }
 
   float getTotalMipBias();
-  float getCalculatedUpscalingMipBias();
 
   // ISceneManager but not really
   void clear(Rc<DxvkContext> ctx, bool needWfi);

@@ -82,10 +82,8 @@ bool nrcCombinedToGbufferPixelCoordinate(
 
 #elif SHARC_UPDATE
   // Calculate the GBuffer pixel coordinate for this SHaRC update pixel
-  uvec2 sharcUpdatePixelCoordinate = combinedNrcCoordinate;
   isCacheUpdate = true;
 
-#if SHARC_QUERY
   if (!Sharc::isUpdatePixel(combinedNrcCoordinate, cb.sharcArgs))
   {
     isCacheUpdate = false;
@@ -93,9 +91,8 @@ bool nrcCombinedToGbufferPixelCoordinate(
     return true;
   }
 
-  sharcUpdatePixelCoordinate = Sharc::calculateUpdatePixelCoordinateFromCombinedCoordinate(
+  const uvec2 sharcUpdatePixelCoordinate = Sharc::calculateUpdatePixelCoordinateFromCombinedCoordinate(
     combinedNrcCoordinate, cb.camera.resolution.x, cb.sharcArgs);
-#endif
 
   // Reject padded compute threads before reading the update reservoir.
   if (any(sharcUpdatePixelCoordinate >= uvec2(cb.sharcArgs.activeUpdateDimensions)))

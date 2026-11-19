@@ -82,8 +82,6 @@ Texture2D<float2> PrimaryScreenSpaceMotionVector;
 Texture2D<float4> RtxdiConfidence;
 [[vk::binding(DEBUG_VIEW_BINDING_RENDER_OUTPUT_INPUT)]]
 Texture2D<float4> RenderOutput;
-[[vk::binding(DEBUG_VIEW_BINDING_INSTRUMENTATION_INPUT)]]
-Texture2D<uint> Instrumentation;
 [[vk::binding(DEBUG_VIEW_BINDING_TERRAIN_INPUT)]]
 Texture2D<float4> TerrainTexture;
 [[vk::binding(DEBUG_VIEW_BINDING_VOLUME_RESERVOIRS_INPUT)]]
@@ -447,9 +445,6 @@ vec4 loadInput(inout RNG randomState, ivec2 threadId)
       value = RenderOutput[upscaledPixelCoordinate];
     }
     break;
-  case DEBUG_VIEW_INSTRUMENTATION_THREAD_DIVERGENCE:
-    value = float4(Instrumentation[threadId], 0, 0, 0);
-    break;
   case DEBUG_VIEW_RTXDI_CONFIDENCE:
     if (cb.isRTXDIConfidenceValid) 
     {
@@ -676,9 +671,6 @@ vec4 loadInput(inout RNG randomState, ivec2 threadId)
     // Skipped
     // DEBUG_VIEW_EXPOSURE_HISTOGRAM
 
-    // DEBUG_VIEW_INSTRUMENTATION_THREAD_DIVERGENCE
-    isValid &= isValidValue(Instrumentation[threadId]);
-    
     // DEBUG_VIEW_RTXDI_CONFIDENCE
     if (cb.isRTXDIConfidenceValid) 
     {

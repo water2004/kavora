@@ -271,25 +271,7 @@ uvec2 storageCoordinateFromCompactedPixelIndex(
   return storageCoordinateFromGlobalIndex(tileState.globalBase + compactedIndex, args);
 }
 
-// Returns the compacted coordinate of a pixel, for threads that cannot use their dispatch index.
-// Returns the pixel coordinate unchanged with sparse rendering off.
-uvec2 compactedCoordinateFromPixel(
-  Texture2D<uint16_t> CompactedPixelIndices,
-  Texture2D<uint2> TileActiveCounts,
-  uint2 pixelCoordinate,
-  SparseRenderingArgs args)
-{
-  if (args.mode == SparseRenderingMode::Off)
-  {
-    return pixelCoordinate;
-  }
-
-  return storageCoordinateFromCompactedPixelIndex(
-    uint(CompactedPixelIndices[pixelCoordinate]), pixelCoordinate, TileActiveCounts, args);
-}
-
-// Works like compactedCoordinateFromPixel and also reports whether the pixel is active,
-// which means that its slot was written.
+// Returns the storage coordinate and whether the pixel's slot was written.
 bool compactedCoordinateFromPixelIfActive(
   Texture2D<uint16_t> CompactedPixelIndices,
   Texture2D<uint2> TileActiveCounts,

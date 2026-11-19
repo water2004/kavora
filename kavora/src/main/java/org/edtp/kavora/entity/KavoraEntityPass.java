@@ -209,11 +209,6 @@ public class KavoraEntityPass {
         poseSnapshots.clear();
     }
 
-    /** Abandons a capture window left open by a frame whose submit never ran. */
-    public void resetFrame() {
-        frameActive = false;
-    }
-
     /**
      * Opens the per-frame capture window. Called from the start of vanilla's world
      * render, and again by {@link #finishFrame} so a frame that reaches no entity

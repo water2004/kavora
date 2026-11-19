@@ -122,15 +122,9 @@ public class KavoraMeshSurface {
         return this;
     }
 
-    /** Tracks additional ByteBuffer allocations for lifecycle management. */
-    public KavoraMeshSurface addNativeBuffer(ByteBuffer buf) {
-        extraNativeBuffers.add(buf);
-        return this;
-    }
-
     public KavoraMaterial getMaterial() { return material; }
 
-    /** Converts to the JNI bridge structure for mesh creation. Package-private. */
+    /** Packs the surface data for the SDK's mesh creation call. */
     MeshInfoSurfaceTriangles toNative() {
         MeshInfoSurfaceTriangles surf = new MeshInfoSurfaceTriangles();
 

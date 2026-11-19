@@ -216,15 +216,3 @@ RWTexture2D<uint2> NeeCacheThreadTask;
 
 layout(binding = INTEGRATE_INDIRECT_BINDING_PRIMITIVE_ID_PREFIX_SUM) 
 StructuredBuffer<uint> PrimitiveIDPrefixSum;
-              
-
-
-
-// Auxilary inputs/outputs
-
-layout(r32ui, binding = INTEGRATE_INSTRUMENTATION)
-#ifdef ENABLE_INSTRUMENTATION
-REORDER_COHERENT // Conditionally enabled as it seemed to add a tiny overhead though within a margin of error 
-                 // even when the resource is not used
-#endif
-RWTexture2D<uint> Instrumentation;

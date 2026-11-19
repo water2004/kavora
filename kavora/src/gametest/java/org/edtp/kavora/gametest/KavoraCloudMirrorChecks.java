@@ -37,7 +37,7 @@ final class KavoraCloudMirrorChecks {
             "rtx.enableFog", "rtx.volumetrics.enable", "rtx.viewDistance.distanceMode",
             "rtx.sparseRendering.enableSparseRendering", "rtx.useRTXDI",
             "rtx.spatiallyHashedRadianceCache.enableResolve", "rtx.translucentMaterial.normalIntensity",
-            "rtx.graphicsPreset", "rtx.integrateIndirectMode", "rtx.neeCache.enable",
+            "rtx.graphicsPreset", "rtx.integrateIndirectMode",
             "rtx.enableTransmissionApproximationInIndirectRays", "rtx.enableFirstBounceLobeProbabilityDithering",
             "rtx.enablePSRR", "rtx.enablePSTR"
     };

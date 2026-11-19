@@ -90,9 +90,4 @@ public final class RenderRegionStoragePool {
             return array;
         }
     }
-
-    /** Arrays currently held, for diagnostics. */
-    public static int pooledCount() {
-        return pooled.get();
-    }
 }

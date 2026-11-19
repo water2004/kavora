@@ -40,9 +40,11 @@
 //!> axis radiance_cache -
 //!> axis radiance_cache nrc ENABLE_NRC=1
 //!> axis radiance_cache sharc SHARC_UPDATE=1
-//!> axis wboit -
-//!> axis wboit wboit UNORDERED_RESOLVE_WBOIT
-//!> order features phase radiance_cache wboit
+//!> order features phase radiance_cache
+//!> exclude features=psr_prepare radiance_cache=nrc
+//!> exclude features=psr_prepare radiance_cache=sharc
+//!> exclude features=psr_prepare_stochastic_alpha radiance_cache=nrc
+//!> exclude features=psr_prepare_stochastic_alpha radiance_cache=sharc
 //!end-variants
 
 // Note: Opacity lighting approximation used in the GBuffer pass due to it being most visually

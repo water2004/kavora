@@ -307,7 +307,6 @@ namespace dxvk {
         {DEBUG_VIEW_NOISY_SECONDARY_RADIANCE,                              "Secondary: Noisy Color" },
         {DEBUG_VIEW_NOISY_RADIANCE,                                        "Primary + Secondary: Noisy Color" },
 
-        {DEBUG_VIEW_INSTRUMENTATION_THREAD_DIVERGENCE,                     "Thread Divergence(Debug Knob.x)"},
         {DEBUG_VIEW_NAN,                                                   "Inf/NaN Check"},
         {DEBUG_SURFACE_LOBE_CONSISTENCY,                                   "Surface/Lobe Consistency Check"},
         {DEBUG_VIEW_SCROLLING_LINE,                                        "Scrolling Line"},
@@ -614,7 +613,6 @@ namespace dxvk {
         TEXTURE2D(DEBUG_VIEW_BINDING_PRIMARY_SCREEN_SPACE_MOTION_VECTOR_INPUT)
         TEXTURE2D(DEBUG_VIEW_BINDING_RTXDI_CONFIDENCE_INPUT)
         TEXTURE2D(DEBUG_VIEW_BINDING_RENDER_OUTPUT_INPUT)
-        TEXTURE2D(DEBUG_VIEW_BINDING_INSTRUMENTATION_INPUT)
         TEXTURE2D(DEBUG_VIEW_BINDING_TERRAIN_INPUT)
         TEXTURE3D(DEBUG_VIEW_BINDING_VOLUME_RESERVOIRS_INPUT)
         SAMPLER3D(DEBUG_VIEW_BINDING_VOLUME_AGE_INPUT)
@@ -880,10 +878,6 @@ namespace dxvk {
     return static_cast<CompositeDebugView>(m_composite.compositeViewIdx()) != CompositeDebugView::Disabled
       ? m_composite.compositeView.view
       : m_debugView.view;
-  }
-
-  const Rc<DxvkImageView>& DebugView::getInstrumentation() {
-    return m_instrumentation.view;
   }
 
   void DebugView::showImguiSettings() {
@@ -1202,10 +1196,6 @@ namespace dxvk {
       subRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
       ctx->clearColorImage(m_debugView.image, clearColor, subRange);
-
-      if (debugViewIdx() == DEBUG_VIEW_INSTRUMENTATION_THREAD_DIVERGENCE) {
-        ctx->clearColorImage(m_instrumentation.image, clearColor, subRange);
-      }
     }
   }
 
@@ -1388,7 +1378,6 @@ namespace dxvk {
       ? frame.get<&RaytracingFrame::m_compositeOutput>().view(Resources::AccessType::Read)
       : frame.get<&RaytracingFrame::m_finalOutput>().view(Resources::AccessType::Read);
     ctx->bindResourceView(DEBUG_VIEW_BINDING_RENDER_OUTPUT_INPUT, renderOutput, nullptr);
-    ctx->bindResourceView(DEBUG_VIEW_BINDING_INSTRUMENTATION_INPUT, m_instrumentation.view, nullptr);
     
     const ReplacementMaterialTextureType::Enum terrainTextureType = static_cast<ReplacementMaterialTextureType::Enum>(
       clamp<uint32_t>(static_cast<uint32_t>(m_debugKnob.x),
@@ -1786,9 +1775,6 @@ namespace dxvk {
     m_hdrWaveformBlue = Resources::createImageResource(ctx, "debug hdr waveform green", { (downscaledExtent.width + 2) / 2, (downscaledExtent.height + 2) / 2, 1 }, VK_FORMAT_R32_UINT);
     m_hdrWaveformGreen = Resources::createImageResource(ctx, "debug hdr waveform blue", { (downscaledExtent.width + 2) / 2, (downscaledExtent.height + 2) / 2, 1 }, VK_FORMAT_R32_UINT);
 
-    // Instrumentation
-    m_instrumentation = Resources::createImageResource(ctx, "debug instrumentation", downscaledExtent, VK_FORMAT_R32_UINT);
-
     m_accumulation.resetNumAccumulatedFrames();
   }
 
@@ -1798,7 +1784,6 @@ namespace dxvk {
     m_hdrWaveformRed.reset();
     m_hdrWaveformBlue.reset();
     m_hdrWaveformGreen.reset();
-    m_instrumentation.reset();
   }
 
   bool DebugView::isEnabled() const {

@@ -87,7 +87,6 @@ final class KavoraSettingsChecks {
         "rtx.spatiallyHashedRadianceCache.cellFilterNormalCosine",
         "rtx.spatiallyHashedRadianceCache.enableUpdate",
         "rtx.spatiallyHashedRadianceCache.enableResolve",
-        "rtx.spatiallyHashedRadianceCache.combineUpdateAndQuery",
         "rtx.spatiallyHashedRadianceCache.downscaleFactor",
         "rtx.spatiallyHashedRadianceCache.targetNumUpdateRecords",
         "rtx.spatiallyHashedRadianceCache.excludePrimaryVerticesFromTarget",

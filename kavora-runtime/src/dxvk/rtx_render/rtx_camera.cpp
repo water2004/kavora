@@ -30,7 +30,6 @@
 #include "rtx_option_layer.h"
 #include "rtx_matrix_helpers.h"
 #include "rtx_imgui.h"
-#include "rtx_xess.h"
 
 /*
 *             Free/Debug Camera
@@ -827,9 +826,8 @@ namespace dxvk
   }
   
   Vector2 RtCamera::calcPixelJitter(uint32_t jitterFrameIdx) const {
-    // Only apply jittering when DLSS/XeSS/TAA is enabled, or if forced by settings
+    // Only apply jittering when DLSS or TAA is enabled, or if forced by settings
     if (!RtxOptions::isDLSSOrRayReconstructionEnabled() &&
-        !RtxOptions::isXeSSEnabled() &&
         !RtxOptions::isTAAEnabled() &&
         !RtxOptions::forceCameraJitter()) {
       return Vector2{ 0, 0 };
@@ -837,23 +835,7 @@ namespace dxvk
 
 #define USE_DLSS_DEMO_JITTER_PATTERN 1
 #if USE_DLSS_DEMO_JITTER_PATTERN
-    uint32_t jitterSequenceLength = RtxOptions::cameraJitterSequenceLength();
-
-    if (RtxOptions::isXeSSEnabled() && DxvkXeSS::XessOptions::useRecommendedJitterSequenceLength()) {
-      float upscaleFactor = static_cast<float>(m_finalResolution[1]) / m_renderResolution[1];
-
-      // XeSS 2.1 formula: ceil(upscale_factor^2 * 8)
-      // The 8.0 multiplier ensures sufficient temporal samples for higher upscaling factors
-      uint32_t xessLength = static_cast<uint32_t>(std::ceil(upscaleFactor * upscaleFactor * 8.0f));
-      
-      // Apply minimum jitter sequence length
-      uint32_t minLength = DxvkXeSS::XessOptions::minJitterSequenceLength();
-      xessLength = std::max(xessLength, minLength);
-      
-      jitterSequenceLength = xessLength;
-    }
-    
-    return calculateHaltonJitter(jitterFrameIdx, jitterSequenceLength);
+    return calculateHaltonJitter(jitterFrameIdx, RtxOptions::cameraJitterSequenceLength());
 #else
     return m_halton.next();
 #endif

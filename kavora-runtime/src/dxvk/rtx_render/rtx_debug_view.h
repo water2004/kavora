@@ -80,7 +80,6 @@ namespace dxvk {
 
     const Rc<DxvkImageView>& getDebugOutput();
     const Rc<DxvkImageView>& getFinalDebugOutput();
-    const Rc<DxvkImageView>& getInstrumentation();
 
     uint32_t getDebugViewIndex() const;
     uint32_t getCompositeDebugViewIndex() const;
@@ -270,7 +269,6 @@ namespace dxvk {
     Resources::Resource m_hdrWaveformRed;
     Resources::Resource m_hdrWaveformGreen;
     Resources::Resource m_hdrWaveformBlue;
-    Resources::Resource m_instrumentation;
 
   public:
     ObjectPicking ObjectPicking{};

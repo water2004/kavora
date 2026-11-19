@@ -77,12 +77,6 @@ namespace dxvk {
 
   class DxvkPathtracerIntegrateDirect : public CommonDeviceObject {
   public:
-    enum class RaytraceMode {
-      RayQuery = 0,
-      RayQueryRayGen,
-      Count
-    };
-
     explicit DxvkPathtracerIntegrateDirect(DxvkDevice* device);
     ~DxvkPathtracerIntegrateDirect() = default;
 
@@ -90,10 +84,8 @@ namespace dxvk {
 
     void dispatch(class RtxContext* ctx, DirectIntegrationResources resources);
 
-    static const char* raytraceModeToString(RaytraceMode raytraceMode);
 
   private:
-    static DxvkRaytracingPipelineShaders getPipelineShaders(const bool useRayQuery, const bool ommEnabled);
-    Rc<DxvkShader> getComputeShader() const;
+    static DxvkRaytracingPipelineShaders getPipelineShaders(const bool ommEnabled);
   };
 }

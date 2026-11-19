@@ -55,9 +55,8 @@ the phase functions therefore do not depend on the sample position. The
 previous implementation evaluated both phase functions, including the Mie
 `pow(..., 1.5)`, again for every air cell. The new `AirRayPhase` value is
 stored in the transient `AtmosphereRay` and reused even when the same ray
-is integrated as multiple clipped ranges. It does not alter shared
-constant-buffer layouts or persistent state. The original four-argument
-`sampleAirMedium` entry point remains as a compatibility wrapper.
+is integrated as multiple clipped ranges. `sampleAirMedium` accepts the
+precomputed phase through its shader-module interface.
 
 This is an exact algebraic hoist: it changes neither the phase-function
 approximation nor the air integration grid. It removes repeated per-cell phase

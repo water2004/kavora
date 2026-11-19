@@ -532,17 +532,6 @@ namespace dxvk
                                const VkSamplerAddressMode addrMode, 
                                const float mipBias = 0, const bool useAnisotropy = false);
     
-    // XeSS: Get sampler with automatic XeSS-specific mip bias calculation
-    Rc<DxvkSampler> getSamplerWithXeSSMipBias(const VkFilter filter, const VkSamplerMipmapMode mipFilter,
-                                               const VkSamplerAddressMode addressModeU,
-                                               const VkSamplerAddressMode addressModeV,
-                                               const VkSamplerAddressMode addressModeW,
-                                               const VkClearColorValue borderColor = VkClearColorValue(),
-                                               const float additionalMipBias = 0, const bool useAnisotropy = false);
-    Rc<DxvkSampler> getSamplerWithXeSSMipBias(const VkFilter filter, const VkSamplerMipmapMode mipFilter, 
-                                               const VkSamplerAddressMode addrMode, 
-                                               const float additionalMipBias = 0, const bool useAnisotropy = false);
-
     Tlas& getTLAS(Tlas::Type type) { return m_tlas[type]; }
 
     void createConstantsBuffer();

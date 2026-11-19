@@ -56,8 +56,6 @@ namespace dxvk {
 
     void setRaytraceArgs(RaytraceArgs& raytraceArgs, bool resetHistory) const;
 
-    RTX_OPTION_ARGS("rtx.neeCache", bool, enable, true, "Enable NEE cache. The integrator will perform NEE on emissive triangles, which usually have significant light contributions, stored in the cache.",
-                    args.flags = RtxOptionFlags::UserSetting);
     RTX_OPTION("rtx.neeCache", bool, enableImportanceSampling, true, "Enable importance sampling.");
     RTX_OPTION("rtx.neeCache", bool, enableMIS, true, "Enable MIS.");
     RTX_OPTION("rtx.neeCache", bool, enableUpdate, true, "Enable Update.");

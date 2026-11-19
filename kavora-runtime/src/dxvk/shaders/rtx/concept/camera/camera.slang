@@ -243,24 +243,3 @@ public float calculateExpectedPreviousHitDistance(Camera camera, vec3 previousVi
 {
   return length(previousVirtualWorldPosition - cameraGetPreviousWorldPosition(camera));
 }
-
-// Reconstructs a primary hit's previous-frame virtual world position from its current hit distance and the
-// world-space delta between the current and previous virtual hit positions.
-[ForceInline]
-public vec3 calculatePreviousVirtualWorldPosition(Camera camera, ivec2 pixelCoordinate, float currentHitDistance, vec3 virtualMotionVector, bool jitter)
-{
-  const vec3 currentCameraPosition = cameraGetWorldPosition(camera);
-  const vec3 currentRayDirection = cameraPixelCoordinateToDirection(camera, pixelCoordinate, jitter).worldDirection;
-  return currentCameraPosition + currentRayDirection * currentHitDistance + virtualMotionVector;
-}
-
-// Note: For all translated world space functions, these may not do anything if an application does not specify a world to view matrix
-// (for instance by pre-transforming on the CPU or using a fullly composed model to view matrix like how OpenGL always operates).
-// This means when relying on translated world space for improved precision results may vary on some applications.
-
-// Converts a position in the current frame's translated world space to the previous frame's translated world space.
-[ForceInline]
-public vec3 translatedWorldToPreviousTranslatedWorld(VolumeDefinitionCamera camera, vec3 translatedWorldPosition)
-{
-  return translatedWorldPosition + camera.translatedWorldOffset - camera.previousTranslatedWorldOffset;
-}

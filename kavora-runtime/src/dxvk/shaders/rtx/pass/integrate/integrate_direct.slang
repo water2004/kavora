@@ -20,8 +20,6 @@
 * DEALINGS IN THE SOFTWARE.
 */
 
-//!variant integrate_direct_rayquery.comp
-
 //!variant integrate_direct_rayquery_raygen.rgen
 //!>       RAY_PIPELINE
 
@@ -45,21 +43,8 @@
 
 #include "rtx/pass/integrate/integrate_direct.slangh"
 
-#ifdef RAY_PIPELINE
 [shader("raygeneration")]
 void main()
 {
   integrate_direct_pass(DispatchRaysIndex().xy);
 }
-#else
-#if (INTEGRATE_DIRECT_THREADS_DISPATCH_WIDTH * INTEGRATE_DIRECT_THREADS_DISPATCH_HEIGHT) != COMPACT_ACTIVE_PIXELS_CONSUMER_GROUP_SIZE
-#error "A compacted launch needs COMPACT_ACTIVE_PIXELS_CONSUMER_GROUP_SIZE threads per group."
-#endif
-
-[shader("compute")]
-[numthreads(INTEGRATE_DIRECT_THREADS_DISPATCH_WIDTH, INTEGRATE_DIRECT_THREADS_DISPATCH_HEIGHT, 1)]
-void main(uint2 dispatchThreadId : SV_DispatchThreadID, uint3 groupId : SV_GroupID, uint groupIndex : SV_GroupIndex)
-{
-  integrate_direct_pass(calculateCompactedComputeThreadIndex(dispatchThreadId, groupId.x, groupIndex, cb.sparseRenderingArgs.mode != SparseRenderingMode::Off));
-}
-#endif

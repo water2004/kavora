@@ -475,8 +475,6 @@ namespace dxvk {
     DxvkReSTIRGIRayQuery& restirGiRayQuery = common->metaReSTIRGIRayQuery();
 
     // Handle Graphics Presets
-    bool isRayReconstruction = RtxOptions::isRayReconstructionEnabled();
-
     auto lowGraphicsPresetCommonSettings = [&]() {
       pathMinBounces.setDeferred(0);
       pathMaxBounces.setDeferred(2);
@@ -484,7 +482,6 @@ namespace dxvk {
       enableUnorderedEmissiveParticlesInIndirectRays.setDeferred(false);
       denoiseDirectAndIndirectLightingSeparately.setDeferred(false);
       enableUnorderedResolveInIndirectRays.setDeferred(false);
-      NeeCachePass::enable.setDeferred(isRayReconstruction);
       rtxdiRayQuery.enableRayTracedBiasCorrection.setDeferred(false);
       restirGiRayQuery.biasCorrectionMode.setDeferred(ReSTIRGIBiasCorrection::BRDF);
       restirGiRayQuery.useReflectionReprojection.setDeferred(false);
@@ -542,7 +539,6 @@ namespace dxvk {
       enableUnorderedEmissiveParticlesInIndirectRays.setDeferred(true);
       denoiseDirectAndIndirectLightingSeparately.setDeferred(true);
       enableUnorderedResolveInIndirectRays.setDeferred(true);
-      NeeCachePass::enable.setDeferred(true);
 
       russianRouletteMaxContinueProbability.setDeferred(0.9f);
       russianRoulette1stBounceMinContinueProbability.setDeferred(0.6f);
@@ -564,7 +560,6 @@ namespace dxvk {
       enableUnorderedEmissiveParticlesInIndirectRays.setDeferred(false);
       denoiseDirectAndIndirectLightingSeparately.setDeferred(false);
       enableUnorderedResolveInIndirectRays.setDeferred(true);
-      NeeCachePass::enable.setDeferred(isRayReconstruction);
 
       rtxdiRayQuery.enableRayTracedBiasCorrection.setDeferred(true);
       restirGiRayQuery.biasCorrectionMode.setDeferred(ReSTIRGIBiasCorrection::PairwiseRaytrace);
@@ -614,47 +609,6 @@ namespace dxvk {
     updateLightingSetting();
   }
 
-  void RtxOptions::updateRaytraceModePresets(const uint32_t vendorID, const VkDriverId driverID) {
-    // Handle Automatic Raytrace Mode Preset (From configuration/default)
-
-    if (RtxOptions::raytraceModePreset() == RaytraceModePreset::Auto) {
-      Logger::info("Automatic Raytrace Mode Preset in use (Set rtx.raytraceModePreset to something other than Auto use a non-automatic preset)");
-
-      // Note: Left undefined as these values are initialized in all paths.
-      DxvkPathtracerGbuffer::RaytraceMode preferredGBufferRaytraceMode;
-      DxvkPathtracerIntegrateDirect::RaytraceMode preferredIntegrateDirectRaytraceMode;
-      DxvkPathtracerIntegrateIndirect::RaytraceMode preferredIntegrateIndirectRaytraceMode;
-
-      preferredGBufferRaytraceMode = DxvkPathtracerGbuffer::RaytraceMode::RayQuery;
-      preferredIntegrateDirectRaytraceMode = DxvkPathtracerIntegrateDirect::RaytraceMode::RayQuery;
-
-      if (vendorID == static_cast<uint32_t>(DxvkGpuVendor::Nvidia)
-        || driverID == VK_DRIVER_ID_MESA_RADV
-        || driverID == VK_DRIVER_ID_AMD_PROPRIETARY) {
-        // Default to a mixture of Trace Ray and Ray Query on NVIDIA, RADV, and AMD proprietary
-        if (driverID == VK_DRIVER_ID_MESA_RADV) {
-          Logger::info("RADV driver detected, setting default raytrace modes to Trace Ray (Indirect Integrate) and Ray Query (GBuffer, Direct Integrate)");
-        } else if (driverID == VK_DRIVER_ID_AMD_PROPRIETARY) {
-          Logger::info("AMD driver detected, setting default raytrace modes to Trace Ray (Indirect Integrate) and Ray Query (GBuffer, Direct Integrate)");
-        } else {
-          preferredIntegrateDirectRaytraceMode = DxvkPathtracerIntegrateDirect::RaytraceMode::RayQueryRayGen;
-          Logger::info("NVIDIA architecture detected, setting default raytrace modes to Ray Query (GBuffer), Ray Query RayGen (Direct Integrate) and Trace Ray (Indirect Integrate)");
-        }
-
-        preferredIntegrateIndirectRaytraceMode = DxvkPathtracerIntegrateIndirect::RaytraceMode::TraceRay;
-      } else {
-        // Default to Ray Query on Unknown
-        Logger::info("Non-NVIDIA architecture detected, setting default raytrace modes to Ray Query");
-
-        preferredIntegrateIndirectRaytraceMode = DxvkPathtracerIntegrateIndirect::RaytraceMode::RayQuery;
-      }
-
-      RtxOptions::renderPassGBufferRaytraceMode.setDeferred(preferredGBufferRaytraceMode);
-      RtxOptions::renderPassIntegrateDirectRaytraceMode.setDeferred(preferredIntegrateDirectRaytraceMode);
-      RtxOptions::renderPassIntegrateIndirectRaytraceMode.setDeferred(preferredIntegrateIndirectRaytraceMode);
-    }
-  }
-
   void RtxOptions::resetUpscaler() {
     // Code-driven changes for upscaler reset (automatically routes to User layer when preset is Custom)
     RtxOptionLayerTarget layerTarget(RtxOptionEditTarget::Derived);
@@ -665,14 +619,6 @@ namespace dxvk {
 
   std::string RtxOptions::getCurrentDirectory() {
     return std::filesystem::current_path().string();
-  }
-
-  bool RtxOptions::needsMeshBoundingBox() {
-    return AntiCulling::isObjectAntiCullingEnabled() ||
-           AntiCulling::isLightAntiCullingEnabled() ||
-           TerrainBaker::needsTerrainBaking() ||
-           enableAlwaysCalculateAABB() ||
-           NeeCachePass::enable();
   }
 
   void RtxOptions::resolveTransparencyThresholdOnChange(DxvkDevice* device) {

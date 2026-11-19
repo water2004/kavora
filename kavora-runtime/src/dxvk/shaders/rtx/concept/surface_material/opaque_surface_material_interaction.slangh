@@ -458,7 +458,7 @@ OpaqueMaterialSample opaqueSurfaceMaterialPrepare<let EnablePom : bool>(
     
     // Ensure we perform these opacity calculations after the texture operations have been applied to abledo and alpha.
     calcOpaqueSurfaceMaterialOpacity(
-      albedo, opacity, surface, opacity, emissiveBlendOverrideInfluence, cb.wboitEnabled);
+      albedo, opacity, surface, opacity, emissiveBlendOverrideInfluence);
   }
 
   if (opaqueSurfaceMaterial.flags & OPAQUE_SURFACE_MATERIAL_FLAG_IGNORE_ALPHA_CHANNEL)

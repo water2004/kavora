@@ -182,6 +182,8 @@ dxvk_src = files([
   'dxvk_memory_tracker.cpp',
   'dxvk_memory_tracker.h',
 
+  'rtx_render/clouds/rtx_cloud_neural_model.cpp',
+  'rtx_render/clouds/rtx_cloud_neural_model.h',
   'rtx_render/rtx.h',
   'rtx_render/rtx_accel_manager.cpp',
   'rtx_render/rtx_accel_manager.h',
@@ -252,7 +254,6 @@ dxvk_src = files([
   'rtx_render/rtx_game_capturer_utils.h',
   'rtx_render/rtx_geometry_utils.cpp',
   'rtx_render/rtx_geometry_utils.h',
-  'rtx_render/rtx_cloud_neural_model.cpp',
   'rtx_render/rtx_global_volumetrics.cpp',
   'rtx_render/rtx_global_volumetrics.h',
   'shaders/rtx/utility/height_fog.h',
@@ -406,13 +407,11 @@ dxvk_src = files([
   'rtx_render/rtx_utils.h',
   'rtx_render/rtx_water_sim.cpp',
   'rtx_render/rtx_water_sim.h',
-  'rtx_render/rtx_xess.cpp',
   # NV-DXVK start: Shared CPU and GPU display conversion.
   'shaders/dxvk_display_color.h',
   # NV-DXVK end
   'shaders/rtx/pass/water_sim/water_surface_args.h',
   'shaders/rtx/utility/atlas_mip_bounds.h',
-  'rtx_render/rtx_xess.h',
 
   'rtx_render/rtx_system_info.cpp',
   'rtx_render/rtx_system_info.h',
@@ -518,17 +517,6 @@ else
   nrc_include_path = include_directories(join_paths('../../', 'submodules/nrc/include'))
 endif
 
-# XeSS dependency
-if not dxvk_is_woa
-  xess_lib_path = join_paths(global_src_root_norm, 'submodules/xess/lib')
-  xess_include_dir = include_directories('../../submodules/xess/inc')
-  xess_lib = dxvk_compiler.find_library('libxess', dirs : xess_lib_path, required : false)
-  xess_dep = declare_dependency(
-    dependencies : [ xess_lib ],
-    include_directories : xess_include_dir
-  )
-endif
-
 nrc_lib = dxvk_compiler.find_library('NRC_Vulkan', dirs : nrc_lib_path, required : true)
 
 nrc_dep = declare_dependency(
@@ -567,16 +555,12 @@ dxvk_embedded_data_files = files([
   '../../external/fonts/NVIDIASans/NVIDIASansMd.ttf',
   '../../external/fonts/NVIDIASans/NVIDIASansBd.ttf',
   '../../external/fonts/RobotoMono/RobotoMonoRg.ttf',
-  'rtx_render/cloud_neural_sun.bin'
+  'rtx_render/clouds/cloud_neural_sun.bin'
 ])
 
 dxvk_generated_embedded_files = embedding_compiler.process(dxvk_embedded_data_files)
 
 dxvk_deps = [ thread_dep, vkcommon_dep, dxvk_extradep, usd_dep, lssUsd_dep, nrc_dep, nrd_dep, dlss_dep, submodules_dep, tracy_dep, tracy_dep_dynamic, aftermath_dep, nvapi_dep, reflex_dep, usd_plugin_deps ]
-
-if not dxvk_is_woa
-  dxvk_deps += xess_dep
-endif
 
 if enable_rtxio
   dxvk_deps += rtxio_dep

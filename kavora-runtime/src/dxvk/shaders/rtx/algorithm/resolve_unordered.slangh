@@ -44,34 +44,6 @@ import "rtx/algorithm/atmosphere.slang";
 // It was hard to produce visible differences by going above 6.
 static const uint numDecalResolveBins = 4;
 
-#ifndef UNORDERED_RESOLVE_WBOIT
-// Finds the lowest bin in terms of distance and outputs its index as well as other associated information.
-void findLowestBin(
-  mat4 binnedRadiancesAndAttenuation, vec4 binDistances,
-  inout uint lowestIndex, inout float lowestDistance, inout vec4 lowestRadianceAndAttenuation)
-{
-  // Find the lowest distance and the index associated with it in the bins
-
-  lowestIndex = 0;
-  lowestDistance = binDistances.x;
-
-  for (uint i = 1; i < 4; ++i)
-  {
-    const float currentDistance = selectComponent(binDistances, i);
-
-    if (currentDistance < lowestDistance)
-    {
-      lowestDistance = currentDistance;
-      lowestIndex = i;
-    }
-  }
-
-  // Extract the radiance and attenuation based on the index
-
-  lowestRadianceAndAttenuation = selectColumn(binnedRadiancesAndAttenuation, lowestIndex);
-}
-#endif
-
 static RNG resolveVertexUnorderedRng = createRNGAnywhere(cb.frameIdx, 555);
 
 uint selectDecalBin(
@@ -196,19 +168,9 @@ float resolveVertexUnorderedParticles<
 
   numInteractions = 0;
 
-#ifdef UNORDERED_RESOLVE_WBOIT
   float3 alphaColorSum = 0..xxx;
   float alphaWeightSum = 0.0f;
   float alphaTransProd = 1.0f;
-#else
-  mat4 binnedRadiancesAndAttenuation = mat4(
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-  );
-  vec4 binDistances = vec4(-1.0f, -1.0f, -1.0f, -1.0f);
-#endif
 
 #ifdef RAY_TRACING_PRIMARY_RAY
   const uint kMaxUnorderedResolveSteps = 128;
@@ -430,7 +392,6 @@ float resolveVertexUnorderedParticles<
       surfaceIndex = rayInteraction.surfaceIndex;
     }
 
-#ifdef UNORDERED_RESOLVE_WBOIT
     float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
       CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
 
@@ -444,24 +405,6 @@ float resolveVertexUnorderedParticles<
     alphaColorSum  += Ci * w;
     alphaWeightSum += alphaVal * w;
     alphaTransProd *= (1.f - alphaVal);
-#else
-    uint lowestIndex;
-    float lowestDistance;
-    vec4 lowestRadianceAndAttenuation;
-
-    findLowestBin(
-      binnedRadiancesAndAttenuation, binDistances,
-      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
-
-    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
-
-    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
-    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
-
-    writeColumn(binnedRadiancesAndAttenuation, vec4(currentEmissiveRadiance, currentRadianceAttenuation), lowestIndex);
-    writeComponent(binDistances, rayHitInfo.hitDistance, lowestIndex);
-#endif
 
 #ifdef RAY_TRACING_PRIMARY_RAY
 #ifndef GBUFFER_PSR
@@ -502,7 +445,6 @@ float resolveVertexUnorderedParticles<
   }
 #endif
 
-#ifdef UNORDERED_RESOLVE_WBOIT
   if (alphaWeightSum > 0.f)
   {
     float3 alphaAvg = alphaColorSum / alphaWeightSum;
@@ -511,27 +453,6 @@ float resolveVertexUnorderedParticles<
   }
 
   radianceAttenuation *= alphaTransProd;
-#else
-  for (uint i = 0; i < 4 ; ++i)
-  {
-    uint lowestIndex;
-    float lowestDistance;
-    vec4 lowestRadianceAndAttenuation;
-
-    findLowestBin(
-      binnedRadiancesAndAttenuation, binDistances,
-      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
-
-    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
-
-    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
-    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
-
-    writeColumn(binnedRadiancesAndAttenuation, vec4(0.0f, 0.0f, 0.0f, 1.0f), lowestIndex);
-    writeComponent(binDistances, float16Max, lowestIndex);
-  }
-#endif
 
   emissiveRadiance *= 1.0f / pathSelectionProbability;
   return opacityTransmittance;
@@ -595,22 +516,9 @@ void resolveVertexUnordered<
   // Note: The number of actual relevant hits along the unordered traversal.
   numInteractions = 0;
 
-#ifdef UNORDERED_RESOLVE_WBOIT
   float3 alphaColorSum = 0..xxx;
   float alphaWeightSum = 0.0f;
   float alphaTransProd = 1.0f;
-#else
-  // Note: Initialize bins to completely transparent with no radiance to be added in at an impossibly low distance. This
-  // ensures these filler items are pulled out first in sorted order, giving the incoming elements a few iterations to populate
-  // the bins.
-  mat4 binnedRadiancesAndAttenuation = mat4(
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-    vec4(0.0f, 0.0f, 0.0f, 1.0f),
-  );
-  vec4 binDistances = vec4(-1.0f, -1.0f, -1.0f, -1.0f);
-#endif
 
 #ifdef RAY_TRACING_PRIMARY_RAY
   MemoryDecalMaterialInteraction binnedDecals[numDecalResolveBins];
@@ -903,7 +811,6 @@ void resolveVertexUnordered<
         surfaceIndex = rayInteraction.surfaceIndex;
       }
 
-#ifdef UNORDERED_RESOLVE_WBOIT
       float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
         CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
 
@@ -920,31 +827,6 @@ void resolveVertexUnordered<
       alphaColorSum  += Ci * w;
       alphaWeightSum += alphaVal * w;
       alphaTransProd *= (1.f - alphaVal);
-#else
-     // Find the lowest item in the bins
-      uint lowestIndex;
-      float lowestDistance;
-      vec4 lowestRadianceAndAttenuation;
-
-      findLowestBin(
-        binnedRadiancesAndAttenuation, binDistances,
-        lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
-
-      // Note: Volume attenuation calculated only for the current ray start to the current hit surface, not accumulated
-      // into the attenuation as this will be handled later by the ordered resolve logic (and we do not want to incorrectly
-      // accumulate volume radiance multiple times for overlapping unordered segments).
-      const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
-
-      emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
-      // Hack: This is done as a workaround for a compiler bug (REMIX-1551), should be revertex back to what it was originally to avoid
-      // increased register pressure in resolving.
-      radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
-      // radianceAttenuation *= lowestRadianceAndAttenuation.a;
-
-      writeColumn(binnedRadiancesAndAttenuation, vec4(currentEmissiveRadiance, currentRadianceAttenuation), lowestIndex);
-      writeComponent(binDistances, rayHitInfo.hitDistance, lowestIndex);
-#endif
     }
 
     if (!handledInteraction)
@@ -977,9 +859,6 @@ void resolveVertexUnordered<
   }
 
   // Early out in the special case of nothing being hit
-  // Note: This is a fairly common case since often rays travel unobstructed by particles or other intermediate objects, so having
-  // a path to skip the somewhat costly bin flushing logic below results in a small performance improvement.
-
   if (numInteractions == 0)
   {
     return;
@@ -987,54 +866,14 @@ void resolveVertexUnordered<
 
   if (ENABLE_PARTICLES)
   {
-#ifdef UNORDERED_RESOLVE_WBOIT
-  if (alphaWeightSum > 0.f)
-  {
-    float3 alphaAvg = alphaColorSum / alphaWeightSum;
-    float coverage = cb.wboitEnergyLossCompensation * saturate(1.0f - alphaTransProd);
-    emissiveRadiance += alphaAvg * coverage;
-  }
+    if (alphaWeightSum > 0.f)
+    {
+      float3 alphaAvg = alphaColorSum / alphaWeightSum;
+      float coverage = cb.wboitEnergyLossCompensation * saturate(1.0f - alphaTransProd);
+      emissiveRadiance += alphaAvg * coverage;
+    }
 
-  radianceAttenuation *= alphaTransProd;
-#else
-  // Flush the bins by iterating through them and finding the lowest for each
-  // Note: This has to be done as there will be remaining items in the bins (up to 4) which need to be accumulated in most cases after
-  // the main loop finishes.
-
-  for (uint i = 0; i < 4 ; ++i)
-  {
-    // Find the lowest item in the bins
-
-    uint lowestIndex;
-    float lowestDistance;
-    vec4 lowestRadianceAndAttenuation;
-
-    findLowestBin(
-      binnedRadiancesAndAttenuation, binDistances,
-      lowestIndex, lowestDistance, lowestRadianceAndAttenuation);
-
-    // Accumulate the lowest bin into the radiance and attenuation
-
-    // Note: Volume attenuation calculated only for the current ray start to the current hit surface, not accumulated
-    // into the attenuation as this will be handled later by the ordered resolve logic (and we do not want to incorrectly
-    // accumulate volume radiance multiple times for overlapping unordered segments).
-    const vec3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, lowestDistance, mediumExtinction);
-
-    emissiveRadiance += lowestRadianceAndAttenuation.rgb * radianceAttenuation * volumeAttenuation;
-    // Hack: This is done as a workaround for a compiler bug (REMIX-1551), should be revertex back to what it was originally to avoid
-    // increased register pressure in resolving.
-    radianceAttenuation = radianceAttenuation * float(lowestRadianceAndAttenuation.a);
-    // radianceAttenuation *= lowestRadianceAndAttenuation.a;
-
-    // Invalidate the lowest bin
-
-    // Note: Invalid entry written in to safely be added if hit (in cases where fewer than 4 particle iterations
-    // were done), but designed to always compare as further away from any valid item.
-    writeColumn(binnedRadiancesAndAttenuation, vec4(0.0f, 0.0f, 0.0f, 1.0f), lowestIndex);
-    writeComponent(binDistances, float16Max, lowestIndex);
-  }
-#endif
+    radianceAttenuation *= alphaTransProd;
   }
 
 #ifdef RAY_TRACING_PRIMARY_RAY

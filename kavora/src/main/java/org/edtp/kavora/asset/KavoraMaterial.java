@@ -10,7 +10,6 @@ import org.edtp.kavora.sdk.RemixAPI;
 import java.lang.ref.Reference;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -35,10 +34,6 @@ public class KavoraMaterial extends KavoraAssetBase {
 
     public KavoraMaterial(MaterialInfo materialInfo) {
         this.materialInfo = materialInfo;
-    }
-
-    public List<KavoraTexture> getTextures() {
-        return Collections.unmodifiableList(textures);
     }
 
     void update(RemixAPI api, MaterialInfo newInfo) {

@@ -655,7 +655,6 @@ public class KavoraRenderer {
         }
     }
 
-    public long getInteropSnapshotTextureBytes() { return interop.snapshotTextureBytes(); }
     public long getInteropCopiedSnapshotBytes() { return interop.copiedSnapshotBytes(); }
 
     public void renderWeather() {

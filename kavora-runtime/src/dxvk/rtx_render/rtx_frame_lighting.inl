@@ -190,32 +190,11 @@ namespace dxvk {
       ScopedGpuProfileZone(&ctx, "Indirect Integration Pipeline");
 
       SpatiallyHashedRadianceCache& sharc = ctx.m_common->metaSpatiallyHashedRadianceCache();
-      const bool isSharcUpdateCombinedWithQuery = sharc.isUpdateCombinedWithQuery();
+      ctx.setFramePassStage(RtxFramePassStage::IndirectIntegration);
+      ctx.m_common->metaPathtracerIntegrateIndirect().dispatch(&ctx, IndirectIntegrationResources(rtOutput));
 
-      // SHaRC Update passes
-      if (RtxOptions::integrateIndirectMode() == IntegrateIndirectMode::SHaRC && !isSharcUpdateCombinedWithQuery) {
-        // Indirect PT - SHaRC Update pass
-        if (SpatiallyHashedRadianceCache::SharcOptions::enableUpdate())
-        {
-          ScopedGpuProfileZone(&ctx, "Indirect (SHaRC Update)");
-          ctx.setFramePassStage(RtxFramePassStage::IndirectIntegrationUpdate);
-
-          const bool doSharcUpdate = true;
-          ctx.m_common->metaPathtracerIntegrateIndirect().dispatch(&ctx, IndirectIntegrationResources(rtOutput), doSharcUpdate);
-        }
-
-        sharc.dispatch(ctx);
-      }
-
-      // Indirect PT
-      {
-        ctx.setFramePassStage(RtxFramePassStage::IndirectIntegration);
-
-        ctx.m_common->metaPathtracerIntegrateIndirect().dispatch(&ctx, IndirectIntegrationResources(rtOutput));
-      }
-
-      // The resolve needs the combined dispatch's update samples, so the dispatch's queries read the previous frame's cache.
-      if (isSharcUpdateCombinedWithQuery) {
+      // Resolve combined update samples after queries have read the previous frame's cache.
+      if (sharc.isActive()) {
         sharc.dispatch(ctx);
       }
     }

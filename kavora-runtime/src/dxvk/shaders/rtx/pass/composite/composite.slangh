@@ -111,9 +111,3 @@ vec3 applyPostFilter(Texture2D<float4> texture, uint2 pixel, uint denoiserMode)
   }
   return centerColor;
 }
-
-// Clamp to the nearest valid texel so edge pixels do not get biased darker by missing neighbors.
-int2 clampPixelCoordinate(int2 pixelCoordinate, int2 offset)
-{
-  return clamp(pixelCoordinate + offset, 0, cb.camera.resolution - 1);
-}

@@ -27,7 +27,7 @@
 #include "rtx_resources.h"
 #include "rtx_frame_resources.h"
 #include "rtx_camera_manager.h"
-#include "rtx_cloud_neural_model.h"
+#include "clouds/rtx_cloud_neural_model.h"
 
 namespace dxvk {
 

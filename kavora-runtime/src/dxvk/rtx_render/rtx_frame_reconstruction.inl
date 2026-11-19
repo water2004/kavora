@@ -31,7 +31,6 @@
 #include "dxvk_scoped_annotation.h"
 #include "rtx_ray_reconstruction.h"
 #include "rtx_scene_manager.h"
-#include "rtx_xess.h"
 #include "rtx/pass/raytrace_args.h"
 #include "rtx/utility/debug_view_indices.h"
 #include "../util/util_global_time.h"
@@ -48,14 +47,11 @@ namespace dxvk {
     using Mode = RtxContext::InternalUpscaler;
     using DLSS = frame::Schedule<prepareReconstructionExposure, dispatchDLSS>;
     using RayReconstruction = frame::Schedule<prepareReconstructionExposure, dispatchRayReconstruction>;
-    using XeSS = frame::Schedule<prepareReconstructionExposure, dispatchXeSS>;
     static_assert(DLSS::orders<prepareReconstructionExposure, dispatchDLSS>);
     static_assert(RayReconstruction::orders<prepareReconstructionExposure, dispatchRayReconstruction>);
-    static_assert(XeSS::orders<prepareReconstructionExposure, dispatchXeSS>);
     frame::choose<copySceneImage,
       frame::Choice<Mode::DLSS, DLSS>,
       frame::Choice<Mode::DLSS_RR, RayReconstruction>,
-      frame::Choice<Mode::XeSS, XeSS>,
       frame::Choice<Mode::NIS, frame::Schedule<dispatchNIS>>,
       frame::Choice<Mode::TAAU, frame::Schedule<dispatchTemporalAA>>>(ctx.m_currentUpscaler, ctx, rtOutput);
   }
@@ -126,13 +122,6 @@ namespace dxvk {
     ScopedGpuProfileZone(&ctx, "NIS");
     ctx.setFramePassStage(RtxFramePassStage::NIS);
     ctx.getCommonObjects()->metaNIS().dispatch(&ctx, rtOutput.m_compositeOutput, rtOutput.m_finalOutput);
-  }
-
-  void RtxFramePipeline::dispatchXeSS(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {
-    ScopedGpuProfileZone(&ctx, "XeSS");
-    ctx.setFramePassStage(RtxFramePassStage::XeSS);
-    DxvkXeSS& xess = ctx.m_common->metaXeSS();
-    xess.dispatch(&ctx, ctx.m_execBarriers, DxvkXeSS::XeSSDispatchResources(rtOutput), ctx.m_resetHistory);
   }
 
   void RtxFramePipeline::dispatchTemporalAA(RtxContext& ctx, const Resources::RaytracingOutput& rtOutput) {

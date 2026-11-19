@@ -55,7 +55,8 @@ second-order harmonics at each node of a wind-aligned grid. Each layer has
 clouds. The bake reuses the direct-light field where it covers a node. The
 sky and ground boundary terms continue to use the two-stream transport model.
 
-The embedded `cloud_neural_sun.bin` comes from the demo's selected `sun.npz`
+The runtime embeds [`cloud_neural_sun.bin`](../src/dxvk/rtx_render/clouds/cloud_neural_sun.bin)
+from the demo's selected `sun.npz`
 export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b9`).
 The [cloud scattering training workflow](../training/cloud-scattering/README.md)
 generates the reference data, trains the model, and packs the weights. Its packer

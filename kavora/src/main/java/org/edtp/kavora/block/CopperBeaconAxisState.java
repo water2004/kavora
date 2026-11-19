@@ -89,18 +89,6 @@ public record CopperBeaconAxisState(
         };
     }
 
-    public CopperBeaconAxisState reanchored(long tick) {
-        return new CopperBeaconAxisState(
-                position,
-                mode,
-                rotationSpeed,
-                minimumOffset,
-                maximumOffset,
-                cycleSeconds,
-                patrolSeconds,
-                tick);
-    }
-
     public void writeNbt(CompoundTag nbt) {
         nbt.putFloat(POSITION_KEY, position);
         nbt.putInt(MODE_KEY, mode.ordinal());

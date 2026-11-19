@@ -38,7 +38,7 @@ def check_bindings(directory, spirv_dis):
         else:
             assert not re.search(r"OpVariable %\S+ PushConstant", code), name
 
-    gbuffer = "gbuffer_rayquery_psr_inline_nrc_wboit.spv"
+    gbuffer = "gbuffer_rayquery_psr_inline_nrc.spv"
     code = check_output([str(spirv_dis), str(directory / gbuffer)], text=True)
     slots = {resource: int(index) for resource, index in re.findall(r"OpDecorate %(Water\w+) Binding (\d+)", code)}
     header = (SHADERS / "rtx/pass/gbuffer/gbuffer_binding_indices.h").read_text(encoding="utf-8")

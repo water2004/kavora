@@ -723,22 +723,13 @@ struct PrimaryRayResolve : IRayResolveStep<GeometryResolverState, PrimaryResolve
   static RayHitInfo trace(RayDesc ray, uint flags, uint sbtRecordOffset, float spreadAngle,
     __ref GeometryResolverState state)
   {
-#if defined(RT_TRACE_RAY) && defined(GBUFFER_TRACE_HIT_OBJECT)
-    return traceGbufferIntersection(ray, flags, uint(state.rayMask), sbtRecordOffset, state.coneRadius);
-#elif defined(RT_TRACE_RAY)
-    TraceRayCustom(topLevelAS, flags, uint(state.rayMask), sbtRecordOffset, 0u, 0u, ray, state);
-    return {};
-#else
     return traceOrderedIntersection(ray, flags, uint(state.rayMask), state.coneRadius, spreadAngle);
-#endif
   }
 
   [ForceInline]
   static void resolve(__ref PrimaryResolveArgs args, RayHitInfo hit, __ref GeometryResolverState state)
   {
-#if !defined(RT_TRACE_RAY) || defined(GBUFFER_TRACE_HIT_OBJECT)
     geometryResolverVertex(args, hit, state);
-#endif
   }
 };
 
@@ -750,35 +741,4 @@ void resolvePrimaryFirstSegment(Ray ray, __ref GeometryResolverState state)
   state.continueResolving = uint8_t(1) < cb.primaryRayMaxInteractions;
   PrimaryResolveArgs args = { true };
   geometryResolverVertex(args, loadPrimaryIntersection(uint2(state.pixelCoordinate)), state);
-}
-
-void geometryResolver(ivec2 pixelCoordinate)
-{
-  GeometryResolverState geometryResolverState = geometryResolverBegin(pixelCoordinate);
-  Ray primaryRay;
-  preprocessPrimaryRayState(primaryRay, geometryResolverState);
-  resolvePrimaryFirstSegment(primaryRay, geometryResolverState);
-  uint8_t interactions = 1;
-  if (geometryResolverState.continueResolving)
-  {
-    RayDesc continuation = rayToRayDesc(primaryRay);
-    continuation.Origin = geometryResolverState.origin;
-    continuation.Direction = geometryResolverState.direction;
-    continuation.TMax = max(continuation.TMax - geometryResolverState.segmentHitDistance, 0.0f);
-    PrimaryResolveArgs args = { false };
-    interactions = resolveRayFromPayload<GeometryResolverState, PrimaryResolveArgs, PrimaryRayResolve, false, true, 2>(
-      continuation, primaryRay.spreadAngle, {}, primaryRayFlags(), GBUFFER_SBT_OFFSET_STANDARD,
-      cb.primaryRayMaxInteractions, args, geometryResolverState);
-  }
-  if (gbufferDebugViewEnabled)
-  {
-    recordResolveInteractions(geometryResolverState.pixelCoordinate, interactions,
-      DEBUG_VIEW_PRIMARY_RAY_INTERACTIONS, DEBUG_VIEW_PRIMARY_RAY_AND_UNORDERED_INTERACTIONS);
-    if (cb.debugView == DEBUG_VIEW_PRIMARY_RAY_BOUNCES)
-    {
-      accumulateInDebugViewAdd(geometryResolverState.pixelCoordinate, 1);
-    }
-  }
-
-  geometryResolverEnd(geometryResolverState);
 }

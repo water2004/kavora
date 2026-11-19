@@ -89,10 +89,6 @@ namespace dxvk {
       RTX_OPTION("rtx.spatiallyHashedRadianceCache", bool, enableResolve, true,
                  "Enables the pass that combines current SHaRC update samples with cache history.\n"
                  "Disabling Resolve discards new accumulation while queries may continue reading the last resolved cache.");
-      RTX_OPTION_FLAG("rtx.spatiallyHashedRadianceCache", bool, combineUpdateAndQuery, false, RtxOptionFlags::UserSetting,
-                 "Traces update paths in the same dispatch as query paths, like NRC traces its training paths, instead of in a separate update pass.\n"
-                 "This removes the fixed cost of the separate pass, but queries then read the cache resolved in the previous frame, which delays lighting changes by a frame.\n"
-                 "Medium enables this option. High and Ultra disable it. Use Custom graphics settings to override it manually.");
       RTX_OPTION("rtx.spatiallyHashedRadianceCache", uint32_t, downscaleFactor, 5,
                  "Controls SHaRC update resolution; a factor of N traces one update ray per N by N pixel block each frame.\n"
                  "Higher values reduce update cost but make cache coverage and lighting changes converge more slowly.\n"
@@ -145,11 +141,10 @@ namespace dxvk {
     // This must be called after onFrameBegin() in a frame
     void setRaytraceArgs(RtxContext& ctx, RaytraceArgs& constants);
 
-    VkExtent3D calcRaytracingResolution(const VkExtent3D& raytracingResolution, bool isUpdate) const;
+    VkExtent3D calcRaytracingResolution() const;
     const Resources::Resource& getUpdateQueryReservoir() const { return m_updateQueryReservoir; }
 
     // Returns whether the query dispatch also traces the update paths, which dispatch() must then follow.
-    bool isUpdateCombinedWithQuery() const;
 
     void bindGBufferPathTracingResources(RtxContext& ctx);
     void bindIntegrateIndirectPathTracingResources(RtxContext& ctx);

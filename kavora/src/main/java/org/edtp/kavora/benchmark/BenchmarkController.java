@@ -1676,8 +1676,6 @@ public class BenchmarkController {
                     "rtx.enableStochasticAlphaBlend", "rtx.enablePSRR", "rtx.enablePSTR", "rtx.displacement.enablePSR",
                     "rtx.displacement.silhouettesBehindTranslucency",
                     "rtx.debugView.debugViewIdx", "rtx.debugView.showFirstGBufferHit",
-                    "rtx.raytraceModePreset", "rtx.renderPassGBufferRaytraceMode",
-                    "rtx.renderPassIntegrateDirectRaytraceMode", "rtx.renderPassIntegrateIndirectRaytraceMode",
                     "rtx.volumetrics.enable", "rtx.volumetrics.enableAtmosphere",
                     "rtx.volumetrics.froxelGridResolutionScale", "rtx.volumetrics.froxelDepthSlices",
                     "rtx.volumetrics.froxelMaxDistanceMeters", "rtx.volumetrics.froxelDepthSliceDistributionExponent",

@@ -147,11 +147,9 @@ void applyVertexAndTextureOperationsToOpacity(inout float opacity, vec3 albedo, 
     // Unused
     float emissiveBlendOverrideInfluence = float(0);
 
-    // This must be enabled as the opacities are otherwise zeroed out by the handler
-    const bool enableOpacityEmissiveBlendModes = true;
 
     calcOpaqueSurfaceMaterialOpacity(
-      albedo, opacity, surface, opacity, emissiveBlendOverrideInfluence, enableOpacityEmissiveBlendModes);
+      albedo, opacity, surface, opacity, emissiveBlendOverrideInfluence);
   }
 }
 

@@ -3,6 +3,9 @@
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+#if defined(CLOUD_PREVIEW_HAS_LIGHTING_BAKE)
+import "rtx/pass/clouds/cloud_lighting_bake.slang";
+#endif
 
 ConstantBuffer<CloudArgs> Clouds;
 Sampler2D<float4>.Handle Weather;

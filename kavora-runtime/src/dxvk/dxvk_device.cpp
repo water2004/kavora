@@ -31,7 +31,6 @@
 #include "rtx_render/rtx_restir_gi_rayquery.h"
 #include "rtx_render/rtx_composite.h"
 #include "rtx_render/rtx_debug_view.h"
-#include "rtx_render/rtx_xess.h"
 
 #include "rtx_render/rtx_sparse_rendering.h"
 
@@ -566,7 +565,6 @@ namespace dxvk {
     m_dlssNeuralRendering(device),
     m_nis(device),
     m_taa(device),
-    m_xess(device),
     m_composite(device),
     m_gpuCrash(device),
     m_debug_view(device),

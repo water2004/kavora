@@ -21,19 +21,11 @@
 */
 #include "rtx/concept/surface_material/surface_material_hitgroup.h"
 
-//!variant integrate_indirect_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=0
-
 
 //!variant integrate_indirect_neeCache_material_opaque_translucent_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
 //!>       NEE_CACHE_ENABLE=1
 
-
-//!variant integrate_indirect_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=0
 
 
 //!variant integrate_indirect_neeCache_material_rayportal_closestHit.rchit
@@ -42,22 +34,12 @@
 
 
 
-//!variant integrate_indirect_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
 
 //!variant integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
 //!>       NEE_CACHE_ENABLE=1
 //!>       OPAQUE_MATERIAL_USE_POM=1
 
-
-//!variant integrate_indirect_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
 
 
 //!variant integrate_indirect_neeCache_pom_material_rayportal_closestHit.rchit
@@ -69,11 +51,6 @@
 
 /* NRC */
 
-//!variant integrate_indirect_nrc_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-
 
 //!variant integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
@@ -81,23 +58,12 @@
 //!>       NEE_CACHE_ENABLE=1
 
 
-//!variant integrate_indirect_nrc_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-
 
 //!variant integrate_indirect_nrc_neeCache_material_rayportal_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
 //!>       ENABLE_NRC=1
 //!>       NEE_CACHE_ENABLE=1
 
-
-//!variant integrate_indirect_nrc_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
 
 
 //!variant integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit.rchit
@@ -107,12 +73,6 @@
 //!>       OPAQUE_MATERIAL_USE_POM=1
 
 
-//!variant integrate_indirect_nrc_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
 
 //!variant integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
@@ -121,121 +81,17 @@
 //!>       OPAQUE_MATERIAL_USE_POM=1
 
 
-/* SHaRC Update */
-
-//!variant integrate_indirect_sharc_update_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-
-//!variant integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-
-//!variant integrate_indirect_sharc_update_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-
-//!variant integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
 
 
-//!variant integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_update_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-
-/* SHaRC Query */
-
-//!variant integrate_indirect_sharc_query_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-
-//!variant integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-
-//!variant integrate_indirect_sharc_query_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-
-//!variant integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-
-
-//!variant integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_query_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
 
 
 /* SHaRC Combined Update and Query */
-
-//!variant integrate_indirect_sharc_combined_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
 
 //!variant integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
 //!>       SHARC_UPDATE=1
 //!>       SHARC_QUERY=1
 //!>       NEE_CACHE_ENABLE=1
-
-//!variant integrate_indirect_sharc_combined_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
 
 //!variant integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
@@ -244,25 +100,11 @@
 //!>       NEE_CACHE_ENABLE=1
 
 
-//!variant integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
 //!variant integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit.rchit
 //!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
 //!>       SHARC_UPDATE=1
 //!>       SHARC_QUERY=1
 //!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-
-//!variant integrate_indirect_sharc_combined_pom_material_rayportal_closestHit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
 //!>       OPAQUE_MATERIAL_USE_POM=1
 
 //!variant integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit.rchit
@@ -272,283 +114,6 @@
 //!>       NEE_CACHE_ENABLE=1
 //!>       OPAQUE_MATERIAL_USE_POM=1
 
-// WBOIT
-
-//!variant integrate_indirect_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_neeCache_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_neeCache_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-//!variant integrate_indirect_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_neeCache_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_neeCache_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-/* NRC */
-
-//!variant integrate_indirect_nrc_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_neeCache_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_neeCache_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-//!variant integrate_indirect_nrc_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_neeCache_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_nrc_neeCache_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       ENABLE_NRC=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-/* SHaRC Update */
-
-//!variant integrate_indirect_sharc_update_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_neeCache_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_neeCache_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-//!variant integrate_indirect_sharc_update_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_neeCache_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_update_neeCache_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-/* SHaRC Query */
-
-//!variant integrate_indirect_sharc_query_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_neeCache_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_neeCache_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-//!variant integrate_indirect_sharc_query_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_neeCache_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_query_neeCache_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-/* SHaRC Combined Update and Query */
-
-//!variant integrate_indirect_sharc_combined_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_neeCache_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_neeCache_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-
-//!variant integrate_indirect_sharc_combined_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_neeCache_pom_material_opaque_translucent_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_OPAQUE_TRANSLUCENT
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=0
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
-
-//!variant integrate_indirect_sharc_combined_neeCache_pom_material_rayportal_closestHit_wboit.rchit
-//!>       SURFACE_MATERIAL_RESOLVE_TYPE_ACTIVE_MASK=SURFACE_MATERIAL_RESOLVE_TYPE_ALL
-//!>       SHARC_UPDATE=1
-//!>       SHARC_QUERY=1
-//!>       NEE_CACHE_ENABLE=1
-//!>       OPAQUE_MATERIAL_USE_POM=1
-//!>       UNORDERED_RESOLVE_WBOIT
 //!end-variants
 
 #define RAY_PIPELINE

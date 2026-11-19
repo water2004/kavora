@@ -187,7 +187,6 @@ namespace dxvk {
       DLSS,
       NIS,
       TAAU,
-      XeSS,
       DLSS_RR,
     };
 
@@ -242,8 +241,7 @@ namespace dxvk {
     bool shouldUseRayReconstruction() const;
     bool shouldUseNIS() const;
     bool shouldUseTAA() const;
-    bool shouldUseXeSS() const;
-    bool shouldUseUpscaler() const { return shouldUseDLSS() || shouldUseNIS() || shouldUseTAA() || shouldUseXeSS(); }
+    bool shouldUseUpscaler() const { return shouldUseDLSS() || shouldUseNIS() || shouldUseTAA(); }
 
     inline static bool s_triggerScreenshot = false;
     inline static const bool s_capturePrePresentTestScreenshot = env::getEnvVar("RTX_TAKE_PRE_PRESENT_SCREENSHOT_FRAME") != "";

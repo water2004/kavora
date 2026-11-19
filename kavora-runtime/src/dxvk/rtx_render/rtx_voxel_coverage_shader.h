@@ -18,28 +18,14 @@ namespace dxvk {
       return GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, ordered_coverage_traversal);
     }
 
-    static Rc<DxvkShader> getGbufferShader() {
-      return GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, ordered_coverage_gbuffer);
-    }
-
-    static Rc<DxvkShader> getPathShader(bool nrc, bool sharcUpdate, bool sharcQuery, bool nee) {
-#define COVERAGE_PATH_VARIANT(name) \
-      return nee ? GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, name##_nee) \
-                 : GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, name)
+    static Rc<DxvkShader> getPathShader(bool nrc, bool sharc) {
       if (nrc) {
-        COVERAGE_PATH_VARIANT(ordered_coverage_path_nrc);
+        return GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, ordered_coverage_path_nrc_nee);
       }
-      if (sharcUpdate && sharcQuery) {
-        COVERAGE_PATH_VARIANT(ordered_coverage_path_sharc_combined);
+      if (sharc) {
+        return GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, ordered_coverage_path_sharc_combined_nee);
       }
-      if (sharcUpdate) {
-        COVERAGE_PATH_VARIANT(ordered_coverage_path_sharc_update);
-      }
-      if (sharcQuery) {
-        COVERAGE_PATH_VARIANT(ordered_coverage_path_sharc_query);
-      }
-      COVERAGE_PATH_VARIANT(ordered_coverage_path);
-#undef COVERAGE_PATH_VARIANT
+      return GET_SHADER_VARIANT(VK_SHADER_STAGE_ANY_HIT_BIT_KHR, OrderedCoverageAnyHitShader, ordered_coverage_path_nee);
     }
   };
 }

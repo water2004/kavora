@@ -531,7 +531,7 @@ add_project_arguments('-DVK_ENABLE_BETA_EXTENSIONS', language : 'cpp')
 
 # External dependencies configuration
 # Configures Sentry, USD include/lib paths, MDL includes and the RTX IO dependency.
-# (Reflex, NRD, NRC and XeSS are configured below)
+# (Reflex, NRD and NRC are configured below)
 subdir('external-build')
 
 # This will be populated by the usd plugin builder
@@ -588,8 +588,6 @@ if dxvk_is_woa
 else
   nrc_dll_path = join_paths(global_src_root_norm, 'submodules/nrc/bin/')
 endif
-
-xess_dll_path = join_paths(global_src_root_norm, 'submodules/xess/bin/')
 
 nrd_lib_path = join_paths(global_src_root_norm, 'external/nrd/Lib/Release/')
 if get_option('buildtype') == 'debug'
@@ -776,10 +774,6 @@ if dxvk_is_ninja or dxvk_is_woa_ec
 
     install_data(join_paths(nrd_lib_path, 'NRD.dll'), install_dir : output_path, install_tag: target_suffix) 
     
-    if not dxvk_is_woa
-      install_data(join_paths(xess_dll_path, 'libxess.dll'), install_dir : output_path, install_tag: target_suffix)
-    endif
-
     install_data(join_paths(dlss_bin_path, 'nvngx_dlss.dll'), install_dir : output_path, install_tag: target_suffix) 
     install_data(join_paths(dlss_bin_path, 'nvngx_dlssd.dll'), install_dir : output_path, install_tag: target_suffix) 
     install_data(join_paths(dlfg_bin_path, 'nvngx_dlssg.dll'), install_dir : output_path, install_tag: target_suffix)

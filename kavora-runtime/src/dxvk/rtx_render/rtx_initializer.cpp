@@ -93,11 +93,8 @@ namespace dxvk {
     // to be disabled if this is changed).
     if (env::getEnvVar("DXVK_TERMINATE_APP_FRAME") == "" ||
         env::getEnvVar("DXVK_GRAPHICS_PRESET_TYPE") != "0") {
-      const DxvkDeviceInfo& deviceInfo = m_device->adapter()->devicePropertiesExt();
-
       RtxOptions::updateUpscalerFromDlssPreset();
       RtxOptions::updateGraphicsPresets(m_device);
-      RtxOptions::updateRaytraceModePresets(deviceInfo.core.properties.vendorID, deviceInfo.khrDeviceDriverProperties.driverID);
     } else {
       // Default, init to custom unless otherwise specified
       if (RtxOptions::graphicsPreset() == GraphicsPreset::Auto) {

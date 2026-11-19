@@ -488,8 +488,6 @@
   "kavora.effect.lighting.rtxdi.tip": "Reservoir sampling improves direct lighting with many lights. Disabling it uses the runtime’s simpler light sampler.",
   "kavora.effect.lighting.sparse": "Sparse Rendering",
   "kavora.effect.lighting.sparse.tip": "Trace fewer pixels and reconstruct them with DLSS Ray Reconstruction. Requires DLSS and Ray Reconstruction; otherwise the runtime suspends sparse rendering.",
-  "kavora.effect.cache.combine": "Combined Cache Update",
-  "kavora.effect.cache.combine.tip": "Combine update and query tracing to reduce dispatch overhead. Lighting queries read the previous frame’s resolved cache.",
   "kavora.effect.cache.primary": "Thin Surface Cache",
   "kavora.effect.cache.primary.tip": "Use the radiance cache for leaves and other thin opaque surfaces. Disabling it increases tracing work and can change noise.",
   "kavora.effect.cache.filter": "Thin Surface Filtering",

@@ -52,7 +52,8 @@ void intervals(uint index : SV_DispatchThreadID)
   {
     return;
   }
-  const float2 interval = cloudInterval(Clouds, Inputs[index].xyz, Directions[index].xyz, Inputs[index].w);
+  const float distance = min(Inputs[index].w, cloudLayerMaxDistance(Clouds, 0));
+  const float2 interval = cloudLayerInterval(Clouds, Inputs[index].xyz, Directions[index].xyz, distance, 0);
   Results[index] = float4(interval, 0, 0);
 }
 

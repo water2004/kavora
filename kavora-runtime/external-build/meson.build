@@ -3,7 +3,7 @@
 # that are not managed by the version control system (external/)
 # and third-party submodules (submodules/).
 #
-# NOTE: NVAPI, Reflex, DLSS, DLFG, NRD, NRC and XeSS are configured
+# NOTE: NVAPI, Reflex, DLSS, DLFG, NRD and NRC are configured
 # directly in the root meson.build, as they carry Windows-on-Arm (dxvk_is_woa)
 # specific handling that selects between x64 and arm64 binaries.
 

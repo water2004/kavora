@@ -428,6 +428,19 @@ def expandVariantMatrix(inputFile, lineno, inputType, matrix):
             print(f'{inputFile}:{lineno}: variant matrix axis "{axisName}" is not present in the order')
             return []
 
+    exclusions = []
+    axisPositions = {name: index for index, name in enumerate(axisOrder)}
+    for exclusionLine, selectors in matrix["exclusions"]:
+        excluded = {}
+        for selector in selectors:
+            axisName, separator, label = selector.partition("=")
+            values = {value["label"]: value["index"] for value in axes.get(axisName, [])}
+            if not separator or label not in values or axisName in excluded:
+                print(f'{inputFile}:{exclusionLine}: invalid variant matrix exclusion selector "{selector}"')
+                return []
+            excluded[axisName] = values[label]
+        exclusions.append([(axisPositions[name], value) for name, value in excluded.items()])
+
     combinations = [([], None, list(matrix["common"]), [])]
 
     for axisName in axisOrder:
@@ -455,6 +468,8 @@ def expandVariantMatrix(inputFile, lineno, inputType, matrix):
     result = []
     variants = []
     for nameParts, variantType, defines, axisValues in combinations:
+        if any(all(axisValues[index] == value for index, value in excluded) for excluded in exclusions):
+            continue
         if variantType is None:
             if len(inputType) == 0:
                 print(f'{inputFile}:{lineno}: shader type not specified in matrix axis or in the file name')
@@ -501,6 +516,7 @@ def parseShaderVariants(inputFile):
                     "common": [],
                     "axes": {},
                     "order": None,
+                    "exclusions": [],
                 }
 
             elif line.startswith("//!variant"):
@@ -558,6 +574,11 @@ def parseShaderVariants(inputFile):
                         })
                     elif command == "order":
                         matrix["order"] = parts[2:]
+                    elif command == "exclude":
+                        if len(parts) < 3:
+                            print(f'{inputFile}:{lineno}: variant matrix exclusion must select at least one axis value')
+                            return []
+                        matrix["exclusions"].append((lineno, parts[2:]))
                     else:
                         print(f'{inputFile}:{lineno}: unknown variant matrix command "{command}"')
                         return []

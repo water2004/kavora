@@ -55,8 +55,8 @@ namespace dxvk {
     const bool clientFrameGeneration = !ctx.m_device->vkd()->ownsDevice() && ctx.isDLFGEnabled();
     const bool needsInterfaceGuide = (scene.hasTranslucentSurfaces() || hasSludge) &&
       (RtxOptions::enablePSRR() || RtxOptions::enablePSTR());
-    const bool needsParticleGuide = RtxOptions::renderPassGBufferRaytraceMode() == DxvkPathtracerGbuffer::RaytraceMode::RayQuery &&
-      RtxOptions::enableSeparateUnorderedApproximations() && scene.getInstanceManager().hasViewModelParticles();
+    const bool needsParticleGuide = RtxOptions::enableSeparateUnorderedApproximations() &&
+      scene.getInstanceManager().hasViewModelParticles();
     if (!clientFrameGeneration || (!needsParticleGuide && !needsInterfaceGuide)) {
       rtOutput.m_fgForegroundGuide = {};
     } else if (!rtOutput.m_fgForegroundGuide.isValid() || rtOutput.m_fgForegroundGuide.image->info().extent != downscaledExtent) {

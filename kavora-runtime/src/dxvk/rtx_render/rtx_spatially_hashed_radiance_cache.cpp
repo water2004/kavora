@@ -103,9 +103,6 @@ namespace dxvk {
     if (!isCustomInitialization || !targetNumUpdateRecordsObject().getBlockingLayer(RtxOptionLayer::getDefaultLayer())) {
       targetNumUpdateRecords.setImmediately(target);
     }
-    if (!isCustomInitialization || !combineUpdateAndQueryObject().getBlockingLayer(RtxOptionLayer::getDefaultLayer())) {
-      combineUpdateAndQuery.setImmediately(preset == QualityPreset::Medium);
-    }
   }
 
   SpatiallyHashedRadianceCache::SpatiallyHashedRadianceCache(dxvk::DxvkDevice* device) : RtxPass(device), m_device(device) { }
@@ -166,7 +163,7 @@ namespace dxvk {
       static_cast<float>(m_activeUpdateDimensions.width),
       static_cast<float>(m_activeUpdateDimensions.height) };
 
-    sharcArgs.numRowsForUpdate = isUpdateCombinedWithQuery() ? calculateNumRowsForUpdate() : 0;
+    sharcArgs.numRowsForUpdate = calculateNumRowsForUpdate();
 
     sharcArgs.queryToUpdateCoordinateSpace = vec2 {
       1.f / numQueryPixelsPerUpdatePixel.x,
@@ -201,29 +198,15 @@ namespace dxvk {
     }
   }
 
-  // ToDo: rename to calc*
-  VkExtent3D SpatiallyHashedRadianceCache::calcRaytracingResolution(const VkExtent3D& raytracingResolution, bool isUpdate) const {
-    assert(isActive() && "This requires SHaRC to be enabled and onFrameStart() to have been called prior.");
-
-    if (isUpdate) {
-      return VkExtent3D { m_activeUpdateDimensions.width, m_activeUpdateDimensions.height, 1 };
-    }
-
-    // Like NRC's combined dispatch, the update rows come before the query rows.
-    if (isUpdateCombinedWithQuery()) {
-      return VkExtent3D { m_renderDimensions.width, m_renderDimensions.height + calculateNumRowsForUpdate(), 1 };
-    }
-
-    return raytracingResolution;
-  }
-
-  bool SpatiallyHashedRadianceCache::isUpdateCombinedWithQuery() const {
-    return isActive()
-        && SharcOptions::combineUpdateAndQuery()
-        && SharcOptions::enableUpdate();
+  VkExtent3D SpatiallyHashedRadianceCache::calcRaytracingResolution() const {
+    assert(isActive() && "SHaRC ray dimensions require an active frame");
+    return VkExtent3D { m_renderDimensions.width, m_renderDimensions.height + calculateNumRowsForUpdate(), 1 };
   }
 
   uint32_t SpatiallyHashedRadianceCache::calculateNumRowsForUpdate() const {
+    if (!SharcOptions::enableUpdate()) {
+      return 0;
+    }
     const uint32_t numUpdatePixels = m_activeUpdateDimensions.width * m_activeUpdateDimensions.height;
 
     // Rounding up to the integrate indirect workgroup height keeps update and query threads in separate workgroups.

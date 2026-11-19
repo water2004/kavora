@@ -46,6 +46,7 @@ ext.sdkExclusions = { details ->
     def name = details.name
     if (name == '.local-sdk-source' || name.endsWith('.lib') || name.endsWith('.exp')) return true
     if (name == 'NvRemixBridge.exe' || name == 'NvRemixBridge.pdb') return true
+    if (name == 'libxess.dll') return true
     if (name.endsWith('.pdb') && name != 'kavora-support.pdb') return true
     return false
 }

@@ -51,7 +51,6 @@ namespace dxvk {
     static void prepareReconstructionExposure(RtxContext& ctx, const FrameResources& frame);
     static void dispatchRayReconstruction(RtxContext& ctx, const FrameResources& frame);
     static void dispatchNIS(RtxContext& ctx, const FrameResources& frame);
-    static void dispatchXeSS(RtxContext& ctx, const FrameResources& frame);
     static void dispatchTemporalAA(RtxContext& ctx, const FrameResources& frame);
     static void copySceneImage(RtxContext& ctx, const FrameResources& frame);
     static void captureReconstruction(RtxContext& ctx, const FrameResources& frame, RtxFrameCapture capture);

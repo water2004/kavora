@@ -41,7 +41,6 @@
 #define DEBUG_VIEW_BINDING_RTXDI_CONFIDENCE_INPUT                                          12
 #define DEBUG_VIEW_BINDING_RENDER_OUTPUT_INPUT                                             13
 
-#define DEBUG_VIEW_BINDING_INSTRUMENTATION_INPUT                                           15
 #define DEBUG_VIEW_BINDING_TERRAIN_INPUT                                                   17
 
 #define DEBUG_VIEW_BINDING_VOLUME_RESERVOIRS_INPUT                                         19

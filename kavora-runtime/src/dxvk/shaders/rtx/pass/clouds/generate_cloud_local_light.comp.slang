@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT */
-import "rtx/algorithm/clouds.slang";
+import "rtx/pass/clouds/cloud_lighting_bake.slang";
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/clouds/cloud_lighting_binding_indices.h"
 #include "rtx/pass/clouds/cloud_lighting_cache.h"

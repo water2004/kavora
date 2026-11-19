@@ -74,7 +74,6 @@ namespace dxvk {
   NeeCachePass::~NeeCachePass() { }
 
   void NeeCachePass::showImguiSettings() {
-    RemixGui::Checkbox("Enable NEE Cache", &enableObject());
     if (ImGui::Button("Reset NEE Cache")) {
       requestCacheReset();
     }
@@ -105,7 +104,7 @@ namespace dxvk {
   }
 
   bool NeeCachePass::isEnabled() const {
-    return enable();
+    return true;
   }
 
   bool NeeCachePass::onActivation(Rc<DxvkContext>&) {

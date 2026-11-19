@@ -41,7 +41,6 @@
 #include "rtx_neural_radiance_cache.h"
 #include "rtx_spatially_hashed_radiance_cache.h"
 #include "rtx_ray_reconstruction.h"
-#include "rtx_xess.h"
 #include "rtx_rtxdi_rayquery.h"
 #include "rtx_restir_gi_rayquery.h"
 #include "rtx_composite.h"
@@ -284,20 +283,6 @@ namespace dxvk {
       downscaleExtent.width = renderSize[0];
       downscaleExtent.height = renderSize[1];
       downscaleExtent.depth = 1;
-    } else if (shouldUseXeSS()) {
-      DxvkXeSS& xess = m_common->metaXeSS();
-      uint32_t displaySize[2] = { upscaleExtent.width, upscaleExtent.height };
-      uint32_t renderSize[2];
-      xess.setSetting(displaySize, DxvkXeSS::XessOptions::preset(), renderSize);
-      downscaleExtent.width = renderSize[0];
-      downscaleExtent.height = renderSize[1];
-      downscaleExtent.depth = 1;
-      
-      // XeSS: Apply recommended jitter sequence length if enabled
-      if (DxvkXeSS::XessOptions::useRecommendedJitterSequenceLength() && xess.isActive()) {
-        uint32_t recommendedJitterLength = xess.calcRecommendedJitterSequenceLength();
-        uint32_t currentJitterLength = RtxOptions::cameraJitterSequenceLength();
-      }
     } else if (shouldUseNIS() || shouldUseTAA()) {
       auto resolutionScale = RtxOptions::resolutionScale();
       downscaleExtent.width = uint32_t(std::roundf(upscaleExtent.width * resolutionScale));
@@ -377,8 +362,6 @@ namespace dxvk {
       return InternalUpscaler::DLSS;
     } else if (shouldUseRayReconstruction() && m_common->metaRayReconstruction().isActive()) {
       return InternalUpscaler::DLSS_RR;
-    } else if (shouldUseXeSS() && m_common->metaXeSS().isActive()) {
-      return InternalUpscaler::XeSS;
     } else if (shouldUseNIS()) {
       return InternalUpscaler::NIS;
     } else if (shouldUseTAA()) {
@@ -389,55 +372,9 @@ namespace dxvk {
   }
 
   VkExtent3D RtxContext::onInjectRtxFrameBegin(const VkExtent3D& upscaledExtent) {
-    auto logRenderPassRaytraceModeRayQuery = [=](const char* renderPassName, auto mode) {
-      switch (mode) {
-      case decltype(mode)::RayQuery:
-        Logger::info(str::format("RenderPass ", renderPassName, " Raytrace Mode: Ray Query (CS)"));
-        break;
-      case decltype(mode)::RayQueryRayGen:
-        Logger::info(str::format("RenderPass ", renderPassName, " Raytrace Mode: Ray Query (RGS)"));
-        break;
-      default: 
-        assert(false && "invalid RaytraceMode in logRenderPassRaytraceModeRayQuery");
-        break;
-      }
-    };
-
-    auto logRenderPassRaytraceMode = [=](const char* renderPassName, auto mode) {
-      switch (mode) {
-      case decltype(mode)::RayQuery:
-      case decltype(mode)::RayQueryRayGen:
-        logRenderPassRaytraceModeRayQuery(renderPassName, mode);
-        break;
-      case decltype(mode)::TraceRay:
-        Logger::info(str::format("RenderPass ", renderPassName, " Raytrace Mode: Trace Ray (RGS)"));
-        break;
-      case decltype(mode)::Count:
-        assert(false && "invalid RaytraceMode in logRenderPassRaytraceMode");
-        break;
-      }
-    };
-
-    // Log used raytracing mode
-    static RenderPassGBufferRaytraceMode sPrevRenderPassGBufferRaytraceMode = RenderPassGBufferRaytraceMode::Count;
-    static RenderPassIntegrateDirectRaytraceMode sPrevRenderPassIntegrateDirectRaytraceMode = RenderPassIntegrateDirectRaytraceMode::Count;
-    static RenderPassIntegrateIndirectRaytraceMode sPrevRenderPassIntegrateIndirectRaytraceMode = RenderPassIntegrateIndirectRaytraceMode::Count;
-    static UpscalerType sPrevUpscalerType = UpscalerType::None;
-
-    if (sPrevRenderPassGBufferRaytraceMode != RtxOptions::renderPassGBufferRaytraceMode() ||
-        sPrevRenderPassIntegrateDirectRaytraceMode != RtxOptions::renderPassIntegrateDirectRaytraceMode() ||
-        sPrevRenderPassIntegrateIndirectRaytraceMode != RtxOptions::renderPassIntegrateIndirectRaytraceMode() ||
-        sPrevUpscalerType != RtxOptions::upscalerType()) {
-
-      sPrevRenderPassGBufferRaytraceMode = RtxOptions::renderPassGBufferRaytraceMode();
-      sPrevRenderPassIntegrateDirectRaytraceMode = RtxOptions::renderPassIntegrateDirectRaytraceMode();
-      sPrevRenderPassIntegrateIndirectRaytraceMode = RtxOptions::renderPassIntegrateIndirectRaytraceMode();
-      sPrevUpscalerType = RtxOptions::upscalerType();
-
-      logRenderPassRaytraceMode("GBuffer", RtxOptions::renderPassGBufferRaytraceMode());
-      logRenderPassRaytraceModeRayQuery("Integrate Direct", RtxOptions::renderPassIntegrateDirectRaytraceMode());
-      logRenderPassRaytraceMode("Integrate Indirect", RtxOptions::renderPassIntegrateIndirectRaytraceMode());
-
+    static UpscalerType previousUpscaler = UpscalerType::None;
+    if (previousUpscaler != RtxOptions::upscalerType()) {
+      previousUpscaler = RtxOptions::upscalerType();
       m_resetHistory = true;
     }
 
@@ -1469,7 +1406,6 @@ namespace dxvk {
 
     constants.wboitEnergyLossCompensation = RtxOptions::wboitEnergyLossCompensation();
     constants.wboitDepthWeightTuning = RtxOptions::wboitDepthWeightTuning();
-    constants.wboitEnabled = RtxOptions::wboitEnabled();
 
     constants.eyeArgs.enableEyes = RtxOptions::Eye::enable();
     constants.eyeArgs.normalBendingEyeball = RtxOptions::Eye::eyeballSphereOffset();
@@ -1986,10 +1922,6 @@ namespace dxvk {
 
   bool RtxContext::shouldUseTAA() const {
     return RtxOptions::isTAAEnabled();
-  }
-
-  bool RtxContext::shouldUseXeSS() const {
-    return RtxOptions::upscalerType() == UpscalerType::XeSS;
   }
 
   D3D9RtxVertexCaptureData& RtxContext::allocAndMapVertexCaptureConstantBuffer() {

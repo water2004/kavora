@@ -363,7 +363,8 @@ class KavoraSettingsStoreTest {
                 Files.writeString(file, """
                         {"version":5,"quality":{"base":"%s","custom":%s},
                          "settings":{"clouds.samples":%d,"clouds.shadowSamples":%d,
-                                     "clouds.transport":1,"clouds.skyResolution":768,"f":2.5,"unknown":9}}
+                                     "clouds.transport":1,"clouds.skyResolution":768,
+                                     "cache.combine":false,"f":2.5,"unknown":9}}
                         """.formatted(entry.getKey().id(), custom, entry.getValue(), previousShadows.get(entry.getKey())));
                 double[] artistic = {1};
                 var controls = new ArrayList<>(registryWith(artistic, new int[]{0}, new boolean[]{true}).all());
@@ -389,6 +390,7 @@ class KavoraSettingsStoreTest {
                 assertEquals(9, root.getAsJsonObject("settings").get("unknown").getAsInt());
                 assertFalse(root.getAsJsonObject("settings").has("clouds.transport"));
                 assertFalse(root.getAsJsonObject("settings").has("clouds.skyResolution"));
+                assertFalse(root.getAsJsonObject("settings").has("cache.combine"));
                 store.load(settings);
                 assertEquals(migrated, Files.readString(file));
             }

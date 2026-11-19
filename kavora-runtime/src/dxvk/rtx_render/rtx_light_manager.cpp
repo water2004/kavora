@@ -163,14 +163,13 @@ namespace dxvk {
           isLightInsideFrustum = sphereIntersectsFrustum(
             cameraLightAntiCullingFrustum, rtLight.getSphereLightReplacementOriginalPosition(), rtLight.getSphereLightReplacementOriginalRadius());
           break;
-        case RtLightAntiCullingType::MeshReplacement:
+        case RtLightAntiCullingType::MeshReplacement: {
           // Do Object-Anti-Culling if current light replaces original mesh
-          if (RtxOptions::needsMeshBoundingBox()) {
-            const AxisAlignedBoundingBox& boundingBox = rtLight.getMeshReplacementBoundingBox();
-            const Matrix4 objectToView = camera.getWorldToView(false) * rtLight.getMeshReplacementTransform();
-            isLightInsideFrustum = boundingBoxIntersectsFrustumSAT((RtCamera&)camera, boundingBox.minPos, boundingBox.maxPos, objectToView, false);
-          }
+          const AxisAlignedBoundingBox& boundingBox = rtLight.getMeshReplacementBoundingBox();
+          const Matrix4 objectToView = camera.getWorldToView(false) * rtLight.getMeshReplacementTransform();
+          isLightInsideFrustum = boundingBoxIntersectsFrustumSAT((RtCamera&)camera, boundingBox.minPos, boundingBox.maxPos, objectToView, false);
           break;
+        }
         case RtLightAntiCullingType::Ignore:
           break;
         }

@@ -105,6 +105,7 @@ as Kavora's passes.
 | Cloud shape and motion | [`cloud_density.slang`](utility/cloud_density.slang) | World position, selected cloud parameters, and weather, base, and detail samplers yield density. The same density feeds view rays, light visibility and the sky map. |
 | Sky transport atlas | [`generate_cloud_sky.comp.slang`](pass/clouds/generate_cloud_sky.comp.slang) | Integrates the far atmosphere once per direction. Fog lighting combines that result with the near segment and the sky boundary. |
 | Cloud light and visibility | [`clouds.slang`](algorithm/clouds.slang) | Cloud parameters, a world-space ray and supplied cloud samplers yield transmittance or incident radiance. |
+| Cloud light-field bake | [`cloud_lighting_bake.slang`](pass/clouds/cloud_lighting_bake.slang) | The local bake writes vertical optical depths. The direct-light bake reuses the cloud ray's beam attenuation to fill the shared lighting field. |
 | Cloud sky sampling | [`cloud_sky.slang`](algorithm/cloud_sky.slang) | Maps a world-space direction to the atlas and defines where the shared far transfer begins. |
 | Fog cache sampling | [`fog_radiance_cache.slang`](algorithm/fog_radiance_cache.slang) | Volume cameras, depth parameters and supplied radiance volumes yield cached fog radiance. |
 | Fog and ground mist | [`fog_medium.slang`](algorithm/fog_medium.slang) | World-space segments, medium parameters and a supplied noise texture yield extinction and scattering. The SDK adapter supplies heterogeneous base density. |
@@ -147,7 +148,7 @@ build, set `RTX_SLANG_DEBUG_VARIANTS` to their exact,
 comma-separated names before running `meson compile`. For example:
 
 ```powershell
-$env:RTX_SLANG_DEBUG_VARIANTS = 'gbuffer_psr_queue_shade_rr_psr_raygen_ser_sharc_wboit'
+$env:RTX_SLANG_DEBUG_VARIANTS = 'gbuffer_psr_queue_shade_rr_psr_raygen_ser_sharc'
 meson compile -C _CompMinecraftRelease_x64 d3d9
 ```
 

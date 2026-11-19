@@ -109,7 +109,6 @@
 
 // Auxilary Inputs/Outputs
 
-#define INTEGRATE_INSTRUMENTATION                                           220
 
 #define INTEGRATE_INDIRECT_MIN_BINDING                                      INTEGRATE_INDIRECT_BINDING_LINEAR_WRAP_SAMPLER
 

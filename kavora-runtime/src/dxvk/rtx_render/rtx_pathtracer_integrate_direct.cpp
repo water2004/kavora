@@ -26,7 +26,6 @@
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/integrate/integrate_direct_binding_indices.h"
 
-#include <rtx_shaders/integrate_direct_rayquery.h>
 #include <rtx_shaders/integrate_direct_rayquery_raygen.h>
 
 #include "dxvk_scoped_annotation.h"
@@ -111,25 +110,13 @@ namespace dxvk {
 
     if (RtxOptions::Shader::prewarmAllVariants()) {
       for (int32_t ommEnabled = isOpacityMicromapSupported; ommEnabled >= 0; ommEnabled--) {
-        pipelineManager.registerRaytracingShaders(getPipelineShaders(true, ommEnabled));
+        pipelineManager.registerRaytracingShaders(getPipelineShaders(ommEnabled));
       }
-
-      getComputeShader();
     } else {
       // Note: The getter for OMM enabled also checks if OMMs are supported, so we do not need to check for that manually.
       const bool ommEnabled = RtxOptions::getEnableOpacityMicromap();
 
-      switch (RtxOptions::renderPassIntegrateDirectRaytraceMode()) {
-      case RaytraceMode::RayQuery:
-        getComputeShader();
-        break;
-      case RaytraceMode::RayQueryRayGen:
-        pipelineManager.registerRaytracingShaders(getPipelineShaders(true, ommEnabled));
-        break;
-      default:
-        assert(false && "Invalid renderPassIntegrateDirectRaytraceMode in DxvkPathtracerIntegrateDirect::prewarmShaders");
-        break;
-      }
+      pipelineManager.registerRaytracingShaders(getPipelineShaders(ommEnabled));
     }
   }
 
@@ -215,43 +202,23 @@ namespace dxvk {
 
     const bool ommEnabled = RtxOptions::getEnableOpacityMicromap();
 
-    const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { INTEGRATE_DIRECT_THREADS_DISPATCH_WIDTH, INTEGRATE_DIRECT_THREADS_DISPATCH_HEIGHT, 1 });
-
     // Under sparse rendering the launch covers the global active-pixel list instead of the screen grid.
     const bool compactedLaunch = resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode != SparseRenderingMode::Off;
 
-    switch (RtxOptions::renderPassIntegrateDirectRaytraceMode()) {
-    case RaytraceMode::RayQuery:
-      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getComputeShader());
-      SparseRendering::dispatchCompactedConsumer(*ctx,
-        resources.get<&RaytracingFrame::m_raytraceArgs>().sparseRenderingArgs.mode,
-        resources.get<&RaytracingFrame::m_sparseRenderingDispatchIndirectArgs>(), workgroups);
-      break;
-    case RaytraceMode::RayQueryRayGen:
-      ctx->bindRaytracingPipelineShaders(getPipelineShaders(true, ommEnabled));
-      if (compactedLaunch) {
-        ctx->traceRaysIndirect(resources.get<&RaytracingFrame::m_sparseRenderingTraceRaysIndirectArgs>(), 0);
-      } else {
-        ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
-      }
-      break;
-    default:
-      assert(!"Unsupported RaytraceMode");
-      break;
+    ctx->bindRaytracingPipelineShaders(getPipelineShaders(ommEnabled));
+    if (compactedLaunch) {
+      ctx->traceRaysIndirect(resources.get<&RaytracingFrame::m_sparseRenderingTraceRaysIndirectArgs>(), 0);
+    } else {
+      ctx->traceRays(rayDims.width, rayDims.height, rayDims.depth);
     }
   }
 
   DxvkRaytracingPipelineShaders DxvkPathtracerIntegrateDirect::getPipelineShaders(
-    const bool useRayQuery,
     const bool ommEnabled) {
 
     DxvkRaytracingPipelineShaders shaders;
-    if (useRayQuery) {
-      shaders.debugName = "Integrate Direct RayQuery (RGS)";
-      shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateDirectRayGenShader, integrate_direct_rayquery_raygen));
-    } else {
-      assert(!"TraceRay versions of the Integrate Direct pass are not implemented.");
-    }
+    shaders.debugName = "Integrate Direct RayQuery (RGS)";
+    shaders.addGeneralShader(GET_SHADER_VARIANT(VK_SHADER_STAGE_RAYGEN_BIT_KHR, IntegrateDirectRayGenShader, integrate_direct_rayquery_raygen));
 
     if (ommEnabled) {
       shaders.pipelineFlags |= VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT;
@@ -260,18 +227,4 @@ namespace dxvk {
     return shaders;
   }
 
-  Rc<DxvkShader> DxvkPathtracerIntegrateDirect::getComputeShader() const {
-    return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, IntegrateDirectRayGenShader, integrate_direct_rayquery);
-  }
-
-  const char* DxvkPathtracerIntegrateDirect::raytraceModeToString(RaytraceMode raytraceMode) {
-    switch (raytraceMode) {
-    case RaytraceMode::RayQuery:
-      return "Ray Query [CS]";
-    case RaytraceMode::RayQueryRayGen:
-      return "Ray Query [RGS]";
-    default:
-      return "Unknown";
-    }
-  }
 }

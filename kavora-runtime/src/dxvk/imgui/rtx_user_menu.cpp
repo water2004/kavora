@@ -31,7 +31,6 @@
 #include "rtx_render/rtx_dlfg.h"
 #include "rtx_render/rtx_reflex.h"
 #include "rtx_render/rtx_ray_reconstruction.h"
-#include "rtx_render/rtx_xess.h"
 #include "rtx_render/rtx_postFx.h"
 #include "rtx_render/rtx_rtxdi_rayquery.h"
 #include "rtx_render/rtx_restir_gi_rayquery.h"
@@ -52,7 +51,6 @@ namespace dxvk {
   // Combo boxes shared with dxvk_imgui.cpp
   extern RemixGui::ComboWithKey<DLSSProfile> dlssProfileCombo;
   extern RemixGui::ComboWithKey<DxvkDLSS::DLSSPreset> dlssRenderPresetCombo;
-  extern RemixGui::ComboWithKey<XeSSPreset> xessPresetCombo;
   extern RemixGui::ComboWithKey<SpatiallyHashedRadianceCache::QualityPreset> sharcQualityPresetCombo;
 
   // Combo boxes used only by the user menu
@@ -452,24 +450,6 @@ namespace dxvk {
           auto resolutionScale = RtxOptions::resolutionScale();
 
           ImGui::TextWrapped(str::format("TAA-U Resolution Scale: ", resolutionScale).c_str());
-
-          break;
-        }
-        case UpscalerType::XeSS: {
-          xessPresetCombo.getKey(&DxvkXeSS::XessOptions::presetObject());
-
-          // Show resolution slider only for Custom preset
-          if (DxvkXeSS::XessOptions::preset() == XeSSPreset::Custom) {
-            RemixGui::SliderFloat("Resolution Scale", &RtxOptions::resolutionScaleObject(), 0.1f, 1.0f, "%.2f");
-          }
-
-          // Display XeSS internal resolution
-          auto& xess = ctx->getCommonObjects()->metaXeSS();
-
-          uint32_t inputWidth;
-          uint32_t inputHeight;
-          xess.getInputSize(inputWidth, inputHeight);
-          ImGui::TextWrapped(str::format("Render Resolution: ", inputWidth, "x", inputHeight).c_str());
 
           break;
         }

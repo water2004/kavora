@@ -1279,11 +1279,7 @@ namespace dxvk {
       // Add pre-training barriers
       {
         // Setup stage and access masks
-        VkPipelineStageFlagBits srcStageMask =
-          RtxOptions::renderPassIntegrateIndirectRaytraceMode() 
-          == RenderPassIntegrateIndirectRaytraceMode::RayQuery
-          ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
-          : VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+        constexpr auto srcStageMask = VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
         VkPipelineStageFlagBits dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 
         VkAccessFlags srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;

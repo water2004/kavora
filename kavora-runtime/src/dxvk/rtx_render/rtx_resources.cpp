@@ -39,7 +39,6 @@
 #include "rtx_texture_manager.h"
 #include "rtx_asset_data_manager.h"
 #include "rtx_debug_view.h"
-#include "rtx_xess.h"
 #include "rtx_sparse_rendering.h"
 #include "rtx_restir_gi_rayquery.h"
 #include "rtx_shader_manager.h"
@@ -1041,53 +1040,6 @@ namespace dxvk {
     const float mipBias/* = 0*/,
     const bool useAnisotropy/* = false*/) {
     return getSampler(filter, mipFilter, addressMode, addressMode, addressMode, VkClearColorValue(), mipBias, useAnisotropy);
-  }
-
-  // XeSS: Get sampler with automatic XeSS-specific mip bias calculation
-  Rc<DxvkSampler> dxvk::Resources::getSamplerWithXeSSMipBias(
-    const VkFilter filter,
-    const VkSamplerMipmapMode mipFilter,
-    const VkSamplerAddressMode addressModeU,
-    const VkSamplerAddressMode addressModeV,
-    const VkSamplerAddressMode addressModeW,
-    const VkClearColorValue borderColor/* = VkClearColorValue()*/,
-    const float additionalMipBias/* = 0*/,
-    const bool useAnisotropy/* = false*/) {
-    
-    // Calculate total mip bias
-    float totalMipBias = additionalMipBias;
-    
-    // Add native mip bias (always applied)
-    totalMipBias += RtxOptions::nativeMipBias();
-    
-    // Calculate upscaling mip bias for both usage and logging
-    float calculatedUpscalingBias = 0.0f;
-    
-    // Add upscaling mip bias when XeSS is active
-    if (RtxOptions::isXeSSEnabled()) {
-      // Use XeSS developer guide formula: -log2(upscale_factor)
-      Resources& resourceManager = m_device->getCommon()->getResources();
-      calculatedUpscalingBias = -log2(resourceManager.getUpscaleRatio());
-      totalMipBias += calculatedUpscalingBias;
-      
-      // Add XeSS-specific mip bias
-      DxvkXeSS& xess = m_device->getCommon()->metaXeSS();
-      if (xess.isActive()) {
-        float xessMipBias = xess.calcRecommendedMipBias();
-        totalMipBias += xessMipBias;
-      }
-    }
-    
-    return getSampler(filter, mipFilter, addressModeU, addressModeV, addressModeW, borderColor, totalMipBias, useAnisotropy);
-  }
-
-  Rc<DxvkSampler> dxvk::Resources::getSamplerWithXeSSMipBias(
-    const VkFilter filter,
-    const VkSamplerMipmapMode mipFilter,
-    const VkSamplerAddressMode addrMode,
-    const float additionalMipBias/* = 0*/,
-    const bool useAnisotropy/* = false*/) {
-    return getSamplerWithXeSSMipBias(filter, mipFilter, addrMode, addrMode, addrMode, VkClearColorValue(), additionalMipBias, useAnisotropy);
   }
 
   Rc<DxvkImageView> Resources::getWhiteTexture(Rc<DxvkContext> ctx) {

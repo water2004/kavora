@@ -416,10 +416,13 @@ def main():
     has_lighting_cache = (shaders / 'rtx/algorithm/cloud_lighting_cache.slang').exists()
     if has_lighting_cache:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LIGHTING_CACHE'] = '1'
-    has_local_light = 'buildCloudLocalLightColumn' in (shaders / 'rtx/algorithm/clouds.slang').read_text()
+    cloud_passes = shaders / 'rtx/pass/clouds'
+    has_local_light = (cloud_passes / 'generate_cloud_local_light.comp.slang').is_file()
     if has_local_light:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LOCAL_LIGHT'] = '1'
-    direct_shader = shaders / 'rtx/pass/clouds/generate_cloud_direct_light.comp.slang'
+    if (cloud_passes / 'cloud_lighting_bake.slang').is_file():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LIGHTING_BAKE'] = '1'
+    direct_shader = cloud_passes / 'generate_cloud_direct_light.comp.slang'
     if direct_shader.is_file():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DIRECT_LIGHT'] = '1'
     atmosphere = None

@@ -35,7 +35,6 @@
 #include "rtx_terrain_baker.h"
 #include "rtx_texture_manager.h"
 #include "rtx_texture.h"
-#include "rtx_xess.h"
 
 #include <assert.h>
 
@@ -246,42 +245,12 @@ namespace dxvk {
   }
 
   float SceneManager::getTotalMipBias() {
-    auto& resourceManager = m_device->getCommon()->getResources();
-  
-    const bool temporalUpscaling = RtxOptions::isDLSSOrRayReconstructionEnabled() || RtxOptions::isXeSSEnabled() || RtxOptions::isTAAEnabled();
-    
-    float totalUpscaleMipBias = 0.0f;
-    
-    if (temporalUpscaling) {
-      if (RtxOptions::isXeSSEnabled()) {
-        // XeSS uses the new formula from the XeSS developer guide
-        totalUpscaleMipBias = -log2(resourceManager.getUpscaleRatio());
-        
-        // Add XeSS-specific mip bias when XeSS is active
-        DxvkXeSS& xess = m_device->getCommon()->metaXeSS();
-        if (xess.isActive()) {
-          float xessMipBias = xess.calcRecommendedMipBias();
-          totalUpscaleMipBias += xessMipBias;
-        }
-      } else {
-        // Restore original behavior for DLSS, TAA, and other upscalers
-        totalUpscaleMipBias = log2(resourceManager.getUpscaleRatio()) + RtxOptions::upscalingMipBias();
-      }
+    float mipBias = RtxOptions::nativeMipBias();
+    if (RtxOptions::isDLSSOrRayReconstructionEnabled() || RtxOptions::isTAAEnabled()) {
+      auto& resources = m_device->getCommon()->getResources();
+      mipBias += log2(resources.getUpscaleRatio()) + RtxOptions::upscalingMipBias();
     }
-    
-    return totalUpscaleMipBias + RtxOptions::nativeMipBias();
-  }
-
-  float SceneManager::getCalculatedUpscalingMipBias() {
-    auto& resourceManager = m_device->getCommon()->getResources();
-    
-    const bool temporalUpscaling = RtxOptions::isXeSSEnabled();
-    if (!temporalUpscaling) {
-      return 0.0f;
-    }
-    
-    float calculatedUpscalingBias = -log2(resourceManager.getUpscaleRatio());
-    return calculatedUpscalingBias;
+    return mipBias;
   }
 
   void SceneManager::clear(Rc<DxvkContext> ctx, bool needWfi) {

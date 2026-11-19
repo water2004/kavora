@@ -41,7 +41,6 @@ version those are:
 - Pixar OpenUSD, together with its USD plugin payload
 - oneAPI Threading Building Blocks (oneTBB)
 - Sentry Native SDK and Google Crashpad (crash reporting)
-- Intel XeSS
 - NVIDIA DLSS, including the Ray Reconstruction, Frame Generation, and
   3D-Guided Neural Rendering models
 - NVIDIA Real-Time Denoisers (NRD)
@@ -89,8 +88,6 @@ JARs:
   compiled into both oneTBB DLLs, BSD 3-Clause; it is entry 1 of the oneTBB
   2021.12.0 third-party programs file, whose other entries concern code that
   is not compiled into these Windows binaries
-- [kavora/packaging/licenses/remix-runtime/LICENSE.xess.txt](kavora/packaging/licenses/remix-runtime/LICENSE.xess.txt)
-  covers Intel XeSS (`libxess.dll`), Intel Simplified Software License
 - [kavora/packaging/licenses/remix-runtime/LICENSE.sentry-native.txt](kavora/packaging/licenses/remix-runtime/LICENSE.sentry-native.txt)
   covers the Sentry Native SDK 0.15.3 linked into the runtime, MIT license
 - [kavora/packaging/licenses/remix-runtime/LICENSE.crashpad.txt](kavora/packaging/licenses/remix-runtime/LICENSE.crashpad.txt)

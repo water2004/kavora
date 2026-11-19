@@ -62,40 +62,19 @@ namespace dxvk {
   class DxvkDevice;
 
   using RenderPassVolumeIntegrateRaytraceMode = RtxGlobalVolumetrics::RaytraceMode;
-  using RenderPassGBufferRaytraceMode = DxvkPathtracerGbuffer::RaytraceMode;
-  using RenderPassIntegrateDirectRaytraceMode = DxvkPathtracerIntegrateDirect::RaytraceMode;
-  using RenderPassIntegrateIndirectRaytraceMode = DxvkPathtracerIntegrateIndirect::RaytraceMode;
 
   // DLSS-RR is not listed here, because it's considered as a special mode of DLSS
   enum class UpscalerType : int {
     None = 0,
     DLSS,
     NIS,
-    TAAU,
-    XeSS
-  };
-
-  enum class RaytraceModePreset {
-    Custom = 0,
-    Auto = 1
+    TAAU
   };
 
   enum class DlssPreset : int {
     Off = 0,
     On,
     Custom
-  };
-
-  enum class XeSSPreset : int {
-    UltraPerf = 0,
-    Performance,
-    Balanced,
-    Quality,
-    UltraQuality,
-    UltraQualityPlus,
-    NativeAA,
-    Custom,
-    Invalid
   };
 
   enum class NisPreset : int {
@@ -333,7 +312,6 @@ namespace dxvk {
                     args.environment = "DXVK_GRAPHICS_PRESET_TYPE",
                     args.onChangeCallback = &graphicsPresetOnChange,
                     args.flags = RtxOptionFlags::UserSetting);
-    RTX_OPTION_ENV("rtx", RaytraceModePreset, raytraceModePreset, RaytraceModePreset::Auto, "DXVK_RAYTRACE_MODE_PRESET_TYPE", "");
     RTX_OPTION_FLAG("rtx", bool, lowMemoryGpu, false, RtxOptionFlags::NoSave | RtxOptionFlags::UserSetting, "Enables low memory mode, where we aggressively detune caches and streaming systems to accomodate the lower memory available.");
     RTX_OPTION_ARGS("rtx", float, emissiveIntensity, 1.0f, "A general scale factor on all emissive intensity values globally. Generally per-material emissive intensities should be used, but this option may be useful for debugging without needing to author materials.",
                     args.minValue = 0.0f);
@@ -462,7 +440,6 @@ namespace dxvk {
     RTX_OPTION_FLAG("rtx", bool, forceMergeAllMeshes, false, RtxOptionFlags::NoSave, "Force merges all meshes into as few BLAS as possible.  This is generally not desirable for performance, but can be a useful debugging tool.");
     RTX_OPTION_FLAG("rtx", bool, minimizeBlasMerging, false, RtxOptionFlags::NoSave, "Minimize BLAS merging to the minimum possible, this option tries to give all meshes their own BLAS.  This is generally not desirable forperformance, but can be a useful debugging tool.");
 
-    RTX_OPTION_ENV("rtx", bool, enableAlwaysCalculateAABB, false, "RTX_ALWAYS_CALCULATE_AABB", "Calculate an Axis Aligned Bounding Box for every draw call.\n This may improve instance tracking across frames for skinned and vertex shaded calls.");
     RTX_OPTION("rtx", bool, assumeWorldSpaceSkinnedBones, false, "Treat skinned draw calls as having WORLD-SPACE bone matrices (world placement baked into the bones), as produced by a fixed-function indexed-blend skinning path. When enabled: (1) objectToWorld for skinned draws collapses to identity instead of being reconstructed from the last-set camera, and (2) the draw-call cache pairs same-mesh instances across frames by a representative bone's world position instead of the bind-pose centroid (which is identical for every instance under identity objectToWorld, so the default tiebreaker cannot disambiguate a crowd of same-type meshes). Leave off for games that upload object-space bones.");
 
     // Camera
@@ -576,24 +553,6 @@ namespace dxvk {
     RTX_OPTION_ARGS("rtx", DLSSProfile, qualityDLSS, DLSSProfile::Auto, "Adjusts internal DLSS scaling factor, trades quality for performance.",
                     args.environment = "RTX_QUALITY_DLSS",
                     args.flags = RtxOptionFlags::UserSetting);
-    // Note: All ray tracing modes depend on the rtx.raytraceModePreset option as they may be overridden by automatic defaults for a specific vendor if the preset is set to Auto. Set
-    // to Custom to ensure these settings are not overridden.
-    //RenderPassVolumeIntegrateRaytraceMode renderPassVolumeIntegrateRaytraceMode = RenderPassVolumeIntegrateRaytraceMode::RayQuery;
-    RTX_OPTION_ARGS("rtx", RenderPassGBufferRaytraceMode, renderPassGBufferRaytraceMode, RenderPassGBufferRaytraceMode::RayQuery,
-                   "The ray tracing mode to use for the G-Buffer pass which resolves the initial primary and secondary surfaces to apply lighting to.",
-                   args.environment = "DXVK_RENDER_PASS_GBUFFER_RAYTRACE_MODE",
-                   args.maxValue = RenderPassGBufferRaytraceMode(uint32_t(RenderPassGBufferRaytraceMode::Count) - 1),
-                   args.flags = RtxOptionFlags::UserSetting);
-    RTX_OPTION_ARGS("rtx", RenderPassIntegrateDirectRaytraceMode, renderPassIntegrateDirectRaytraceMode, RenderPassIntegrateDirectRaytraceMode::RayQuery,
-                   "The ray tracing mode to use for the Direct Lighting pass which applies lighting to the primary/secondary surfaces.",
-                   args.environment = "DXVK_RENDER_PASS_INTEGRATE_DIRECT_RAYTRACE_MODE",
-                   args.maxValue = RenderPassIntegrateDirectRaytraceMode(uint32_t(RenderPassIntegrateDirectRaytraceMode::Count) - 1),
-                   args.flags = RtxOptionFlags::UserSetting);
-    RTX_OPTION_ARGS("rtx", RenderPassIntegrateIndirectRaytraceMode, renderPassIntegrateIndirectRaytraceMode, RenderPassIntegrateIndirectRaytraceMode::TraceRay,
-                   "The ray tracing mode to use for the Indirect Lighting pass which applies lighting to the primary/secondary surfaces.",
-                   args.environment = "DXVK_RENDER_PASS_INTEGRATE_INDIRECT_RAYTRACE_MODE",
-                   args.maxValue = RenderPassIntegrateIndirectRaytraceMode(uint32_t(RenderPassIntegrateIndirectRaytraceMode::Count) - 1),
-                   args.flags = RtxOptionFlags::UserSetting);
     RTX_OPTION("rtx", bool, captureDebugImage, false, "");
     RTX_OPTION_FLAG("rtx", bool, captureNextFrame, false, RtxOptionFlags::NoSave | RtxOptionFlags::NoReset,
                     "Captures the next rendered frame. Include intermediate DDS images with rtx.captureDebugImage. Resets after capture.");
@@ -956,7 +915,6 @@ namespace dxvk {
                "Such objects are generally better handled with actual replacement assets using fully opaque geometry replacements or alpha cutout with higher resolution textures, so this should only be relied on until proper replacements can be authored.");
     RTX_OPTION("rtx", float, wboitEnergyLossCompensation, 4.f, "Multiplier for the coverage term in the weighted blended OIT imlementation - allows for some configuration to recover energy loss from the technique.  This is non physical, be careful overtuning ");
     RTX_OPTION("rtx", float, wboitDepthWeightTuning, 2.f, "Allows for tuning the weighted blended OIT depth weight - which can be used to fine tune blending for various circumstances.  This control has a side effect, larger numbers here can adversely affect brightness of emissive blended materials.");
-    RTX_OPTION("rtx", bool, wboitEnabled, true, "Enables the new rendering mode for handling alpha blended objects.  Changing this will trigger a shader recompile.  The new mode improves rendering accuracy, especially in cases where there are many layers of transparent things being rendered.");
 
     // Ray Portal Options
     // Note: Not a set as the ordering of the hashes is important. Keep this list small to avoid expensive O(n) searching (should only have 2 or 4 elements usually).
@@ -1421,14 +1379,12 @@ namespace dxvk {
     static void updateUpscalerFromDlssPreset();
     static void updateUpscalerFromNisPreset();
     static void updateUpscalerFromTaauPreset();
-    static void updateUpscalerFromXeSSPreset();
     static void updatePresetFromUpscaler();
     static NV_GPU_ARCHITECTURE_ID getNvidiaArch();
     static NV_GPU_ARCH_IMPLEMENTATION_ID getNvidiaChipId();
     static void updateGraphicsPresets(DxvkDevice* device);
     static void updateLightingSetting();
     static void updatePathTracerPreset(PathTracerPreset preset);
-    static void updateRaytraceModePresets(const uint32_t vendorID, const VkDriverId driverID);
 
     static void resetUpscaler();
 
@@ -1484,14 +1440,12 @@ namespace dxvk {
     }
     static bool isNISEnabled() { return upscalerType() == UpscalerType::NIS; }
     static bool isTAAEnabled() { return upscalerType() == UpscalerType::TAAU; }
-    static bool isXeSSEnabled() { return upscalerType() == UpscalerType::XeSS; }
     
     static float getUniqueObjectDistanceSqr() { return uniqueObjectDistance() * uniqueObjectDistance(); }
     static uint32_t getNumFramesToPutLightsToSleep() { return numFramesToKeepLights() /2; }
     static float getMeterToWorldUnitScale() { return 100.f * sceneScale(); } // RTX Remix world unit is in 1cm 
 
     // Returns shared enablement composed of multiple enablement inputs
-    static bool needsMeshBoundingBox();
     
     static bool isShaderExecutionReorderingInPathtracerGbufferEnabled() { return enableShaderExecutionReorderingInPathtracerGbuffer() && enableShaderExecutionReordering; }
     static bool isShaderExecutionReorderingInPathtracerIntegrateIndirectEnabled() { return enableShaderExecutionReorderingInPathtracerIntegrateIndirect() && enableShaderExecutionReordering; }

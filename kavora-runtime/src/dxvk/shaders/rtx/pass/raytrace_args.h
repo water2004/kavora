@@ -466,7 +466,6 @@ struct RaytraceArgs {
 
   float wboitEnergyLossCompensation;
   float wboitDepthWeightTuning;
-  uint wboitEnabled;
 
   // True only when NRD will actually consume these this frame; the GBuffer skips the writes otherwise.
   uint writePrimaryDenoisingNormal;
@@ -478,6 +477,8 @@ struct RaytraceArgs {
 
   uint ignoreSkyIfCameraInMedium;
   uint pomSilhouettesBehindTranslucency;
+  // Match the C++ alignment of WaterSurfaceArgs in Slang's scalar layout.
+  uint waterSurfaceAlignmentPadding;
   WaterSurfaceArgs water;
   RainGroundArgs rainGround;
   uint renderTargetHistoryValid;

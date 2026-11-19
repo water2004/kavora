@@ -196,14 +196,6 @@ float3 airMultipleScattering(AirArgs args, AirTables tables, float height, float
     airTexelUv(fraction, float(args.scatteringSize)), 0).rgb;
 }
 
-public float3 airExtinction(AirArgs args, float3 position)
-{
-  const float height = airAltitude(args, airCoordinates(args, position)) - args.lowerDepth;
-  const float3 rayleigh = args.rayleighExtinction * exp(-height / args.rayleighHeight);
-  const float mie = args.mieExtinction * exp(-height / args.mieHeight);
-  return (rayleigh + mie) * args.worldToKilometers;
-}
-
 // Scattering phase depends on the view-ray direction and light directions,
 // not on the sample position. Compute it once per atmosphere ray instead of
 // repeating two phase evaluations (including the Mie pow) at every air cell.
@@ -232,8 +224,7 @@ public AirRayPhase createAirRayPhase(AirArgs args, float3 direction)
   return phase;
 }
 
-public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position, float3 direction,
-  AirRayPhase phase)
+public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position, AirRayPhase phase)
 {
   const float3 coordinates = airCoordinates(args, position);
   const float height = airAltitude(args, coordinates);
@@ -259,12 +250,6 @@ public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position
   }
   medium.source *= args.worldToKilometers;
   return medium;
-}
-
-// Compatibility entry point for callers that only have a single sample.
-public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position, float3 direction)
-{
-  return sampleAirMedium(args, tables, position, direction, createAirRayPhase(args, direction));
 }
 
 float2 outwardAirMass(AirArgs args, float height, float cosine, float2 scaleHeight)

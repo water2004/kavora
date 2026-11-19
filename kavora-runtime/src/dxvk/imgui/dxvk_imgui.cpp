@@ -55,7 +55,6 @@
 #include "rtx_render/rtx_neural_radiance_cache.h"
 #include "rtx_render/rtx_nsight_capture.h"
 #include "rtx_render/rtx_ray_reconstruction.h"
-#include "rtx_render/rtx_xess.h"
 #include "rtx_render/rtx_rtxdi_rayquery.h"
 #include "rtx_render/rtx_restir_gi_rayquery.h"
 #include "rtx_render/rtx_spatially_hashed_radiance_cache.h"
@@ -209,32 +208,6 @@ namespace dxvk {
     {"smoothnormalstextures","Smooth Normals (optional)", &RtxOptions::smoothNormalsTexturesObject()}
   };
 
-  RemixGui::ComboWithKey<RenderPassGBufferRaytraceMode> renderPassGBufferRaytraceModeCombo {
-    "GBuffer Raytracing Mode",
-    RemixGui::ComboWithKey<RenderPassGBufferRaytraceMode>::ComboEntries { {
-        {RenderPassGBufferRaytraceMode::RayQuery, "RayQuery (CS)"},
-        {RenderPassGBufferRaytraceMode::RayQueryRayGen, "RayQuery (RGS)"},
-        {RenderPassGBufferRaytraceMode::TraceRay, "TraceRay (RGS)"}
-    } }
-  };
-
-  RemixGui::ComboWithKey<RenderPassIntegrateDirectRaytraceMode> renderPassIntegrateDirectRaytraceModeCombo {
-    "Integrate Direct Raytracing Mode",
-    RemixGui::ComboWithKey<RenderPassIntegrateDirectRaytraceMode>::ComboEntries { {
-        {RenderPassIntegrateDirectRaytraceMode::RayQuery, "RayQuery (CS)"},
-        {RenderPassIntegrateDirectRaytraceMode::RayQueryRayGen, "RayQuery (RGS)"}
-    } }
-  };
-
-  RemixGui::ComboWithKey<RenderPassIntegrateIndirectRaytraceMode> renderPassIntegrateIndirectRaytraceModeCombo {
-    "Integrate Indirect Raytracing Mode",
-    RemixGui::ComboWithKey<RenderPassIntegrateIndirectRaytraceMode>::ComboEntries { {
-        {RenderPassIntegrateIndirectRaytraceMode::RayQuery, "RayQuery (CS)"},
-        {RenderPassIntegrateIndirectRaytraceMode::RayQueryRayGen, "RayQuery (RGS)"},
-        {RenderPassIntegrateIndirectRaytraceMode::TraceRay, "TraceRay (RGS)"}
-    } }
-  };
-
   RemixGui::ComboWithKey<CameraAnimationMode> cameraAnimationModeCombo {
     "Camera Animation Mode",
     RemixGui::ComboWithKey<CameraAnimationMode>::ComboEntries { {
@@ -295,7 +268,6 @@ namespace dxvk {
       {UpscalerType::None, "None"},
       {UpscalerType::NIS, "NIS"},
       {UpscalerType::TAAU, "TAA-U"},
-      {UpscalerType::XeSS, "XeSS"},
   } });
 
   static auto upscalerDLSSCombo = RemixGui::ComboWithKey<UpscalerType>(
@@ -305,7 +277,6 @@ namespace dxvk {
       {UpscalerType::DLSS, "DLSS"},
       {UpscalerType::NIS, "NIS"},
       {UpscalerType::TAAU, "TAA-U"},
-      {UpscalerType::XeSS, "XeSS"},
   } });
 
   RemixGui::ComboWithKey<DLSSProfile> dlssProfileCombo{
@@ -330,20 +301,6 @@ namespace dxvk {
         {DxvkDLSS::DLSSPreset::K, "K", "Transformer-based default for DLAA/Balanced/Quality modes. Best image quality at a higher performance cost."},
         {DxvkDLSS::DLSSPreset::L, "L", "Default for Ultra Performance mode."},
         {DxvkDLSS::DLSSPreset::M, "M", "Default for Performance mode."},
-    } }
-  };
-
-  RemixGui::ComboWithKey<XeSSPreset> xessPresetCombo{
-    "XeSS Preset",
-    RemixGui::ComboWithKey<XeSSPreset>::ComboEntries{ {
-        {XeSSPreset::UltraPerf, "Ultra Performance"},
-        {XeSSPreset::Performance, "Performance"},
-        {XeSSPreset::Balanced, "Balanced"},
-        {XeSSPreset::Quality, "Quality"},
-        {XeSSPreset::UltraQuality, "Ultra Quality"},
-        {XeSSPreset::UltraQualityPlus, "Ultra Quality Plus"},
-        {XeSSPreset::NativeAA, "Native Anti-Aliasing"},
-        {XeSSPreset::Custom, "Custom"},
     } }
   };
 
@@ -454,7 +411,6 @@ namespace dxvk {
       { RtxFramePassStage::DLSSRR, "DLSSRR" },
       { RtxFramePassStage::DLSSNR, "DLSSNR" },
       { RtxFramePassStage::NIS, "NIS" },
-      { RtxFramePassStage::XeSS, "XeSS" },
       { RtxFramePassStage::TAA, "TAA" },
       { RtxFramePassStage::DustParticles, "DustParticles" },
       { RtxFramePassStage::Bloom, "Bloom" },
@@ -2928,7 +2884,6 @@ namespace dxvk {
         RemixGui::Checkbox("Orthographic Is UI", &D3D9Rtx::orthographicIsUIObject());
         RemixGui::Checkbox("Pre-Transformed Vertices Is UI", &D3D9Rtx::preTransformedVerticesIsUIObject());
         RemixGui::Checkbox("Allow Cubemaps", &D3D9Rtx::allowCubemapsObject());
-        RemixGui::Checkbox("Always Calculate AABB (For Instance Matching)", &RtxOptions::enableAlwaysCalculateAABBObject());
         RemixGui::Checkbox("Assume World-Space Skinned Bones", &RtxOptions::assumeWorldSpaceSkinnedBonesObject());
         RemixGui::Checkbox("Skip Sky Fog Values", &RtxOptions::fogIgnoreSkyObject());
         RemixGui::Checkbox("Recompute Texture Hash On Write", &RtxOptions::recomputeTextureHashOnWriteObject());
@@ -3841,10 +3796,6 @@ namespace dxvk {
       if (RtxOptions::showRaytracingOption()) {
         RemixGui::Checkbox("Raytracing Enabled", &RtxOptions::enableRaytracingObject());
 
-        renderPassGBufferRaytraceModeCombo.getKey(&RtxOptions::renderPassGBufferRaytraceModeObject());
-        renderPassIntegrateDirectRaytraceModeCombo.getKey(&RtxOptions::renderPassIntegrateDirectRaytraceModeObject());
-        renderPassIntegrateIndirectRaytraceModeCombo.getKey(&RtxOptions::renderPassIntegrateIndirectRaytraceModeObject());
-
         RemixGui::Separator();
       }
 
@@ -3888,22 +3839,7 @@ namespace dxvk {
         RemixGui::SliderFloat("Resolution scale", &RtxOptions::resolutionScaleObject(), 0.5f, 1.0f);
         RemixGui::SliderFloat("Sharpness", &ctx->getCommonObjects()->metaNIS().m_sharpness, 0.1f, 1.0f);
         RemixGui::Checkbox("Use FP16", &ctx->getCommonObjects()->metaNIS().m_useFp16);
-      } else if (RtxOptions::upscalerType() == UpscalerType::XeSS) {
-          xessPresetCombo.getKey(&DxvkXeSS::XessOptions::presetObject());
-
-          // Show resolution slider only for Custom preset
-          if (DxvkXeSS::XessOptions::preset() == XeSSPreset::Custom) {
-            RemixGui::SliderFloat("Resolution Scale", &RtxOptions::resolutionScaleObject(), 0.1f, 1.0f, "%.2f");
-          }
-
-          // Display XeSS internal resolution
-          auto& xess = ctx->getCommonObjects()->metaXeSS();
-
-          uint32_t inputWidth;
-          uint32_t inputHeight;
-          xess.getInputSize(inputWidth, inputHeight);
-          ImGui::TextWrapped(str::format("Render Resolution: ", inputWidth, "x", inputHeight).c_str());
-        } else if (RtxOptions::upscalerType() == UpscalerType::TAAU) {
+      } else if (RtxOptions::upscalerType() == UpscalerType::TAAU) {
         RemixGui::SliderFloat("Resolution scale", &RtxOptions::resolutionScaleObject(), 0.5f, 1.0f);
       }
 
@@ -4056,8 +3992,7 @@ namespace dxvk {
         if (RemixGui::CollapsingHeader("Shader Execution Reordering", collapsingHeaderClosedFlags)) {
           ImGui::Indent();
 
-          if (RtxOptions::renderPassIntegrateIndirectRaytraceMode() == DxvkPathtracerIntegrateIndirect::RaytraceMode::TraceRay)
-            RemixGui::Checkbox("Enable In Integrate Indirect Pass", &RtxOptions::enableShaderExecutionReorderingInPathtracerIntegrateIndirectObject());
+          RemixGui::Checkbox("Enable In Integrate Indirect Pass", &RtxOptions::enableShaderExecutionReorderingInPathtracerIntegrateIndirectObject());
 
           ImGui::Unindent();
         }
@@ -4137,7 +4072,6 @@ namespace dxvk {
             RemixGui::Checkbox("Reset History", &SharcOptions::resetHistoryObject());
             RemixGui::Checkbox("Enable PT Update Pass", &SharcOptions::enableUpdateObject());
             RemixGui::Checkbox("Enable Resolve", &SharcOptions::enableResolveObject());
-            RemixGui::Checkbox("Combine Update and Query Dispatches", &SharcOptions::combineUpdateAndQueryObject());
 
             SpatiallyHashedRadianceCache& sharc = common->metaSpatiallyHashedRadianceCache();
             const uint32_t numberOfUpdateRecords = sharc.getNumberOfUpdateRecords();
@@ -4279,11 +4213,8 @@ namespace dxvk {
       RemixGui::SliderFloat("Particle Softness", &RtxOptions::particleSoftnessFactorObject(), 0.f, 0.5f);
       RemixGui::Separator();
       if (RemixGui::CollapsingHeader("Weighted Blended OIT", collapsingHeaderClosedFlags)) {
-        RemixGui::Checkbox("Enable", &RtxOptions::wboitEnabledObject());
-        ImGui::BeginDisabled(!RtxOptions::wboitEnabled());
         RemixGui::SliderFloat("Energy Compensation", &RtxOptions::wboitEnergyLossCompensationObject(), 1.f, 10.f);
         RemixGui::SliderFloat("Depth Weight Tuning", &RtxOptions::wboitDepthWeightTuningObject(), 0.01f, 10.f);
-        ImGui::EndDisabled();
       }
       common->metaComposite().showStochasticAlphaBlendImguiSettings();
       ImGui::Unindent();

@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
 // SPDX-License-Identifier: MIT
-import "rtx/algorithm/clouds.slang";
+import "rtx/pass/clouds/cloud_lighting_bake.slang";
 
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/algorithm/scene_cloud_lighting.slangh"

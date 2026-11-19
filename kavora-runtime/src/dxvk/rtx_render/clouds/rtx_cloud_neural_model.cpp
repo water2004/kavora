@@ -10,8 +10,8 @@
 
 #include "dxvk_context.h"
 #include "dxvk_device.h"
-#include "rtx_cloud_neural_model.h"
 #include "rtx/pass/clouds/cloud_neural_model.h"
+#include "rtx_cloud_neural_model.h"
 
 namespace dxvk {
 

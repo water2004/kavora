@@ -434,8 +434,6 @@
   "kavora.effect.lighting.rtxdi.tip": "使用储备池采样改善大量光源下的直接光照；关闭后使用运行时的简单光源采样器。",
   "kavora.effect.lighting.sparse": "稀疏渲染",
   "kavora.effect.lighting.sparse.tip": "减少追踪的像素并由 DLSS 光线重建恢复；需要同时启用 DLSS 和光线重建，否则运行时暂停稀疏渲染。",
-  "kavora.effect.cache.combine": "合并缓存更新",
-  "kavora.effect.cache.combine.tip": "合并更新和查询追踪，减少调度开销；光照查询使用上一帧解析后的缓存。",
   "kavora.effect.cache.primary": "薄片表面缓存",
   "kavora.effect.cache.primary.tip": "让叶片等薄片不透明表面使用辐射缓存；关闭会增加追踪工作量，并改变噪声表现。",
   "kavora.effect.cache.filter": "薄片缓存滤波",
