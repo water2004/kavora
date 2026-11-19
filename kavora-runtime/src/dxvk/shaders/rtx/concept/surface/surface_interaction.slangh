@@ -885,6 +885,7 @@ SurfaceInteraction surfaceInteractionCreateImpl<let GenerateTangents : bool, let
 
   // Adjust texture coordinates and gradients for animated sprite sheet logic
 
+  surfaceInteraction.continuousTextureCoordinates = surfaceInteraction.textureCoordinates;
   if (!surface.skipSurfaceInteractionSpritesheetAdjustment)
   {
     calcSpriteSheetAdjustment(

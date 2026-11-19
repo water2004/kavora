@@ -809,7 +809,7 @@ public class BlockTextureManager {
     // ====================================================================
 
     private static final String WATER_NORMALS_DDS = "textures/water_normals_flipbook.dds";
-    private static final float WATER_TILE_SIZE = 10.0f;
+    private static final int WATER_TILE_SIZE = 10;
     private static final float DEFAULT_WATER_IOR = 1.33f;
     private static final float DEFAULT_WATER_TRANSMITTANCE_R = 0.6f;
     private static final float DEFAULT_WATER_TRANSMITTANCE_G = 0.9f;
@@ -911,6 +911,8 @@ public class BlockTextureManager {
     public KavoraMaterial getWaterCameraMediumMaterial() { return waterCameraMediumMaterial; }
     public int getWaterMaterialRevision() { return waterMaterialRevision; }
     public static float getWaterTileSize() { return WATER_TILE_SIZE; }
+    /** Both water-normal lattices return to the same phase after 128 material tiles. */
+    public static int waterMappingOrigin(int coordinate) { return coordinate % (128 * WATER_TILE_SIZE); }
     public float getWaterIor() { return waterIor; }
     public float getWaterTransmittanceR() { return waterTransmittanceR; }
     public float getWaterTransmittanceG() { return waterTransmittanceG; }

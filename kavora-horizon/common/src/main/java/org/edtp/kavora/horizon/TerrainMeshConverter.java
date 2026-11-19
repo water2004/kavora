@@ -5,6 +5,7 @@ package org.edtp.kavora.horizon;
 
 import org.edtp.kavora.sdk.HardcodedVertex;
 import org.edtp.kavora.sdk.MeshQuadSurface;
+import org.edtp.kavora.texture.BlockTextureManager;
 import org.edtp.kavora.util.DirectBufferPool;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -84,8 +85,8 @@ final class TerrainMeshConverter {
             var face = layer.material();
             if (material.fluid()) {
                 float scale = 1 / waterTileSize;
-                attributes.putFloat((axis == 0 ? originZ : originX) * scale);
-                attributes.putFloat((axis == 1 ? originZ : originY) * scale);
+                attributes.putFloat(BlockTextureManager.waterMappingOrigin(axis == 0 ? originZ : originX) * scale);
+                attributes.putFloat(BlockTextureManager.waterMappingOrigin(axis == 1 ? originZ : originY) * scale);
                 attributes.putFloat(axis == 2 ? scale : 0).putFloat(axis != 2 ? scale : 0);
                 attributes.putFloat(axis != 2 ? scale : 0).putFloat(axis == 2 ? scale : 0);
             } else {

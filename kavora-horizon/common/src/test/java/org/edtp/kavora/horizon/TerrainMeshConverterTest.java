@@ -149,9 +149,10 @@ class TerrainMeshConverterTest {
                         -1);
         for (int level = 0; level <= VoxelKey.ROOT_LEVEL; level++) {
             int scale = 1 << level, base = 9 / scale, top = 89 - base * scale * 9;
+            long section = VoxelKey.of(level, 900001 >> level, 0, -900003 >> level);
             var cursor =
                     cursor(
-                            VoxelKey.of(level, 0, 0, 0),
+                            section,
                             VoxelMesher.pack(
                                     0, base, 0, 1, 1, 1, VoxelSection.withFluidTop(1, top)));
             assertTrue(cursor.resolve(key -> water));
@@ -160,8 +161,10 @@ class TerrainMeshConverterTest {
                 for (int p = 0; p < vertices.limit(); p += HardcodedVertex.STORAGE_STRIDE) {
                     assertEquals(89 / 9f, vertices.getFloat(p + 4), 1e-6);
                     assertEquals(1, vertices.getFloat(p + 16), 1e-6);
-                    assertEquals(vertices.getFloat(p) / 10, vertices.getFloat(p + 24), 1e-6);
-                    assertEquals(vertices.getFloat(p + 8) / 10, vertices.getFloat(p + 28), 1e-6);
+                    double u = (VoxelKey.blockX(section) + (double) vertices.getFloat(p)) / 10;
+                    double v = (VoxelKey.blockZ(section) + (double) vertices.getFloat(p + 8)) / 10;
+                    assertEquals(0, Math.IEEEremainder(u - vertices.getFloat(p + 24), 128), 1e-5);
+                    assertEquals(0, Math.IEEEremainder(v - vertices.getFloat(p + 28), 128), 1e-5);
                 }
             }
         }

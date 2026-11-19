@@ -424,11 +424,14 @@ public final class BlockQuadEmitter {
      */
     private void emitBlockWaterQuad(float nx, float ny, float nz, String layerName, int[] colors) {
         float tileSize = BlockTextureManager.getWaterTileSize();
+        int originX = BlockTextureManager.waterMappingOrigin(baseX);
+        int originY = BlockTextureManager.waterMappingOrigin(baseY);
+        int originZ = BlockTextureManager.waterMappingOrigin(baseZ);
         float ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
         for (int v = 0; v < 4; v++) {
-            float wx = baseX + tempPositions[v * 3];
-            float wy = baseY + tempPositions[v * 3 + 1];
-            float wz = baseZ + tempPositions[v * 3 + 2];
+            float wx = originX + tempPositions[v * 3];
+            float wy = originY + tempPositions[v * 3 + 1];
+            float wz = originZ + tempPositions[v * 3 + 2];
             float u, w;
             if (ay >= ax && ay >= az) {
                 u = wx; w = wz;

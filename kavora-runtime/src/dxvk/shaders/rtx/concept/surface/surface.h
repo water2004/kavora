@@ -612,6 +612,7 @@ struct SurfaceInteraction : MinimalSurfaceInteraction
 
   vec3 motion = 0..xxx;
   vec2 textureCoordinates = 0..xx;
+  vec2 continuousTextureCoordinates = 0..xx; // Material coordinates before an animation frame wraps them.
   vec4 textureCoordinateBounds = 0..xxxx;
   vec2 textureGradientX = 0..xx;
   vec2 textureGradientY = 0..xx;
