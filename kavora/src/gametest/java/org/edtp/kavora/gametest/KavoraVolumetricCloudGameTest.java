@@ -427,7 +427,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                         "rtx.enableRayReconstruction", "rtx.dlfg.enable", "rtx.clouds.sceneEnabled",
                         "rtx.clouds.windSpeed", "rtx.clouds.coverage",
                         "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters",
-                        "rtx.clouds.steps", "rtx.clouds.lightSteps")) {
+                        "rtx.clouds.steps", "rtx.clouds.highSteps", "rtx.clouds.lightSteps")) {
                     System.out.println("KAVORA_PROFILE_OPTION " + key + "=" + api.getConfigVariableResolved(key));
                 }
                 var diagnostics = KavoraMod.renderer.getChunkManager().getTerrainDiagnostics();

@@ -68,8 +68,12 @@ final class KavoraQualitySceneChecks {
         for (var preset : new QualityPreset[] {QualityPreset.ULTRA, QualityPreset.HIGH, QualityPreset.MEDIUM,
                 QualityPreset.LOW, QualityPreset.ULTRA}) {
             context.runOnClient(client -> KavoraQualityPresets.apply(KavoraMod.getRtxSettings(), preset));
-            String cloudSamples = KavoraQualityPresets.values(preset).get("clouds.samples").toString();
-            context.waitFor(client -> read("rtx.clouds.steps").equals(cloudSamples)
+            var profile = KavoraQualityPresets.values(preset);
+            context.waitFor(client -> Integer.parseInt(read("rtx.clouds.steps")) == (int) profile.get("clouds.samples")
+                    && Integer.parseInt(read("rtx.clouds.highSteps")) == (int) profile.get("clouds.highSamples")
+                    && Integer.parseInt(read("rtx.clouds.lightSteps")) == (int) profile.get("clouds.shadowSamples")
+                    && Double.parseDouble(read("rtx.clouds.maxDistanceMeters")) == (double) profile.get("clouds.distance")
+                    && Double.parseDouble(read("rtx.clouds.highMaxDistanceMeters")) == (double) profile.get("clouds.highDistance")
                     && read("rtx.clouds.sceneEnabled").equalsIgnoreCase("true")
                     && read("rtx.qualityDLSS").equals("5")
                     && !Boolean.parseBoolean(read("rtx.dlfg.enable")), 200);
@@ -100,7 +104,8 @@ final class KavoraQualitySceneChecks {
 
     private static Map<String, String> resolvedQuality() {
         Map<String, String> values = new LinkedHashMap<>();
-        for (String key : List.of("rtx.clouds.steps", "rtx.clouds.lightSteps",
+        for (String key : List.of("rtx.clouds.steps", "rtx.clouds.highSteps", "rtx.clouds.lightSteps",
+                "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters",
                 "rtx.volumetrics.fogIntegrationMode", "rtx.volumetrics.fogIntegrationPixelStride",
                 "rtx.volumetrics.initialRISSampleCount", "rtx.volumetrics.spatialReuseMaxSampleCount",
                 "rtx.volumetrics.restirGridScale", "rtx.volumetrics.restirFroxelDepthSlices", "rtx.risLightSampleCount",

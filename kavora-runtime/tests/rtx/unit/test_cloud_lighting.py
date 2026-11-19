@@ -131,14 +131,21 @@ def main():
     report['gridCases'] = 4 * len(grids)
     report['maximumCloudCells'] = int(grids[:, 0].max())
 
-    view_args = args | {'highThickness': 50.0, 'steps': 40}
-    view_grids = run('viewGrids', [[800, 6800, 0, 0], [800, 2300, 0, 0],
-                                  [6400, 6450, 0, 0], [8000, 10000, 0, 0]],
-                     [[1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 1], [1, 0, 0, 1]], view_args)
+    view_args = args | {'highThickness': 50.0, 'steps': 40, 'highSteps': 12}
+    intervals = [[800, 6800, 0, 0], [800, 2300, 0, 0], [6400, 6450, 0, 0], [8000, 10000, 0, 0]]
+    directions = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 1], [1, 0, 0, 1]]
+    view_grids = run('viewGrids', intervals, directions, view_args)
     np.testing.assert_array_equal(view_grids[:, 0], [40, 20, 1, 12])
     np.testing.assert_array_equal(view_grids[:, 2], [6800, 2300, 6450, 10000])
     assert view_grids[2, 3] == 6425
     report['layerViewCells'] = view_grids[:, 0].astype(int).tolist()
+
+    higher_low = run('viewGrids', intervals, directions, view_args | {'steps': 64})
+    higher_high = run('viewGrids', intervals, directions, view_args | {'highSteps': 20})
+    np.testing.assert_array_equal(higher_low[:, 0], [64, 32, 1, 12])
+    np.testing.assert_array_equal(higher_high[:, 0], [40, 20, 1, 20])
+    np.testing.assert_array_equal(higher_low[2:], view_grids[2:])
+    np.testing.assert_array_equal(higher_high[:3], view_grids[:3])
 
     # Neighboring rays that straddle the 32/33-cell threshold must share
     # the same interior nodes in the limit. The extra cell starts at zero span.

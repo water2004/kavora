@@ -29,13 +29,13 @@ approximation. Segment extinction comes from the difference between successive
 prefixes. Radiance uses eight cells per air interval, with the source sampled
 once per cell and weighted by the segment's integrated extinction.
 
-Cloud view rays share an angle-dependent sample budget. The default near-horizontal
-cumulus limit is 40 cells and falls to 20 overhead. A fractional budget clips
+Each cloud layer has an independent view sample budget that falls to half
+when looking overhead. A fractional budget clips
 only the terminal cell. A direction-derived offset stratifies the cumulus samples
 across nearby rays and stays constant when a ray is split. The high shell uses
 its integrated height profile and one cell where the horizontal footprint covers
-the segment. Both layers default to a 24 km view range. The directional shadow
-prefix field uses its own light-transport extent.
+the segment. The low and high layers have separate view range controls. The
+directional shadow prefix field uses its own light-transport extent.
 
 The shared direct-light field bakes the solar and lunar transmission to points
 in both cloud layers, including the transmission used for ground bounce.

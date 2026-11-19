@@ -75,8 +75,10 @@ namespace dxvk {
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, highMaxDistanceMeters, 24000.0f, "High-cloud visibility distance, including its fade to the background sky.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, steps, 40u, "Maximum view integration cells per cloud-layer interval. The layer and view angle set the actual budget.",
+    RTX_OPTION_ARGS("rtx.clouds", uint32_t, steps, 64u, "Maximum view integration cells per cumulus interval. The view angle sets the actual budget.",
       args.minValue = 8u, args.maxValue = 512u);
+    RTX_OPTION_ARGS("rtx.clouds", uint32_t, highSteps, 20u, "Maximum view integration cells per high-cloud interval. The view angle and projected texture footprint set the actual budget.",
+      args.minValue = 1u, args.maxValue = 160u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud self-shadow quality. Controls shared optical-depth volume resolution and bounded local integration.",
       args.minValue = 1u, args.maxValue = 16u);
   };

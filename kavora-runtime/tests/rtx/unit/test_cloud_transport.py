@@ -30,7 +30,7 @@ def cloud_parameters(**changes):
         "up": [0, 1, 0], "enable": 1, "windOffset": [0, 0, 0],
         "baseHeight": 400.0, "thickness": 1500.0, "shapeScale": 1024.0,
         "extinction": 0.06, "coverage": 0.45, "maxDistance": 12000.0,
-        "albedo": 1.0, "steps": 160, "lightSteps": 16,
+        "albedo": 1.0, "steps": 160, "highSteps": 48, "lightSteps": 16,
         "anisotropy": 0.65, "multipleScattering": 0.8, "weather": 0.0,
         "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
         "night": 0.0,

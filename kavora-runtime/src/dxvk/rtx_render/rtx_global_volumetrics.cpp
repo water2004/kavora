@@ -743,6 +743,7 @@ namespace dxvk {
     // Water droplets have negligible absorption in the visible spectrum.
     clouds.albedo = 1.0f;
     clouds.steps = CloudOptions::steps();
+    clouds.highSteps = CloudOptions::highSteps();
     clouds.lightSteps = CloudOptions::lightSteps();
     clouds.anisotropy = CloudOptions::anisotropy();
     clouds.multipleScattering = CloudOptions::multipleScattering();
@@ -877,12 +878,12 @@ namespace dxvk {
     // Cloud optical depth is deterministic for unchanged lighting inputs and
     // generated density textures. World time advances on simulation ticks,
     // not render frames, so consecutive frames often share identical inputs.
-    // Wind reprojection delta and view pixel footprint affect the camera-ray
-    // history, not this directional prefix cache; exclude them from its key.
+    // Exclude wind reprojection and view integration parameters from the lighting key.
     CloudArgs lightingKey = clouds;
     lightingKey.previousWindDelta = Vector3(0.f);
     lightingKey.viewAngularFootprint = 0.f;
     lightingKey.steps = 0;
+    lightingKey.highSteps = 0;
     // A byte-exact comparison is conservative for the remaining inputs: any
     // changed density, light direction, or cache extent still triggers a rebuild.
     const bool activeBeam[2] = {

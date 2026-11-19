@@ -49,13 +49,34 @@ class QualityPresetTest {
     void stockProfilesSetBudgetsAndKeepIndependentFeatureSwitches() {
         for (QualityPreset preset : QualityPreset.values()) {
             var values = KavoraQualityPresets.values(preset);
-            for (String effect : List.of("clouds.procedural", "lighting.direct", "lighting.secondary",
+            for (String effect : List.of("clouds.procedural", "clouds.coverage", "clouds.highCoverage", "clouds.windSpeed",
+                    "clouds.multipleScattering", "lighting.direct", "lighting.secondary",
                     "lighting.rtxdi", "reflection.psrr", "reflection.pstr", "materials.pomDirect", "materials.pomIndirect")) {
                 assertFalse(values.containsKey(effect), preset.id() + ": " + effect);
             }
             for (String budget : List.of("clouds.samples", "clouds.shadowSamples", "lighting.bounces",
                     "materials.pom", "fog.integrationResolution", "fog.initialSamples", "fog.lightingDepthSlices", "lighting.risSamples")) {
                 assertTrue(((Integer) values.get(budget)) > 0, preset.id() + ": " + budget);
+            }
+        }
+    }
+
+    @Test
+    void higherCloudPresetsIncreaseSamplingWithoutShorteningTheViewRange() {
+        for (String id : List.of("clouds.samples", "clouds.highSamples", "clouds.shadowSamples")) {
+            int previous = 0;
+            for (QualityPreset preset : QualityPreset.values()) {
+                int budget = (int) KavoraQualityPresets.values(preset).get(id);
+                assertTrue(budget > previous, preset.id() + ": " + id);
+                previous = budget;
+            }
+        }
+        for (String id : List.of("clouds.distance", "clouds.highDistance")) {
+            double previous = 0;
+            for (QualityPreset preset : QualityPreset.values()) {
+                double range = (double) KavoraQualityPresets.values(preset).get(id);
+                assertTrue(range > 0 && range >= previous, preset.id() + ": " + id);
+                previous = range;
             }
         }
     }

@@ -52,6 +52,7 @@ def parser():
     result.add_argument("--scenarios", default=",".join(row[0] for row in SCENARIOS))
     result.add_argument("--layers", choices=("low", "high", "both"), default="both")
     result.add_argument("--steps", type=int, default=384)
+    result.add_argument("--high-steps", type=int, default=115)
     result.add_argument("--light-steps", type=int, default=8)
     result.add_argument("--low-max-distance", type=float, default=24000.0)
     result.add_argument("--high-max-distance", type=float, default=60000.0)
@@ -73,7 +74,7 @@ def selected_names(value, allowed, label):
 def plan(args):
     if min(args.width, args.height, args.repeat) < 1:
         raise ValueError("resolution and repeat must be positive")
-    if not 1 <= args.steps <= 1024 or not 1 <= args.light_steps <= 256:
+    if not 1 <= args.steps <= 1024 or not 1 <= args.high_steps <= 1024 or not 1 <= args.light_steps <= 256:
         raise ValueError("view steps must be in [1,1024] and light steps in [1,256]")
     if any(not math.isfinite(value) or value <= 0 for value in
            (args.low_max_distance, args.high_max_distance, args.case_timeout)):
@@ -127,7 +128,8 @@ def plan(args):
                                "--thunder", str(thunder), "--low-max-distance", str(args.low_max_distance),
                                "--high-max-distance", str(args.high_max_distance),
                                "--exposure", "1.0", "--tone-map", "aces",
-                               "--steps", str(args.steps), "--light-steps", str(args.light_steps)]
+                               "--steps", str(args.steps), "--high-steps", str(args.high_steps),
+                               "--light-steps", str(args.light_steps)]
                     if shader_root:
                         command.extend(["--shader-root", str(shader_root)])
                     if not args.skip_radiance:

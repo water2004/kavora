@@ -318,7 +318,9 @@ def main():
     parser.add_argument('--ground-albedo', type=float, default=0.18,
                         help='Mean terrain reflectance used by production cloud illumination')
     parser.add_argument('--steps', type=int, default=384,
-                        help='View integration budget; values above native Ultra are for convergence inspection')
+                        help='Low cloud view integration budget')
+    parser.add_argument('--high-steps', type=int, default=115,
+                        help='High cloud view integration budget')
     parser.add_argument('--light-steps', type=int, default=16,
                         help='Light integration budget; values above native Ultra are for convergence inspection')
     parser.add_argument('--sun-elevation', type=float,
@@ -362,8 +364,8 @@ def main():
         parser.error('vfov must be between 0 and 180 degrees')
     if not np.isfinite(args.yaw):
         parser.error('yaw must be finite')
-    if not 1 <= args.steps <= 1024 or not 1 <= args.light_steps <= 256:
-        parser.error('steps must be in [1,1024] and light-steps in [1,256]')
+    if not 1 <= args.steps <= 1024 or not 1 <= args.high_steps <= 1024 or not 1 <= args.light_steps <= 256:
+        parser.error('steps and high-steps must be in [1,1024] and light-steps in [1,256]')
     if any(not np.isfinite(value) or not 0 <= value <= 1 for value in
            (args.weather, args.thunder, args.ground_albedo)):
         parser.error('weather, thunder and ground-albedo must be in [0,1]')
@@ -497,12 +499,15 @@ def main():
         groundReference=[args.origin[0], 0, args.origin[2]], windOffset=args.wind,
         viewAngularFootprint=2 * np.tan(np.radians(args.vfov) * 0.5) / args.height,
         weather=args.weather, thunder=args.thunder, groundAlbedo=args.ground_albedo,
-        steps=args.steps, lightSteps=args.light_steps, lights=[light, dark])
-    if 'groundAlbedo' not in (shaders / 'rtx/pass/cloud_args.h').read_text():
+        steps=args.steps, highSteps=args.high_steps, lightSteps=args.light_steps, lights=[light, dark])
+    cloud_layout = (shaders / 'rtx/pass/cloud_args.h').read_text()
+    if 'groundAlbedo' not in cloud_layout:
         clouds.pop('groundAlbedo', None)
-    if 'lightingNearDistance' not in (shaders / 'rtx/pass/cloud_args.h').read_text():
+    if 'lightingNearDistance' not in cloud_layout:
         clouds.pop('lightingNearDistance', None)
-    if 'angularRadius' not in (shaders / 'rtx/pass/cloud_args.h').read_text():
+    if 'highSteps' not in cloud_layout:
+        clouds.pop('highSteps', None)
+    if 'angularRadius' not in cloud_layout:
         for source in clouds['lights']:
             source.pop('angularRadius', None)
     if args.layers == 'high': clouds['extinction'] = 0

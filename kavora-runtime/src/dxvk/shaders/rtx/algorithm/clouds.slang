@@ -239,7 +239,7 @@ public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 
   float angularFootprint, uint layer)
 {
   const float up = abs(dot(direction, args.up));
-  const float budget = float(args.steps) * lerp(1.0f, 0.5f, up);
+  const float budget = float(layer == 0 ? args.steps : args.highSteps) * lerp(1.0f, 0.5f, up);
   if (layer == 0)
   {
     const float spacing = min(1.25f * args.shapeScale / max(budget, 1.0f),
@@ -252,7 +252,7 @@ public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 
   const float horizontal = sqrt(max(0.0f, 1.0f - up * up));
   const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudWeatherResolution);
   const float footprint = max(texel, angularFootprint * interval.x);
-  return createCloudRayGrid(interval, footprint / max(horizontal, 1e-4f), angularFootprint, 0.3f * budget);
+  return createCloudRayGrid(interval, footprint / max(horizontal, 1e-4f), angularFootprint, budget);
 }
 
 [ForceInline]

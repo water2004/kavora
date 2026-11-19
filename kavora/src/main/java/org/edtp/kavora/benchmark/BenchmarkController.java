@@ -1683,11 +1683,12 @@ public class BenchmarkController {
                     "rtx.volumetrics.froxelMaxDistanceMeters", "rtx.volumetrics.froxelDepthSliceDistributionExponent",
                     "rtx.volumetrics.enableHeterogeneousFog", "rtx.volumetrics.groundMistExtinctionPerMeter",
                     "rtx.volumetrics.heightFogFalloffMeters", "rtx.volumetrics.anisotropy",
-                    "rtx.clouds.sceneEnabled", "rtx.clouds.steps", "rtx.clouds.lightSteps",
+                    "rtx.clouds.sceneEnabled", "rtx.clouds.steps", "rtx.clouds.highSteps", "rtx.clouds.lightSteps",
                     "rtx.clouds.windSpeed", "rtx.clouds.worldTimeSeconds", "rtx.clouds.weather", "rtx.clouds.thunder",
                     "rtx.clouds.coverage", "rtx.clouds.worldBaseHeightMeters", "rtx.clouds.altitudeOffsetMeters",
                     "rtx.clouds.thicknessMeters", "rtx.clouds.shapeScaleMeters", "rtx.clouds.extinctionPerMeter",
-                    "rtx.clouds.maxDistanceMeters", "rtx.clouds.anisotropy", "rtx.clouds.multipleScattering",
+                    "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters",
+                    "rtx.clouds.anisotropy", "rtx.clouds.multipleScattering",
                     "rtx.advanceTime", "rtx.timeDeltaBetweenFrames",
                     "rtx.enableShaderExecutionReorderingInPathtracerGbuffer" }) {
                 runtime.addProperty(key, renderer.getRemixApi().getConfigVariableResolved(key));

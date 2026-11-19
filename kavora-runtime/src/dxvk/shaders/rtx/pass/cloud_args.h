@@ -53,7 +53,7 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float lightingNearDistance;
   CLOUD_PARAMETER uint activeCloudLights; // A bit for each populated directional light slot.
   CLOUD_PARAMETER float meterToWorld;
-  CLOUD_PARAMETER float padding; // Keep the shared record aligned to 16 bytes.
+  CLOUD_PARAMETER uint highSteps;
 };
 
 #undef CLOUD_PARAMETER
