@@ -158,21 +158,22 @@ float2 weatherCoordinates(float2 position)
 }
 
 [ForceInline]
-float4 cloudMapSample(Sampler2DArray<float4> map, float2 uv, uint layer, float lod)
+float4 cloudMapSample(Sampler2DArray<float4> map, float2 uv, uint layer, float lod, uint resolution = kCloudWeatherResolution)
 {
-  const float last = log2(float(kCloudWeatherResolution));
+  const float last = log2(float(resolution));
+  const float baseMip = log2(float(kCloudHighWeatherResolution) / float(resolution));
   const float level = clamp(floor(lod), 0.0f, last);
   const float next = min(level + 1, last);
   const float blend = saturate(lod - level);
   // Each profile mip has its own half-texel clamp. Weather tiles wrap.
-  const float inset = layer == 2 ? 0.5f * exp2(level) / kCloudWeatherResolution : 0;
+  const float inset = layer == 2 ? 0.5f * exp2(level) / resolution : 0;
   const float2 firstUV = layer == 2 ? clamp(uv, inset, 1 - inset) : uv;
-  const float4 first = map.SampleLevel(float3(firstUV, layer), level);
+  const float4 first = map.SampleLevel(float3(firstUV, layer), level + baseMip);
   if (blend == 0 || level == next)
     return first;
   const float nextInset = min(0.5f, 2 * inset);
   const float2 nextUV = layer == 2 ? clamp(uv, nextInset, 1 - nextInset) : uv;
-  return lerp(first, map.SampleLevel(float3(nextUV, layer), next), blend);
+  return lerp(first, map.SampleLevel(float3(nextUV, layer), next + baseMip), blend);
 }
 
 [ForceInline]
@@ -219,11 +220,11 @@ float highCloudDensity(CloudDensityArgs args, float3 p, Sampler2DArray<float4> w
   {
     return 0;
   }
-  const float weatherLod = cloudNoiseLod(footprint, args.shapeScale * float(kCloudHighWeatherPeriod), float(kCloudWeatherResolution));
-  const float4 weather = cloudMapSample(weatherSampler, weatherCoordinates(p.xz), 1, weatherLod);
+  const float weatherLod = cloudNoiseLod(footprint, args.shapeScale * float(kCloudHighWeatherPeriod), float(kCloudHighWeatherResolution));
+  const float4 weather = cloudMapSample(weatherSampler, weatherCoordinates(p.xz), 1, weatherLod, kCloudHighWeatherResolution);
   const float coverage = saturate(args.highCoverage);
   const float mask = weather.r * coverage * (2.0f - coverage);
-  const HanPiHighColumn column = hanPiHighColumn(mask, weather.g, weather.a, weather.b);
+  const HanPiHighColumn column = hanPiHighColumn(mask, weather.g, weather.a);
   return column.density * hanPiHighBand(column, height, profileFootprint);
 }
 

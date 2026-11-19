@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
 # SPDX-License-Identifier: MIT
-"""Bake HanPi's two weather maps and radial Cu/TCu/Cb profiles from two Aqua scenes."""
+"""Bake HanPi weather and plume profiles from MODIS and Sentinel-2 observations."""
 import argparse
+import hashlib
 import io
 import re
 import urllib.parse
@@ -19,6 +20,10 @@ DATE = "2026-06-19"
 BBOX = "107.82,-11.9,109.52,-10.23"
 ELEVATED_BBOX = "103.37244,-5.36188,105.07244,-3.69188"
 SIZE = 512
+HIGH_SIZE = 1024
+SENTINEL = ("https://storage.googleapis.com/gcp-public-data-sentinel-2/tiles/48/M/VA/"
+    "S2A_MSIL1C_20260622T031151_N0512_R075_T48MVA_20260622T083111.SAFE/"
+    "GRANULE/L1C_T48MVA_A057444_20260622T032613/IMG_DATA/T48MVA_20260622T031151_B10.jp2")
 ROOT = Path(__file__).resolve().parents[2]
 ASSET = ROOT / "src/dxvk/rtx_render/clouds/cloud_weather.bin"
 GIBS = "https://gibs.earthdata.nasa.gov"
@@ -84,7 +89,7 @@ def periodic(image):
     # and slope; the interior keeps the registration of all MODIS products.
     for axis in (0, 1):
         a = image.swapaxes(0, axis).copy()
-        margin = SIZE // 20
+        margin = len(a) // 20
         first, last = a[:margin].copy(), a[-margin:][::-1].copy()
         mix = (0.5 * (1 - ramp(np.arange(margin), 0, margin - 1)))[:, None, None]
         a[:margin] = first + mix * (last - first)
@@ -203,6 +208,33 @@ def coverage_threshold(fraction, softness, volumes):
     return map_coordinates(np.asarray(table), indices, order=1, mode="nearest")
 
 
+def elevated_weather(cache, high):
+    # The cirrus band supplies spatial structure. The MODIS retrieval supplies
+    # the coverage distribution and mean optical weight at each coverage rank.
+    data = fetch(cache, SENTINEL.rsplit("/", 1)[1], SENTINEL)
+    if hashlib.sha256(data).hexdigest() != "d153306ddce5728b4f6161411db4e58f7fb84d62d30392a1e84c79a7a9b703ae":
+        raise ValueError("Unexpected Sentinel-2 granule")
+    raw = np.asarray(Image.open(io.BytesIO(data)))
+    start = (len(raw) - HIGH_SIZE) // 2
+    cirrus = raw[start:start + HIGH_SIZE, start:start + HIGH_SIZE]
+    if cirrus.shape != (HIGH_SIZE, HIGH_SIZE) or not cirrus.all():
+        raise ValueError("Incomplete cirrus observation")
+    _, inverse, counts = np.unique(cirrus, return_inverse=True, return_counts=True)
+    ranks = (counts.cumsum() - counts / 2) / cirrus.size
+    reference = high.reshape(-1, 4)
+    order = np.argsort(reference[:, 0], kind="stable")
+    cover = np.quantile(reference[:, 0], ranks)[inverse].reshape(cirrus.shape)
+    bins = np.array_split(reference[order, 2], 128)
+    weight = np.interp(ranks, (np.arange(len(bins)) + 0.5) / len(bins),
+                       [b.mean() for b in bins])[inverse].reshape(cirrus.shape)
+    local = gaussian_filter(cover, 8)
+    contrast = np.sqrt(np.maximum(0, gaussian_filter(cover ** 2, 8) - local ** 2))
+    cells = ramp(contrast, *np.quantile(contrast, [0.25, 0.8]))
+    thickness = np.clip(0.5 + (cover - local) / np.maximum(2 * contrast, 0.1), 0, 1)
+    # Blue belongs to the low deck and is read at its native mip.
+    return periodic(np.stack([cover, 1 + cells * (thickness - 1), weight], axis=-1))
+
+
 def bake(cache, volumes):
     low, _, height = deck(cache, BBOX)
     upper_low, high, upper_height = deck(cache / ELEVATED_BBOX, ELEVATED_BBOX)
@@ -212,12 +244,16 @@ def bake(cache, volumes):
             np.stack([low[..., 0], upper_low[..., 0]]), np.stack([low[..., 1], upper_low[..., 1]]),
             np.stack([radius, radius]))
     low[..., 0] = coverage_threshold(low[..., 0], 0.2 * (1 - high[..., 2]), volumes)
-    maps = [periodic(low), periodic(high), lut]
+    upper = elevated_weather(cache, high)
+    softness = periodic(high)[..., 2]
+    scale = HIGH_SIZE // SIZE
+    upper = np.insert(upper, 2, softness.repeat(scale, 0).repeat(scale, 1), axis=-1)
+    maps = [periodic(low), upper, lut]
     for name, a in zip(("low", "high", "profiles"), maps):
         if not np.isfinite(a).all() or np.ptp(a[..., 0]) < 0.15:
             raise ValueError(f"Missing or degenerate {name} data in observation")
         print(name, np.round(np.mean(a, axis=(0, 1)), 3))
-    return np.stack(maps)
+    return maps
 
 
 def main():
@@ -229,12 +265,13 @@ def main():
     args.cache.mkdir(exist_ok=True, parents=True)
     maps = bake(args.cache, args.volumes)
     with args.output.open("wb") as out:
-        while True:
-            out.write(np.rint(np.clip(maps, 0, 1) * 255).astype("u1").tobytes())
-            _, h, w, c = maps.shape
-            if w == 1:
-                break
-            maps = maps.reshape(3, h // 2, 2, w // 2, 2, c).mean(axis=(2, 4))
+        for level in range(HIGH_SIZE.bit_length() - 1, -1, -1):
+            side = 1 << level
+            for i, plane in enumerate(maps):
+                if len(plane) == side:
+                    out.write(np.rint(np.clip(plane, 0, 1) * 255).astype("u1").tobytes())
+                    if side > 1:
+                        maps[i] = plane.reshape(side // 2, 2, side // 2, 2, 4).mean(axis=(1, 3))
 
 
 if __name__ == "__main__":

@@ -11,16 +11,16 @@ uint gbufferQueueIndex(uint2 invocation)
 }
 
 [ForceInline]
-void enqueueGBufferPixel(RWStructuredBuffer<uint> queue, uint pixel)
+void enqueueGBufferPixel(RWStructuredBuffer<uint> queue, uint pixel, uint offset = 0)
 {
   uint base = 0;
   const uint count = WaveActiveCountBits(true);
   if (WaveIsFirstLane())
   {
-    InterlockedAdd(queue[0], count, base);
+    InterlockedAdd(queue[offset], count, base);
   }
   base = WaveReadLaneFirst(base);
-  queue[GBUFFER_PSR_QUEUE_HEADER_WORDS + base + WavePrefixCountBits(true)] = pixel;
+  queue[offset + GBUFFER_PSR_QUEUE_HEADER_WORDS + base + WavePrefixCountBits(true)] = pixel;
 }
 
 // Keep the explicit half encodings used by both saved continuation records.

@@ -208,6 +208,12 @@ CLOUD_ASSETS = SHADERS.parent / "rtx_render/clouds"
 TEXTURE_FILES = {"Base": "cloud_base.bin", "Detail": "cloud_erosion.bin", "Weather": "cloud_weather.bin"}
 
 
+def weather_resolutions():
+    source = (SHADERS / "rtx/pass/cloud_noise.h").read_text()
+    return tuple(int(re.search(rf"{name}\s*=\s*(\d+)", source)[1]) for name in
+                 ("kCloudWeatherResolution", "kCloudHighWeatherResolution"))
+
+
 def weather_fixture(device, layers):
     layers = np.asarray(layers, np.float32)
     n = layers.shape[1]
@@ -224,10 +230,11 @@ def cloud_textures(device, dump=None):
                                     address_u=spy.TextureAddressingMode.wrap, address_v=spy.TextureAddressingMode.wrap,
                                     address_w=spy.TextureAddressingMode.wrap)
     textures = {}
+    low_resolution, high_resolution = weather_resolutions()
     for name, filename in TEXTURE_FILES.items():
         weather = name == "Weather"
         base = name == "Base"
-        side = 512 if weather else 64
+        side = high_resolution if weather else 64
         texture = device.create_texture(type=spy.TextureType.texture_2d_array if weather else spy.TextureType.texture_3d,
             format=spy.Format.rg16_float if base else spy.Format.rgba8_unorm, width=side, height=side,
             depth=1 if weather else side, array_length=3 if weather else 1, mip_count=side.bit_length(),
@@ -237,6 +244,8 @@ def cloud_textures(device, dump=None):
         for mip in range(side.bit_length()):
             n = side >> mip
             for layer in range(3 if weather else 1):
+                if weather and layer != 1 and n > low_resolution:
+                    continue
                 shape = (n, n, 4) if weather else (n, n, n, 2 if base else 4)
                 size = np.prod(shape) * (2 if base else 1)
                 a = np.frombuffer(raw[offset:offset + size], dtype="<f2" if base else "u1").reshape(shape)
@@ -244,7 +253,7 @@ def cloud_textures(device, dump=None):
                 offset += size
                 if mip == 0:
                     assert np.isfinite(a).all() and a[..., 0].max() > a[..., 0].min()
-                if weather and layer == 2 and mip == 0:
+                if weather and layer == 2 and n == low_resolution:
                     # Profile peaks and radial modulation must survive quantization.
                     assert np.all(np.ptp(a[..., :3], axis=1).mean(axis=0) > 100)
                     assert np.all(np.ptp(a[..., :3], axis=0).max(axis=0) > 10)

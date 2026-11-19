@@ -21,6 +21,8 @@ locations given.
   Aqua/MODIS imagery and cloud retrievals for 19 June 2026. Source layers,
   geographic extents and reconstruction are documented in the
   [cloud asset workflow](kavora-runtime/tools/clouds/README.md).
+- The upper weather field contains modified Copernicus Sentinel data 2026.
+  [Copernicus Sentinel data terms](https://dataspace.copernicus.eu/terms-and-conditions).
 
 ### Neural volumetric cloud training
 

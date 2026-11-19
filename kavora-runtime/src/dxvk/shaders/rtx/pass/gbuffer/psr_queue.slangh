@@ -25,8 +25,7 @@
 #include "rtx/pass/gbuffer/gbuffer_queue.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_INPUT) RWStructuredBuffer<uint> PSRQueueInput;
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PSRQueueOutput;
+layout(binding = GBUFFER_BINDING_PATH_QUEUE) RWStructuredBuffer<uint> PSRQueue;
 
 uint psrPixelIndex(uint2 pixel)
 {

@@ -88,14 +88,14 @@ public struct HanPiHighColumn
 // EvaluateHighCloudDensity drives the band from coverage and gives Ac cells
 // both thinner edges and lower density. The band fits Kavora's separate shell.
 [ForceInline]
-public HanPiHighColumn hanPiHighColumn(float coverage, float type, float cell, float weight)
+public HanPiHighColumn hanPiHighColumn(float coverage, float cellFactor, float weight)
 {
   const float softEdge = 0.075f;
   const float halfThickness = (0.5f - softEdge) * coverage;
-  const float cellThickness = lerp(1.0f, cell, 0.5f * type);
+  const float cellThickness = 0.5f + 0.5f * cellFactor;
   return { 0.5f - halfThickness, 0.5f + halfThickness * cellThickness,
     min(softEdge, 0.5f * halfThickness),
-    hanPiRemap(coverage, 0.025f, 0.025f + max(0.001f, 0.35f * (1 - weight))) * lerp(1.0f, cell, type) };
+    hanPiRemap(coverage, 0.025f, 0.025f + max(0.001f, 0.35f * (1 - weight))) * cellFactor };
 }
 
 [ForceInline]

@@ -1053,7 +1053,7 @@ namespace dxvk {
     ScopedGpuProfileZone(ctx, "Cloud field upload");
     // All three assets are filtered offline and stored mip-major, four bytes per texel.
     const auto upload = [&](const char* name, uint32_t side, uint32_t layers, VkFormat format,
-                            const auto& bytes) {
+                            const auto& bytes, uint32_t fullLayerSize) {
       const bool volume = layers == 1;
       const VkExtent3D extent { side, side, volume ? side : 1u };
       auto resource = createImageResource(ctx, name, extent, format, layers,
@@ -1063,9 +1063,11 @@ namespace dxvk {
       for (uint32_t mip = 0; side; ++mip, side >>= 1) {
         const uint32_t sliceBytes = side * side * 4;
         const uint32_t depth = volume ? side : 1u;
-        ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, layers },
+        const uint32_t firstLayer = side > fullLayerSize ? 1u : 0u;
+        const uint32_t layerCount = firstLayer ? 1u : layers;
+        ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, firstLayer, layerCount },
           { 0, 0, 0 }, { side, side, depth }, data, side * 4, sliceBytes);
-        data += sliceBytes * depth * layers;
+        data += sliceBytes * depth * layerCount;
       }
       assert(data == bytes + sizeof(bytes));
       return resource;
@@ -1073,11 +1075,12 @@ namespace dxvk {
     constexpr auto volumeBytes = [](uint32_t n) { return 4 * ((8 * n * n * n - 1) / 7); };
     static_assert(sizeof(___cloud_base) == volumeBytes(kCloudBaseResolution));
     static_assert(sizeof(___cloud_erosion) == volumeBytes(kCloudDetailResolution));
-    static_assert(sizeof(___cloud_weather) == 4 * (4 * kCloudWeatherResolution * kCloudWeatherResolution - 1));
-    m_cloudBaseLut = upload("cloud base shape", kCloudBaseResolution, 1, VK_FORMAT_R16G16_SFLOAT, ___cloud_base);
-    m_cloudDetailLut = upload("cloud erosion", kCloudDetailResolution, 1, VK_FORMAT_R8G8B8A8_UNORM, ___cloud_erosion);
-    m_cloudWeatherLut = upload("cloud weather and profiles", kCloudWeatherResolution, 3,
-      VK_FORMAT_R8G8B8A8_UNORM, ___cloud_weather);
+    constexpr auto planeBytes = [](uint32_t n) { return 4 * ((4 * n * n - 1) / 3); };
+    static_assert(sizeof(___cloud_weather) == 2 * planeBytes(kCloudWeatherResolution) + planeBytes(kCloudHighWeatherResolution));
+    m_cloudBaseLut = upload("cloud base shape", kCloudBaseResolution, 1, VK_FORMAT_R16G16_SFLOAT, ___cloud_base, kCloudBaseResolution);
+    m_cloudDetailLut = upload("cloud erosion", kCloudDetailResolution, 1, VK_FORMAT_R8G8B8A8_UNORM, ___cloud_erosion, kCloudDetailResolution);
+    m_cloudWeatherLut = upload("cloud weather and profiles", kCloudHighWeatherResolution, 3,
+      VK_FORMAT_R8G8B8A8_UNORM, ___cloud_weather, kCloudWeatherResolution);
   }
 
   Resources::Resource Resources::getSkyMatte(Rc<DxvkContext> ctx, VkFormat format) {

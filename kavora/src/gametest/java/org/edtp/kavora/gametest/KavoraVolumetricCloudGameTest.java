@@ -416,7 +416,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             waitForOceanCamera(context);
             setCloudsEnabled(context, true);
             if (fullDay) {
-                prepareOceanProfileView(context, server, 6000, 90);
+                positionOceanProfileView(context, server, 6000, 90);
             }
             waitForRaytracedPresents(context, 12);
             waitForOceanTerrain(context, fullDay ? 502 : 1);
@@ -439,11 +439,14 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 profileNeuralOceanTime(context, server, 23250, -90, "sunrise");
                 profileNeuralOceanTime(context, server, 12750, 90, "sunset");
             } else {
+                if (fullDay) {
+                    prepareOceanProfileView(context, server, 6000, 90, 32_000);
+                }
                 measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
                 if (fullDay) {
-                    prepareOceanProfileView(context, server, 23250, -90);
+                    prepareOceanProfileView(context, server, 23250, -90, 32_200);
                     measureOceanProfileView(context, "sunrise", true);
-                    prepareOceanProfileView(context, server, 12750, 90);
+                    prepareOceanProfileView(context, server, 12750, 90, 32_400);
                     measureOceanProfileView(context, "sunset", true);
                 }
             }
@@ -455,8 +458,16 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
     }
 
     private static void prepareOceanProfileView(ClientGameTestContext context, MinecraftServer server,
-                                                int tick, float yaw) {
+                                                int tick, float yaw, long gameTick) {
         positionOceanProfileView(context, server, tick, yaw);
+        // Wind follows elapsed world time independently of the solar clock.
+        var wind = CompletableFuture.runAsync(() -> {
+            server.getWorldData().overworldData().setGameTime(gameTick);
+            server.forceGameTimeSynchronization();
+        }, server);
+        context.waitFor(client -> wind.isDone() && Math.abs(cloudValue("worldTimeSeconds") * 20 - gameTick) < 20, 200);
+        wind.join();
+        waitForRaytracedPresents(context, 8);
         resumeOceanProfileTime(context, server);
     }
 

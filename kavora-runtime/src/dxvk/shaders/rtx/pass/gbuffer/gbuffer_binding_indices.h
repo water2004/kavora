@@ -152,8 +152,7 @@
 #define GBUFFER_PRIMARY_INTERSECTION_WORDS 5
 
 #define GBUFFER_BINDING_PATH_STORAGE 158
-#define GBUFFER_BINDING_PSR_QUEUE_INPUT 159
-#define GBUFFER_BINDING_PSR_QUEUE_OUTPUT 160
+#define GBUFFER_BINDING_PATH_QUEUE 160
 #define GBUFFER_BINDING_FG_FOREGROUND_GUIDE 161
 #define GBUFFER_PSR_STATE_WORDS 18
 #define GBUFFER_PRIMARY_ATMOSPHERE_WORDS 7
@@ -176,4 +175,6 @@ struct GbufferPushConstants
   uint psrTransmission;
   uint writeFgForegroundGuide;
   uint dispatchOffsetY;
+  uint psrInputOffset;
+  uint psrOutputOffset;
 };

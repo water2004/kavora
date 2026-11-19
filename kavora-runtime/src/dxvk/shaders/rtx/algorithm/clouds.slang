@@ -249,7 +249,7 @@ public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 
   // The high layer has a 2D density map and an integrated height profile.
   // One cell suffices when the projected path fits one filtered texel.
   const float horizontal = sqrt(max(0.0f, 1.0f - up * up));
-  const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudWeatherResolution);
+  const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudHighWeatherResolution);
   const float footprint = max(texel, angularFootprint * interval.x);
   const float length = max(interval.y - interval.x, 0.0f);
   const uint cells = uint(ceil(clamp(length * horizontal / footprint, 1.0f, float(args.highSteps))));

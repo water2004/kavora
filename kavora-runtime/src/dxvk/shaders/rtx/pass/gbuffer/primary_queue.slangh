@@ -25,7 +25,7 @@
 #include "rtx/pass/gbuffer/gbuffer_queue.slangh"
 #include "rtx/algorithm/geometry_resolver_state.slangh"
 
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PrimaryQueue;
+layout(binding = GBUFFER_BINDING_PATH_QUEUE) RWStructuredBuffer<uint> PrimaryQueue;
 
 // Each invocation replaces its own consumed intersection and atmosphere records.
 void storePrimaryResolveState(uint pixel, GeometryResolverState state, float remainingDistance,

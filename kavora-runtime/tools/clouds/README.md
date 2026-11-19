@@ -23,14 +23,22 @@ packed lengths at compile time.
 The low deck uses the 19 June 2026 afternoon Aqua/MODIS view centred near
 11.065° S, 108.67° E. The highest retrieved cloud top in this marine crop
 is 2.875 km. A second crop centred near 4.527° S, 104.222° E supplies elevated
-clouds from the same day. The resulting field combines two observations.
+cloud cover and optical-depth statistics from the same day.
 The bounds and five GIBS layers are specified in the baker. Science colours
 decode through their published palettes before interpolation. The outer 5%
 of each weather map joins opposite edges for continuous world travel.
 
 The first array layer stores low coverage, convective development, stratocumulus
-weight and cellular thickness. The second stores upper coverage, cell contrast,
-optical-depth weight and cellular thickness. High-resolution reflectance
+weight and cellular thickness. The second stores upper coverage, cellular
+thickness factor, low-deck softness control and upper optical-depth weight.
+The upper deck uses the central 1024 × 1024 native samples of Sentinel-2A
+tile T48MVA, band B10, acquired on 22 June 2026. This 1.375 µm band resolves
+elevated cloud at 60 m. Its reflectance ranks supply the spatial distribution.
+The MODIS scene supplies the coverage histogram and conditional optical
+weights. The two overpasses are independent. The baker pins the source JP2
+by checksum. The low weather and radial profile layers begin at mip 1,
+with 512 × 512 native samples each. Only the upper layer is stored at mip 0.
+High-resolution MODIS reflectance
 guides the coarser retrievals. Cloud-top pressure and optical thickness
 constrain the split into decks. For the low deck, an observed area fraction
 is mapped to the body's density threshold by inverting the mean filled area of

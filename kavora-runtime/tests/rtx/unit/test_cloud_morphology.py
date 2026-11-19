@@ -14,8 +14,9 @@ import slangpy as spy
 
 
 def constant_weather(probe, textures, coverage, stratus, cloud_type):
-    from test_cloud_transport import weather_fixture
-    profile = textures["Weather"].texture.to_numpy(layer=2, mip=3).astype(np.float32) / 255
+    from test_cloud_transport import weather_fixture, weather_resolutions
+    low, high = weather_resolutions()
+    profile = textures["Weather"].texture.to_numpy(layer=2, mip=3 + high.bit_length() - low.bit_length()).astype(np.float32) / 255
     layers = np.ones((3, *profile.shape), np.float32)
     layers[0] *= [coverage, cloud_type, stratus, 1]
     layers[1] *= [0, 0, 0.35, 1]

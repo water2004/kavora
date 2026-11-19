@@ -121,7 +121,7 @@ namespace dxvk {
       uint32_t atmosphereStride);
 
     Rc<DxvkBuffer> m_pathStorage;
-    Rc<DxvkBuffer> m_psrQueues[2];
+    Rc<DxvkBuffer> m_pathQueues;
     size_t m_loggedDispatchHash[2] = {};
 
   };

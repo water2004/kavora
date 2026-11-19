@@ -2,7 +2,7 @@
 #include "rtx/utility/shader_types.slangh"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PrimaryQueue;
+layout(binding = GBUFFER_BINDING_PATH_QUEUE) RWStructuredBuffer<uint> PrimaryQueue;
 
 [shader("compute")]
 [numthreads(1, 1, 1)]

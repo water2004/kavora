@@ -21,16 +21,17 @@
 */
 #include "rtx/utility/shader_types.slangh"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_INPUT) RWStructuredBuffer<uint> PSRQueueInput;
-layout(binding = GBUFFER_BINDING_PSR_QUEUE_OUTPUT) RWStructuredBuffer<uint> PSRQueueOutput;
+layout(binding = GBUFFER_BINDING_PATH_QUEUE) RWStructuredBuffer<uint> PSRQueue;
+layout(push_constant) ConstantBuffer<GbufferPushConstants> push;
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
 void main()
 {
-  const uint count = PSRQueueInput[0];
-  PSRQueueInput[1] = min(count, GBUFFER_PSR_QUEUE_ROW_WIDTH);
-  PSRQueueInput[2] = (count + GBUFFER_PSR_QUEUE_ROW_WIDTH - 1) / GBUFFER_PSR_QUEUE_ROW_WIDTH;
-  PSRQueueInput[3] = 1;
-  PSRQueueOutput[0] = 0;
+  const uint input = push.psrInputOffset;
+  const uint count = PSRQueue[input];
+  PSRQueue[input + 1] = min(count, GBUFFER_PSR_QUEUE_ROW_WIDTH);
+  PSRQueue[input + 2] = (count + GBUFFER_PSR_QUEUE_ROW_WIDTH - 1) / GBUFFER_PSR_QUEUE_ROW_WIDTH;
+  PSRQueue[input + 3] = 1;
+  PSRQueue[push.psrOutputOffset] = 0;
 }

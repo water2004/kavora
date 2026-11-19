@@ -72,8 +72,7 @@ namespace dxvk {
         COMMON_RAYTRACING_BINDINGS
 
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PATH_STORAGE)
-        RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_INPUT)
-        RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PSR_QUEUE_OUTPUT)
+        RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PATH_QUEUE)
         { GBUFFER_BINDING_FG_FOREGROUND_GUIDE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_VIEW_TYPE_2D,
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
@@ -603,8 +602,7 @@ namespace dxvk {
     ensureBuffer(m_pathStorage, std::max(pixels * GBUFFER_PSR_STATE_WORDS, primaryWords) * sizeof(uint32_t),
       "GBuffer path storage", false);
     const VkDeviceSize queueBytes = (pixels + GBUFFER_PSR_QUEUE_HEADER_WORDS) * sizeof(uint32_t);
-    ensureBuffer(m_psrQueues[0], queueBytes, "PSR queue 0", true);
-    ensureBuffer(m_psrQueues[1], queueBytes, "PSR queue 1", true);
+    ensureBuffer(m_pathQueues, 2 * queueBytes, "GBuffer path queues", true);
   }
 
   void DxvkPathtracerGbuffer::dispatch(
@@ -940,9 +938,8 @@ namespace dxvk {
 
     {
       ScopedGpuProfileZone(ctx, "Primary Queue Reset");
-      ctx->clearBuffer(m_psrQueues[0], 0, sizeof(uint32_t), 0);
-      ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_OUTPUT,
-        DxvkBufferSlice(m_psrQueues[0], 0, m_psrQueues[0]->info().size));
+      ctx->clearBuffer(m_pathQueues, 0, sizeof(uint32_t), 0);
+      ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_QUEUE, DxvkBufferSlice(m_pathQueues));
     }
 
     {
@@ -968,7 +965,7 @@ namespace dxvk {
         ScopedGpuProfileZone(ctx, "Shade");
         ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getGbufferRayQueryComputeShader(getGbufferRayQueryVariantKey(
           rayQueryFeatureVariant, nrcEnabled, sharcEnabled), true));
-        ctx->bindDrawBuffers(DxvkBufferSlice(m_psrQueues[0], sizeof(uint32_t), sizeof(VkDispatchIndirectCommand)),
+        ctx->bindDrawBuffers(DxvkBufferSlice(m_pathQueues, sizeof(uint32_t), sizeof(VkDispatchIndirectCommand)),
           DxvkBufferSlice());
         ctx->dispatchIndirect(0);
       }
@@ -984,8 +981,7 @@ namespace dxvk {
     {
       ScopedGpuCommandStreamZone(ctx, "PSR");
       ctx->setFramePassStage(RtxFramePassStage::PSR);
-      const VkDeviceSize pixels = VkDeviceSize(rayDims.width) * rayDims.height;
-      const VkDeviceSize queueBytes = (pixels + GBUFFER_PSR_QUEUE_HEADER_WORDS) * sizeof(uint32_t);
+      const uint32_t queueWords = uint32_t(m_pathQueues->info().size / (2 * sizeof(uint32_t)));
       ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE, DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
 
       const auto argsShader = GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_psr_queue_args);
@@ -996,7 +992,7 @@ namespace dxvk {
       const auto shadeShader = getGbufferPSRQueueShadeShader(pipelineFeatureVariant, nrcEnabled, sharcEnabled, serEnabled, false);
       if (logDispatch() && logPass(true, shadeShader->getHash())) {
         Logger::info(str::format("Gbuffer PSR wavefront: stateBytes=", m_pathStorage->info().size,
-          " queueBytes=", 2 * queueBytes, " shader=", shadeShader->debugName(), " ", shadeShader->getShaderKey().toString()));
+          " queueBytes=", m_pathQueues->info().size, " shader=", shadeShader->debugName(), " ", shadeShader->getShaderKey().toString()));
       }
 
       // Transmission starts with the radiance and random stream left by the complete reflection path.
@@ -1005,30 +1001,29 @@ namespace dxvk {
       for (uint32_t lobe = 0; lobe < 2; ++lobe) {
         pushArgs.psrTransmission = lobe;
         dispatchBands(rayDims, [&](VkExtent3D extent) {
-          uint32_t input = 0;
-          ctx->clearBuffer(m_psrQueues[input], 0, GBUFFER_PSR_QUEUE_HEADER_WORDS * sizeof(uint32_t), 0);
-          ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_OUTPUT, DxvkBufferSlice(m_psrQueues[input], 0, queueBytes));
-          ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_INPUT, DxvkBufferSlice(m_psrQueues[1 - input], 0, queueBytes));
+          ctx->clearBuffer(m_pathQueues, 0, GBUFFER_PSR_QUEUE_HEADER_WORDS * sizeof(uint32_t), 0);
           {
             ScopedGpuProfileZone(ctx, "First Bounce");
             ctx->bindRaytracingPipelineShaders(initialPipeline);
             ctx->traceRays(extent.width, extent.height, extent.depth);
           }
           // Render-target redirection uses the reflection limit in either lobe.
+          ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, argsShader);
+          ctx->bindRaytracingPipelineShaders(shadePipeline);
+          pushArgs.psrInputOffset = 0;
+          pushArgs.psrOutputOffset = queueWords;
           for (uint32_t bounce = 1; bounce <= maxBounces; ++bounce) {
-            ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_INPUT, DxvkBufferSlice(m_psrQueues[input], 0, queueBytes));
-            ctx->bindResourceBuffer(GBUFFER_BINDING_PSR_QUEUE_OUTPUT, DxvkBufferSlice(m_psrQueues[1 - input], 0, queueBytes));
             {
               ScopedGpuProfileZone(ctx, "Schedule");
-              ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, argsShader);
+              ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
               ctx->dispatch(1, 1, 1);
             }
             {
               ScopedGpuProfileZone(ctx, "Shade");
-              ctx->bindRaytracingPipelineShaders(shadePipeline);
-              ctx->traceRaysIndirect(m_psrQueues[input], sizeof(uint32_t));
+              ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
+              ctx->traceRaysIndirect(m_pathQueues, (VkDeviceSize(pushArgs.psrInputOffset) + 1) * sizeof(uint32_t));
             }
-            input = 1 - input;
+            std::swap(pushArgs.psrInputOffset, pushArgs.psrOutputOffset);
           }
         });
       }

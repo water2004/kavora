@@ -34,7 +34,7 @@
 #include "rtx/pass/clouds/cloud_ambient_binding_indices.h"
 #include "rtx/pass/clouds/cloud_lighting_binding_indices.h"
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
-#include "rtx/pass/clouds/cloud_neural_scattering.h"
+#include "rtx/pass/clouds/cloud_neural_model.h"
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_integrate_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_filter_binding_indices.h"
@@ -970,7 +970,14 @@ namespace dxvk {
       ScopedGpuProfileZone(ctx, useTensor ? "Cloud Neural Tensor" : "Cloud Neural Scalar");
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, useTensor
         ? GenerateCloudNeuralLightTensorShader::getShader() : GenerateCloudNeuralLightShader::getShader());
-      ctx->dispatch(extent.width, lightingRows, extent.depth);
+      if (useTensor) {
+        static_assert(CLOUD_NEURAL_PLANE_CELLS % CLOUD_NEURAL_BEAM_BATCH == 0);
+        static_assert(CLOUD_NEURAL_PLANE_CELLS % CLOUD_NEURAL_SKY_BATCH == 0);
+        ctx->dispatch(CLOUD_NEURAL_SKY_CHANNEL * CLOUD_NEURAL_BEAM_GROUPS + CLOUD_NEURAL_SKY_GROUPS,
+          CLOUD_NEURAL_COLUMN_HEIGHT, 1);
+      } else {
+        ctx->dispatch(extent.width, lightingRows, extent.depth);
+      }
     }
     m_previousCloudLightingArgs = lightingKey;
     m_cloudLightingArgsValid = true;

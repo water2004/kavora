@@ -97,6 +97,7 @@ RayHitInfo traceQueuedPSRState(GeometryPSRResolverState state)
 void main()
 {
 #ifdef PSR_QUEUE_INITIAL
+  const uint outputOffset = 0;
   const uint2 invocation = DispatchRaysIndex().xy + uint2(0, push.dispatchOffsetY);
   if (any(invocation >= cb.camera.resolution)) return;
   const uint pixelIndex = psrPixelIndex(invocation);
@@ -124,8 +125,9 @@ void main()
 #else
   const uint2 invocation = DispatchRaysIndex().xy;
   const uint index = gbufferQueueIndex(invocation);
-  if (index >= PSRQueueInput[0]) return;
-  const uint pixelIndex = PSRQueueInput[GBUFFER_PSR_QUEUE_HEADER_WORDS + index];
+  const uint outputOffset = push.psrOutputOffset;
+  if (index >= PSRQueue[push.psrInputOffset]) return;
+  const uint pixelIndex = PSRQueue[push.psrInputOffset + GBUFFER_PSR_QUEUE_HEADER_WORDS + index];
   // Only the ray and pixel key are needed until traversal and reordering finish.
   RayHitInfo firstHit;
   {
@@ -159,7 +161,7 @@ void main()
   if (state.continuePSRResolving)
   {
     storePSRState(pixelIndex, state, resolveVertexUnorderedRng.seed);
-    enqueueGBufferPixel(PSRQueueOutput, pixelIndex);
+    enqueueGBufferPixel(PSRQueue, pixelIndex, outputOffset);
   }
   else
   {
