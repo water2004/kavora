@@ -397,7 +397,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       const float end = min(rangeEnd, interval.y);
       nextCloudStart = end;
       const uint layer = nearest / 2;
-      CloudViewTransfer cloud = CloudViewTransfer(ray.eye, ray.direction, layer, cloudAmbient,
+      CloudViewTransfer cloud = CloudViewTransfer(ray.eye, layer, cloudAmbient,
         cloudLighting, ray.cloudPhase, weather, base, detail);
       marchCloudView(args.clouds, ray.origin, ray.direction, layer, interval, float2(nearestStart, end),
         ray.cloudAngularFootprint, weather, base, detail, cloud);

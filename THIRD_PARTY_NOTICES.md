@@ -22,6 +22,14 @@ locations given.
   geographic extents and reconstruction are documented in the
   [cloud asset workflow](kavora-runtime/tools/clouds/README.md).
 
+### Neural volumetric cloud training
+
+- The reference renderer, model and sky checkpoint derive from GBwater's
+  `Neural_Volumetric_Cloud` experiment. The training sources retain their
+  [Apache 2.0 notices](LICENSE).
+- The [training workflow](kavora-runtime/training/cloud-scattering/README.md)
+  records the source revision, selected checkpoint and deployed weight hashes.
+
 ### Iris shader settings interface
 
 - Adapted sources: `KavoraSettingsScreen.java`, `ShaderMenuButton.java`,

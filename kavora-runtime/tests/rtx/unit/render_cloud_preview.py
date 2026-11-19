@@ -375,6 +375,10 @@ def main():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DIRECT_LIGHT'] = '1'
     if 'uint layer, float sigma, float3 ambientRadiance' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_SAMPLE_EXTINCTION'] = '1'
+    if 'CloudNeuralAngle neuralAngles' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_NEURAL_ANGLE'] = '1'
+    if 'cloudNeuralSky(' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_NEURAL_SKY'] = '1'
     atmosphere = None
     if args.air and (not args.atmosphere_fixture or not args.radiance):
         parser.error('--air requires --atmosphere-fixture and --radiance')
@@ -452,6 +456,9 @@ def main():
         weather=args.weather, thunder=args.thunder, groundAlbedo=args.ground_albedo,
         steps=args.steps, highSteps=args.high_steps, lightSteps=args.light_steps, lights=[light, dark])
     cloud_layout = (shaders / 'rtx/pass/cloud_args.h').read_text()
+    if 'activeCloudLights' in cloud_layout:
+        clouds['activeCloudLights'] = int(any(light['irradiance']) or any(
+            any(row[:3]) for row in light.get('radianceProfile', [])))
     if 'groundAlbedo' not in cloud_layout:
         clouds.pop('groundAlbedo', None)
     if 'lightingNearDistance' not in cloud_layout:
@@ -481,7 +488,8 @@ def main():
         from cloud_lighting_preview import build_lighting_cache
         lighting_bindings, lighting_resources, lighting_metadata = build_lighting_cache(
             device, clouds, textures, shaders, args.radiance and any(view != 'top' for view in views),
-            args.warmup, args.repeat, include_local=has_local_light)
+            args.warmup, args.repeat, include_local=has_local_light,
+            include_neural='CLOUD_PREVIEW_HAS_NEURAL_SKY' in support.OPTIONS['defines'])
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {'label': args.label, 'shaderRoot': str(shaders), 'textureCache': cache,
                 'textureSources': texture_sources,

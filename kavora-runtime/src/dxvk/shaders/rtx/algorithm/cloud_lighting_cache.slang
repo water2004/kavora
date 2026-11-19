@@ -47,6 +47,12 @@ public float2 cloudLightHorizontal(CloudArgs args, float3 position)
   return float2(position.x, dot(position, cloudSecondHorizontalAxis(args)));
 }
 
+public float cloudLightGridCoverage(float2 uv)
+{
+  const float2 edge = abs(uv - 0.5f);
+  return 1.0f - smoothstep(0.375f, 0.5f, max(edge.x, edge.y));
+}
+
 [ForceInline]
 public float cloudLightingRadius(CloudArgs args)
 {

@@ -890,14 +890,13 @@ namespace dxvk {
       lowClouds && (clouds.activeCloudLights & 1u),
       lowClouds && (clouds.activeCloudLights & 2u)
     };
-    const bool neuralActive = clouds.activeCloudLights && clouds.multipleScattering > 0;
-    const bool useTensor = neuralActive && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
+    const bool useTensor = clouds.multipleScattering > 0 && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
     const bool cacheResourcesReady =
       (!activeBeam[0] || m_cloudLightOpticalDepth[0].isValid())
       && (!activeBeam[1] || m_cloudLightOpticalDepth[1].isValid())
       && m_cloudLocalLight.isValid()
       && m_cloudDirectLight.isValid()
-      && (!neuralActive || m_cloudNeuralLight.isValid());
+      && m_cloudNeuralLight.isValid();
     if (m_cloudLightingArgsValid && cacheResourcesReady && m_cloudLightingUsesTensor == useTensor
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
       return;
@@ -958,9 +957,9 @@ namespace dxvk {
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudDirectLightShader::getShader());
       ctx->dispatch(extent.width / 8, extent.height / 4, extent.depth / 2);
     }
-    if (neuralActive) {
-      constexpr uint32_t lightingRows = 2 * CLOUD_NEURAL_COLUMN_HEIGHT;
-      constexpr VkExtent3D extent { CLOUD_NEURAL_RESOLUTION, lightingRows * CLOUD_NEURAL_BANDS, CLOUD_NEURAL_RESOLUTION };
+    {
+      constexpr uint32_t lightingRows = (CLOUD_NEURAL_SKY_CHANNEL + 1) * CLOUD_NEURAL_COLUMN_HEIGHT;
+      constexpr VkExtent3D extent { CLOUD_NEURAL_ATLAS_WIDTH, CLOUD_NEURAL_TOTAL_BANDS * CLOUD_NEURAL_COLUMN_HEIGHT, CLOUD_NEURAL_ATLAS_DEPTH };
       if (!m_cloudNeuralLight.isValid()) {
         m_cloudNeuralLight = Resources::createImageResource(resourceContext, "cloud neural scattering", extent,
           VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
@@ -972,8 +971,6 @@ namespace dxvk {
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, useTensor
         ? GenerateCloudNeuralLightTensorShader::getShader() : GenerateCloudNeuralLightShader::getShader());
       ctx->dispatch(extent.width, lightingRows, extent.depth);
-    } else {
-      m_cloudNeuralLight.reset();
     }
     m_previousCloudLightingArgs = lightingKey;
     m_cloudLightingArgsValid = true;

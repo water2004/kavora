@@ -58,6 +58,9 @@ Sampler3D<float2> UnusedVerticalDepth;
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
 Sampler3D<float4>.Handle CloudDirectLight;
 #endif
+#if defined(CLOUD_PREVIEW_HAS_NEURAL_SKY)
+Sampler3D<float4>.Handle CloudNeuralLight;
+#endif
 
 CloudLightingCache previewCloudLighting()
 {
@@ -66,7 +69,12 @@ CloudLightingCache previewCloudLighting()
 #else
   const Sampler3D<float2> local = UnusedVerticalDepth;
 #endif
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, Sampler3D<float4>(Base)
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local,
+#if defined(CLOUD_PREVIEW_HAS_NEURAL_SKY)
+    Sampler3D<float4>(CloudNeuralLight)
+#else
+    Sampler3D<float4>(Base)
+#endif
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
     , Sampler3D<float4>(CloudDirectLight)
 #endif
@@ -281,7 +289,10 @@ void main(uint2 pixel : SV_DispatchThreadID)
       if (Radiance != 0 && extinction > 0)
       {
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
-        const float3 incident = cloudIncidentRadiance(Clouds, position, direction,
+        const float3 incident = cloudIncidentRadiance(Clouds, position,
+#if !defined(CLOUD_PREVIEW_HAS_NEURAL_ANGLE)
+          direction,
+#endif
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
           distance,
 #endif

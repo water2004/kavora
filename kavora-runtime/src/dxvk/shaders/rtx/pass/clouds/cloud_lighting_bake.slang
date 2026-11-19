@@ -113,6 +113,7 @@ public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2DAr
   const CloudDirectLightGrid grid = cloudDirectLightGrid(args, cascade);
   const float3 position = cloudLightPositionAtAltitude(args, grid.position(index.xz), altitude);
   const float aboveDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0).x;
+  const float extinction = cloudExtinction(args, position, weather, base, detail);
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
   float4 beam = 0;
   [unroll]
@@ -123,7 +124,9 @@ public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2DAr
     {
       const float cosine = dot(light.directionToLight, radialUp);
       const float localBeamDepth = cosine > 0 && args.groundAlbedo > 0 ? aboveDepth / cosine : 0;
-      const float2 transmitted = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
+      const float segment = cloudDirectSegment(args, altitude, layer, cosine);
+      const float2 transmitted = traceCloudDirectLight(args, position + segment * light.directionToLight,
+        lightIndex, localBeamDepth - segment * extinction,
         weather, base, detail, cache);
       beam[2 * lightIndex] = transmitted.x;
       beam[2 * lightIndex + 1] = transmitted.y;

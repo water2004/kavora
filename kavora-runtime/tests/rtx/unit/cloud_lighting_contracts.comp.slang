@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/pass/cloud_parameters.slang";
 ConstantBuffer<CloudArgs> Clouds;
 Sampler3D<float>.Handle Sun;
@@ -18,6 +19,45 @@ StructuredBuffer<float4> Origins;
 StructuredBuffer<float4> Directions;
 RWStructuredBuffer<float4> Results;
 uint Count;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void skyResponse(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+    return;
+  const float4 input = Origins[index];
+  const uint knot = uint(Directions[index].x);
+  const float2 response = cloudDiffuseBoundaryResponse(input.xy, knot, input.z, input.w);
+  const float2 cached = cloudNeuralSky(Clouds, Sampler3D<float4>(UnusedLighting), Clouds.groundReference,
+    1000, cloudSkyAngle(Directions[index].y), 0);
+  Results[index] = float4(response, cached);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void neuralAngles(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+    return;
+  const float4 request = Origins[index];
+  const uint light = uint(request.z);
+  const float lightUp = dot(Clouds.lights[light].directionToLight, Clouds.up);
+  const CloudNeuralAngle angle = cloudNeuralAngle(request.x, request.y, lightUp);
+  const float2 knot = cloudNeuralKnot(uint(request.w), lightUp);
+  const float value = cloudNeuralDiffuse(Clouds, Sampler3D<float4>(UnusedLighting),
+    Directions[index].xyz, 1000, angle, 0, light);
+  Results[index] = float4(knot, value, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void neuralNodes(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+    return;
+  Results[index] = float4(cloudNeuralPosition(Clouds, uint2(Origins[index].xy), 0, 1000), 0);
+}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]

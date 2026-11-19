@@ -6,7 +6,7 @@
 
 #include <glm/gtc/packing.hpp>
 
-#include <cloud_neural_sun.bin.h>
+#include <cloud_neural_lighting.bin.h>
 
 #include "dxvk_context.h"
 #include "dxvk_device.h"
@@ -16,10 +16,9 @@
 namespace dxvk {
 
   namespace {
-    constexpr size_t kWeightCount = CLOUD_NEURAL_DIRECTIONS_OFFSET + CLOUD_NEURAL_TABLE_FLOATS;
-    static_assert(sizeof(___cloud_neural_sun) == kWeightCount * sizeof(float));
+    constexpr size_t kWeightCount = CLOUD_NEURAL_WEIGHT_COUNT;
+    static_assert(sizeof(___cloud_neural_lighting) == 2 * kWeightCount * sizeof(float));
     constexpr uint32_t kLayerCount = CLOUD_NEURAL_HIDDEN_LAYERS + 1;
-    static_assert(kLayerCount * 2 * sizeof(uint32_t) <= CLOUD_NEURAL_TENSOR_TABLE_OFFSET);
 
     Rc<DxvkBuffer> uploadWeights(DxvkContext& ctx, const void* data, size_t size) {
       DxvkBufferCreateInfo info = {};
@@ -38,17 +37,16 @@ namespace dxvk {
       if (!convert) {
         return {};
       }
-      std::array<float, kWeightCount> source;
-      std::memcpy(source.data(), ___cloud_neural_sun, sizeof(source));
-      std::vector<uint8_t> packed(CLOUD_NEURAL_TENSOR_TABLE_OFFSET + CLOUD_NEURAL_TABLE_FLOATS * sizeof(float));
-      std::memcpy(packed.data() + CLOUD_NEURAL_TENSOR_TABLE_OFFSET, source.data() + CLOUD_NEURAL_DIRECTIONS_OFFSET,
-        CLOUD_NEURAL_TABLE_FLOATS * sizeof(float));
+      std::array<float, 2 * kWeightCount> source;
+      std::memcpy(source.data(), ___cloud_neural_lighting, sizeof(source));
+      std::vector<uint8_t> packed(2 * kLayerCount * 2 * sizeof(uint32_t));
 
       constexpr uint32_t width = CLOUD_NEURAL_WIDTH;
       std::array<uint16_t, width * width> matrix;
       std::array<uint16_t, width> bias;
       size_t layerStart = 0;
-      for (uint32_t layer = 0; layer < kLayerCount; layer++) {
+      for (uint32_t index = 0; index < 2 * kLayerCount; index++) {
+        const uint32_t layer = index % kLayerCount;
         const bool first = layer == 0;
         const bool last = layer == CLOUD_NEURAL_HIDDEN_LAYERS;
         const uint32_t inputCount = first ? CLOUD_NEURAL_INPUTS : width;
@@ -91,7 +89,7 @@ namespace dxvk {
         }
         std::memcpy(packed.data() + biasOffset, bias.data(), rows * sizeof(uint16_t));
         const std::array<uint32_t, 2> offsets { uint32_t(matrixOffset), uint32_t(biasOffset) };
-        std::memcpy(packed.data() + layer * sizeof(offsets), offsets.data(), sizeof(offsets));
+        std::memcpy(packed.data() + index * sizeof(offsets), offsets.data(), sizeof(offsets));
       }
       return packed;
     }
@@ -111,7 +109,7 @@ namespace dxvk {
       return false;
     }
     m_tensorWeights = uploadWeights(ctx, packed.data(), packed.size());
-    Logger::info(str::format("Cloud neural scattering: FP16 cooperative vectors, ", packed.size(), " bytes of weights and projection data"));
+    Logger::info(str::format("Cloud neural scattering: FP16 cooperative vectors, ", packed.size(), " bytes of packed weights"));
     return true;
   }
 
@@ -120,7 +118,7 @@ namespace dxvk {
       return m_tensorWeights;
     }
     if (!m_scalarWeights.ptr()) {
-      m_scalarWeights = uploadWeights(ctx, ___cloud_neural_sun, sizeof(___cloud_neural_sun));
+      m_scalarWeights = uploadWeights(ctx, ___cloud_neural_lighting, sizeof(___cloud_neural_lighting));
     }
     return m_scalarWeights;
   }

@@ -21,7 +21,11 @@ void directLight(uint index : SV_DispatchThreadID)
   const float4 input = Origins[index];
   const float4 request = Directions[index];
   float weight;
-  const float4 light = sampleCloudDirectLight(Clouds, Sampler3D<float4>(Direct), input.xyz, request.x,
-    input.w, uint(request.y), weight);
-  Results[index] = float4(light[uint(request.z)], weight, 0, 0);
+  const uint layer = uint(request.y);
+  const uint light = uint(request.z) / 2;
+  const CloudDirectLight cache = sampleCloudDirectLight(Clouds, Sampler3D<float4>(Direct), input.xyz, request.x,
+    input.w, layer, weight);
+  const float3 up = normalize(input.xyz - Clouds.groundReference + Clouds.up * Clouds.planetRadius);
+  const float2 beam = cache.at(Clouds, request.x, layer, light, dot(up, Clouds.lights[light].directionToLight), request.w);
+  Results[index] = float4(beam[uint(request.z) & 1], weight, 0, 0);
 }

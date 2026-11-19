@@ -43,7 +43,7 @@ def main():
     vertical_depth = texture(np.zeros((1, 1, 1, 2), np.float32), spy.Format.rg32_float)
     unused_lighting = texture(np.zeros((1, 1, 1, 4), np.float32), spy.Format.rgba32_float)
     programs = {}
-    def run(name, origins, directions, args, sun=None):
+    def run(name, origins, directions, args, sun=None, neural=None):
         origins = np.asarray(origins, np.float32).reshape(-1, 4)
         directions = np.asarray(directions, np.float32).reshape(-1, 4)
         if name not in programs:
@@ -56,12 +56,77 @@ def main():
         if name in ('depths', 'cascadeDepths', 'energyParts', 'reusedGrid'):
             bindings.update(Sun=sun.descriptor_handle_combined, VerticalDepth=vertical_depth.descriptor_handle_combined,
                             UnusedLighting=unused_lighting.descriptor_handle_combined)
+        if neural is not None:
+            bindings['UnusedLighting'] = neural.descriptor_handle_combined
         programs[name].dispatch(thread_count=[len(origins), 1, 1], vars=bindings)
         return output.to_numpy().view(np.float32).reshape(-1, 4)
 
     args = cloud_parameters(baseHeight=800.0, thickness=1500.0, extinction=SIGMA,
         maxDistance=24000.0, highMaxDistance=24000.0, lightingNearDistance=0.0)
     report = {'scope': 'Synthetic homogeneous R32 prefix readback and production grid mapping. Not GPU frame timing or visual acceptance.'}
+    # Distinct values at every angular knot expose band/channel crossings,
+    # including the shared pole values and the second light in the packed atlas.
+    angular_requests, expected = [], []
+    atlas = np.zeros((1, 8 * 16, 1, 4), np.float32)
+    polar = np.linspace(0, 1, 6)
+    mu = 1 - 2 * polar**3
+    for light, light_up in enumerate((0.6, -1.0)):
+        args['lights'][light]['directionToLight'] = [np.sqrt(1 - light_up**2), light_up, 0]
+        spread = np.sqrt((1 - mu**2) * (1 - light_up**2))
+        up = np.stack((mu * light_up - spread, mu * light_up + spread), axis=1)
+        radiance = 1 + light + 0.2 * mu[:, None] + 0.3 * up
+        for band, channels in enumerate(radiance.reshape(3, 4)):
+            atlas[:, (light * 3 + band) * 16:(light * 3 + band + 1) * 16] = channels
+        for slot in range(12):
+            for t in np.linspace(0, 1, 21):
+                cosine = 1 - 2 * t**3
+                for az in (-1, 0, 1):
+                    view_up = cosine * light_up + az * np.sqrt((1 - cosine**2) * (1 - light_up**2))
+                    angular_requests.append([cosine, view_up, light, slot])
+                    endpoints = (1 - az) * 0.5 * radiance[:, 0] + (1 + az) * 0.5 * radiance[:, 1]
+                    expected.append([mu[slot // 2], up.flat[slot], np.interp(t, polar, endpoints)])
+    actual = run('neuralAngles', angular_requests, np.zeros_like(angular_requests), args,
+                 neural=texture(atlas, spy.Format.rgba32_float))
+    np.testing.assert_allclose(actual[:, :3], expected, atol=5e-6, rtol=0)
+    report['neuralAngularCases'] = len(actual)
+    knots = np.arange(4, dtype=np.float32) / 3
+    atlas[:, 96:112] = knots
+    atlas[:, 112:128] = 1 - knots
+    requests = [[up, down, multiple, strength] for up in (0, .25, 3, 40) for down in (0, 1, 20)
+                for multiple in (0, .4, 1.3) for strength in (0, 1)]
+    requests = np.repeat(requests, 4, axis=0)
+    dirs = np.zeros_like(requests)
+    dirs[:, 0] = np.arange(len(dirs)) % 4
+    dirs[:, 1] = np.linspace(-1, 1, len(dirs))
+    actual = run('skyResponse', requests, dirs, args, neural=texture(atlas, spy.Format.rgba32_float))
+    assert (actual[:, :2] >= 0).all() and (actual[:, :2] <= 1.00001).all()
+    np.testing.assert_allclose(actual[requests[:, 3] == 1, :2].sum(axis=1), 1, atol=2e-6)
+    np.testing.assert_allclose(actual[:, 2], .5 * (1 + dirs[:, 1]), atol=2e-6)
+    np.testing.assert_allclose(actual[:, 3], .5 * (1 - dirs[:, 1]), atol=2e-6)
+    report['skyBoundaryCases'] = len(actual)
+    # Bake coordinates and consumer UVs are inverse maps. Exercise all three
+    # tiles, both signs of each axis, the blend zones and the far edge clamp.
+    cells = np.array([[x, z, 0, 0] for z in range(20) for x in range(30)], np.float32)
+    nodes = run('neuralNodes', cells, np.zeros_like(cells), args)
+    for (x, z, _, _), node in zip(cells, nodes):
+        if x < 20:
+            expected_xz = (np.array([x, z]) - 9.5) * 2400
+        else:
+            expected_xz = (np.array([x - 20, z % 10]) - 4.5) * (128 if z < 10 else 512)
+        np.testing.assert_allclose(node[[0, 2]], expected_xz, atol=1e-3, rtol=0)
+    atlas = np.full((20, 128, 30, 4), 0.875, np.float32)
+    atlas[:10, :, 20:] = 0.125
+    atlas[10:, :, 20:] = 0.5
+    positions, expected = [], []
+    for distance, value in ((0, .125), (480, .125), (560, .3125), (640, .5),
+                            (1920, .5), (2240, .6875), (2560, .875), (50000, .875)):
+        for x, z in ((distance, 0), (-distance, 0), (0, distance), (0, -distance)):
+            positions.append([x, 1000, z, 0])
+            expected.append(value)
+    actual = run('neuralAngles', np.zeros_like(positions), positions, args,
+                 neural=texture(atlas, spy.Format.rgba32_float))
+    np.testing.assert_allclose(actual[:, 2], expected, atol=2e-6, rtol=0)
+    report['neuralAtlasCases'] = len(nodes) + len(positions)
     depth_reports = []
     for angle in (-1.0, 0.0, 1.0, 45.0, 90.0):
         a = np.deg2rad(angle)

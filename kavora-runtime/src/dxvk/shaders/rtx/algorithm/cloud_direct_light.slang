@@ -6,6 +6,7 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
+#include "rtx/pass/cloud_noise.h"
 
 public struct CloudDirectLightGrid
 {
@@ -49,12 +50,6 @@ public uint cloudDirectLightHeightOffset(uint layer, uint cascade)
     : CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES + CLOUD_DIRECT_LIGHT_LOW_MIDDLE_SAMPLES;
 }
 
-float cloudDirectLightWeight(float2 uv)
-{
-  const float2 edge = abs(uv - 0.5f);
-  return 1.0f - smoothstep(0.375f, 0.5f, max(edge.x, edge.y));
-}
-
 float4 readCloudDirectLight(Sampler3D<float4> field, float2 uv, float height, uint layer, uint cascade)
 {
   const float count = float(cloudDirectLightHeightSamples(layer, cascade));
@@ -63,9 +58,35 @@ float4 readCloudDirectLight(Sampler3D<float4> field, float2 uv, float height, ui
   return field.SampleLevel(float3(uv.x, y, uv.y), 0);
 }
 
-// Each light stores total and outside-column transmittance. Filter transmission
-// itself so unresolved clear paths still contribute their incoming energy.
-public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, float3 position,
+// Factor T(p) at one body texel toward the light. The grid supplies the
+// incoming beam at that endpoint; the view sample owns extinction before it.
+public float cloudDirectSegment(CloudArgs args, float altitude, uint layer, float cosine)
+{
+  const float bottom = layer == 0 ? args.baseHeight : args.highBaseHeight;
+  const float thickness = layer == 0 ? args.thickness : args.highThickness;
+  const float clearance = cosine >= 0 ? bottom + thickness - altitude : altitude - bottom;
+  const float texel = args.shapeScale * float(kCloudBasePeriod) / float(kCloudBaseResolution);
+  return min(texel, max(clearance, 0.0f) / max(abs(cosine), 1e-8f));
+}
+
+public struct CloudDirectLight
+{
+  // Incoming beam at the segment endpoint and transmission outside the column.
+  float4 transmission;
+
+  public __init(float4 transmission)
+  {
+    this.transmission = transmission;
+  }
+
+  public float2 at(CloudArgs args, float altitude, uint layer, uint light, float cosine, float extinction)
+  {
+    const float2 beam = light == 0 ? transmission.xy : transmission.zw;
+    return float2(beam.x * exp(-extinction * cloudDirectSegment(args, altitude, layer, cosine)), beam.y);
+  }
+};
+
+public CloudDirectLight sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, float3 position,
   float altitude, float distance, uint layer, out float weight)
 {
   weight = 0;
@@ -76,7 +97,7 @@ public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, fl
   const float distanceWeight = smoothstep(4.0f, 8.0f, distance / cellSize);
   if (distanceWeight == 0)
   {
-    return 0;
+    return CloudDirectLight(0);
   }
 
   const float height = (altitude - bottom) / thickness;
@@ -87,7 +108,7 @@ public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, fl
   for (uint cascade = 0; cascade < CLOUD_DIRECT_LIGHT_CASCADES; cascade++)
   {
     const float2 uv = cloudDirectLightGrid(args, cascade).uv(horizontal);
-    const float coverage = cloudDirectLightWeight(uv);
+    const float coverage = cloudLightGridCoverage(uv);
     if (coverage > 0)
     {
       energy += (remaining * coverage) * readCloudDirectLight(field, uv, height, layer, cascade);
@@ -100,5 +121,5 @@ public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, fl
   }
   const float covered = 1.0f - remaining;
   weight = distanceWeight * covered;
-  return energy / max(covered, 1e-6f);
+  return CloudDirectLight(energy / max(covered, 1e-6f));
 }

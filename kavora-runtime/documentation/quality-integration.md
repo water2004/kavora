@@ -51,16 +51,18 @@ The body texture stores the mean and central variance in RG16F. Each mip
 merges its eight child distributions in float32 before quantization.
 The low and high layers have separate view ranges with a short terminal fade.
 The low-cloud shadow integrates the first body tile from the cloud entry with
-a widening cone fitted to the available taps and progressive density mips.
+a widening cone fitted to the available taps. The body mip advances along the
+ray and each tap resolves the edge erosion at its native resolution.
 The shared directional prefix covers the remaining optical path.
 High clouds use uniform sunlight segments within a 3 km interval from shell entry.
-Single scattering uses normalized forward and backward lobes. High-cloud
-directional light includes HanPi's powder response. Sky illumination projects
-the solar optical depth onto the vertical in the low layer and interpolates
-by height in the high layer.
+Direct single scattering uses normalized forward and backward lobes. High-cloud
+directional light includes HanPi's powder response. Diffuse boundary illumination
+uses the sky and ground responses described below.
 
-The shared direct-light field bakes the solar and lunar transmission to points
-in both cloud layers, including the transmission used for ground bounce.
+The shared direct-light field bakes incoming solar and lunar transmission one
+body texel toward the light, clipped at the cloud boundary. Each shading sample
+applies Beer attenuation for that short segment using its own extinction.
+The ground-bounce channel already includes the complete exterior transmission.
 Its three wind-aligned grids blend across their edges and use resolved transport
 close to the camera and beyond the field. The far grid grows with the view
 range while the near and middle grids retain their spatial resolution.
@@ -71,25 +73,34 @@ extinction is integrated along each ray.
 ### Cloud multiple scattering
 
 The local atlas stores optical depth toward the top and bottom of each cloud
-layer in RG16F. The `depth64_angles/model_last.pt` network from
-`Neural_Volumetric_Cloud` supplies multiple scattering for the two cloud layers
-and the active directional beams. It projects 25 directional responses onto nine
-second-order harmonics at each node of a wind-aligned grid. Each layer has
-24×24 horizontal nodes with 12 height samples for cumulus and four for high
-clouds. The bake reuses the direct-light field where it covers a node. The
-sky and ground boundary terms continue to use the two-stream transport model.
+layer in RG16F. The solar network trained on the production density fields with
+the renderer's dual-lobe phase supplies multiple scattering for the two cloud layers
+and the active directional beams. Each wind-aligned node stores the network response
+at six light-relative polar knots. The knots are closer together in the forward lobe.
+Each knot spans the two reachable view elevations, which coincide at the poles.
+The ten distinct predictions occupy three RGBA16F texels. A 30×20 horizontal
+atlas packs 10×10 near and middle grids beside a 20×20 full-range grid.
+The grids follow the wind and blend at their edges. Each has 12 height samples
+for cumulus and four for high clouds. The bake reuses the direct-light field where it covers a node.
+Before interpolating the solar prediction, the bake subtracts its fitted variation
+with density and beam transmission. Each ray restores that term with the density
+and transmission it has already evaluated. This preserves the network output
+at grid nodes and keeps empty neighboring cells from dimming sunlit detail.
+`depth64_sky/model_best.pt` predicts higher-order scattering for a unit upper hemisphere.
+Its four view elevations share two extra atlas bands with the corresponding lower-boundary
+response. The bake combines its prediction with the training renderer's four-band
+single-scattering integral. Conservation for unit-albedo droplets gives the complementary
+ground response at full scattering strength. The ray consumer weights both coefficients
+with the actual sky and ground radiance. The default scattering strength is one.
 
-The runtime embeds [`cloud_neural_sun.bin`](../src/dxvk/rtx_render/clouds/cloud_neural_sun.bin)
-from the demo's selected `sun.npz`
-export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b9`).
+The runtime embeds both networks in [`cloud_neural_lighting.bin`](../src/dxvk/rtx_render/clouds/cloud_neural_lighting.bin).
 The [cloud scattering training workflow](../training/cloud-scattering/README.md)
-generates the reference data, trains the model, and packs the weights. Its packer
-accepts the selected export above to reproduce the embedded float32 payload.
+generates the reference data, trains both models, and packs the selected exports.
 
 `rtx.clouds.neuralTensorCores` defaults to enabled. A Vulkan device with
 the FP16 cooperative-vector compute format uses it to bake the same field.
 The runtime converts the embedded checkpoint to the device's optimal
-inference layout once. The shared features and harmonic projection use
+inference layout once. The shared features and angular interpolation use
 float32 arithmetic. The scalar bake remains available for other devices
 and as a comparison mode.
 

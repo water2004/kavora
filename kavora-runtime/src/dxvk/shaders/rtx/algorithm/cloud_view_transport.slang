@@ -44,7 +44,6 @@ public struct CloudViewTransfer : ICloudViewIntegral
   public float2 moments;
 
   float3 eye;
-  float3 direction;
   uint layer;
   float3 ambient;
   CloudLightingCache lighting;
@@ -53,11 +52,10 @@ public struct CloudViewTransfer : ICloudViewIntegral
   Sampler3D<float4> base;
   Sampler3D<float4> detail;
 
-  public __init(float3 eye, float3 direction, uint layer, float3 ambient, CloudLightingCache lighting,
+  public __init(float3 eye, uint layer, float3 ambient, CloudLightingCache lighting,
     CloudRayPhase phase, Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
   {
     this.eye = eye;
-    this.direction = direction;
     this.layer = layer;
     this.ambient = ambient;
     this.lighting = lighting;
@@ -75,7 +73,7 @@ public struct CloudViewTransfer : ICloudViewIntegral
     const float span = end - begin;
     const float stepTransmission = exp(-sigma * span);
     const float2 cell = cloudCellMoments(sigma, begin, span, cloudMaxViewDistance(args));
-    const float3 source = cloudIncidentRadiance(args, position, direction, length(position - eye), layer, sigma,
+    const float3 source = cloudIncidentRadiance(args, position, length(position - eye), layer, sigma,
       ambient, weather, base, detail, lighting, phase);
     radiance += transmission * (args.albedo * cell.y) * source;
     transmission *= stepTransmission;

@@ -555,7 +555,7 @@ dxvk_embedded_data_files = files([
   '../../external/fonts/NVIDIASans/NVIDIASansMd.ttf',
   '../../external/fonts/NVIDIASans/NVIDIASansBd.ttf',
   '../../external/fonts/RobotoMono/RobotoMonoRg.ttf',
-  'rtx_render/clouds/cloud_neural_sun.bin',
+  'rtx_render/clouds/cloud_neural_lighting.bin',
   'rtx_render/clouds/cloud_weather.bin',
   'rtx_render/clouds/cloud_base.bin',
   'rtx_render/clouds/cloud_erosion.bin'

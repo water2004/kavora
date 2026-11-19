@@ -48,7 +48,7 @@ namespace dxvk {
       args.minValue = 0.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, anisotropy, 0.65f, "Forward scattering asymmetry of cloud droplets.",
       args.minValue = 0.0f, args.maxValue = 0.95f);
-    RTX_OPTION_ARGS("rtx.clouds", float, multipleScattering, 0.8f, "Strength of the higher-order cloud illumination approximation.",
+    RTX_OPTION_ARGS("rtx.clouds", float, multipleScattering, 1.0f, "Fraction of the predicted higher-order cloud scattering to retain.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION("rtx.clouds", bool, neuralTensorCores, true,
       "Use FP16 cooperative-vector inference when supported by the Vulkan device.");

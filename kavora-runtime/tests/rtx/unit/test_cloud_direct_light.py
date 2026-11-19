@@ -45,6 +45,16 @@ def main():
                     requests.append([altitude, layer, channel, 0])
                     expected.append([transmitted, weight])
 
+    args['lights'][0]['directionToLight'] = [0, 1, 0]
+    args['lights'][1]['directionToLight'] = [0, -1, 0]
+    for altitude in (805, 1500, 2295):
+        # Both beams traverse at most one body texel before the shared field.
+        # Outside-column transmission is already complete at the sample.
+        for channel, depth in enumerate((min(32, 2300 - altitude), 0, min(32, altitude - 800), 0)):
+            origins.append([0, altitude, 0, 9000])
+            requests.append([altitude, 0, channel, 0.04])
+            expected.append([values[0, channel] * np.exp(-0.04 * depth), 1])
+
     program = device.load_program('cloud_direct_light_contracts.comp.slang', ['directLight'])
     kernel = device.create_compute_kernel(program)
     output = device.create_buffer(element_count=len(origins), struct_size=16,

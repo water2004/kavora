@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Generate references, train the solar model, and pack Kavora's Vulkan weights."""
+"""Generate references, train both cloud lighting channels, and export the Vulkan weights."""
 
 import argparse
 import hashlib
@@ -11,7 +11,8 @@ import sys
 
 import torch
 
-from pack_weights import pack_weights
+from neural.feature_layout import SKY_FEATURE_NAMES
+from neural.model import MultiScatterMLP
 
 
 def main() -> None:
@@ -30,7 +31,7 @@ def main() -> None:
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         parser.error(f"Choose an empty output directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "PYTHONPATH": str(source)}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, (str(source), os.environ.get("PYTHONPATH"))))}
 
     def run_module(module: str, *arguments: object) -> None:
         command = [sys.executable, "-B", "-m", module, "--device", device, *map(str, arguments)]
@@ -46,8 +47,8 @@ def main() -> None:
                    "--width", width, "--height", height, "--spp", spp,
                    "--max-depth", depth, "--seed", seed, *filters)
 
-    def train(dataset: Path, run: Path, iterations: int, learning_rate: str, eval_every: int,
-              *, initial: Path | None = None) -> None:
+    def train_sky(dataset: Path, run: Path, iterations: int, learning_rate: str, eval_every: int,
+                  *, initial: Path | None = None) -> None:
         steps = 96
         if args.smoke:
             iterations, steps, eval_every = 2, 16, 1
@@ -55,27 +56,28 @@ def main() -> None:
         run_module("neural.train", "--index", dataset / "index.json", "--out", run,
                    "--iterations", iterations, "--steps", steps, "--lr", learning_rate,
                    "--eval-every", eval_every, "--hidden", 96, "--layers", 4, "--out-scale", "0.25",
-                   "--seed", 1234, "--lambda-log", "0.5", *initialize)
+                   "--seed", 1234, "--lambda-log", "0.5", "--channel", "sky", "--sky-boundary", "sky", *initialize)
 
     base_data = output / "reference" / "depth8"
     deep_data = output / "reference" / "depth64"
-    baseline = output / "runs" / "exp4"
-    depth64 = output / "runs" / "depth64_sun"
-    angles = output / "runs" / "depth64_angles"
-    standard_views = "A_s25_t0,A_s25_v0" if args.smoke else ""
-
     print(f"[{profile}] PyTorch {torch.__version__} on {device}. Output: {output}", flush=True)
-    generate(base_data, "train,val", 160, 90, 512, 8, 2024, only=standard_views)
-    generate(base_data, "val", 160, 90, 2048, 8, 2024, only="A_s25_v0")
-    train(base_data, baseline, 7000, "0.002", 500)
-    generate(deep_data, "train,val", 96, 54, 128, 64, 31415, only=standard_views)
-    train(deep_data, depth64, 2000, "0.0007", 200, initial=baseline / "model_best.pt")
-    generate(deep_data, "low_sun_train", 96, 54, 128, 64, 60923,
-             only="A_s05_t0" if args.smoke else "")
-    train(deep_data, angles, 1800, "0.0005", 200, initial=depth64 / "model_best.pt")
-
-    binary = output / "cloud_neural_sun.bin"
-    pack_weights(angles / "model_numpy.npz", binary)
+    sky_base = output / "runs" / "exp4_sky"
+    sky_deep = output / "runs" / "depth64_sky"
+    sky_views = "A_s25_t0_sky,A_s25_v0_sky" if args.smoke else ""
+    generate(base_data, "train_sky,val_sky", 160, 90, 512, 8, 2024, only=sky_views)
+    generate(deep_data, "train_sky,val_sky", 96, 54, 128, 64, 31415, only=sky_views)
+    train_sky(base_data, sky_base, 7000, "0.002", 500)
+    train_sky(deep_data, sky_deep, 2000, "0.0007", 200, initial=sky_base / "model_best.pt")
+    sky_model, _ = MultiScatterMLP.load(sky_deep / "model_best.pt")
+    sky_export = sky_deep / "model_best_numpy.npz"
+    sky_model.export_numpy(sky_export, SKY_FEATURE_NAMES)
+    fields, labels = output / "hanpi/fields", output / "hanpi/labels"
+    smoke_flags = ["--smoke"] if args.smoke else []
+    for script, arguments in (("capture_fields", [fields]), ("transport", [fields, labels]),
+                              ("fit_solar", [labels, sky_export, output, "--device", device])):
+        subprocess.run([sys.executable, "-B", str(source / "hanpi" / (script + ".py")),
+                        *map(str, arguments), *smoke_flags], cwd=output, env=env, check=True)
+    binary = output / "cloud_neural_lighting.bin"
     print(f"[export] {binary} ({binary.stat().st_size} bytes)")
     print(f"[sha256] {hashlib.sha256(binary.read_bytes()).hexdigest()}")
 

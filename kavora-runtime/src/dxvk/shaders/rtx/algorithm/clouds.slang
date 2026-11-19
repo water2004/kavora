@@ -8,6 +8,7 @@ import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
+import "rtx/algorithm/cloud_source_interpolation.slang";
 #include "rtx/pass/cloud_noise.h"
 #include "rtx/utility/cloud_noise.slangh"
 
@@ -419,10 +420,12 @@ float2 integrateLowCloudShadow(CloudArgs args, float3 origin, float3 direction, 
     const float span = end - begin;
     const float3 position = origin + direction * (begin + 0.5f * span);
     const float progression = 3.0f * float(sample) / float(max(steps - 1u, 1u));
-    const float footprint = min(0.5f * span, exp2(progression) * baseTexel);
+    // HanPi widens the body filter along the light ray but resolves erosion
+    // at the quadrature point. Step length is not a footprint on the erosion map.
+    const float bodyMip = min(progression, log2(max(1.0f, 0.5f * span / baseTexel)));
     const float radialSpan = cloudHeightFootprint(args, position, direction, span);
     const float extinction = args.extinction * cloudDensity(cloudDensityParameters(args), position, weather, base,
-      detail, footprint, 0, radialSpan);
+      detail, 0, 0, radialSpan, false, bodyMip);
     const float local = clamp(localRange - begin, 0.0f, span);
     depth += extinction * float2(local, span - local);
     if (depth.x + depth.y >= opticalDepthLimit)
@@ -625,7 +628,7 @@ public float cloudVisibilityTransmittance(CloudArgs args, float3 origin, float3 
   return exp(-opticalDepth.total);
 }
 
-float cloudPhase(float cosine, float g)
+public float cloudPhase(float cosine, float g)
 {
   const float denominator = max(1.0f + g * g - 2.0f * g * cosine, 0.001f);
   return (1.0f - g * g) / (4.0f * 3.14159265359f * denominator * sqrt(denominator));
@@ -637,17 +640,24 @@ public struct CloudRayPhase
 {
   public float2 phase;
   public float2 highPowderWeight;
+  public CloudNeuralAngle neuralAngles[2];
+  public float2 viewLightCosine;
+  public CloudNeuralAngle skyAngle;
 };
 
 public CloudRayPhase createCloudRayPhase(CloudArgs args, float3 direction)
 {
   CloudRayPhase result = {};
+  result.skyAngle = cloudSkyAngle(dot(direction, args.up));
   [unroll]
   for (uint light = 0; light < 2; light++)
   {
     if (cloudLightHasEnergy(args.lights[light]))
     {
       const float cosine = dot(direction, args.lights[light].directionToLight);
+      result.viewLightCosine[light] = cosine;
+      result.neuralAngles[light] = cloudNeuralAngle(cosine, dot(direction, args.up),
+        dot(args.lights[light].directionToLight, args.up));
       // HanPi uses equal forward and backward lobes. Normalize their sum
       // because Kavora supplies irradiance in linear radiometric units.
       result.phase[light] = 0.5f * (cloudPhase(cosine, args.anisotropy) + cloudPhase(cosine, -0.25f));
@@ -689,11 +699,11 @@ public float2 traceCloudDirectLight(CloudArgs args, float3 position, uint lightI
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
 {
   const float opticalDepth = cloudLightOpticalDepth(args, position, args.lights[lightIndex].directionToLight, kFloatMax,
-    weather, base, detail, cache, 0, localBeamDepth - log(kOpaqueCloudTransmittance), int(lightIndex)).total;
+    weather, base, detail, cache, 0, max(localBeamDepth, 0.0f) - log(kOpaqueCloudTransmittance), int(lightIndex)).total;
   return exp(-float2(opticalDepth, max(opticalDepth - localBeamDepth, 0.0f)));
 }
 
-public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 direction, float distance,
+public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float distance,
   uint layer, float sigma, float3 ambientRadiance,
   Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
@@ -705,10 +715,9 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;
   const float powder = layer == 1 ? hanPiHighPowder(sigma / args.highExtinction) : 1.0f;
   float3 groundBeamIrradianceOverPi = 0;
-  float overheadTransmission = exp(-verticalDepth.x);
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
   float cacheWeight;
-  const float4 cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
+  const CloudDirectLight cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
   for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
   {
     const CloudLight light = args.lights[lightIndex];
@@ -719,7 +728,7 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
     }
     const float lightCosine = dot(light.directionToLight, radialUp);
     const bool groundReceivesBeam = lightCosine > 0 && args.groundAlbedo > 0;
-    float2 beam = lightIndex == 0 ? cachedBeam.xy : cachedBeam.zw;
+    float2 beam = cachedBeam.at(args, altitude, layer, lightIndex, lightCosine, sigma);
     if (cacheWeight < 1)
     {
       const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
@@ -727,17 +736,15 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
         weatherSampler, baseSampler, detailSampler, cache);
       beam = lerp(resolved, beam, cacheWeight);
     }
-    if (layer == 0 && lightIndex == 0)
-    {
-      // HanPi projects the solar optical depth onto the vertical. The shared
-      // beam supplies that depth without tracing an ambient ray per sample.
-      overheadTransmission = pow(beam.x, max(lightCosine, 0.05f));
-    }
     const float singleScattering = rayPhase.phase[lightIndex] * beam.x
       * lerp(1.0f, powder, rayPhase.highPowderWeight[lightIndex]);
-    const float diffuse = args.multipleScattering > 0 && (args.activeCloudLights & (1u << lightIndex)) != 0
-      ? cloudNeuralDiffuse(args, cache.neural, position, altitude, cloudNeuralFrame(args, direction), layer, lightIndex)
-      : 0.0f;
+    float diffuse = 0;
+    if (args.multipleScattering > 0 && (args.activeCloudLights & (1u << lightIndex)) != 0)
+    {
+      const float residual = cloudNeuralDiffuse(args, cache.neural, position, altitude, rayPhase.neuralAngles[lightIndex], layer, lightIndex);
+      const float density = sigma / (layer == 0 ? args.extinction : args.highExtinction);
+      diffuse = max(0.0f, residual + cloudSourceVariation(layer, density, beam.x, rayPhase.viewLightCosine[lightIndex]));
+    }
     source += irradiance * (singleScattering + args.multipleScattering * diffuse);
     if (groundReceivesBeam)
     {
@@ -753,11 +760,6 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
   const float3 upperRadiance = 2.0f * ambientRadiance;
   const float3 lowerRadiance = cloudGroundBoundaryRadiance(upperRadiance, groundBeamIrradianceOverPi,
     totalVerticalDepth, meanCosine, args.groundAlbedo);
-  const float bottom = cloudLayerBase(args, layer);
-  const float height = saturate((altitude - bottom) / (cloudLayerTop(args, layer) - bottom));
-  // HanPi lights high cloud by height; low cloud receives occluded sky
-  // illumination and a downward term based on its height above the base.
-  const float3 ambient = layer == 1 ? lerp(lowerRadiance, upperRadiance, height)
-    : upperRadiance * overheadTransmission + lowerRadiance * (1.0f - height);
-  return source + ambient;
+  const float2 boundary = cloudNeuralSky(args, cache.neural, position, altitude, rayPhase.skyAngle, layer);
+  return source + upperRadiance * boundary.x + lowerRadiance * boundary.y;
 }

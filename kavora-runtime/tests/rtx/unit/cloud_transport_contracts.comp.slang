@@ -18,6 +18,24 @@ Sampler3D<float>.Handle CloudMoonDepth;
 Sampler3D<float2>.Handle VerticalDepth;
 uint Count;
 
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void neuralDensities(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+    return;
+  const float4 point = Inputs[index];
+  float4 features;
+  [unroll]
+  for (uint level = 0; level < 4; level++)
+  {
+    const float footprint = level == 0 ? 0.0f : float(1 << level) * 62.5f;
+    features[level] = cloudDensity(cloudDensityParameters(Clouds), point.xyz, Sampler2DArray<float4>(Weather),
+      Sampler3D<float4>(Base), Sampler3D<float4>(Detail), footprint, uint(point.w), 0.5f * footprint);
+  }
+  Results[index] = features;
+}
+
 CloudLightingCache lightingCache()
 {
   const Sampler3D<float4> unused = Sampler3D<float4>(Base);
