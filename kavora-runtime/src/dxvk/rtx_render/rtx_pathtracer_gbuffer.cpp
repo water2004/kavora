@@ -42,6 +42,8 @@
 #include <rtx_shaders/gbuffer_primary_trace.h>
 #include <rtx_shaders/gbuffer_primary_atmosphere.h>
 #include <rtx_shaders/gbuffer_atmosphere_columns.h>
+#include <rtx_shaders/gbuffer_cloud_columns.h>
+#include <rtx_shaders/gbuffer_haze_columns.h>
 #include <rtx_shaders/gbuffer_primary_queue_args.h>
 #include <rtx_shaders/gbuffer_atmosphere.h>
 #include <rtx_shaders/gbuffer_psr_queue_args.h>
@@ -57,9 +59,14 @@ namespace dxvk {
 
   // Defined within an unnamed namespace to ensure unique definition across binary
   namespace {
-    uint32_t atmosphereColumnStride(const VolumeArgs& volume) {
+    uint32_t hazeColumnStride(const VolumeArgs& volume) {
       return volume.fogIntegrationMode == 1
         ? volume.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
+    }
+
+    uint32_t atmosphereColumnStride(const VolumeArgs& volume) {
+      const uint32_t hazeStride = hazeColumnStride(volume);
+      return volume.clouds.enable ? std::min(hazeStride, volume.cloudIntegrationPixelStride) : hazeStride;
     }
 
     class GbufferRayGenShader : public ManagedShader {
@@ -360,6 +367,14 @@ namespace dxvk {
       return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_atmosphere_columns);
     }
 
+    Rc<DxvkShader> getGbufferHazeColumnsComputeShader() {
+      return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_haze_columns);
+    }
+
+    Rc<DxvkShader> getGbufferCloudColumnsComputeShader() {
+      return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_cloud_columns);
+    }
+
     Rc<DxvkShader> getGbufferPrimaryAtmosphereComputeShader() {
       return GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_primary_atmosphere);
     }
@@ -530,6 +545,8 @@ namespace dxvk {
 
     getGbufferPrimaryTraceComputeShader();
     getGbufferAtmosphereColumnsComputeShader();
+    getGbufferHazeColumnsComputeShader();
+    getGbufferCloudColumnsComputeShader();
     getGbufferPrimaryAtmosphereComputeShader();
     GET_SHADER_VARIANT(VK_SHADER_STAGE_COMPUTE_BIT, GbufferRayGenShader, gbuffer_primary_queue_args);
     getGbufferPSRPrepareComputeShader();
@@ -542,8 +559,7 @@ namespace dxvk {
     ctx->setFramePassStage(RtxFramePassStage::GBufferPrimaryRays);
     ctx->bindCommonRayTracingResources();
     const VkExtent3D workgroups = util::computeBlockCount(rayDims, VkExtent3D { 16, 8, 1 });
-    ensurePathBuffers(rayDims, volume.enable || volume.clouds.enable || volume.air.enable,
-      atmosphereColumnStride(volume));
+    ensurePathBuffers(rayDims, volume);
     ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE,
       DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
     ScopedGpuProfileZone(ctx, "Primary Traversal");
@@ -551,8 +567,7 @@ namespace dxvk {
     ctx->dispatch(workgroups.width, workgroups.height, workgroups.depth);
   }
 
-  void DxvkPathtracerGbuffer::ensurePathBuffers(const VkExtent3D& rayDims, bool atmosphereCache,
-    uint32_t atmosphereStride) {
+  void DxvkPathtracerGbuffer::ensurePathBuffers(const VkExtent3D& rayDims, const VolumeArgs& volume) {
     static_assert(GBUFFER_PRIMARY_INTERSECTION_WORDS == 5);
     static_assert(GBUFFER_PRIMARY_ATMOSPHERE_WORDS == 7);
     static_assert(GBUFFER_PRIMARY_TAIL_WORDS == 7);
@@ -593,10 +608,15 @@ namespace dxvk {
       buffer = device()->createBuffer(info, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         DxvkMemoryStats::Category::RTXBuffer, name);
     };
-    const VkDeviceSize columns = VkDeviceSize(util::ceilDivide(rayDims.width, atmosphereStride))
-      * util::ceilDivide(rayDims.height, atmosphereStride);
-    const VkDeviceSize atmosphereWords = atmosphereCache
-      ? columns * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS : 0;
+    const auto columnCount = [&](uint32_t stride) {
+      return VkDeviceSize(util::ceilDivide(rayDims.width, stride)) * util::ceilDivide(rayDims.height, stride);
+    };
+    const uint32_t atmosphereStride = atmosphereColumnStride(volume);
+    const uint32_t hazeStride = hazeColumnStride(volume);
+    const VkDeviceSize hazeWords = atmosphereStride < hazeStride
+      ? columnCount(hazeStride) * GBUFFER_HAZE_COLUMN_ENDPOINTS * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS : 0;
+    const VkDeviceSize atmosphereWords = volume.enable || volume.clouds.enable || volume.air.enable
+      ? columnCount(atmosphereStride) * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS + hazeWords : 0;
     const VkDeviceSize primaryWords = pixels * (GBUFFER_PRIMARY_INTERSECTION_WORDS + GBUFFER_PRIMARY_ATMOSPHERE_WORDS)
       + std::max(pixels * GBUFFER_PRIMARY_TAIL_WORDS, atmosphereWords);
     ensureBuffer(m_pathStorage, std::max(pixels * GBUFFER_PSR_STATE_WORDS, primaryWords) * sizeof(uint32_t),
@@ -910,21 +930,34 @@ namespace dxvk {
       }
     };
     const uint32_t atmosphereStride = atmosphereColumnStride(volume);
+    const uint32_t hazeStride = hazeColumnStride(volume);
     const bool hasAtmosphere = volume.enable || volume.clouds.enable || volume.air.enable;
-    ensurePathBuffers(rayDims, hasAtmosphere, atmosphereStride);
+    ensurePathBuffers(rayDims, volume);
     ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE, DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
     if (hasAtmosphere) {
       // Primary consumes the atmospheric transfers and motion guides before PSR reuses the storage.
       ScopedGpuCommandStreamZone(ctx, "Primary Atmosphere");
-      {
-        ScopedGpuProfileZone(ctx, "Integrate Columns");
-        const VkExtent3D columnExtent = { util::ceilDivide(rayDims.width, atmosphereStride),
-          util::ceilDivide(rayDims.height, atmosphereStride), 1 };
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, getGbufferAtmosphereColumnsComputeShader());
+      const auto dispatchColumns = [&](uint32_t stride, const Rc<DxvkShader>& shader) {
+        const VkExtent3D columnExtent = { util::ceilDivide(rayDims.width, stride),
+          util::ceilDivide(rayDims.height, stride), 1 };
+        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, shader);
         dispatchBands(columnExtent, [&](VkExtent3D extent) {
           const auto groups = util::computeBlockCount(extent, VkExtent3D { 8, 8, 1 });
           ctx->dispatch(groups.width, groups.height, groups.depth);
         });
+      };
+      if (atmosphereStride < hazeStride) {
+        {
+          ScopedGpuProfileZone(ctx, "Integrate Haze Columns");
+          dispatchColumns(hazeStride, getGbufferHazeColumnsComputeShader());
+        }
+        {
+          ScopedGpuProfileZone(ctx, "Integrate Cloud Columns");
+          dispatchColumns(atmosphereStride, getGbufferCloudColumnsComputeShader());
+        }
+      } else {
+        ScopedGpuProfileZone(ctx, "Integrate Atmosphere Columns");
+        dispatchColumns(atmosphereStride, getGbufferAtmosphereColumnsComputeShader());
       }
       {
         ScopedGpuProfileZone(ctx, "Reconstruct Atmosphere");

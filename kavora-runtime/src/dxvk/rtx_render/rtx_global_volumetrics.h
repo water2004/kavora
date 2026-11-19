@@ -79,6 +79,9 @@ namespace dxvk {
       args.minValue = 8u, args.maxValue = 512u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, highSteps, 20u, "Maximum view integration cells per high-cloud interval. The view angle and projected texture footprint set the actual budget.",
       args.minValue = 1u, args.maxValue = 160u);
+    RTX_OPTION_ARGS("rtx.clouds", uint32_t, primaryPixelStride, 6u,
+      "Maximum spacing between primary cloud integration columns, in render pixels.",
+      args.minValue = 2u, args.maxValue = 16u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud self-shadow quality. Controls shared optical-depth volume resolution and bounded local integration.",
       args.minValue = 1u, args.maxValue = 16u);
   };
@@ -133,10 +136,10 @@ namespace dxvk {
     static void onFroxelResourceOptionsChanged(DxvkDevice* device);
 
     RTX_OPTION_ARGS("rtx.volumetrics", uint32_t, fogIntegrationMode, 0,
-      "Primary atmosphere sampling: 0 shares one integration column per 2x2 pixel block, 1 uses the configured column width. Both resolve at the scene depth.",
+      "Primary fog and clear air sampling: 0 uses two-pixel columns, 1 uses the configured column width. Both resolve at scene depth.",
       args.minValue = 0u, args.maxValue = 1u);
     RTX_OPTION_ARGS("rtx.volumetrics", uint32_t, fogIntegrationPixelStride, 8,
-      "Pixel width of a configurable atmosphere column. Smaller spacing preserves narrower light beams and cloud edges at additional cost.",
+      "Pixel width of a configurable fog and clear air column. Smaller spacing preserves narrower light beams at additional cost.",
       args.minValue = 2u, args.maxValue = 32u);
 
     // Froxel Radiance Cache/Volumetric Lighting ptions

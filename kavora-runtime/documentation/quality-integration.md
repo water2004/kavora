@@ -7,11 +7,17 @@ reconstruction and frame generation have separate owners.
 
 ## Fog lighting integration
 
-`rtx.volumetrics.fogIntegrationMode` uses two-pixel primary columns (`0`)
-or the width specified by `rtx.volumetrics.fogIntegrationPixelStride` (`1`).
-The configurable width accepts 2 to 32 pixels. A two-pixel column records
-transfer at every endpoint in its 2×2 block. Wider columns retain a bounded
-set of depth anchors with a separate sky endpoint when present.
+`rtx.volumetrics.fogIntegrationMode` uses two-pixel fog and clear-air columns
+(`0`) or the width specified by `rtx.volumetrics.fogIntegrationPixelStride`
+(`1`). `rtx.clouds.primaryPixelStride` caps the column width for clouds.
+When clouds use a finer grid, the haze pass stores radiance and transmittance
+from the camera to a set of depth anchors on the fog grid. Cloud integration
+uses the cached transfer between cloud depths to compose the layers in ray order.
+Equal grids share one integration pass.
+
+A two-pixel column records transfer at every endpoint in its 2×2 block.
+Wider columns retain a bounded set of depth anchors with a separate sky
+endpoint when present.
 
 The full-resolution pass reconstructs the recorded scattering, transmittance
 and cloud distance. Neighboring columns contribute where the scene depths

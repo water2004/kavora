@@ -790,6 +790,7 @@ namespace dxvk {
     volumeArgs.volumetricFogAnisotropy = anisotropy();
     volumeArgs.fogIntegrationMode = std::min(fogIntegrationMode(), 1u);
     volumeArgs.fogIntegrationPixelStride = std::clamp(fogIntegrationPixelStride(), 2u, 32u);
+    volumeArgs.cloudIntegrationPixelStride = std::clamp(CloudOptions::primaryPixelStride(), 2u, 16u);
 
     volumeArgs.enableNoiseFieldDensity = enableHeterogeneousFog();
     volumeArgs.noiseFieldSubStepSize = noiseFieldSubStepSizeMeters() * RtxOptions::getMeterToWorldUnitScale();

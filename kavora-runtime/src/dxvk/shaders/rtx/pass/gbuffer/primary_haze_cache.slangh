@@ -1,0 +1,111 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
+#include "rtx/utility/volume_integral.h"
+import "rtx/algorithm/air_medium.slang";
+
+uint hazeColumnOffset(uint2 column)
+{
+  const uint2 atmosphere = atmosphereColumnExtent();
+  const uint2 haze = columnExtent(hazeColumnStride());
+  const uint atmosphereWords = atmosphere.x * atmosphere.y
+    * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS;
+  return primaryTailBase(0) + atmosphereWords +
+    (column.y * haze.x + column.x) * GBUFFER_HAZE_COLUMN_ENDPOINTS * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS;
+}
+
+void storeHazePrefix(uint offset, float distance, AtmosphereSegment prefix)
+{
+  PathStorage[offset] = asuint(distance);
+  PathStorage[offset + 1] = asuint(prefix.radiance.x);
+  PathStorage[offset + 2] = asuint(prefix.radiance.y);
+  PathStorage[offset + 3] = asuint(prefix.radiance.z);
+  PathStorage[offset + 4] = asuint(prefix.transmittance.x);
+  PathStorage[offset + 5] = asuint(prefix.transmittance.y);
+  PathStorage[offset + 6] = asuint(prefix.transmittance.z);
+}
+
+AtmosphereSegment loadHazePrefix(uint offset)
+{
+  AtmosphereSegment prefix;
+  prefix.radiance = asfloat(uint3(PathStorage[offset + 1], PathStorage[offset + 2], PathStorage[offset + 3]));
+  prefix.transmittance = asfloat(uint3(PathStorage[offset + 4], PathStorage[offset + 5], PathStorage[offset + 6]));
+  prefix.cloudMoments = 0;
+  return prefix;
+}
+
+AtmosphereSegment sampleHazePrefix(uint offset, float distance, float3 mediumExtinction)
+{
+  uint lo = 0;
+  uint hi = GBUFFER_HAZE_COLUMN_ENDPOINTS - 1;
+  [unroll]
+  for (uint step = 0; step < 3; ++step)
+  {
+    const uint mid = (lo + hi) >> 1;
+    if (distance > asfloat(PathStorage[offset + mid * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS]))
+      lo = min(mid + 1, hi);
+    else
+      hi = mid;
+  }
+  const uint endOffset = offset + lo * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS;
+  const float end = asfloat(PathStorage[endOffset]);
+  AtmosphereSegment to = loadHazePrefix(endOffset);
+  if (distance >= end)
+  {
+    to.transmittance *= volumeTransmittance(mediumExtinction, distance - end);
+    return to;
+  }
+  const uint beginOffset = endOffset - GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS;
+  const float begin = lo > 0 ? asfloat(PathStorage[beginOffset]) : 0.0f;
+  const AtmosphereSegment from = lo > 0 ? loadHazePrefix(beginOffset) : emptyAtmosphereSegment();
+  return interpolateAtmospherePrefix(from, to, saturate((distance - begin) / max(end - begin, 1e-6f)));
+}
+
+struct CachedAtmosphereHaze : IAtmosphereHaze
+{
+  uint2 baseColumn;
+  uint2 lastColumn;
+  float2 fraction;
+
+  __init(float2 pixel)
+  {
+    lastColumn = columnExtent(hazeColumnStride()) - 1;
+    const float2 index = clamp(pixel / float(hazeColumnStride()) - 0.5f, 0.0f, float2(lastColumn));
+    baseColumn = uint2(index);
+    fraction = frac(index);
+  }
+
+  AtmosphereSegment prefix(float distance, float3 mediumExtinction)
+  {
+    AtmosphereSegment result = {};
+    [unroll]
+    for (uint tap = 0; tap < 4; ++tap)
+    {
+      const uint2 delta = uint2(tap & 1, tap >> 1);
+      const float2 weights = select(delta == 0, 1.0f - fraction, fraction);
+      const float weight = weights.x * weights.y;
+      if (weight > 0)
+      {
+        const uint offset = hazeColumnOffset(min(baseColumn + delta, lastColumn));
+        const AtmosphereSegment sample = sampleHazePrefix(offset, distance, mediumExtinction);
+        result.radiance += weight * sample.radiance;
+        result.transmittance += weight * sample.transmittance;
+      }
+    }
+    return result;
+  }
+
+  AtmosphereSegment range(VolumeArgs args, AtmosphereRay ray, float begin, float end, AirTables airTables)
+  {
+    AtmosphereSegment result = prefix(end, ray.mediumExtinction);
+    if (begin > 0)
+    {
+      const AtmosphereSegment start = prefix(begin, ray.mediumExtinction);
+      const float3 invT = rcp(max(start.transmittance, 1e-30f));
+      result.radiance = max(result.radiance - start.radiance, 0.0f) * invT;
+      result.transmittance = saturate(result.transmittance * invT);
+    }
+    return result;
+  }
+};

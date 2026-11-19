@@ -5,18 +5,40 @@
 #include "rtx/pass/gbuffer/primary_atmosphere.slangh"
 #include "rtx/utility/math.slangh"
 
-uint atmosphereColumnStride()
+uint hazeColumnStride()
 {
   return cb.volumeArgs.fogIntegrationMode == 1
     ? cb.volumeArgs.fogIntegrationPixelStride : GBUFFER_ATMOSPHERE_COLUMN_STRIDE;
 }
 
-uint2 atmosphereColumnExtent()
+uint atmosphereColumnStride()
 {
-  const uint stride = atmosphereColumnStride();
+  return cb.volumeArgs.clouds.enable
+    ? min(hazeColumnStride(), cb.volumeArgs.cloudIntegrationPixelStride)
+    : hazeColumnStride();
+}
+
+uint2 columnExtent(uint stride)
+{
   return (cb.camera.resolution + stride - 1) / stride;
 }
 
+uint2 atmosphereColumnExtent()
+{
+  return columnExtent(atmosphereColumnStride());
+}
+
+AtmosphereSegment interpolateAtmospherePrefix(AtmosphereSegment from, AtmosphereSegment to, float fraction)
+{
+  const float3 endT = saturate(to.transmittance / max(from.transmittance, 1e-30f));
+  const float3 partialT = pow(max(endT, 1e-30f), fraction);
+  const float3 weight = select(endT < 0.9999f, (1.0f - partialT) / max(1.0f - endT, 1e-30f), fraction.xxx);
+  AtmosphereSegment transfer;
+  transfer.radiance = lerp(from.radiance, to.radiance, weight);
+  transfer.transmittance = from.transmittance * partialT;
+  transfer.cloudMoments = lerp(from.cloudMoments, to.cloudMoments, fraction);
+  return transfer;
+}
 // The endpoint record is private to this pixel until reconstruction overwrites it.
 void storeAtmosphereEndpoint(uint2 pixel, float distance)
 {
@@ -74,12 +96,5 @@ AtmosphereSegment sampleAtmosphereColumn(uint2 column, float4 depths, float dist
     return depths[below] == floatMax ? from : to;
   }
   const float fraction = saturate((distance - begin) / max(depths[below] - begin, 1e-6f));
-  const float3 endT = saturate(to.transmittance / max(from.transmittance, 1e-30f));
-  const float3 partialT = pow(max(endT, 1e-30f), fraction);
-  const float3 weight = select(endT < 0.9999f, (1.0f - partialT) / max(1.0f - endT, 1e-30f), fraction.xxx);
-  AtmosphereSegment transfer;
-  transfer.radiance = lerp(from.radiance, to.radiance, weight);
-  transfer.transmittance = from.transmittance * partialT;
-  transfer.cloudMoments = lerp(from.cloudMoments, to.cloudMoments, fraction);
-  return transfer;
+  return interpolateAtmospherePrefix(from, to, fraction);
 }

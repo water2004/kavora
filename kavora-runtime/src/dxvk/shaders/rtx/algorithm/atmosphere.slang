@@ -360,8 +360,27 @@ AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosp
   return result;
 }
 
-public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
-  FogRadiance fogRadiance,
+public interface IAtmosphereHaze
+{
+  AtmosphereSegment range(VolumeArgs args, AtmosphereRay ray, float begin, float end, AirTables airTables);
+};
+
+public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance> : IAtmosphereHaze
+{
+  FogRadiance fogRadiance;
+
+  public __init(FogRadiance fogRadiance)
+  {
+    this.fogRadiance = fogRadiance;
+  }
+
+  public AtmosphereSegment range(VolumeArgs args, AtmosphereRay ray, float begin, float end, AirTables airTables)
+  {
+    return integrateHazeRange<Fog, FogRadiance>(args, fogRadiance, ray, begin, end, airTables);
+  }
+};
+
+public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze>(VolumeArgs args, Haze haze,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
@@ -408,8 +427,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       depth = clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end);
       clouds = { cloud.radiance, cloud.transmission.xxx, cloud.moments };
     }
-    result = composeAtmosphereSegments(result,
-      integrateHazeRange<Fog, FogRadiance>(args, fogRadiance, ray, previous, depth, airTables));
+    result = composeAtmosphereSegments(result, haze.range(args, ray, previous, depth, airTables));
     result = composeAtmosphereSegments(result, clouds);
     if (all(result.transmittance < kOpaqueCloudTransmittance))
     {
@@ -418,6 +436,15 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
     previous = depth;
   }
   return result;
+}
+
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+  FogRadiance fogRadiance,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
+  AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
+{
+  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance>(fogRadiance),
+    weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 
 public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeArgs args,
