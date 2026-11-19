@@ -100,11 +100,14 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
                 && client.gui.screen() == null && client.gui.overlay() == null && KavoraMod.isRtxEnabled();
     }
 
-    /** Captures the finished scene at the point where Minecraft starts drawing the 2D GUI. */
-    public static void captureHudless(GpuTexture color) {
+    public static boolean needsHudlessColor() {
         NativeVulkanSurface surface = active;
-        if (surface == null || !surface.frame.frameGenerationEnabled || !allowFrameGeneration()) return;
-        surface.recordHudless(color);
+        return surface != null && surface.frame.frameGenerationEnabled && allowFrameGeneration();
+    }
+
+    /** Captures the scene and its camera overlays before drawing the HUD. */
+    public static void captureHudless(GpuTexture color) {
+        if (needsHudlessColor()) active.recordHudless(color);
     }
 
     private void recordHudless(GpuTexture color) {

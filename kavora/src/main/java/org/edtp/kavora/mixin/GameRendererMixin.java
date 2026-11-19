@@ -18,9 +18,7 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.state.level.FirstPersonHandsAndItemsRenderState;
 import net.minecraft.client.renderer.state.level.PlayerRenderState;
-import com.mojang.blaze3d.pipeline.RenderTarget;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -29,8 +27,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** Captures the extracted first-person model and composites before screen effects and GUI. */
 @Mixin(GameRenderer.class)
 public abstract class GameRendererMixin {
-    @Shadow public abstract RenderTarget mainRenderTarget();
-
     private ProfileScope kavora$guiScope;
 
     @Inject(method = "renderLevel", at = @At("HEAD"))
@@ -76,10 +72,6 @@ public abstract class GameRendererMixin {
     @Inject(method = "render", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/client/gui/render/GuiRenderer;render()V"))
     private void kavora$beginGuiScope(CallbackInfo ci) {
-        KavoraRenderer renderer = KavoraMod.renderer;
-        if (renderer != null && renderer.isInitialized()) {
-            renderer.captureHudless(mainRenderTarget().getColorTexture());
-        }
         if (ProfileScope.isJavaScopeEnabled()) {
             kavora$guiScope = ProfileScope.begin("GameRenderer.render.gui")
                     .plotOnClose("Java.GameRenderer.render.gui.ms");
