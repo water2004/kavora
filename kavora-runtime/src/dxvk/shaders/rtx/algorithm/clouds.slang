@@ -158,18 +158,16 @@ public float cloudDensityFootprint(CloudArgs args, float3 direction, float span,
 }
 
 [ForceInline]
-public float cloudViewExtinction(CloudArgs args, float3 position, float distance,
-  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, float footprint = 0,
-  float heightFootprint = 0, bool probe = false, float bodyMipOffset = 0.0f)
+public float cloudViewExtinction(CloudArgs args, float3 position, float distance, uint layer,
+  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
+  float footprint, float heightFootprint)
 {
-  const CloudDensityArgs densityArgs = cloudDensityParameters(args);
-  const uint layer = cloudLayerAt(args, position);
   const float maxDistance = cloudLayerMaxDistance(args, layer);
   const float fadeLength = min(2.0f * args.shapeScale, 0.25f * maxDistance);
   const float visibility = smoothstep(0.0f, fadeLength, maxDistance - distance);
   const float extinction = layer == 0 ? args.extinction : args.highExtinction;
-  return visibility * extinction * cloudDensity(densityArgs, position, weatherSampler, baseSampler, detailSampler,
-    footprint, layer, heightFootprint, probe, bodyMipOffset);
+  return visibility * extinction * cloudDensity(cloudDensityParameters(args), position, weatherSampler,
+    baseSampler, detailSampler, footprint, layer, heightFootprint);
 }
 
 public static const float kOpaqueCloudTransmittance = 1e-8f;
@@ -273,8 +271,7 @@ public interface ICloudViewIntegral
   bool opaque();
 };
 
-// HPTraceVolumetricRay uses a coarse body-only probe and quarters the
-// step within clouds. Step positions belong to the original unclipped shell.
+// The shell owns the grid so a continuation can start at its first covered cell.
 public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3 origin, float3 direction,
   uint layer, float2 interval, float2 range, float angularFootprint,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, inout Integral integral)
@@ -283,67 +280,32 @@ public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3
   {
     return;
   }
-  if (layer == 1)
+  const CloudRayGrid grid = createCloudViewGrid(args, interval, direction, angularFootprint, layer);
+  const float sampleOffset = layer == 0 ? cloudViewSampleOffset(direction) : 0.5f;
+  for (uint cell = grid.cellAt(range.x); cell < grid.cells; cell++)
   {
-    const CloudRayGrid grid = createCloudViewGrid(args, interval, direction, angularFootprint, layer);
-    for (uint cell = grid.cellAt(range.x); cell < grid.cells; cell++)
+    const float2 bounds = float2(grid.boundary(cell), grid.boundary(cell + 1));
+    const float begin = max(range.x, bounds.x);
+    const float end = min(range.y, bounds.y);
+    if (end <= begin)
     {
-      const float begin = max(range.x, grid.boundary(cell));
-      const float end = min(range.y, grid.boundary(cell + 1));
-      if (end <= begin)
-      {
-        break;
-      }
-      const float distance = grid.sampleAt(cell);
-      const float3 position = origin + direction * distance;
-      const float span = grid.spanAt(cell);
-      const float cone = angularFootprint * distance;
-      const float footprint = cloudDensityFootprint(args, direction, span, cone, layer);
-      const float heightFootprint = cloudHeightFootprint(args, position, direction, span, cone, layer);
-      const float extinction = cloudViewExtinction(args, position, distance, weather, base, detail, footprint, heightFootprint);
-      if (extinction > 0)
-      {
-        integral.add(args, position, extinction, begin, end);
-      }
-      if (integral.opaque())
-      {
-        break;
-      }
+      break;
     }
-    return;
-  }
-
-  const float thickness = args.thickness;
-  const float nominalStep = (interval.y - interval.x) / float(max(1u, args.steps));
-  const float farDistance = max(50000.0f * args.meterToWorld, args.shapeScale);
-  const float baseTexel = args.shapeScale * float(kCloudBasePeriod) / float(kCloudBaseResolution);
-  const float jitter = cloudViewSampleOffset(direction);
-  float distance = interval.x + jitter * min(thickness * 0.0625f, nominalStep);
-  for (uint iteration = 0; iteration < 4u * args.steps && distance < range.y; iteration++)
-  {
-    const float largeStep = max(hanPiViewStep(nominalStep, thickness,
-      distance, distance - interval.x, farDistance), 0.015625f * baseTexel);
+    const float distance = lerp(bounds.x, bounds.y, sampleOffset);
     const float3 position = origin + direction * distance;
+    const float span = bounds.y - bounds.x;
     const float cone = angularFootprint * distance;
-    const float body = cloudViewExtinction(args, position, distance, weather, base, detail, cone, 0, true, 1.0f);
-    const bool occupied = body > args.extinction * kHanPiDensityThreshold;
-    const float step = occupied ? largeStep * 0.25f : largeStep;
-    const float next = min(interval.y, distance + step);
-    const float begin = max(range.x, distance);
-    const float end = min(range.y, next);
-    if (occupied && end > begin)
+    const float footprint = cloudDensityFootprint(args, direction, span, cone, layer);
+    const float heightFootprint = cloudHeightFootprint(args, position, direction, span, cone, layer);
+    const float extinction = cloudViewExtinction(args, position, distance, layer, weather, base, detail, footprint, heightFootprint);
+    if (extinction > 0)
     {
-      const float extinction = cloudViewExtinction(args, position, distance, weather, base, detail, cone);
-      if (extinction > args.extinction * kHanPiDensityThreshold)
-      {
-        integral.add(args, position, extinction, begin, end);
-      }
+      integral.add(args, position, extinction, begin, end);
       if (integral.opaque())
       {
         break;
       }
     }
-    distance = next;
   }
 }
 
@@ -425,7 +387,7 @@ float2 integrateLowCloudShadow(CloudArgs args, float3 origin, float3 direction, 
     const float bodyMip = min(progression, log2(max(1.0f, 0.5f * span / baseTexel)));
     const float radialSpan = cloudHeightFootprint(args, position, direction, span);
     const float extinction = args.extinction * cloudDensity(cloudDensityParameters(args), position, weather, base,
-      detail, 0, 0, radialSpan, false, bodyMip);
+      detail, 0, 0, radialSpan, bodyMip);
     const float local = clamp(localRange - begin, 0.0f, span);
     depth += extinction * float2(local, span - local);
     if (depth.x + depth.y >= opticalDepthLimit)

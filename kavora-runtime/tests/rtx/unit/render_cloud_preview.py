@@ -355,6 +355,8 @@ def main():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LAYER_HEIGHT_FOOTPRINT'] = '1'
     if 'cloudDensityFootprint' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DENSITY_FOOTPRINT'] = '1'
+    if re.search(r'cloudViewExtinction\([^)]*\buint\s+layer', (shaders / 'rtx/algorithm/clouds.slang').read_text(), re.S):
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_VIEW_EXTINCTION_LAYER'] = '1'
     if 'createCloudRayGrid' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_ADAPTIVE_GRID'] = '1'
     if 'createCloudViewGrid' in (shaders / 'rtx/algorithm/clouds.slang').read_text():

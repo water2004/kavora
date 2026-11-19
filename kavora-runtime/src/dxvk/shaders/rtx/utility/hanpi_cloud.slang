@@ -6,7 +6,6 @@
 // Full license: LICENSES/HanPi-Volume-Cloud.txt
 module hanpi_cloud;
 
-public static const float kHanPiDensityThreshold = 0.001f;
 public static const float kHanPiConeRatio = 2.0f;
 public static const float kHanPiHighLightRangeMeters = 3000.0f;
 
@@ -59,15 +58,6 @@ public float hanPiLowCloudDensity(float baseShape, float profile, float coverage
     * pow(1.0f - wispyT, max(wispTopHardness * 10.0f, 0.01f));
   const float billowyByShape = smoothstep(0.0f, wispEdgeWidth, densityBillowy);
   return lerp(densityWispy, densityBillowy, billowyByShape);
-}
-
-// HPTraceVolumetricRay caps the large step by distance and shell thickness.
-[ForceInline]
-public float hanPiViewStep(float coarseStep, float thickness, float distance, float travelled, float farDistance)
-{
-  const float t = saturate(travelled / farDistance);
-  const float slabCap = lerp(thickness * 0.0625f, thickness * 0.5f, t * t);
-  return min(coarseStep, min(distance * 0.125f, slabCap));
 }
 
 [ForceInline]

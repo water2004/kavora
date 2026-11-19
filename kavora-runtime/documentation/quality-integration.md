@@ -40,10 +40,12 @@ that transfer at the extinction centroid and integrates the background on
 either side. This approximates the overlap of air and cloud within the shell
 while keeping cloud steps out of the air and fog integration grid.
 
-Low clouds use the distance- and shell-thickness-capped coarse march from
-[HanPi Volume Cloud](https://github.com/AshenOneArt/HPVolumeCloud). A body-only
-probe skips erosion in clear cells. Occupied cells use one-quarter steps and
-resolve billow and wisp erosion. The march is anchored to the unclipped shell.
+Both cloud layers integrate over grids anchored to their unclipped shell intervals.
+The view budgets cap the number of cells independently of the light direction.
+Cumulus widens cells continuously on long paths to cover the whole interval.
+Clipped ranges start at their first covered cell and reuse the full grid's sample
+positions and density footprints. A cell samples the HanPi density field once,
+including billow and wisp erosion where the body can contribute.
 A high cloud's coverage sets its vertical band. Altocumulus cells thin that band
 and reduce density at the edges. Altostratus uses the same band with a weaker
 cell effect. Uniform view segments integrate the band's smooth edges exactly

@@ -219,6 +219,18 @@ def main():
     np.testing.assert_array_equal(higher_low[2:], view_grids[2:])
     np.testing.assert_array_equal(higher_high[:3], view_grids[:3])
 
+    # Grazing rays cover the full configured range with the same budget as
+    # shorter rays. The last cell must close the interval, including for PSR.
+    grazing = [[start, distance, cone, 0] for start in (0, 2500)
+               for distance in (24000, 96000, 160000) for cone in (0, 0.001)]
+    grazing_grids = run('viewGrids', grazing, [[1, 0, 0, 0]] * len(grazing), view_args)
+    np.testing.assert_array_equal(grazing_grids[:, 0], 40)
+    np.testing.assert_array_equal(grazing_grids[:, 2], np.array(grazing)[:, 1])
+    first_span = 2 * (grazing_grids[:, 3] - np.array(grazing)[:, 0])
+    last_span = grazing_grids[:, 2] - grazing_grids[:, 1]
+    assert np.all((first_span > 0) & (last_span > first_span))
+    report['grazingViewCases'] = len(grazing)
+
     # Extending the interval past a cell boundary leaves the other samples fixed.
     edge = 1825 + 32 * view_args['shapeScale'] / view_args['steps']
     ends = np.array([edge + .002, edge - .002], dtype=np.float32)

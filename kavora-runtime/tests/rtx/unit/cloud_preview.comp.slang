@@ -284,7 +284,11 @@ void main(uint2 pixel : SV_DispatchThreadID)
 #endif
       const float extinction = Projection == 1
         ? cloudExtinction(Clouds, position, weather, base, detail, footprint, heightFootprint)
-        : cloudViewExtinction(Clouds, position, distance, weather, base, detail, footprint, heightFootprint);
+        : cloudViewExtinction(Clouds, position, distance,
+#if defined(CLOUD_PREVIEW_HAS_VIEW_EXTINCTION_LAYER)
+            nearest / 2,
+#endif
+            weather, base, detail, footprint, heightFootprint);
       opticalDepth += extinction * (next - previous);
       if (Radiance != 0 && extinction > 0)
       {

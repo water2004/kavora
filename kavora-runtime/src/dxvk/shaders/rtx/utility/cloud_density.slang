@@ -231,7 +231,7 @@ float highCloudDensity(CloudDensityArgs args, float3 p, Sampler2DArray<float4> w
 [ForceInline]
 public float cloudDensityInColumn(CloudDensityArgs args, float3 coordinates, CloudColumn column,
   Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, float footprint, float heightFootprint,
-  bool probe = false, float bodyMipOffset = 0.0f)
+  float bodyMipOffset = 0.0f)
 {
   const float heightAboveBase = coordinates.y * args.shapeScale - args.baseHeight;
   if (args.thickness <= 0 || column.coverage <= 0 || heightAboveBase + 0.5f * heightFootprint <= 0
@@ -261,13 +261,6 @@ public float cloudDensityInColumn(CloudDensityArgs args, float3 coordinates, Clo
   const float edge = column.softness;
   const float edgeSoftness = sqrt(edge * edge + 3.0f * body.g * profile * profile);
 
-  if (probe)
-  {
-    // Expand the cheap probe by its unresolved body support.
-    const float upper = hanPiLowBodyShape(body.r + sqrt(3.0f * max(body.g, 0.0f)), bottomNoiseFade);
-    return hanPiLowCloudDensity(upper, profile, column.coverage, slabHeight,
-      0, 0, 0, edgeSoftness, wispReach, 0.28f, 0.52f, 1.0f);
-  }
   if (baseShape * profile + wispReach <= 1.0f - column.coverage)
   {
     return 0;
@@ -287,7 +280,7 @@ public float cloudDensityInColumn(CloudDensityArgs args, float3 coordinates, Clo
 [ForceInline]
 public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray<float4> weatherSampler,
   Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, float footprint = 0, uint layer = 0,
-  float heightFootprint = 0, bool probe = false, float bodyMipOffset = 0.0f)
+  float heightFootprint = 0, float bodyMipOffset = 0.0f)
 {
   const float3 p = cloudCoordinates(args, position);
   if (layer == 1)
@@ -300,5 +293,5 @@ public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray
     return 0;
   }
   const CloudColumn column = cloudColumn(args, p.xz, weatherSampler, footprint);
-  return cloudDensityInColumn(args, p, column, weatherSampler, baseSampler, detailSampler, footprint, heightFootprint, probe, bodyMipOffset);
+  return cloudDensityInColumn(args, p, column, weatherSampler, baseSampler, detailSampler, footprint, heightFootprint, bodyMipOffset);
 }
