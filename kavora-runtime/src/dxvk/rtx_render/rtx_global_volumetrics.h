@@ -59,7 +59,7 @@ namespace dxvk {
       args.minValue = 0.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, thicknessMeters, 1500.0f, "Maximum cumulus thickness. Local weather determines the height of each formation.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, shapeScaleMeters, 1024.0f, "Cloud field scale in meters. The base volume spans 2 scale units, low weather 64, high weather 32, and erosion detail one eighth.",
+    RTX_OPTION_ARGS("rtx.clouds", float, shapeScaleMeters, 1024.0f, "Cloud field scale in meters. The base volume spans 2 scale units, both weather maps 64, and erosion detail one eighth.",
       args.minValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, extinctionPerMeter, 0.03f, "Cloud extinction at unit density, per meter.",
       args.minValue = 0.0f);

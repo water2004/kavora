@@ -30,6 +30,10 @@ def main():
         address_w=spy.TextureAddressingMode.clamp_to_edge)
     N = 256
     SIGMA = 0.03
+    def padded_depth(span, nodes):
+        # Prefix values occupy nodes including both ends. One interval is
+        # reserved for grid alignment to the advected density field.
+        return span * (nodes - 1) / (nodes - 2)
     def texture(data, fmt):
         tex = device.create_texture(type=spy.TextureType.texture_3d, format=fmt,
             width=data.shape[2], height=data.shape[1], depth=data.shape[0],
@@ -67,6 +71,7 @@ def main():
         light_radius = args['lightMaxDistance']
         height = args['baseHeight'] + args['thickness'] + light_radius**2 / args['planetRadius']
         length = 2 * light_radius * abs(direction[2]) + height * abs(direction[1]) + args['lightMaxDistance']
+        length = padded_depth(length, N)
         values = np.broadcast_to(np.linspace(length * SIGMA, 0, N, dtype=np.float32)[:, None, None],
             (N, N // 2, N)).copy()
         sun = texture(values, spy.Format.r32_float)
@@ -88,17 +93,19 @@ def main():
     cascade_args['lights'] = [{'directionToLight': [0, 0, 1], 'irradiance': [1, 1, 1]},
                              {'directionToLight': [0, 0, -1], 'irradiance': [0, 0, 0]}]
     packed = np.full((N + N // 2, N // 2, N), np.nan, np.float32)
-    packed[:N] = np.linspace(144000 * SIGMA, 0, N, dtype=np.float32)[:, None, None]
-    packed[N:, :N // 4, :N // 2] = np.linspace(288000 * SIGMA, 0, N // 2,
+    packed[:N] = np.linspace(padded_depth(144000, N) * SIGMA, 0, N, dtype=np.float32)[:, None, None]
+    packed[N:, :N // 4, :N // 2] = np.linspace(padded_depth(288000, N // 2) * SIGMA, 0, N // 2,
                                              dtype=np.float32)[:, None, None]
     packed_sun = texture(packed, spy.Format.r32_float)
-    distances = (0, 17999, 18000, 21000, 23999, 24000, 24001, 95999, 96000, 96001)
+    distances = (0, 17999, 18000, 21000, 23999, 24000, 24001, 24500, 95999, 96000, 96001, 98000)
     origins = [[x, 1200, 0, 1024] for cascade in (0, 1) for x in distances]
     directions = [[0, 0, 1, cascade] for cascade in (0, 1) for x in distances]
     origins += [[0, 1200, 130000, 1024], [0, 1200, 196000, 1024]]
     directions += [[0, 0, 1, 0], [0, 0, 1, 1]]
     packed_depths = run('cascadeDepths', origins, directions, cascade_args, packed_sun)
-    expected_found = np.array([x <= radius for radius in (24000, 96000) for x in distances] + [False, False])
+    expected_found = np.array([x <= radius + radius / (columns - 1)
+                               for radius, columns in ((24000, N), (96000, N // 2))
+                               for x in distances] + [False, False])
     assert np.isfinite(packed_depths).all(), 'packed cascade sampling touched undefined padding'
     np.testing.assert_array_equal(packed_depths[:, 1], expected_found)
     np.testing.assert_array_equal(packed_depths[:, 3], expected_found)
@@ -132,28 +139,28 @@ def main():
     report['maximumCloudCells'] = int(grids[:, 0].max())
 
     view_args = args | {'highThickness': 50.0, 'steps': 40, 'highSteps': 12}
-    intervals = [[800, 6800, 0, 0], [800, 2300, 0, 0], [6400, 6450, 0, 0], [8000, 10000, 0, 0]]
+    intervals = [[800, 6800, 0, 0], [800, 2300, 0, 0], [6400, 6450, 0, 0], [8000, 11000, 0, 0]]
     directions = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 1], [1, 0, 0, 1]]
     view_grids = run('viewGrids', intervals, directions, view_args)
-    np.testing.assert_array_equal(view_grids[:, 0], [40, 20, 1, 12])
-    np.testing.assert_array_equal(view_grids[:, 2], [6800, 2300, 6450, 10000])
+    np.testing.assert_array_equal(view_grids[:, 0], [40, 40, 1, 12])
+    np.testing.assert_array_equal(view_grids[:, 2], [6800, 2300, 6450, 11000])
     assert view_grids[2, 3] == 6425
     report['layerViewCells'] = view_grids[:, 0].astype(int).tolist()
 
     higher_low = run('viewGrids', intervals, directions, view_args | {'steps': 64})
     higher_high = run('viewGrids', intervals, directions, view_args | {'highSteps': 20})
-    np.testing.assert_array_equal(higher_low[:, 0], [64, 32, 1, 12])
-    np.testing.assert_array_equal(higher_high[:, 0], [40, 20, 1, 20])
+    np.testing.assert_array_equal(higher_low[:, 0], [64, 64, 1, 12])
+    np.testing.assert_array_equal(higher_high[:, 0], [40, 40, 1, 20])
     np.testing.assert_array_equal(higher_low[2:], view_grids[2:])
     np.testing.assert_array_equal(higher_high[:3], view_grids[:3])
 
-    # Neighboring rays that straddle the 32/33-cell threshold must share
-    # the same interior nodes in the limit. The extra cell starts at zero span.
-    near_threshold = (0.4 - 1e-5, 0.4 + 1e-5)
-    threshold_grids = run('viewGrids', [[1825, 5570, 0, 16]] * 2,
-                          [[np.sqrt(1 - up * up), up, 0, 0] for up in near_threshold], view_args)
+    # Extending the interval past a cell boundary leaves the other samples fixed.
+    edge = 1825 + 32 * view_args['shapeScale'] / view_args['steps']
+    ends = np.array([edge + .002, edge - .002], dtype=np.float32)
+    threshold_grids = run('viewGrids', [[1825, end, 0, 16] for end in ends],
+                          [[1, 0, 0, 0]] * 2, view_args)
     np.testing.assert_array_equal(threshold_grids[:, 0], [33, 32])
-    np.testing.assert_array_equal(threshold_grids[:, 2], [5570, 5570])
+    np.testing.assert_array_equal(threshold_grids[:, 2], ends)
     sample_delta = abs(threshold_grids[0, 3] - threshold_grids[1, 3])
     extra_span = threshold_grids[0, 2] - threshold_grids[0, 1]
     assert sample_delta < 0.05 and 0 < extra_span < 0.1, threshold_grids
@@ -179,8 +186,10 @@ def main():
     field[:, :, :N // 2] = np.clip((0.5 - depth_axis) * 8, 0, 2)[:, None, None]
     field[:, :, N // 2:] = np.clip((0.75 - depth_axis) * 8, 0, 2)[:, None, None]
     sun = texture(field, spy.Format.r32_float)
-    length = 3 * args['lightMaxDistance']
-    origin = [0, 1200, -args['lightMaxDistance'] + 0.25 * length, 0.5 * length]
+    length = padded_depth(3 * args['lightMaxDistance'], N)
+    spacing = length / (N - 1)
+    grid_start = np.floor(-args['lightMaxDistance'] / spacing) * spacing
+    origin = [0, 1200, grid_start + 0.25 * length, 0.5 * length]
     parts = run('energyParts', [origin], [[0, 0, 1, 0.5]], args, sun)[0]
     assert parts[3] == 1
     assert abs(parts[2] - 2) < 0.01

@@ -19,25 +19,27 @@ def main():
         address_v=spy.TextureAddressingMode.clamp_to_edge,
         address_w=spy.TextureAddressingMode.clamp_to_edge)
     args = cloud_parameters(baseHeight=800, thickness=1500, shapeScale=1024,
-        windOffset=[17, 0, -31], highBaseHeight=6400, highThickness=50)
+        windOffset=[17, 0, -31], highBaseHeight=6400, highThickness=50,
+        maxDistance=24000, highMaxDistance=24000)
     # Distinct channels at every layer and cascade edge expose filtering into adjacent slices.
-    values = np.array([[.25, .375, .5, .625], [.5, .625, .75, .875],
-                       [.375, .5, .625, .75], [.125, .25, .375, .5]], dtype=np.float16)
-    slices = np.repeat(values, (16, 12, 4, 4), axis=0)
-    samples = np.broadcast_to(slices[None, :, None, :], (64, 36, 64, 4)).copy()
+    values = np.array([[.25, .375, .5, .625], [.5, .625, .75, .875], [.625, .75, .875, 1],
+                       [.375, .5, .625, .75], [.125, .25, .375, .5], [.25, .5, .75, .875]], dtype=np.float16)
+    slices = np.repeat(values, (16, 12, 8, 4, 4, 4), axis=0)
+    samples = np.broadcast_to(slices[None, :, None, :], (64, len(slices), 64, 4)).copy()
     field = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba16_float,
-        width=64, height=36, depth=64, usage=spy.TextureUsage.shader_resource)
+        width=64, height=len(slices), depth=64, usage=spy.TextureUsage.shader_resource)
     field.copy_from_numpy(samples)
     view = field.create_view(sampler=sampler)
 
     origins, requests, expected = [], [], []
     clear = np.zeros(4)
     for layer, altitudes in enumerate(((800, 2300), (6400, 6450))):
-        near, far = values[2 * layer:2 * layer + 2]
+        near, middle, far = values[3 * layer:3 * layer + 3]
         for altitude in altitudes:
             for x, distance, channels, weight in (
-                    (0, 9000, near, 1), (1792, 9000, (near + far) / 2, 1), (4096, 9000, far, 1),
-                    (7168, 9000, far, .5), (8192, 9000, clear, 0), (0, 100, clear, 0)):
+                    (0, 9000, near, 1), (1792, 9000, (near + middle) / 2, 1), (4096, 9000, middle, 1),
+                    (7168, 9000, (middle + far) / 2, 1), (12000, 12000, far, 1), (15750, 15750, far, .5),
+                    (18000, 18000, clear, 0), (0, 100, clear, 0)):
                 for channel, transmitted in enumerate(channels):
                     origins.append([17 + x, altitude, -31, distance])
                     requests.append([altitude, layer, channel, 0])

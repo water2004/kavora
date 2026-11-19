@@ -13,11 +13,14 @@ import numpy as np
 import slangpy as spy
 
 
-def constant_weather(probe, textures, cumulus, deck, cloud_type):
-    texture = probe.device.create_texture(
-        type=spy.TextureType.texture_2d, format=spy.Format.rgba32_float,
-        width=1, height=1, mip_count=1, usage=spy.TextureUsage.shader_resource)
-    texture.copy_from_numpy(np.array([[[cumulus, deck, cloud_type, 0.0]]], np.float32))
+def constant_weather(probe, textures, coverage, stratus, cloud_type):
+    from test_cloud_transport import weather_fixture
+    profile = textures["Weather"].texture.to_numpy(layer=2, mip=3).astype(np.float32) / 255
+    layers = np.ones((3, *profile.shape), np.float32)
+    layers[0] *= [coverage, cloud_type, stratus, 1]
+    layers[1] *= [0, 0, 0.35, 1]
+    layers[2] = profile
+    texture = weather_fixture(probe.device, layers)
     sampler = probe.device.create_sampler(
         min_filter=spy.TextureFilteringMode.linear, mag_filter=spy.TextureFilteringMode.linear,
         address_u=spy.TextureAddressingMode.wrap, address_v=spy.TextureAddressingMode.wrap)
@@ -84,6 +87,31 @@ def check_erosion_seams(probe, textures, clouds):
     return report
 
 
+def check_erosion_channels(probe, textures, clouds, period):
+    rng = np.random.default_rng(20260619)
+    floor = clouds["baseHeight"]
+    points = rng.uniform([-period / 2, floor, -period / 2, 0],
+                         [period / 2, floor + clouds["thickness"], period / 2, 0], (65536, 4)).astype(np.float32)
+    density = probe.run("densities", points, clouds=clouds, textures=textures)[:, 0]
+    edge = (density > 0.01) & (density < 0.8)
+    assert edge.sum() > 100
+    texture = textures["Detail"].texture
+    original = texture.to_numpy(mip=0).copy()
+    changed = {}
+    try:
+        for channel, name in enumerate(("wispyLow", "wispyHigh", "billowyLow", "billowyHigh")):
+            flat = original.copy()
+            flat[..., channel] = round(original[..., channel].mean())
+            texture.copy_from_numpy(flat, mip=0)
+            result = probe.run("densities", points[edge], clouds=clouds, textures=textures)[:, 0]
+            changed[name] = int(np.count_nonzero(np.abs(density[edge] - result) > 0.001))
+            assert changed[name] > 0.02 * edge.sum(), (name, "erosion band lost in production density")
+    finally:
+        texture.copy_from_numpy(original, mip=0)
+    print("PASS individual erosion channels affect cloud edges:", changed)
+    return changed
+
+
 def constant_volume(probe, value):
     texture = probe.device.create_texture(
         type=spy.TextureType.texture_3d, format=spy.Format.rgba32_float,
@@ -96,43 +124,37 @@ def constant_volume(probe, value):
     return texture.create_view(sampler=sampler)
 
 
-def check_family_independence(probe, textures, clouds):
+def check_profile_compression(probe, textures, clouds):
     horizontal = np.arange(-3584.0, 3585.0, 1024.0)
     heights = np.linspace(clouds["baseHeight"] - 10,
                           clouds["baseHeight"] + clouds["thickness"] + 10, 128)
     points = np.array([[x, height, z, 0] for height in heights
                        for x in horizontal for z in horizontal], np.float32)
     values = {}
-    for name, cumulus, deck in (("empty", 0, 0), ("cumulus", 0.78, 0),
-                               ("deck", 0, 0.78), ("mixed", 0.78, 0.78)):
-        inputs = constant_weather(probe, textures, cumulus, deck, 0.45)
+    for name, coverage, stratus in (("clear", 0, 0), ("convective", 0.78, 0),
+                                    ("mixed", 0.78, 0.5), ("stratocumulus", 0.78, 1)):
+        inputs = constant_weather(probe, textures, coverage, stratus, 0.45)
         values[name] = probe.run("densities", points, clouds=clouds, textures=inputs)[:, 0]
-        assert np.isfinite(values[name]).all()
-        assert np.all((values[name] >= 0) & (values[name] <= 1))
-    np.testing.assert_array_equal(values["empty"], 0)
-    np.testing.assert_allclose(values["mixed"], np.minimum(values["cumulus"] + values["deck"], 1),
-                               atol=2e-6, rtol=2e-5,
-                               err_msg="one family's mask changes the other family's body")
+        assert np.isfinite(values[name]).all() and np.all((values[name] >= 0) & (values[name] <= 1))
+    np.testing.assert_array_equal(values["clear"], 0)
     centroids = {}
-    for name in ("cumulus", "deck"):
+    for name in ("convective", "mixed", "stratocumulus"):
         profile = values[name].reshape(len(heights), -1).mean(axis=1)
         assert np.max(profile) > 0.1, ("family has no substantial condensate", name)
         centroids[name] = float(np.dot(heights, profile) / profile.sum())
-    assert centroids["deck"] - centroids["cumulus"] > 0.15 * clouds["thickness"], (
-        "the independent families collapsed onto the same height profile", centroids)
-    print(f"PASS independent cloud families: capped density union, empty masks, "
-          f"cumulus/deck centroids {centroids['cumulus']:.2f}/{centroids['deck']:.2f}m")
+    assert centroids["stratocumulus"] < centroids["mixed"] < centroids["convective"], centroids
+    print("PASS HanPi profile compression at fixed coverage:", centroids)
     return centroids
 
 
 def check_constant_filtering(probe, textures, clouds):
     inputs = {**textures,
-              "Base": constant_volume(probe, [0.82, 0.82 ** 2, 0, 0]),
+              "Base": constant_volume(probe, [0.82, 0, 0, 0]),
               "Detail": constant_volume(probe, [0.5, 0.5, 0.5, 1])}
     points = np.array([[8043, height, 1240, 0]
                        for height in np.linspace(390, 1910, 512)], np.float32)
     maximum_error = 0.0
-    for cumulus, deck in ((0.45, 0.0), (0.0, 0.55), (0.45, 0.55)):
+    for cumulus, deck in ((0.45, 0.0), (0.55, 1.0), (0.45, 0.55)):
         constant = constant_weather(probe, inputs, cumulus, deck, 0.45)
         reference = probe.run("densities", points, clouds=clouds, textures=constant)[:, 0]
         assert np.any((reference > 0.01) & (reference < 0.99)), (
@@ -162,7 +184,8 @@ def main():
     result = {"scope": "Production density readback on Vulkan; not native game validation.",
               "periodicity": check_family_periodicity(probe, textures, clouds, period),
               "erosionSeams": check_erosion_seams(probe, textures, clouds),
-              "familyCentroidsMeters": check_family_independence(probe, textures, clouds),
+              "erosionChannels": check_erosion_channels(probe, textures, clouds, period),
+              "familyCentroidsMeters": check_profile_compression(probe, textures, clouds),
               "constantFilterMaximumError": check_constant_filtering(probe, textures, clouds)}
     if args.dump:
         args.dump.mkdir(parents=True, exist_ok=True)

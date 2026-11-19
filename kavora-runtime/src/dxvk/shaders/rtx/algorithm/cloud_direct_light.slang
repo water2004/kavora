@@ -23,24 +23,30 @@ public struct CloudDirectLightGrid
   }
 };
 
-public CloudDirectLightGrid cloudDirectLightGrid(CloudArgs args, bool farField)
+public CloudDirectLightGrid cloudDirectLightGrid(CloudArgs args, uint cascade)
 {
-  const float cellSize = args.shapeScale * (farField ? 0.25f : 0.0625f);
+  const float viewRange = max(args.maxDistance, args.highMaxDistance);
+  const float cellSize = cascade == 0 ? args.shapeScale / 16.0f
+    : cascade == 1 ? args.shapeScale / 4.0f
+    : max(0.5f * args.shapeScale, (1.5f / CLOUD_DIRECT_LIGHT_RESOLUTION) * viewRange);
   const float2 wind = cloudLightHorizontal(args, args.windOffset - args.groundReference);
   // The lattice follows the advected density field between camera positions.
   return { wind + floor(-wind / cellSize + 0.5f) * cellSize, cellSize };
 }
 
-public uint cloudDirectLightHeightSamples(uint layer, bool farField)
+public uint cloudDirectLightHeightSamples(uint layer, uint cascade)
 {
   return layer == 1 ? CLOUD_DIRECT_LIGHT_HIGH_SAMPLES
-    : farField ? CLOUD_DIRECT_LIGHT_LOW_FAR_SAMPLES : CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES;
+    : cascade == 0 ? CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES
+    : cascade == 1 ? CLOUD_DIRECT_LIGHT_LOW_MIDDLE_SAMPLES : CLOUD_DIRECT_LIGHT_LOW_FAR_SAMPLES;
 }
 
-public uint cloudDirectLightHeightOffset(uint layer, bool farField)
+public uint cloudDirectLightHeightOffset(uint layer, uint cascade)
 {
-  return layer == 1 ? CLOUD_DIRECT_LIGHT_LOW_HEIGHT + (farField ? CLOUD_DIRECT_LIGHT_HIGH_SAMPLES : 0)
-    : farField ? CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES : 0;
+  return layer == 1 ? CLOUD_DIRECT_LIGHT_LOW_HEIGHT + cascade * CLOUD_DIRECT_LIGHT_HIGH_SAMPLES
+    : cascade == 0 ? 0
+    : cascade == 1 ? CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES
+    : CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES + CLOUD_DIRECT_LIGHT_LOW_MIDDLE_SAMPLES;
 }
 
 float cloudDirectLightWeight(float2 uv)
@@ -49,11 +55,11 @@ float cloudDirectLightWeight(float2 uv)
   return 1.0f - smoothstep(0.375f, 0.5f, max(edge.x, edge.y));
 }
 
-float4 readCloudDirectLight(Sampler3D<float4> field, float2 uv, float height, uint layer, bool farField)
+float4 readCloudDirectLight(Sampler3D<float4> field, float2 uv, float height, uint layer, uint cascade)
 {
-  const float count = float(cloudDirectLightHeightSamples(layer, farField));
+  const float count = float(cloudDirectLightHeightSamples(layer, cascade));
   const float slice = clamp(height * count, 0.5f, count - 0.5f);
-  const float y = (cloudDirectLightHeightOffset(layer, farField) + slice) / CLOUD_DIRECT_LIGHT_PACKED_HEIGHT;
+  const float y = (cloudDirectLightHeightOffset(layer, cascade) + slice) / CLOUD_DIRECT_LIGHT_PACKED_HEIGHT;
   return field.SampleLevel(float3(uv.x, y, uv.y), 0);
 }
 
@@ -65,9 +71,8 @@ public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, fl
   weight = 0;
   const float bottom = layer == 0 ? args.baseHeight : args.highBaseHeight;
   const float thickness = layer == 0 ? args.thickness : args.highThickness;
-  const CloudDirectLightGrid nearGrid = cloudDirectLightGrid(args, false);
-  const float cellSize = max(nearGrid.cellSize, thickness / float(cloudDirectLightHeightSamples(layer, false)));
-  // Short segments retain the resolved shadow detail when the viewer enters a cloud.
+  const float cellSize = max(args.shapeScale / 16.0f, thickness / float(cloudDirectLightHeightSamples(layer, 0)));
+  // Resolve small shadow structures around the observer.
   const float distanceWeight = smoothstep(4.0f, 8.0f, distance / cellSize);
   if (distanceWeight == 0)
   {
@@ -76,20 +81,24 @@ public float4 sampleCloudDirectLight(CloudArgs args, Sampler3D<float4> field, fl
 
   const float height = (altitude - bottom) / thickness;
   const float2 horizontal = cloudLightHorizontal(args, position - args.groundReference);
-  const float2 nearUV = nearGrid.uv(horizontal);
-  const float nearWeight = cloudDirectLightWeight(nearUV);
-  if (nearWeight == 1)
+  float remaining = 1.0f;
+  float4 energy = 0;
+  [unroll]
+  for (uint cascade = 0; cascade < CLOUD_DIRECT_LIGHT_CASCADES; cascade++)
   {
-    weight = distanceWeight;
-    return readCloudDirectLight(field, nearUV, height, layer, false);
+    const float2 uv = cloudDirectLightGrid(args, cascade).uv(horizontal);
+    const float coverage = cloudDirectLightWeight(uv);
+    if (coverage > 0)
+    {
+      energy += (remaining * coverage) * readCloudDirectLight(field, uv, height, layer, cascade);
+      remaining *= 1.0f - coverage;
+      if (remaining == 0)
+      {
+        break;
+      }
+    }
   }
-
-  const float2 farUV = cloudDirectLightGrid(args, true).uv(horizontal);
-  weight = distanceWeight * cloudDirectLightWeight(farUV);
-  if (weight == 0)
-  {
-    return 0;
-  }
-  const float4 farLight = readCloudDirectLight(field, farUV, height, layer, true);
-  return nearWeight > 0 ? lerp(farLight, readCloudDirectLight(field, nearUV, height, layer, false), nearWeight) : farLight;
+  const float covered = 1.0f - remaining;
+  weight = distanceWeight * covered;
+  return energy / max(covered, 1e-6f);
 }

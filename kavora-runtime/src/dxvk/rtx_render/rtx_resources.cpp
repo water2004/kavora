@@ -47,83 +47,12 @@
 #include "../util/util_global_time.h"
 
 #include "rtx/pass/cloud_noise.h"
-#include <rtx_shaders/generate_cloud_noise.h>
-#include <rtx_shaders/generate_cloud_detail.h>
-#include <rtx_shaders/generate_cloud_weather.h>
-#include <rtx_shaders/filter_cloud_noise_2d.h>
-#include <rtx_shaders/filter_cloud_noise_3d.h>
-#include <rtx_shaders/filter_cloud_noise_3d_float.h>
+#include <bit>
+#include <cloud_base.bin.h>
+#include <cloud_erosion.bin.h>
+#include <cloud_weather.bin.h>
 
 namespace dxvk {
-
-  namespace {
-    class GenerateCloudNoiseShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudNoiseShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_noise)
-      PUSH_CONSTANTS(CloudNoiseGenerationArgs)
-
-      BEGIN_PARAMETER()
-        RW_TEXTURE3D(0)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudNoiseShader);
-
-    class GenerateCloudDetailShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudDetailShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_detail)
-      PUSH_CONSTANTS(CloudNoiseGenerationArgs)
-
-      BEGIN_PARAMETER()
-        RW_TEXTURE3D(0)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudDetailShader);
-
-    class GenerateCloudWeatherShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudWeatherShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_weather)
-
-      BEGIN_PARAMETER()
-        RW_TEXTURE2D(0)
-        SAMPLER2D(1)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudWeatherShader);
-
-    class FilterCloudNoise3DShader : public ManagedShader {
-      SHADER_SOURCE(FilterCloudNoise3DShader, VK_SHADER_STAGE_COMPUTE_BIT, filter_cloud_noise_3d)
-
-      BEGIN_PARAMETER()
-        SAMPLER3D(0)
-        RW_TEXTURE3D(1)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(FilterCloudNoise3DShader);
-
-    class FilterCloudNoise3DFloatShader : public ManagedShader {
-      SHADER_SOURCE(FilterCloudNoise3DFloatShader, VK_SHADER_STAGE_COMPUTE_BIT, filter_cloud_noise_3d_float)
-
-      BEGIN_PARAMETER()
-        SAMPLER3D(0)
-        RW_TEXTURE3D(1)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(FilterCloudNoise3DFloatShader);
-
-    class FilterCloudNoise2DShader : public ManagedShader {
-      SHADER_SOURCE(FilterCloudNoise2DShader, VK_SHADER_STAGE_COMPUTE_BIT, filter_cloud_noise_2d)
-
-      BEGIN_PARAMETER()
-        SAMPLER2D(0)
-        RW_TEXTURE2D(1)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(FilterCloudNoise2DShader);
-
-  }
 
 #ifdef REMIX_DEVELOPMENT
   std::unordered_map<const DxvkImageView*, std::string> Resources::s_resourcesViewMap;
@@ -1116,91 +1045,39 @@ namespace dxvk {
     return m_valueNoiseLutView;
   }
 
-  bool Resources::prepareCloudNoise(Rc<DxvkContext> ctx) {
+  void Resources::prepareCloudNoise(Rc<DxvkContext> ctx) {
     if (m_cloudBaseLut.isValid()) {
-      return true;
+      return;
     }
-    if (!m_cloudCirrusAtlas.isValid()) {
-      const Rc<AssetData> asset = AssetDataManager::get().findAsset("textures/cirrus_density.dds");
-      if (asset == nullptr) {
-        throw DxvkError("Missing cloud texture: textures/cirrus_density.dds");
+
+    ScopedGpuProfileZone(ctx, "Cloud field upload");
+    // All three assets are filtered offline and stored mip-major, four bytes per texel.
+    const auto upload = [&](const char* name, uint32_t side, uint32_t layers, VkFormat format,
+                            const auto& bytes) {
+      const bool volume = layers == 1;
+      const VkExtent3D extent { side, side, volume ? side : 1u };
+      auto resource = createImageResource(ctx, name, extent, format, layers,
+        volume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
+        volume ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, 0, {}, std::bit_width(side));
+      const unsigned char* data = bytes;
+      for (uint32_t mip = 0; side; ++mip, side >>= 1) {
+        const uint32_t sliceBytes = side * side * 4;
+        const uint32_t depth = volume ? side : 1u;
+        ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, 0, layers },
+          { 0, 0, 0 }, { side, side, depth }, data, side * 4, sliceBytes);
+        data += sliceBytes * depth * layers;
       }
-      m_cloudCirrusAtlas = TextureRef(ctx->getCommonObjects()->getTextureManager().preloadTextureAsset(asset, ColorSpace::AUTO, true));
-    }
-    const auto& texture = m_cloudCirrusAtlas.getManagedTexture();
-    if (!texture.ptr()) {
-      return false;
-    }
-    texture->m_canDemote = false;
-    texture->requestMips(MAX_MIPS);
-    uint32_t textureIndex = BINDING_INDEX_INVALID;
-    ctx->getCommonObjects()->getSceneManager().trackTexture(m_cloudCirrusAtlas, textureIndex, true, false);
-    const Rc<DxvkImageView> cirrusView = m_cloudCirrusAtlas.getImageView();
-    if (cirrusView == nullptr || !texture->hasUploadedMips(MAX_MIPS, false)) {
-      return false;
-    }
-
-    ScopedGpuProfileZone(ctx, "Cloud Noise Generation");
-    m_cloudBaseLut = createImageResource(ctx, "cloud base shape",
-      VkExtent3D { kCloudBaseResolution, kCloudBaseResolution, kCloudBaseResolution },
-      VK_FORMAT_R16G16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D, 0, VK_IMAGE_USAGE_STORAGE_BIT,
-      {}, uint32_t(std::log2(kCloudBaseResolution)) + 1);
-    m_cloudDetailLut = createImageResource(ctx, "cloud erosion detail",
-      VkExtent3D { kCloudDetailResolution, kCloudDetailResolution, kCloudDetailResolution },
-      VK_FORMAT_R8G8B8A8_UNORM, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D, 0, VK_IMAGE_USAGE_STORAGE_BIT,
-      {}, uint32_t(std::log2(kCloudDetailResolution)) + 1);
-    m_cloudWeatherLut = createImageResource(ctx, "cloud weather",
-      VkExtent3D { kCloudWeatherResolution, kCloudWeatherResolution, 1 },
-      VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D, 0, VK_IMAGE_USAGE_STORAGE_BIT,
-      {}, uint32_t(std::log2(kCloudWeatherResolution)) + 1);
-
-    const auto mipView = [&ctx](const Resource& resource, uint32_t level, VkImageUsageFlags usage) {
-      auto info = resource.view->info();
-      info.minLevel = level;
-      info.numLevels = 1;
-      info.usage = usage;
-      return ctx->getDevice()->createImageView(resource.image, info);
+      assert(data == bytes + sizeof(bytes));
+      return resource;
     };
-
-    for (uint32_t detail = 0; detail < 2; detail++) {
-      const CloudNoiseGenerationArgs args { detail, 0, 0, 0 };
-      const uint32_t resolution = detail ? kCloudDetailResolution : kCloudBaseResolution;
-      ctx->pushConstants(0, sizeof(args), &args);
-      ctx->bindResourceView(0, mipView(detail ? m_cloudDetailLut : m_cloudBaseLut, 0, VK_IMAGE_USAGE_STORAGE_BIT), nullptr);
-      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, detail
-        ? GenerateCloudDetailShader::getShader() : GenerateCloudNoiseShader::getShader());
-      ctx->dispatch(resolution / 4, resolution / 4, resolution / 4);
-    }
-    ctx->bindResourceView(0, mipView(m_cloudWeatherLut, 0, VK_IMAGE_USAGE_STORAGE_BIT), nullptr);
-    ctx->bindResourceView(1, cirrusView, nullptr);
-    ctx->bindResourceSampler(1, getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR,
-      VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 0.0f, true));
-    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudWeatherShader::getShader());
-    ctx->dispatch(kCloudWeatherResolution / 8, kCloudWeatherResolution / 8, 1);
-
-    const auto sampler = getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_REPEAT);
-    for (const Resource* resource : { &m_cloudBaseLut, &m_cloudDetailLut, &m_cloudWeatherLut }) {
-      const bool volume = resource->image->info().type == VK_IMAGE_TYPE_3D;
-      if (!volume) {
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, FilterCloudNoise2DShader::getShader());
-      } else if (resource->image->info().format == VK_FORMAT_R16G16_SFLOAT) {
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, FilterCloudNoise3DFloatShader::getShader());
-      } else {
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, FilterCloudNoise3DShader::getShader());
-      }
-      ctx->bindResourceSampler(0, sampler);
-      for (uint32_t level = 1; level < resource->image->info().mipLevels; level++) {
-        const uint32_t resolution = resource->image->info().extent.width >> level;
-        ctx->bindResourceView(0, mipView(*resource, level - 1, VK_IMAGE_USAGE_SAMPLED_BIT), nullptr);
-        ctx->bindResourceView(1, mipView(*resource, level, VK_IMAGE_USAGE_STORAGE_BIT), nullptr);
-        ctx->dispatch((resolution + 3) / 4, (resolution + 3) / 4, volume ? (resolution + 3) / 4 : 1);
-      }
-    }
-    // The atlas is needed only for this bake. Recorded GPU work retains its view.
-    texture->m_canDemote = true;
-    m_cloudCirrusAtlas.demote();
-    m_cloudCirrusAtlas = {};
-    return true;
+    constexpr auto volumeBytes = [](uint32_t n) { return 4 * ((8 * n * n * n - 1) / 7); };
+    static_assert(sizeof(___cloud_base) == volumeBytes(kCloudBaseResolution));
+    static_assert(sizeof(___cloud_erosion) == volumeBytes(kCloudDetailResolution));
+    static_assert(sizeof(___cloud_weather) == 4 * (4 * kCloudWeatherResolution * kCloudWeatherResolution - 1));
+    m_cloudBaseLut = upload("cloud base shape", kCloudBaseResolution, 1, VK_FORMAT_R16G16_SFLOAT, ___cloud_base);
+    m_cloudDetailLut = upload("cloud erosion", kCloudDetailResolution, 1, VK_FORMAT_R8G8B8A8_UNORM, ___cloud_erosion);
+    m_cloudWeatherLut = upload("cloud weather and profiles", kCloudWeatherResolution, 3,
+      VK_FORMAT_R8G8B8A8_UNORM, ___cloud_weather);
   }
 
   Resources::Resource Resources::getSkyMatte(Rc<DxvkContext> ctx, VkFormat format) {

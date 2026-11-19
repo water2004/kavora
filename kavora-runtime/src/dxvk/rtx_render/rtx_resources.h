@@ -506,7 +506,7 @@ namespace dxvk
     Rc<DxvkBuffer> getConstantsBuffer();
     Rc<DxvkImageView> getBlueNoiseTexture(Rc<DxvkContext> ctx);
     Rc<DxvkImageView> getValueNoiseLut(Rc<DxvkContext> ctx);
-    bool prepareCloudNoise(Rc<DxvkContext> ctx);
+    void prepareCloudNoise(Rc<DxvkContext> ctx);
     Rc<DxvkImageView> getCloudBaseLut() const { return m_cloudBaseLut.view; }
     Rc<DxvkImageView> getCloudDetailLut() const { return m_cloudDetailLut.view; }
     Rc<DxvkImageView> getCloudWeatherLut() const { return m_cloudWeatherLut.view; }
@@ -606,7 +606,6 @@ namespace dxvk
     Resource m_cloudBaseLut;
     Resource m_cloudDetailLut;
     Resource m_cloudWeatherLut;
-    TextureRef m_cloudCirrusAtlas;
     Rc<DxvkImage> m_whiteTex;
     Rc<DxvkImageView> m_whiteTexView;
 

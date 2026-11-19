@@ -4,6 +4,7 @@ import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_sky.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
+import "rtx/utility/hanpi_cloud.slang";
 
 StructuredBuffer<float4> Inputs;
 RWStructuredBuffer<float4> Results;
@@ -77,6 +78,7 @@ void columnSupport(uint index : SV_DispatchThreadID)
   CloudDensityArgs args = {};
   args.thickness = sample.x;
   CloudColumn column = {};
-  column.thickness = sample.y;
-  Results[index] = float4(cloudColumnThickness(args, column), 0, 0, 0);
+  column.type = sample.y;
+  column.topScale = sample.z;
+  Results[index] = float4(hanPiColumnSupport(args.thickness, column.topScale, sample.w), 0, 0, 0);
 }

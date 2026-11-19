@@ -395,7 +395,7 @@ def runtimeTexturesDir = 'runtime/textures'
 // NativeExtractor installs these textures from the distributable JAR.
 def runtimeTextureFiles = ['overcast_thunderstorm_bc6u.dds', 'water_normals_flipbook.dds']
 def ownedRuntimeTexturesDir = 'packaging/runtime-textures'
-def ownedRuntimeTextureFiles = ['milky_way.dds', 'cirrus_density.dds']
+def ownedRuntimeTextureFiles = ['milky_way.dds']
 def fetchRuntimeTexturesTask = tasks.register('fetchRuntimeTextures', Exec) {
     description = 'Pulls the runtime textures pinned in packman/textures.packman.xml'
     group = 'build setup'

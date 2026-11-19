@@ -6,6 +6,22 @@ locations given.
 
 ## Vendored source code
 
+### HanPi Volume Cloud
+
+- Copyright (c) 2026 AshenOneArt. The adapted Slang module preserves HanPi's
+  profile warp, billow and wisp density, and adaptive sampling equations.
+- [HanPi Volume Cloud](https://github.com/AshenOneArt/HPVolumeCloud), revision
+  `27e799914493de9fa527179312ed72a39d08e225`.
+- [MIT with additional attribution requirement](LICENSES/HanPi-Volume-Cloud.txt).
+- The offline baker uses the base-volume generator and erosion noise primitives from
+  [3DTextureExportTools](https://github.com/AshenOneArt/3DTextureExportTools),
+  revision `4126f0f3190ff29270b286b5713f2e911547db2e`.
+  [MIT license](LICENSES/3DTextureExportTools-MIT.txt).
+- The weather fields and profile statistics derive from NASA EOSDIS GIBS
+  Aqua/MODIS imagery and cloud retrievals for 19 June 2026. Source layers,
+  geographic extents and reconstruction are documented in the
+  [cloud asset workflow](kavora-runtime/tools/clouds/README.md).
+
 ### Iris shader settings interface
 
 - Adapted sources: `KavoraSettingsScreen.java`, `ShaderMenuButton.java`,

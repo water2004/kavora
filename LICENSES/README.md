@@ -10,6 +10,8 @@
 | DXVK 原始代码 | zlib/libpng | [运行时 LICENSE](../kavora-runtime/LICENSE) |
 | NVIDIA Remix 原生主体 | MIT | [运行时 LICENSE-MIT](../kavora-runtime/LICENSE-MIT) |
 | 云多重散射离线训练 | Apache-2.0，权重打包器为 MIT | [训练代码来源与许可](../kavora-runtime/training/cloud-scattering/README.md) |
+| HanPi Volume Cloud 云形及采样适配 | MIT，附署名要求 | [原始许可及署名](HanPi-Volume-Cloud.txt) |
+| 3DTextureExportTools 云噪声生成 | MIT | [原始许可](3DTextureExportTools-MIT.txt) |
 | Iris 派生界面代码与控件纹理 | LGPL-3.0-only | [原始声明及修改说明](../kavora/src/main/resources/META-INF/licenses/iris/NOTICE.txt) |
 | Caustica-Horizon 末地与月亮着色器适配 | LGPL-3.0-or-later | [来源及修改说明](../kavora/packaging/licenses/Caustica-Horizon-End.txt) |
 | Community Edition 云、材质和光源适配 | Apache-2.0 | [云](../kavora/packaging/licenses/RTX-Remix-CE-Clouds.txt)、[材质及光源](../kavora/packaging/licenses/RTX-Remix-CE-Materials.txt) |

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/atmosphere.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/clouds.slang";
 
 StructuredBuffer<float4> Inputs;

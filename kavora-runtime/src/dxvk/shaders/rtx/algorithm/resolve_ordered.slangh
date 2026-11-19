@@ -24,6 +24,7 @@
 #include "rtx/algorithm/resolve.h"
 import "rtx/utility/quaternion.slang";
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
 #include "rtx/algorithm/resolve_medium.slangh"
 #include "rtx/algorithm/resolve_portal.slangh"
 #include "rtx/algorithm/resolve_surface_approximations.slangh"

@@ -148,12 +148,16 @@ def check_beam(probe):
 
 
 def check_column_support(probe):
-    samples = [(thickness, support, 0, 0) for thickness in (50, 800, 1500)
-               for support in (0, 1, thickness / 2, thickness)]
-    expected = [support if support > 0 else thickness for thickness, support, _, _ in samples]
+    samples = [(thickness, cloud_type, top_scale, 0.58 if cloud_type < 0.5 else 0.9) for thickness in (50, 800, 1500)
+               for cloud_type in (0, 0.49, 0.5, 1) for top_scale in (1, 1.1, 1.6, 2)]
+    expected = []
+    for thickness, cloud_type, top_scale, _ in samples:
+        profile_limit = 0.58 if cloud_type < 0.5 else 0.9
+        normalized_height = profile_limit / (1 - (top_scale - 1) * profile_limit)
+        expected.append(thickness * min(normalized_height, 1))
     actual = probe.run("columnSupport", samples)[:, 0]
-    np.testing.assert_array_equal(actual, expected)
-    print(f"PASS local column support: {len(samples)} empty and occupied optical-depth columns")
+    np.testing.assert_allclose(actual, expected, rtol=2e-6)
+    print(f"PASS local column support: {len(samples)} cloud types, top stretches and shell heights")
 
 
 def single_escape(outgoing_cosine, thickness, incident_cosine):

@@ -185,8 +185,7 @@ void rayPhases(uint index : SV_DispatchThreadID)
     if (active)
     {
       const float cosine = dot(direction, Clouds.lights[light].directionToLight);
-      expected[light] = 0.85f * testCloudPhase(cosine, Clouds.anisotropy)
-        + 0.15f * testCloudPhase(cosine, -0.25f);
+      expected[light] = 0.5f * (testCloudPhase(cosine, Clouds.anisotropy) + testCloudPhase(cosine, -0.25f));
     }
   }
   Results[index] = float4(abs(phase.phase - expected), 0, 0);

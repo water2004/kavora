@@ -15,7 +15,7 @@ RWStructuredBuffer<float4> Results;
 Texture2D<float4>.Handle Transmission;
 Texture2D<float4>.Handle Scattering;
 SamplerState.Handle TableSampler;
-Sampler2D<float4>.Handle Weather;
+Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Volume;
 Sampler3D<float2>.Handle Chroma;
 Sampler3D<float>.Handle CloudDepth;
@@ -65,13 +65,13 @@ void integrate(uint index : SV_DispatchThreadID)
   const CloudLightingCache noCloudLighting = { Sampler3D<float>(CloudDepth), Sampler3D<float>(CloudDepth),
     Sampler3D<float2>(Chroma), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume) };
   const AtmosphereSegment full = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
-    Sampler3D<float2>(Chroma), Sampler2D<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
+    Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, end, 0, tables);
   const AtmosphereSegment first = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
-    Sampler3D<float2>(Chroma), Sampler2D<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
+    Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, split, 0, tables);
   const AtmosphereSegment second = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
-    Sampler3D<float2>(Chroma), Sampler2D<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
+    Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, split, end, 0, tables);
   const AtmosphereSegment composed = composeAtmosphereSegments(first, second);
   Results[index * 5 + 0] = float4(full.radiance, 0);

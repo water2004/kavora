@@ -107,7 +107,7 @@
   SAMPLER3D(BINDING_CLOUD_BASE_SAMPLER)                            \
   SAMPLER3D(BINDING_CLOUD_DETAIL_SAMPLER)                            \
   TEXTURE2D(BINDING_CLOUD_AMBIENT_INPUT)                            \
-  SAMPLER2D(BINDING_CLOUD_WEATHER_SAMPLER)                      \
+  SAMPLER2DARRAY(BINDING_CLOUD_WEATHER_SAMPLER)                      \
   SAMPLER2DARRAY(BINDING_CLOUD_SKY_SAMPLER)                         \
   SAMPLER3D(BINDING_CLOUD_SUN_DEPTH_INPUT)                         \
   SAMPLER3D(BINDING_CLOUD_MOON_DEPTH_INPUT)                        \

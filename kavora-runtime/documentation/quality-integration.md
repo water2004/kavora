@@ -27,22 +27,46 @@ near atmosphere. Finite light paths resolve in world space.
 Air attenuation uses absolute optical-depth prefixes from a finite Chapman
 approximation. Segment extinction comes from the difference between successive
 prefixes. Radiance uses eight cells per air interval, with the source sampled
-once per cell and weighted by the segment's integrated extinction.
+once per cell and weighted by the segment's integrated extinction. Air and
+froxel fog form the background transfer. Each intersected cloud shell integrates
+its own radiance, transmission and extinction moment. The compositor inserts
+that transfer at the extinction centroid and integrates the background on
+either side. This approximates the overlap of air and cloud within the shell
+while keeping cloud steps out of the air and fog integration grid.
 
-Each cloud layer has an independent view sample budget that falls to half
-when looking overhead. A fractional budget clips
-only the terminal cell. A direction-derived offset stratifies the cumulus samples
-across nearby rays and stays constant when a ray is split. The high shell uses
-its integrated height profile and one cell where the horizontal footprint covers
-the segment. The low and high layers have separate view range controls. The
-directional shadow prefix field uses its own light-transport extent.
+Low clouds use the distance- and shell-thickness-capped coarse march from
+[HanPi Volume Cloud](https://github.com/AshenOneArt/HPVolumeCloud). A body-only
+probe skips erosion in clear cells. Occupied cells use one-quarter steps and
+resolve billow and wisp erosion. The march is anchored to the unclipped shell.
+A high cloud's coverage sets its vertical band. Altocumulus cells thin that band
+and reduce density at the edges. Altostratus uses the same band with a weaker
+cell effect. Uniform view segments integrate the band's smooth edges exactly
+in height. A vertical ray can cover the high shell with one cell.
+
+The shared density field samples separate satellite-derived low and elevated
+weather maps, a radial RGB profile LUT and four erosion bands. The offline
+[asset workflow](../tools/clouds/README.md) documents the observations,
+reconstructed inputs, channel layouts and generation commands.
+The body texture stores the mean and central variance in RG16F. Each mip
+merges its eight child distributions in float32 before quantization.
+The low and high layers have separate view ranges with a short terminal fade.
+The low-cloud shadow integrates the first body tile from the cloud entry with
+a widening cone fitted to the available taps and progressive density mips.
+The shared directional prefix covers the remaining optical path.
+High clouds use uniform sunlight segments within a 3 km interval from shell entry.
+Single scattering uses normalized forward and backward lobes. High-cloud
+directional light includes HanPi's powder response. Sky illumination projects
+the solar optical depth onto the vertical in the low layer and interpolates
+by height in the high layer.
 
 The shared direct-light field bakes the solar and lunar transmission to points
 in both cloud layers, including the transmission used for ground bounce.
-Its two wind-aligned grids blend across their edges and use resolved transport
-for short segments and positions beyond the field. Primary rays, PSR and sky
-generation sample the same field. View extinction is still integrated along
-each ray.
+Its three wind-aligned grids blend across their edges and use resolved transport
+close to the camera and beyond the field. The far grid grows with the view
+range while the near and middle grids retain their spatial resolution.
+Primary rays, PSR and sky generation sample the same field. A PSR
+continuation uses camera-to-sample distance for the resolved region. View
+extinction is integrated along each ray.
 
 ### Cloud multiple scattering
 

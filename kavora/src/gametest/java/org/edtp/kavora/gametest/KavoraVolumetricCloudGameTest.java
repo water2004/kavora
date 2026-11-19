@@ -115,6 +115,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             }
             if (Boolean.getBoolean("kavora.gametest.cloudLightingOnly")) {
                 captureLighting(context, world);
+                captureCelestialView(context, world, 140, "clear", "sunset", 11500, false);
                 return;
             }
             double belowHeight = base - 240;

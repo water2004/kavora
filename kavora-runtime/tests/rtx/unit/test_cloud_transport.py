@@ -9,8 +9,6 @@ import argparse
 import json
 from pathlib import Path
 import re
-import struct
-import time
 
 import numpy as np
 import slangpy as spy
@@ -33,7 +31,7 @@ def cloud_parameters(**changes):
         "albedo": 1.0, "steps": 160, "highSteps": 48, "lightSteps": 16,
         "anisotropy": 0.65, "multipleScattering": 0.8, "weather": 0.0,
         "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
-        "night": 0.0,
+        "night": 0.0, "meterToWorld": 1.0,
         "lightMaxDistance": 60000.0, "previousWindDelta": [0, 0, 0],
         "lightingNearDistance": 24000.0,
         "viewAngularFootprint": 0.0, "highBaseHeight": 6000.0,
@@ -54,7 +52,7 @@ def check_morphology_configuration():
     low, high = cloud_weather_periods()
     assert base > 0 and low % (4 * base) == 0
     assert max(low, high) % min(low, high) == 0
-    print("PASS cloud periods: family bodies and phase lattice divide the host wind wrap")
+    print("PASS cloud periods: base, detail and weather tiles divide the host wind wrap")
 
 
 def cloud_weather_periods():
@@ -206,180 +204,54 @@ def check_light_profiles(probe):
     print("PASS altitude irradiance: profile boundaries, ground darkness and legacy fallback")
 
 
-def production_kernel(device, relative, defines=None, combined_source=False):
-    session = device.create_slang_session({**OPTIONS, "defines": {"__SLANG__": "1", **(defines or {})}})
-    source = (SHADERS / relative).read_text(encoding="utf-8")
-    # ShaderCursor writes a constant buffer. SPIR-V compilation checks the production push layout separately.
-    source = source.replace("layout(push_constant)", "")
-    source = source.replace("layout(binding = 1)\nSampler2D<float4> CloudCirrusAtlas;",
-                            "Sampler2D<float4>.Handle CloudCirrusAtlas;")
-    if "CloudCirrusAtlas" in source:
-        # Handle introduces a globals buffer: auto-assign the output binding so
-        # that buffer cannot alias the native output's explicit binding zero.
-        source = source.replace("layout(rgba16f, binding = 0)\n", "")
-    if combined_source:
-        # SlangPy binds combined samplers through descriptor handles.
-        source = source.replace("Sampler3D<float4> Source;", "Sampler3D<float4>.Handle Source;")
-        source = source.replace("Sampler2D<float4> Source;", "Sampler2D<float4>.Handle Source;")
-    module = session.load_module_from_source(Path(relative).stem.replace(".", "_"), source)
-    return device.create_compute_kernel(session.link_program([module], [module.entry_point("main")]))
+CLOUD_ASSETS = SHADERS.parent / "rtx_render/clouds"
+TEXTURE_FILES = {"Base": "cloud_base.bin", "Detail": "cloud_erosion.bin", "Weather": "cloud_weather.bin"}
 
 
-def cloud_atlas_path():
-    return Path(__file__).resolve().parents[4] / "kavora/packaging/runtime-textures/cirrus_density.dds"
-
-
-def cloud_atlas(device):
-    source = cloud_atlas_path().read_bytes()
-    header = struct.unpack_from('<31I', source, 4)
-    dx10 = struct.unpack_from('<5I', source, 128)
-    if source[:4] != b'DDS ' or dx10[:4] != (61, 3, 0, 1):
-        raise ValueError('Expected the linear R8_UNORM cirrus density atlas')
-    height, width, mip_count = header[2], header[3], header[6]
-    texture = device.create_texture(type=spy.TextureType.texture_2d, format=spy.Format.r8_unorm,
-                                   width=width, height=height, mip_count=mip_count,
-                                   usage=spy.TextureUsage.shader_resource)
-    offset = 148
-    for mip in range(mip_count):
-        w, h = max(1, width >> mip), max(1, height >> mip)
-        texture.copy_from_numpy(np.frombuffer(source, dtype=np.uint8, count=w*h, offset=offset).reshape(h, w).copy(), mip=mip)
-        offset += w*h
-    if offset != len(source):
-        raise ValueError('Unexpected density atlas payload length')
-    sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
-                                    mag_filter=spy.TextureFilteringMode.linear,
-                                    mip_filter=spy.TextureFilteringMode.linear,
-                                    max_anisotropy=8,
-                                    address_u=spy.TextureAddressingMode.clamp_to_edge,
-                                    address_v=spy.TextureAddressingMode.clamp_to_edge)
-    return texture.create_view(sampler=sampler)
+def weather_fixture(device, layers):
+    layers = np.asarray(layers, np.float32)
+    n = layers.shape[1]
+    texture = device.create_texture(type=spy.TextureType.texture_2d_array, format=spy.Format.rgba32_float,
+                                    width=n, height=n, array_length=3, usage=spy.TextureUsage.shader_resource)
+    for layer in range(3):
+        texture.copy_from_numpy(np.ascontiguousarray(layers[layer]), layer=layer)
+    return texture
 
 
 def cloud_textures(device, dump=None):
-    usage = spy.TextureUsage.shader_resource | spy.TextureUsage.unordered_access
-    sampler = device.create_sampler(address_u=spy.TextureAddressingMode.wrap,
-                                    address_v=spy.TextureAddressingMode.wrap,
+    sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
+                                    mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.linear,
+                                    address_u=spy.TextureAddressingMode.wrap, address_v=spy.TextureAddressingMode.wrap,
                                     address_w=spy.TextureAddressingMode.wrap)
     textures = {}
-    noise = {name: production_kernel(device, "rtx/pass/clouds/generate_cloud_noise.comp.slang", defines)
-             for name, defines in (("Base", {"CLOUD_NOISE_BASE": "1"}), ("Detail", {}))}
-    weather = production_kernel(device, "rtx/pass/clouds/generate_cloud_weather.comp.slang")
-    weather_source = (SHADERS / "rtx/pass/clouds/generate_cloud_weather.comp.slang").read_text(encoding="utf-8")
-    atlas = cloud_atlas(device) if "CloudCirrusAtlas" in weather_source else None
-    filters = {name: production_kernel(device, "rtx/pass/clouds/filter_cloud_noise.comp.slang", defines, True)
-               for name, defines in (("Base", {"CLOUD_NOISE_VOLUME": "1", "CLOUD_NOISE_FLOAT": "1"}),
-                                     ("Detail", {"CLOUD_NOISE_VOLUME": "1"}), ("Weather", {}))}
-    # The preview tool can replay an earlier shader root with its original storage format.
-    base_source = (SHADERS / "rtx/pass/clouds/generate_cloud_noise.comp.slang").read_text(encoding="utf-8")
-    base_format = spy.Format.rg16_float if "layout(rg16f," in base_source else spy.Format.rgba16_float
-    configuration = (SHADERS / "rtx/pass/cloud_noise.h").read_text(encoding="utf-8")
-    weather_resolution = int(re.search(r'kCloudWeatherResolution\s*=\s*(\d+)', configuration)[1])
-    for name, size, dimensions in (("Base", 128, 3), ("Detail", 32, 3), ("Weather", weather_resolution, 2)):
-        floating = name != "Detail"
-        image_format = base_format if name == "Base" else (spy.Format.rgba16_float if floating else spy.Format.rgba8_unorm)
-        texture = device.create_texture(type=spy.TextureType.texture_3d if dimensions == 3 else spy.TextureType.texture_2d,
-                                       format=image_format,
-                                       width=size, height=size,
-                                       depth=size if dimensions == 3 else 1,
-                                       mip_count=int(np.log2(size)) + 1, usage=usage)
-        view = texture.create_view(mip=0, mip_count=1)
-        weather_started = time.perf_counter() if name == "Weather" else None
-        if dimensions == 3:
-            noise[name].dispatch(thread_count=[size, size, size], vars={"CloudNoise": view, "cb": {"detail": name == "Detail"}})
-        else:
-            bindings = {"CloudWeather": view}
-            if atlas is not None:
-                bindings["CloudCirrusAtlas"] = atlas.descriptor_handle_combined
-            weather.dispatch(thread_count=[size, size, 1], vars=bindings)
-        data = texture.to_numpy()
-        if weather_started is not None:
-            print(f"Cloud weather generation and readback: {time.perf_counter() - weather_started:.4f}s")
-        assert np.isfinite(data).all(), (name, "generated nonfinite noise")
-        assert np.ptp(data[..., 0]) > (0.12 if floating else 32), (name, "degenerate generated noise")
-        if name == "Weather":
-            cumulus = data[..., 0]
-            stratiform = data[..., 1]
-            cloud_type = data[..., 2]
-            assert np.all((data[..., :4] >= 0) & (data[..., :4] <= 1)), (
-                "weather family masks, type and cirrus must stay normalized")
-            assert np.ptp(cumulus) > 0.12 and np.ptp(stratiform) > 0.12, (
-                "both low-cloud families must retain spatial variation")
-            cumulus_p10, cumulus_p90 = np.quantile(cumulus, [0.10, 0.90])
-            stratiform_p10, stratiform_p90 = np.quantile(stratiform, [0.10, 0.90])
-            type_p10, type_p90 = np.quantile(cloud_type, [0.10, 0.90])
-            adjacent_correlation = float(0.5 * (
-                np.corrcoef(cumulus[:, :-1].ravel(), cumulus[:, 1:].ravel())[0, 1]
-                + np.corrcoef(cumulus[:-1, :].ravel(), cumulus[1:, :].ravel())[0, 1]))
-            mesoscale_correlation = float(0.5 * (
-                np.corrcoef(cumulus[:, :-32].ravel(), cumulus[:, 32:].ravel())[0, 1]
-                + np.corrcoef(cumulus[:-32, :].ravel(), cumulus[32:, :].ravel())[0, 1]))
-            regional_correlation = float(0.5 * (
-                np.corrcoef(cumulus[:, :-128].ravel(), cumulus[:, 128:].ravel())[0, 1]
-                + np.corrcoef(cumulus[:-128, :].ravel(), cumulus[128:, :].ravel())[0, 1]))
-            deck_adjacent_correlation = float(0.5 * (
-                np.corrcoef(stratiform[:, :-1].ravel(), stratiform[:, 1:].ravel())[0, 1]
-                + np.corrcoef(stratiform[:-1, :].ravel(), stratiform[1:, :].ravel())[0, 1]))
-            deck_meso_correlation = float(0.5 * (
-                np.corrcoef(stratiform[:, :-32].ravel(), stratiform[:, 32:].ravel())[0, 1]
-                + np.corrcoef(stratiform[:-32, :].ravel(), stratiform[32:, :].ravel())[0, 1]))
-            deck_regional_correlation = float(0.5 * (
-                np.corrcoef(stratiform[:, :-128].ravel(), stratiform[:, 128:].ravel())[0, 1]
-                + np.corrcoef(stratiform[:-128, :].ravel(), stratiform[128:, :].ravel())[0, 1]))
-            family_correlation = float(np.corrcoef(cumulus.ravel(), stratiform.ravel())[0, 1])
-            assert cumulus_p10 < 0.25 and cumulus_p90 > 0.65, (
-                "cumulus field must retain openings and cloud-rich groups", cumulus_p10, cumulus_p90)
-            assert stratiform_p10 < 0.25 and stratiform_p90 > 0.65, (
-                "stratiform field must retain broad openings and connected decks", stratiform_p10, stratiform_p90)
-            assert type_p10 < 0.30 and type_p90 > 0.65, (
-                "weather field must retain both stratiform and developed cloud families", type_p10, type_p90)
-            assert adjacent_correlation > 0.95 and mesoscale_correlation > 0.6, (
-                "cumulus occupancy must form coherent parent groups", adjacent_correlation, mesoscale_correlation)
-            assert 0.1 < regional_correlation < 0.85, (
-                "cumulus field must retain regional organization and local variation", regional_correlation)
-            assert deck_adjacent_correlation > 0.98 and deck_meso_correlation > 0.75, (
-                "stratiform decks must form broader connected structures",
-                deck_adjacent_correlation, deck_meso_correlation)
-            assert 0.1 < deck_regional_correlation < 0.85, (
-                "stratiform field must retain regional organization and openings", deck_regional_correlation)
-            assert 0.1 < family_correlation < 0.9, (
-                "cloud families must be spatially related but not identical", family_correlation)
-            if dump:
-                dump.mkdir(parents=True, exist_ok=True)
-                np.savez(dump / "cloud-weather-field.npz", cumulus=cumulus, stratiform=stratiform,
-                         cloudType=cloud_type, cirrus=data[..., 3])
-            print(f"PASS weather morphology: cumulus p10/p90 {cumulus_p10:.4f}/{cumulus_p90:.4f}, "
-                  f"stratiform p10/p90 {stratiform_p10:.4f}/{stratiform_p90:.4f}, "
-                  f"type p10/p90 {type_p10:.4f}/{type_p90:.4f}, "
-                  f"cumulus adjacent/32px/128px correlation "
-                  f"{adjacent_correlation:.4f}/{mesoscale_correlation:.4f}/{regional_correlation:.4f}, "
-                  f"deck adjacent/32px/128px correlation "
-                  f"{deck_adjacent_correlation:.4f}/{deck_meso_correlation:.4f}/{deck_regional_correlation:.4f}, "
-                  f"family correlation {family_correlation:.4f}")
-        if floating and name != "Weather":
-            # The base volume stores each shape mean beside its second moment.
-            mean_channels = list(range(0, data.shape[-1], 2))
-            moment_channels = [channel + 1 for channel in mean_channels]
-            np.testing.assert_allclose(data[..., moment_channels], data[..., mean_channels].astype(np.float32) ** 2,
-                                       atol=np.finfo(np.float16).eps, rtol=0, err_msg="unfiltered shape moments")
-        # Compare the production filter with independent reference box averages at every level.
-        for mip in range(1, texture.mip_count):
-            shape = []
-            for extent in data.shape[:-1]:
-                shape.extend([extent // 2, 2])
-            expected = data.reshape(*shape, data.shape[-1]).astype(np.float32).mean(
-                axis=tuple(range(1, 2 * dimensions, 2)))
-            expected = expected.astype(np.float16) if floating else np.rint(expected).astype(np.uint8)
-            source = texture.create_view(mip=mip - 1, mip_count=1, sampler=sampler)
-            destination = texture.create_view(mip=mip, mip_count=1)
-            extent = size >> mip
-            filters[name].dispatch(thread_count=[extent, extent, extent if dimensions == 3 else 1],
-                                   vars={"Source": source.descriptor_handle_combined, "Destination": destination})
-            data = texture.to_numpy(mip=mip)
-            # UNORM interpolation may round each axis before the final texture write.
-            np.testing.assert_allclose(data, expected, atol=8e-4 if floating else 2,
-                                       rtol=0, err_msg=f"{name} mip {mip}")
+    for name, filename in TEXTURE_FILES.items():
+        weather = name == "Weather"
+        base = name == "Base"
+        side = 512 if weather else 64
+        texture = device.create_texture(type=spy.TextureType.texture_2d_array if weather else spy.TextureType.texture_3d,
+            format=spy.Format.rg16_float if base else spy.Format.rgba8_unorm, width=side, height=side,
+            depth=1 if weather else side, array_length=3 if weather else 1, mip_count=side.bit_length(),
+            usage=spy.TextureUsage.shader_resource)
+        raw = (CLOUD_ASSETS / filename).read_bytes()
+        offset = 0
+        for mip in range(side.bit_length()):
+            n = side >> mip
+            for layer in range(3 if weather else 1):
+                shape = (n, n, 4) if weather else (n, n, n, 2 if base else 4)
+                size = np.prod(shape) * (2 if base else 1)
+                a = np.frombuffer(raw[offset:offset + size], dtype="<f2" if base else "u1").reshape(shape)
+                texture.copy_from_numpy(a.copy(), layer=layer, mip=mip)
+                offset += size
+                if mip == 0:
+                    assert np.isfinite(a).all() and a[..., 0].max() > a[..., 0].min()
+                if weather and layer == 2 and mip == 0:
+                    # Profile peaks and radial modulation must survive quantization.
+                    assert np.all(np.ptp(a[..., :3], axis=1).mean(axis=0) > 100)
+                    assert np.all(np.ptp(a[..., :3], axis=0).max(axis=0) > 10)
+                    peaks = a[..., :3].argmax(axis=1).mean(axis=0)
+                    assert np.all(np.diff(peaks) > 0), peaks
+        assert offset == len(raw)
         textures[name] = texture.create_view(sampler=sampler)
-    print("PASS production noise and mip filters: 2D and 3D reference averages")
     return textures
 
 
@@ -416,7 +288,8 @@ def check_density(probe, textures, dump):
         "increasing cloud amount must not reduce occupied cloud density", coverage_means)
 
     filtered_points = points.copy()
-    filtered_points[:, 3] = 128
+    # A larger footprint must actually span several weather texels.
+    filtered_points[:, 3] = 4 * clouds["shapeScale"] * cloud_weather_periods()[0] / 512
     filtered = probe.run("densities", filtered_points, clouds=cloud_parameters(), textures=textures)[:, 0]
     assert np.isfinite(filtered).all() and np.all((0 <= filtered) & (filtered <= 1))
     assert np.std(filtered) < np.std(fields[0]), "a larger footprint should suppress unresolved variation"
@@ -446,64 +319,6 @@ def check_low_wind_wrap(probe, textures):
                                    err_msg="low-cloud density jumps at the shared wind wrap")
         maximum_error = max(maximum_error, np.max(np.abs(wrapped - reference)))
     print(f"PASS low-layer wind wrap: {period:.0f}m, maximum density difference {maximum_error:.7f}")
-
-
-def check_shape_phase(probe, textures):
-    clouds = cloud_parameters(coverage=1.0, weather=1.0)
-    scale = clouds["shapeScale"]
-    period = cloud_weather_periods()[0] * scale
-    rng = np.random.default_rng(87123)
-    # Eight-meter coordinates keep the period shifts exactly representable in float32.
-    horizontal = np.rint(rng.uniform(-2 * period, 2 * period, (2048, 2)) / 8) * 8
-    points = np.column_stack([horizontal[:, 0], np.zeros(len(horizontal)),
-                              horizontal[:, 1], np.zeros(len(horizontal))]).astype(np.float32)
-    weather = {"Weather": textures["Weather"]}
-
-    def phase(samples, parameters=clouds):
-        return probe.run("columnPhases", samples, clouds=parameters, textures=weather)
-
-    values = phase(points)
-    assert np.isfinite(values).all() and np.all(values[:, 3] > 0)
-    assert np.max(np.abs(values[:, :3])) <= 0.250001
-    for offset in ([period, 0, 0, 0], [0, 0, period, 0], [-period, 0, period, 0]):
-        np.testing.assert_allclose(phase(points + offset)[:, :3], values[:, :3], atol=1e-7, rtol=0,
-                                   err_msg="shape phase must share the low-weather period")
-    for controls in ({"coverage": 0.45, "weather": 0.0},
-                     {"coverage": 0.8, "weather": 0.5, "thunder": 0.7, "night": 1.0}):
-        changed = phase(points, clouds | controls)
-        active = changed[:, 3] > 0
-        assert np.any(active)
-        np.testing.assert_array_equal(changed[active, :3], values[active, :3])
-        np.testing.assert_array_equal(changed[~active, :3], 0)
-
-    maximum_derivative = 0.0
-    delta = 16.0
-    for axis in (0, 2):
-        offset = np.zeros(4)
-        offset[axis] = delta
-        derivative = (phase(points + offset)[:, :3] - phase(points - offset)[:, :3]) * (scale / (2 * delta))
-        maximum_derivative = max(maximum_derivative, np.max(np.abs(derivative)))
-    assert maximum_derivative <= 0.2345, ("shape phase exceeds its no-fold derivative bound", maximum_derivative)
-
-    # Check both lattice and wrap boundaries, including negative coordinates.
-    configuration = (SHADERS / "rtx/pass/cloud_noise.h").read_text()
-    base_period_match = re.search(r"kCloudBasePeriod\s*=\s*(\d+)", configuration)
-    base_period = int(base_period_match[1]) if base_period_match else 1
-    edges = np.array([[cell * 4 * base_period * scale, 0, across, 0]
-                      for cell in range(-33, 34) for across in (-7351.5, 2191.25, 18421.75)], np.float32)
-    for axis in (0, 2):
-        samples = edges if axis == 0 else edges[:, [2, 1, 0, 3]]
-        offset = np.zeros(4)
-        offset[axis] = 8
-        before = phase(samples - offset)[:, :3]
-        center = phase(samples)[:, :3]
-        after = phase(samples + offset)[:, :3]
-        np.testing.assert_allclose(before, after, atol=1e-6, rtol=0,
-                                   err_msg="shape phase has a discontinuous cell boundary")
-        slope_jump = (before + after - 2 * center) * (scale / 8)
-        assert np.max(np.abs(slope_jump)) < 1e-4, "shape phase has a slope discontinuity"
-    print(f"PASS low shape phase: bounds, UI independence, negative/wrapped cell continuity, "
-          f"maximum sampled derivative {maximum_derivative:.6f}")
 
 
 def light_parameters(direction, **changes):
@@ -621,9 +436,7 @@ def check_cloud_cache_transition(probe, textures, positions, dump):
     # A globally empty field must not sample padding between packed cascades.
     # Coverage is a regional bias, so explicitly provide zero weather moments.
     device = probe.device
-    weather = device.create_texture(type=spy.TextureType.texture_2d, format=spy.Format.rgba32_float,
-                                    width=1, height=1, usage=spy.TextureUsage.shader_resource)
-    weather.copy_from_numpy(np.zeros((1, 1, 4), np.float32))
+    weather = weather_fixture(device, np.zeros((3, 1, 1, 4), np.float32))
     sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
                                     mag_filter=spy.TextureFilteringMode.linear,
                                     address_u=spy.TextureAddressingMode.wrap,
@@ -759,13 +572,12 @@ def check_high_column_transmission(probe, textures):
             column = clouds | {"groundReference": [x, 0.0, z]}
             result = probe.run("viewTransmission", [[x, 0.0, z, distance]], [[0.0, 1.0, 0.0, 0.0]],
                                column, textures)[0]
-            # A vertical ray has no horizontal span in the two-dimensional high
-            # field. Layer thickness must not select a coarser horizontal mip.
-            density = probe.run("densities", [[x, center_height, z, 0.0]],
-                                clouds=column, textures=textures)[0, 0]
-            # Smooth ramps over [0, .15] and [.65, 1] enclose area .75; the midpoint
-            # lies on the unit plateau. This is an independent Beer-law column reference.
-            optical_depth = float(density) * 0.75 * thickness * clouds["highExtinction"]
+            # Integrate the resolved coverage- and type-dependent vertical band.
+            unit_height = (np.arange(512) + 0.5) / 512 - 0.5
+            samples = np.column_stack([np.full(512, x), center_height + thickness * unit_height,
+                                       np.full(512, z), np.zeros(512)])
+            density = probe.run("densities", samples, clouds=column, textures=textures)[:, 0]
+            optical_depth = float(np.mean(density)) * thickness * clouds["highExtinction"]
             actual.append(result[0])
             expected.append(np.exp(-optical_depth))
     actual = np.asarray(actual)
@@ -785,7 +597,8 @@ def high_column_reference(origin, direction, base, thickness, extinction, distan
     point = origin + [0, radius, 0]
     projection = point @ direction
     boundaries = [0.0, distance]
-    for altitude in (base, base + 0.15 * thickness, base + 0.65 * thickness, base + thickness):
+    # White weather gives a full band with smooth ramps over [0, .15] and [.85, 1].
+    for altitude in (base, base + 0.15 * thickness, base + 0.85 * thickness, base + thickness):
         height = origin[1]
         squared = origin[0] ** 2 + origin[2] ** 2 + (height - altitude) * (2 * radius + height + altitude)
         discriminant = projection * projection - squared
@@ -804,16 +617,14 @@ def high_column_reference(origin, direction, base, thickness, extinction, distan
         positions = point[None, :] + samples[:, None] * direction
         height = (np.linalg.norm(positions, axis=1) - radius - base) / thickness
         bottom = np.clip(height / 0.15, 0, 1)
-        top = np.clip((height - 0.65) / 0.35, 0, 1)
+        top = np.clip((height - 0.85) / 0.15, 0, 1)
         profile = bottom * bottom * (3 - 2 * bottom) * (1 - top * top * (3 - 2 * top))
         depth += 0.5 * (end - begin) * np.dot(weights, profile) * extinction
     return depth
 
 
 def check_high_filtered_columns(probe, textures):
-    weather = probe.device.create_texture(type=spy.TextureType.texture_2d, format=spy.Format.rgba32_float,
-                                          width=1, height=1, mip_count=1, usage=spy.TextureUsage.shader_resource)
-    weather.copy_from_numpy(np.ones((1, 1, 4), dtype=np.float32))
+    weather = weather_fixture(probe.device, np.ones((3, 1, 1, 4), np.float32))
     sampler = probe.device.create_sampler(address_u=spy.TextureAddressingMode.wrap,
                                           address_v=spy.TextureAddressingMode.wrap)
     constant = {**textures, "Weather": weather.create_view(sampler=sampler)}
@@ -823,7 +634,7 @@ def check_high_filtered_columns(probe, textures):
     cases = 0
     for thickness in (50.0, 200.0):
         base = 6400.0 - 0.5 * thickness
-        extinction = 0.005 / (0.75 * thickness)
+        extinction = 0.005 / (0.85 * thickness)
         origins, directions = [], []
         for height, angles in ((139.0, (90, 45, 20, 10, 5, 0)),
                                 (6400.0, (-0.4, -0.001, 0, 0.001, 0.4, 90)), (7000.0, (-90,))):
@@ -842,7 +653,7 @@ def check_high_filtered_columns(probe, textures):
                                   maxDistance=1e6, planetRadius=radius)
         for steps in (64, 96, 160, 320):
             for footprint in (0.0, 0.00191831747, 0.00383663494, 0.01):
-                parameters = clouds | {"steps": steps, "viewAngularFootprint": footprint}
+                parameters = clouds | {"highSteps": steps, "viewAngularFootprint": footprint}
                 transmission = probe.run("viewTransmission", origins, directions, parameters, constant)[:, 0]
                 assert np.isfinite(transmission).all() and np.all((0 < transmission) & (transmission <= 1))
                 depth = -np.log(transmission.astype(np.float64))
@@ -890,7 +701,7 @@ def check_tangent_visibility(probe, textures):
     maximum_change = 0.0
     offsets = np.radians([-0.001, -0.0001, 0.0, 0.0001, 0.001])
     # Reduced extinction keeps the tangent rays measurable instead of completely opaque.
-    for layer, base, height, extinction in ((0, 400.0, 540.0, 3e-4), (1, 6000.0, 6400.0, 2e-5)):
+    for layer, base, height, extinction in ((0, 400.0, 540.0, 1.5e-4), (1, 6000.0, 6400.0, 2e-5)):
         clouds = cloud_parameters(extinction=extinction if layer == 0 else 0.0,
                                   highExtinction=extinction if layer == 1 else 0.0)
         origins, directions = [], []
@@ -906,10 +717,15 @@ def check_tangent_visibility(probe, textures):
         values = probe.run("visibility", origins, directions, clouds, textures)[:, 0].reshape(-1, len(offsets))
         assert np.isfinite(values).all() and np.all((0 <= values) & (values <= 1))
         assert np.any((values > 0.01) & (values < 0.99)), "tangent continuity must exercise visible attenuation"
-        change = np.max(np.abs(np.diff(values, axis=1)))
+        differences = np.diff(values, axis=1)
+        if layer == 0:
+            reference = probe.run("visibilityReference", origins, directions, clouds, textures)[:, 0]
+            # Remove the real change in shadow along the perturbed ray before measuring artifacts.
+            differences -= np.diff(reference.reshape(values.shape), axis=1)
+        change = np.max(np.abs(differences))
         assert change < 0.01, ("shadow grid jumps when a second shell interval appears", layer, change)
         maximum_change = max(maximum_change, change)
-    print(f"PASS below-horizon shell tangencies: maximum transmission change {maximum_change:.6f}")
+    print(f"PASS below-horizon shell tangencies: maximum excess transmission change {maximum_change:.6f}")
 
 
 def main():
@@ -932,7 +748,6 @@ def main():
     period = max(cloud_weather_periods()) * fixtures["shapeScale"]
     check_family_periodicity(probe, textures, fixtures, period)
     check_erosion_seams(probe, textures, fixtures)
-    check_shape_phase(probe, textures)
     check_high_density(probe, textures, args.dump)
     check_high_column_transmission(probe, textures)
     check_high_filtered_columns(probe, textures)

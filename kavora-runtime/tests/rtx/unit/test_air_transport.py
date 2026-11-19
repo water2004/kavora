@@ -82,6 +82,9 @@ class Probe:
             self.keep.extend([result, view])
             return view
 
+        from test_cloud_transport import weather_fixture
+        weather = weather_fixture(self.device, np.zeros((3, 1, 1, 4))).create_view(sampler=sampler)
+        self.keep.append(weather)
         trans = texture(np.ones((2, 2, 4)), 2)
         scatter = texture(np.zeros((2, 2, 4)), 2)
         volume = texture(np.zeros((1, 1, 1, 4)), 3)
@@ -89,7 +92,7 @@ class Probe:
         self.bindings = {"Transmission": trans.descriptor_handle_ro,
                          "Scattering": scatter.descriptor_handle_ro,
                          "TableSampler": sampler.descriptor_handle,
-                         "Weather": trans.descriptor_handle_combined,
+                         "Weather": weather.descriptor_handle_combined,
                          "Volume": volume.descriptor_handle_combined,
                          "CloudDepth": volume.descriptor_handle_combined,
                          "Chroma": chroma.descriptor_handle_combined}

@@ -34,17 +34,17 @@ bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distan
     return false;
   }
   begin = sqrt(cutSquared) - along;
-  if (begin <= 0 || ray.intervals.ends[0] > begin)
+  if (begin <= 0 || ray.fogInterval.y > begin)
   {
     return false;
   }
   float2 firstCloud = floatMax;
   float lastCloud = begin;
   [unroll]
-  for (uint i = 1; i <= 4; i++)
+  for (uint i = 0; i < 4; i++)
   {
-    const float end = ray.intervals.ends[i];
-    const float start = max(ray.intervals.starts[i], begin);
+    const float end = ray.cloudIntervals[i].y;
+    const float start = max(ray.cloudIntervals[i].x, begin);
     if (end > start)
     {
       if (start < firstCloud.x)
@@ -76,8 +76,9 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   float3 mediumExtinction, bool allowFarTail)
 {
   const VolumeArgs volume = cb.volumeArgs;
-  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
+  AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
     volumeHint, mediumExtinction);
+  ray.eye = cameraGetWorldPosition(cb.camera);
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   float cachedBegin;
   float2 cachedUV;

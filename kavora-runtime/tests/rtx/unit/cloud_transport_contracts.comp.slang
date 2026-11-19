@@ -10,7 +10,7 @@ ConstantBuffer<CloudArgs> Clouds;
 StructuredBuffer<float4> Inputs;
 StructuredBuffer<float4> Directions;
 RWStructuredBuffer<float4> Results;
-Sampler2D<float4>.Handle Weather;
+Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
 Sampler3D<float>.Handle CloudSunDepth;
@@ -92,30 +92,10 @@ void densities(uint index : SV_DispatchThreadID)
     return;
   }
   const float4 sample = Inputs[index];
-  const float density = cloudExtinction(Clouds, sample.xyz, Sampler2D<float4>(Weather),
+  const float density = cloudExtinction(Clouds, sample.xyz, Sampler2DArray<float4>(Weather),
     Sampler3D<float4>(Base), Sampler3D<float4>(Detail), sample.w)
     / max(max(Clouds.extinction, Clouds.highExtinction), 1e-20f);
   Results[index] = float4(density, 0, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void columnPhases(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  CloudDensityArgs args = {};
-  args.shapeScale = Clouds.shapeScale;
-  args.thickness = Clouds.thickness;
-  args.coverage = Clouds.coverage;
-  args.weather = Clouds.weather;
-  args.thunder = Clouds.thunder;
-  args.night = Clouds.night;
-  const float4 input = Inputs[index];
-  const CloudColumn column = cloudColumn(args, input.xz / args.shapeScale, Sampler2D<float4>(Weather), input.w);
-  Results[index] = float4(column.shapePhase, column.coverage);
 }
 
 [shader("compute")]
@@ -128,7 +108,7 @@ void visibility(uint index : SV_DispatchThreadID)
   }
   const float4 origin = Inputs[index];
   const float transmission = cloudVisibilityTransmittance(Clouds, origin.xyz, Directions[index].xyz, origin.w,
-    Sampler2D<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache());
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache());
   Results[index] = float4(transmission, 0, 0, 0);
 }
 
@@ -143,7 +123,7 @@ void lightDepthParts(uint index : SV_DispatchThreadID)
   const float4 ray = Inputs[index];
   const float4 direction = Directions[index];
   const CloudOpticalDepth depth = cloudLightOpticalDepth(Clouds, ray.xyz, direction.xyz, ray.w,
-    Sampler2D<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache(), direction.w);
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache(), direction.w);
   Results[index] = float4(depth.local, depth.external, depth.total, max(4u, 2u * Clouds.lightSteps));
 }
 
@@ -158,7 +138,7 @@ void viewTransmission(uint index : SV_DispatchThreadID)
   const float4 origin = Inputs[index];
   const float3 direction = Directions[index].xyz;
   const float transmission = cloudTransmittance(Clouds, origin.xyz, direction, origin.w,
-    Sampler2D<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
   Results[index] = float4(transmission, 0, 0, 0);
 }
 
@@ -185,7 +165,7 @@ void visibilityReference(uint index : SV_DispatchThreadID)
     {
       const float distance = interval.x + (float(cell) + 0.5f) * span;
       const float3 position = ray.xyz + direction * distance;
-      opticalDepth += span * cloudExtinction(Clouds, position, Sampler2D<float4>(Weather),
+      opticalDepth += span * cloudExtinction(Clouds, position, Sampler2DArray<float4>(Weather),
         Sampler3D<float4>(Base), Sampler3D<float4>(Detail), span,
         cloudHeightFootprint(Clouds, position, direction, span));
       if (opticalDepth > 20)

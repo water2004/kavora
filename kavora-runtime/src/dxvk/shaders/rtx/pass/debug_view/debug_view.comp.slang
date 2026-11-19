@@ -105,7 +105,7 @@ Sampler3D<float4> CloudDetailSampler;
 
 
 layout(binding = DEBUG_VIEW_BINDING_CLOUD_WEATHER_SAMPLER)
-Sampler2D<float4> CloudWeatherSampler;
+Sampler2DArray<float4> CloudWeatherSampler;
 
 [[vk::binding(DEBUG_VIEW_BINDING_BLUE_NOISE_TEXTURE)]]
 Texture2DArray BlueNoise;

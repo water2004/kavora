@@ -44,7 +44,7 @@ struct PreviewFog : IAtmosphereFog
 #endif
 
 ConstantBuffer<CloudArgs> Clouds;
-Sampler2D<float4>.Handle Weather;
+Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
@@ -169,7 +169,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     : Origin;
   const float3 direction = Projection == 1 ? Forward
     : normalize(Forward + Right * (uv.x * aspect * TanHalfFov) - CameraUp * (uv.y * TanHalfFov));
-  const Sampler2D<float4> weather = Sampler2D<float4>(Weather);
+  const Sampler2DArray<float4> weather = Sampler2DArray<float4>(Weather);
   const Sampler3D<float4> base = Sampler3D<float4>(Base);
   const Sampler3D<float4> detail = Sampler3D<float4>(Detail);
 #if defined(CLOUD_PREVIEW_ATMOSPHERE)
@@ -285,7 +285,11 @@ void main(uint2 pixel : SV_DispatchThreadID)
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
           distance,
 #endif
-          nearest / 2, ambient,
+          nearest / 2,
+#if defined(CLOUD_PREVIEW_HAS_SAMPLE_EXTINCTION)
+          extinction,
+#endif
+          ambient,
           weather, base, detail, previewCloudLighting(), phase);
 #else
         const float3 incident = cloudIncidentRadiance(Clouds, position, direction, ambient, weather, base, detail

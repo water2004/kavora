@@ -150,10 +150,19 @@ public CloudLightGrid cloudLightGrid(CloudArgs args, uint light, uint cascade = 
       + halfHeight * abs(dot(grid.direction, args.up)));
   const float3 projectedCenter = float3(dot(center, grid.horizontal), dot(center, grid.vertical),
     dot(center, grid.direction));
+  // Anchor the prefix samples to the advected density field. Otherwise even
+  // a metre of camera movement resamples an entire distant shadow column.
+  // Reserve one cell for snapping so the requested volume remains enclosed.
+  const uint resolution = cloudLightingCascadeResolution(args, cascade);
+  const float3 cells = float3(resolution, resolution / CLOUD_LIGHTING_LIGHT_HEIGHT_DIVISOR, resolution - 1);
+  const float3 spacing = (2.0f * halfExtent + float3(0, 0, args.lightMaxDistance)) / (cells - 1);
+  const float3 anchor = args.groundReference - args.windOffset;
+  const float3 projectedAnchor = float3(dot(anchor, grid.horizontal), dot(anchor, grid.vertical), dot(anchor, grid.direction));
   const float3 corner = projectedCenter - halfExtent;
-  grid.origin = args.groundReference + grid.horizontal * corner.x + grid.vertical * corner.y
-    + grid.direction * corner.z;
-  grid.extent = 2.0f * halfExtent + float3(0, 0, args.lightMaxDistance);
+  const float3 aligned = corner - frac((corner + projectedAnchor) / spacing) * spacing;
+  grid.origin = args.groundReference + grid.horizontal * aligned.x + grid.vertical * aligned.y
+    + grid.direction * aligned.z;
+  grid.extent = spacing * cells;
   return grid;
 }
 
@@ -295,14 +304,14 @@ public int cloudCachedLightIndex(CloudArgs args, float3 direction)
 }
 
 float cloudCacheExtinction(CloudArgs args, CloudDensityArgs density, float3 position,
-  float footprint, float heightFootprint, Sampler2D<float4> weather, Sampler3D<float4> base,
+  float footprint, float heightFootprint, Sampler2DArray<float4> weather, Sampler3D<float4> base,
   Sampler3D<float4> detail)
 {
   return args.extinction * cloudDensity(density, position, weather, base, detail, footprint, 0, heightFootprint);
 }
 
 void buildCloudLightCascade(CloudArgs args, CloudDensityArgs density, uint2 column, uint light, uint cascade,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, RWTexture3D<float> output)
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, RWTexture3D<float> output)
 {
   const uint resolution = cloudLightingCascadeResolution(args, cascade);
   const uint offset = cascade == 0 ? 0 : cloudLightingResolution(args);
@@ -357,7 +366,7 @@ void buildCloudLightCascade(CloudArgs args, CloudDensityArgs density, uint2 colu
 }
 
 public void buildCloudLightPrefix(CloudArgs args, CloudDensityArgs density, uint2 column, uint light,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, RWTexture3D<float> output)
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, RWTexture3D<float> output)
 {
   buildCloudLightCascade(args, density, column, light, 0, weather, base, detail, output);
   if (cloudLightingHasFarCascade(args))

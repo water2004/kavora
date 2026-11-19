@@ -1,5 +1,8 @@
 # Cloud density and transport
 
+This document records the cloud field before the HanPi experiment. The current
+experimental integration is described in [Visual quality controls](quality-integration.md#fog-lighting-integration).
+
 The native density field adapts the weather distribution and cloud profiles
 from [Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce),
 revision `94400621dabc6b315d8e53b701c7be7beffa9303`. Its source and Apache-2.0

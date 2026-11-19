@@ -28,6 +28,7 @@ import "rtx/utility/quaternion.slang";
 import "rtx/pass/gbuffer/gbuffer_motion.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
 #include "rtx/pass/gbuffer/gbuffer_output.slangh"
 #include "rtx/pass/gbuffer/gbuffer_optical_ray.slangh"
 #include "rtx/pass/gbuffer/gbuffer_shading_cache.slangh"

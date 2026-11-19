@@ -51,71 +51,21 @@ def basis(yaw, pitch):
     return forward.tolist(), right.tolist(), np.cross(forward, right).tolist()
 
 
-def texture_cache(device, support, shaders, cache_dir, noise_seed=None):
-    files = ('rtx/pass/clouds/generate_cloud_noise.comp.slang',
-             'rtx/pass/clouds/generate_cloud_weather.comp.slang',
-             'rtx/pass/clouds/filter_cloud_noise.comp.slang',
-             'rtx/utility/cloud_noise.slangh', 'rtx/pass/cloud_noise.h',
-             'rtx/utility/cloud_shape.slang', 'rtx/utility/cirrus_shapes.slangh')
-    shader_files = [shaders / name for name in files]
-    digest = hashlib.sha256()
-    source_hashes = {}
-    for path in shader_files:
-        if path.exists():
-            digest.update(path.name.encode())
-            digest.update(path.read_bytes())
-            source_hashes[str(path.relative_to(shaders))] = hashlib.sha256(path.read_bytes()).hexdigest()
-    atlas = support.cloud_atlas_path() if hasattr(support, 'cloud_atlas_path') else None
-    if atlas is not None and atlas.exists():
-        atlas_bytes = atlas.read_bytes()
-        digest.update(atlas_bytes)
-        source_hashes['cirrus_density.dds'] = hashlib.sha256(atlas_bytes).hexdigest()
-    if noise_seed is not None:
-        # A test-only seed input: compile the unchanged production algorithms
-        # against a copied include with just their fixed seed constant changed.
-        source = (shaders / 'rtx/utility/cloud_noise.slangh').read_text()
-        source, replacements = re.subn(r'(kCloudNoiseSeed\s*=\s*)0x[0-9a-fA-F]+u',
-                                        lambda match: match[1] + f'0x{noise_seed:08x}u', source)
-        if replacements != 1:
-            raise RuntimeError('Could not identify the production noise seed')
-        overlay = cache_dir / 'seed-overlays' / f'{noise_seed:08x}'
-        include = overlay / 'rtx/utility/cloud_noise.slangh'
-        include.parent.mkdir(parents=True, exist_ok=True)
-        include.write_text(source)
-        support.OPTIONS = {**support.OPTIONS,
-                           'include_paths': [str(overlay), *support.OPTIONS['include_paths']]}
-        digest.update(source.encode())
-    cache = cache_dir / f'textures-{digest.hexdigest()[:20]}.npz'
-    cache.parent.mkdir(parents=True, exist_ok=True)
+def texture_cache(device, support, cache_dir):
+    hashes = {name: hashlib.sha256((support.CLOUD_ASSETS / file).read_bytes()).hexdigest()
+              for name, file in support.TEXTURE_FILES.items()}
+    fingerprint = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
+    cache = cache_dir / f'textures-{fingerprint[:20]}.npz'
+    textures = support.cloud_textures(device)
     if not cache.exists():
-        started = time.monotonic()
-        textures = support.cloud_textures(device)
-        np.savez(cache, **{f'{name}_{mip}': view.texture.to_numpy(mip=mip)
-                          for name, view in textures.items() for mip in range(view.texture.mip_count)})
-        print(f'Cached production textures: {cache.name} ({time.monotonic() - started:.2f}s)', flush=True)
-    sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
-                                    mag_filter=spy.TextureFilteringMode.linear,
-                                    mip_filter=spy.TextureFilteringMode.linear,
-                                    address_u=spy.TextureAddressingMode.wrap,
-                                    address_v=spy.TextureAddressingMode.wrap,
-                                    address_w=spy.TextureAddressingMode.wrap)
-    textures = {}
-    with np.load(cache) as values:
-        for name in ('Base', 'Detail', 'Weather'):
-            data = values[f'{name}_0']
-            size, dimensions = data.shape[0], data.ndim - 1
-            texture_format = spy.Format.rgba8_unorm
-            if data.dtype.kind == 'f':
-                texture_format = spy.Format.rg16_float if data.shape[-1] == 2 else spy.Format.rgba16_float
-            texture = device.create_texture(
-                type=spy.TextureType.texture_3d if dimensions == 3 else spy.TextureType.texture_2d,
-                format=texture_format,
-                width=size, height=size, depth=size if dimensions == 3 else 1,
-                mip_count=int(np.log2(size)) + 1, usage=spy.TextureUsage.shader_resource)
-            for mip in range(texture.mip_count):
-                texture.copy_from_numpy(values[f'{name}_{mip}'], mip=mip)
-            textures[name] = texture.create_view(sampler=sampler)
-    return textures, str(cache), {'fingerprint': digest.hexdigest(), 'sourceHashes': source_hashes}
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        levels = {}
+        for name, view in textures.items():
+            for mip in range(view.texture.mip_count):
+                levels[f'{name}_{mip}'] = (np.stack([view.texture.to_numpy(layer, mip) for layer in range(3)])
+                                           if name == 'Weather' else view.texture.to_numpy(mip=mip))
+        np.savez(cache, **levels)
+    return textures, str(cache), {'fingerprint': fingerprint, 'sourceHashes': hashes}
 
 
 def save_image(path, rgb):
@@ -343,8 +293,6 @@ def main():
                         help='Display curve; aces executes the shipped ACES fit without local exposure fusion')
     parser.add_argument('--redisplay', action='store_true',
                         help='Redisplay existing NPZ results without recomputing clouds; preserve raw source provenance')
-    parser.add_argument('--noise-seed', type=lambda value: int(value, 0),
-                        help='Test-only generator seed override; production default if omitted')
     parser.add_argument('--top-span', type=float, default=32000)
     parser.add_argument('--radiance', action='store_true')
     parser.add_argument('--warmup', action='store_true', help='Warm Vulkan pipelines before measured dispatches')
@@ -425,6 +373,8 @@ def main():
     direct_shader = cloud_passes / 'generate_cloud_direct_light.comp.slang'
     if direct_shader.is_file():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DIRECT_LIGHT'] = '1'
+    if 'uint layer, float sigma, float3 ambientRadiance' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_SAMPLE_EXTINCTION'] = '1'
     atmosphere = None
     if args.air and (not args.atmosphere_fixture or not args.radiance):
         parser.error('--air requires --atmosphere-fixture and --radiance')
@@ -440,10 +390,8 @@ def main():
         support.OPTIONS['defines']['CLOUD_PREVIEW_AIR'] = '1'
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=support.OPTIONS)
     display = PreviewDisplay(device, args.tone_map)
-    if args.noise_seed is not None and not 0 <= args.noise_seed <= 0xffffffff:
-        parser.error('--noise-seed must fit in an unsigned 32-bit value')
     cache_dir = args.cache_dir or args.output.parent / 'cloud-preview-cache'
-    textures, cache, texture_sources = texture_cache(device, support, shaders, cache_dir, args.noise_seed)
+    textures, cache, texture_sources = texture_cache(device, support, cache_dir)
     program = device.load_program('cloud_preview.comp.slang', ['main'])
     kernel = device.create_compute_kernel(program)
     output = device.create_buffer(element_count=args.width * args.height, struct_size=16,
@@ -550,7 +498,6 @@ def main():
                 'diagnosticSkyLinearRgb': [0.12, 0.26, 0.48],
                 'lightingMode': args.lighting, 'displayExposure': args.exposure,
                 'displayTransfer': 'fixed linear exposure then sRGB; clipped for PNG; no auto exposure',
-                'testNoiseSeedOverride': args.noise_seed,
                 'coordinateConvention': 'Y up; yaw0 faces +Z; elevation positive up',
                 'sourceHashes': {str(path.relative_to(shaders)): hashlib.sha256(path.read_bytes()).hexdigest()
                                  for path in sorted({*(shaders / 'rtx/algorithm').glob('cloud*.slang'),

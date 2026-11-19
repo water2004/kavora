@@ -5,6 +5,7 @@ import "rtx/algorithm/fog_radiance_cache.slang";
 import "rtx/algorithm/fog_froxel_sampling.slang";
 import "rtx/algorithm/fog_medium.slang";
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/algorithm/air_medium.slang";
 import "rtx/pass/volume_parameters.slang";
@@ -20,36 +21,7 @@ public struct AtmosphereSegment {
   public float2 cloudMoments;
 };
 
-public float2 composeCloudMoments(float2 first, float2 second)
-{
-  return first + (1.0f - first.y) * second;
-}
 
-// The exact first extinction moment of a constant quadrature cell. Absolute ray
-// distances let prefix checkpoints split cells without changing the guide.
-public float2 cloudCellMoments(float extinction, float begin, float length, float maxDistance)
-{
-  const float opticalDepth = extinction * length;
-  if (opticalDepth <= 0.0f)
-  {
-    return 0;
-  }
-  float opacity;
-  float localMoment;
-  if (opticalDepth < 0.1f)
-  {
-    opacity = opticalDepth * (1.0f - opticalDepth * (0.5f - opticalDepth * (1.0f / 6.0f - opticalDepth / 24.0f)));
-    localMoment = length * opticalDepth
-      * (0.5f - opticalDepth * (1.0f / 3.0f - opticalDepth * (1.0f / 8.0f - opticalDepth / 30.0f)));
-  }
-  else
-  {
-    const float transmittance = exp(-opticalDepth);
-    opacity = 1.0f - transmittance;
-    localMoment = opacity / extinction - length * transmittance;
-  }
-  return float2((begin * opacity + localMoment) / max(maxDistance, 1e-6f), opacity);
-}
 
 // Store the conditional mean rather than the small raw first moment, retaining
 // distance precision at thin edges. This compression affects motion guides only.
@@ -125,7 +97,7 @@ public struct ClearFogRadiance : IAtmosphereFogRadiance
 }
 
 public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
   float3 origin, float3 direction, float distance,
   float3 mediumExtinction = float3(0))
 {
@@ -135,62 +107,23 @@ public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
     * volumeTransmittance(mediumExtinction, distance);
 }
 
-// Merge fog, cloud, air and lighting-cache boundaries.
-public struct AtmosphereIntervals
-{
-  public float starts[7];
-  public float ends[7];
-
-  float first()
-  {
-    float distance = floatMax;
-    [unroll]
-    for (uint i = 0; i < 7; i++)
-    {
-      distance = min(distance, starts[i]);
-    }
-    return distance;
-  }
-
-  float last()
-  {
-    float distance = 0;
-    [unroll]
-    for (uint i = 0; i < 7; i++)
-    {
-      distance = max(distance, ends[i]);
-    }
-    return distance;
-  }
-
-  float next(float current)
-  {
-    float distance = floatMax;
-    [unroll]
-    for (uint i = 0; i < 7; i++)
-    {
-      distance = min(distance, starts[i] > current ? starts[i] : floatMax);
-      distance = min(distance, ends[i] > current ? ends[i] : floatMax);
-    }
-    return distance;
-  }
-};
-
-// A segment uses absolute distances from its original ray origin.
+// Distances stay anchored to the original ray across checkpoints and cached tails.
 public struct AtmosphereRay
 {
   public float3 origin;
   public float3 direction;
+  public float3 eye;
   public FogRayProjection fogProjection;
-  public AtmosphereIntervals intervals;
+  public float2 fogInterval;
+  public float2 froxelInterval;
+  public float2 airInterval;
+  public float2 cloudIntervals[4];
   public float4 projectedPhase;
   public float3 mediumExtinction;
   public float cloudAngularFootprint;
   public AirRayPhase airPhase;
   public CloudRayPhase cloudPhase;
-  public bool hasFog;
   public bool hasCloud;
-  public bool hasAir;
 };
 
 public AtmosphereSegment emptyAtmosphereSegment()
@@ -218,21 +151,21 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   AtmosphereRay ray;
   ray.origin = origin;
   ray.direction = direction;
+  ray.eye = origin;
   ray.mediumExtinction = mediumExtinction;
   ray.cloudAngularFootprint = max(args.clouds.viewAngularFootprint, cloudAngularFootprint);
   float2 fog;
-  ray.hasFog = Fog.interval(args, origin, direction, floatMax, fog);
+  const bool hasFog = Fog.interval(args, origin, direction, floatMax, fog);
   ray.hasCloud = false;
   [unroll]
   for (uint i = 0; i < 4; i++)
   {
     const uint layer = i / 2;
     const float2 cloud = cloudLayerInterval(args.clouds, origin, direction, cloudLayerMaxDistance(args.clouds, layer), layer, i % 2);
-    ray.intervals.starts[i + 1] = cloud.x;
-    ray.intervals.ends[i + 1] = cloud.y;
+    ray.cloudIntervals[i] = cloud;
     ray.hasCloud = ray.hasCloud || cloud.y > cloud.x;
   }
-  if (!ray.hasFog)
+  if (!hasFog)
   {
     fog = 0;
   }
@@ -246,7 +179,7 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   const float directionDepth = ray.fogProjection.directionDepth;
   const float nearPlane = ray.fogProjection.nearPlane;
   float2 cache = fog.xx;
-  if (ray.hasFog)
+  if (hasFog)
   {
     if (abs(directionDepth) > 1e-6f)
     {
@@ -259,17 +192,12 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
       cache = fog;
     }
   }
-  ray.intervals.starts[0] = fog.x;
-  ray.intervals.ends[0] = fog.y;
-  ray.intervals.starts[5] = cache.x;
-  ray.intervals.ends[5] = cache.y;
-  const float2 air = airInterval(args.air, origin, direction);
-  ray.intervals.starts[6] = air.x;
-  ray.intervals.ends[6] = air.y;
-  ray.hasAir = air.y > air.x;
+  ray.fogInterval = fog;
+  ray.froxelInterval = cache;
+  ray.airInterval = airInterval(args.air, origin, direction);
   ray.airPhase = {};
   ray.cloudPhase = {};
-  if (ray.hasAir)
+  if (ray.airInterval.y > ray.airInterval.x)
   {
     ray.airPhase = createAirRayPhase(args.air, direction);
   }
@@ -281,30 +209,21 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   return ray;
 }
 
-// Integrates a clipped range without moving the ray origin or its medium boundaries.
-public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
-  FogRadiance fogRadiance,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
-  AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
+// Air and froxel fog are a continuous background. Cloud samples never split
+// the air grid, so their count cannot multiply Chapman or scattering lookups.
+AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+  FogRadiance fogRadiance, AtmosphereRay ray, float rangeBegin, float rangeEnd, AirTables airTables)
 {
   AtmosphereSegment result = emptyAtmosphereSegment();
-  if (!ray.hasFog && !ray.hasCloud && !ray.hasAir)
-  {
-    result.transmittance = volumeTransmittance(ray.mediumExtinction, max(0.0f, rangeEnd - rangeBegin));
-    return result;
-  }
   const float3 origin = ray.origin;
   const float3 direction = ray.direction;
-  const float cloudViewOffset = ray.hasCloud ? cloudViewSampleOffset(direction) : 0.5f;
-  const AirRayPhase airPhase = ray.airPhase;
-  const CloudRayPhase cloudPhase = ray.cloudPhase;
   const float originDepth = ray.fogProjection.originDepth;
   const float directionDepth = ray.fogProjection.directionDepth;
   const float nearPlane = ray.fogProjection.nearPlane;
-  const float2 fog = float2(ray.intervals.starts[0], ray.intervals.ends[0]);
-  const float2 cache = float2(ray.intervals.starts[5], ray.intervals.ends[5]);
-  const AirRayGrid airGrid = { float2(ray.intervals.starts[6], ray.intervals.ends[6]) };
-  const float limit = min(rangeEnd, ray.intervals.last());
+  const float2 fog = ray.fogInterval;
+  const float2 cache = ray.froxelInterval;
+  const AirRayGrid airGrid = { ray.airInterval };
+  const float limit = min(rangeEnd, max(fog.y, airGrid.interval.y));
   AirOpticalDepthRay airOptics = {};
   float3 previousAirDepth = 0;
   const float airEnd = min(limit, airGrid.interval.y);
@@ -318,9 +237,18 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   }
   float previousEnd = rangeBegin;
 
-  for (float intervalBegin = ray.intervals.first(); intervalBegin < limit;)
+  const float boundaries[6] = { fog.x, fog.y, cache.x, cache.y, airGrid.interval.x, airGrid.interval.y };
+  for (float intervalBegin = min(fog.x, airGrid.interval.x); intervalBegin < limit;)
   {
-    const float intervalEnd = ray.intervals.next(intervalBegin);
+    float intervalEnd = floatMax;
+    [unroll]
+    for (uint boundary = 0; boundary < 6; boundary++)
+    {
+      if (boundaries[boundary] > intervalBegin)
+      {
+        intervalEnd = min(intervalEnd, boundaries[boundary]);
+      }
+    }
     const float begin = max(rangeBegin, intervalBegin);
     const float end = min(limit, intervalEnd);
     if (begin >= end)
@@ -329,23 +257,9 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       continue;
     }
     const float middle = (intervalBegin + intervalEnd) * 0.5f;
-    const bool fogActive = ray.hasFog && middle > fog.x && middle < fog.y;
-    const bool airActive = ray.hasAir && middle > airGrid.interval.x && middle < airGrid.interval.y;
-    bool cloudActive = false;
-    uint cloudLayer = 0;
-    CloudRayGrid cloudGrid = {};
-    [unroll]
-    for (uint i = 0; i < 4; i++)
-    {
-      const float2 cloud = float2(ray.intervals.starts[i + 1], ray.intervals.ends[i + 1]);
-      if (middle > cloud.x && middle < cloud.y)
-      {
-        cloudActive = true;
-        cloudLayer = i / 2;
-        cloudGrid = createCloudViewGrid(args.clouds, cloud, direction, ray.cloudAngularFootprint, cloudLayer);
-      }
-    }
-    if (!fogActive && !cloudActive && !airActive)
+    const bool fogActive = middle > fog.x && middle < fog.y;
+    const bool airActive = middle > airGrid.interval.x && middle < airGrid.interval.y;
+    if (!fogActive && !airActive)
     {
       intervalBegin = intervalEnd;
       continue;
@@ -356,8 +270,6 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
     const float fogSpacing = fogActive && !alignedToCache ? (intervalEnd - intervalBegin) / 8.0f : floatMax;
     uint fogCell = uint(floor((begin - intervalBegin) / fogSpacing)) + 1;
     float nextFog = fogSpacing < floatMax ? intervalBegin + float(fogCell) * fogSpacing : floatMax;
-    uint cloudCell = cloudActive ? cloudGrid.cellAt(begin) : 0;
-    float nextCloud = cloudActive ? cloudGrid.boundary(cloudCell + 1) : floatMax;
     uint airCell = airActive ? airGrid.cellAt(begin) : 0;
     float nextAir = airActive ? airGrid.boundary(airCell + 1) : floatMax;
     const float sliceRate = float(args.froxelDepthSlices) * 2.0f;
@@ -374,15 +286,11 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       nextCache = max(begin, (depth - originDepth) / directionDepth);
     }
     float previous = begin;
-    float cloudSigma = 0;
-    float3 cloudSource = 0;
-    bool cloudSampleValid = false;
-    const float cloudSampleOffset = cloudLayer == 0 ? cloudViewOffset : 0.5f;
     AirMedium airMedium = {};
     bool airSampleValid = false;
     while (previous < end)
     {
-      const float next = max(previous, min(end, min(nextAir, min(nextCloud, min(nextFog, nextCache)))));
+      const float next = max(previous, min(end, min(nextAir, min(nextFog, nextCache))));
       const float length = next - previous;
       const float3 from = origin + direction * previous;
       const float3 to = origin + direction * next;
@@ -403,7 +311,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       if (airActive && !airSampleValid)
       {
         const float3 airPosition = origin + direction * airGrid.sampleAt(airCell);
-        airMedium = sampleAirMedium(args.air, airTables, airPosition, airPhase);
+        airMedium = sampleAirMedium(args.air, airTables, airPosition, ray.airPhase);
         airMedium.source /= max(airMedium.extinction, 1e-20f);
         airSampleValid = true;
       }
@@ -415,28 +323,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
         previousAirDepth = opticalDepth;
         source += airMedium.source * airExtinction;
       }
-      // Fog cells and prefix checkpoints retain the cloud cell's sample and footprint.
-      if (cloudActive && !cloudSampleValid)
-      {
-        const float cloudSample = cloudGrid.sampleAt(cloudCell, cloudSampleOffset);
-        const float3 cloudPosition = origin + direction * cloudSample;
-        const float cloudFootprint = cloudDensityFootprint(args.clouds, direction, cloudGrid.spanAt(cloudCell),
-          ray.cloudAngularFootprint * cloudSample, cloudLayer);
-        cloudSigma = cloudViewExtinction(args.clouds, cloudPosition, cloudSample, weather, base, detail, cloudFootprint,
-          cloudHeightFootprint(args.clouds, cloudPosition, direction, cloudGrid.spanAt(cloudCell),
-            ray.cloudAngularFootprint * cloudSample, cloudLayer));
-        cloudSource = cloudSigma > 0 ? cloudSigma * args.clouds.albedo
-          * cloudIncidentRadiance(args.clouds, cloudPosition, direction, cloudSample, cloudLayer, cloudAmbient,
-              weather, base, detail, cloudLighting, cloudPhase) : 0;
-        cloudSampleValid = true;
-      }
-      const float3 extinction = fogMedium.extinction + cloudSigma + airExtinction + ray.mediumExtinction;
-      if (cloudSigma > 0)
-      {
-        source += cloudSource;
-        result.cloudMoments = composeCloudMoments(result.cloudMoments,
-          cloudCellMoments(cloudSigma, previous, length, cloudMaxViewDistance(args.clouds)));
-      }
+      const float3 extinction = fogMedium.extinction + airExtinction + ray.mediumExtinction;
       const float3 stepTransmittance = exp(-extinction * length);
       const float3 integral = float3(volumeSourceIntegral(extinction.x, length, stepTransmittance.x),
         volumeSourceIntegral(extinction.y, length, stepTransmittance.y),
@@ -448,11 +335,6 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
         return result;
       }
       previous = next;
-      if (next >= nextCloud)
-      {
-        nextCloud = cloudGrid.boundary(++cloudCell + 1);
-        cloudSampleValid = false;
-      }
       if (next >= nextAir)
       {
         nextAir = airGrid.boundary(++airCell + 1);
@@ -478,9 +360,69 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   return result;
 }
 
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+  FogRadiance fogRadiance,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
+  AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
+{
+  AtmosphereSegment result = emptyAtmosphereSegment();
+  float previous = rangeBegin;
+  float nextCloudStart = rangeBegin;
+  const float distanceScale = cloudMaxViewDistance(args.clouds);
+  // The cloud shells do not overlap. Compose the aerial perspective through
+  // each cloud at its extinction centroid and preserve the cloud motion moments.
+  while (previous < rangeEnd)
+  {
+    uint nearest = 4;
+    float nearestStart = rangeEnd;
+    if (ray.hasCloud)
+    {
+      [unroll]
+      for (uint i = 0; i < 4; i++)
+      {
+        const float2 interval = ray.cloudIntervals[i];
+        const float begin = max(rangeBegin, interval.x);
+        if (begin >= nextCloudStart && begin < nearestStart && interval.y > begin)
+        {
+          nearest = i;
+          nearestStart = begin;
+        }
+      }
+    }
+    AtmosphereSegment clouds = emptyAtmosphereSegment();
+    float depth = rangeEnd;
+    if (nearest < 4)
+    {
+      const float2 interval = ray.cloudIntervals[nearest];
+      const float end = min(rangeEnd, interval.y);
+      nextCloudStart = end;
+      const uint layer = nearest / 2;
+      CloudViewTransfer cloud = CloudViewTransfer(ray.eye, ray.direction, layer, cloudAmbient,
+        cloudLighting, ray.cloudPhase, weather, base, detail);
+      marchCloudView(args.clouds, ray.origin, ray.direction, layer, interval, float2(nearestStart, end),
+        ray.cloudAngularFootprint, weather, base, detail, cloud);
+      if (cloud.moments.y == 0)
+      {
+        continue;
+      }
+      depth = clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end);
+      clouds = { cloud.radiance, cloud.transmission.xxx, cloud.moments };
+    }
+    result = composeAtmosphereSegments(result,
+      integrateHazeRange<Fog, FogRadiance>(args, fogRadiance, ray, previous, depth, airTables));
+    result = composeAtmosphereSegments(result, clouds);
+    if (all(result.transmittance < kOpaqueCloudTransmittance))
+    {
+      break;
+    }
+    previous = depth;
+  }
+  return result;
+}
+
 public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeArgs args,
   Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
   return integrateAtmosphereRange<Fog, FroxelFogRadiance>(args, FroxelFogRadiance(radianceY, radianceCoCg),
@@ -489,7 +431,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeAr
 
 public AtmosphereSegment integrateAtmosphereSegment<Fog : IAtmosphereFog>(VolumeArgs args,
   Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   float3 origin, float3 direction, float distance, float3 cloudAmbient, AirTables airTables,
   uint volumeHint = 0, float3 mediumExtinction = float3(0))
 {

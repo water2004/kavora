@@ -18,7 +18,7 @@ struct CloudLocalColumn
   float depthAtCenter[CLOUD_LIGHTING_MAX_QUALITY];
 };
 
-CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 position, Sampler2D<float4> weatherSampler,
+CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 position, Sampler2DArray<float4> weatherSampler,
   Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
 {
   const CloudDensityArgs densityArgs = cloudDensityParameters(args);
@@ -32,7 +32,7 @@ CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 posi
   {
     // Keep weather and its support fixed across the local plane-parallel column.
     column = cloudColumn(densityArgs, coordinates.xz, weatherSampler, args.thickness / float(steps));
-    thickness = cloudColumnThickness(densityArgs, column);
+    thickness = cloudColumnThickness(densityArgs, column, weatherSampler);
   }
   CloudLocalColumn result;
   result.bottom = cloudLayerBase(args, layer);
@@ -46,7 +46,7 @@ CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 posi
     const float3 samplePosition = position + radialUp * (height - altitude);
     const float extinction = layer == 0
       ? args.extinction * cloudDensityInColumn(densityArgs, cloudCoordinates(densityArgs, samplePosition), column,
-          baseSampler, detailSampler, result.span, result.span)
+          weatherSampler, baseSampler, detailSampler, result.span, result.span)
       : cloudExtinction(args, samplePosition, weatherSampler, baseSampler, detailSampler, 0, result.span);
     depth += 0.5f * result.span * (previous + extinction);
     result.extinction[cell] = extinction;
@@ -76,7 +76,7 @@ float2 cloudVerticalOpticalDepth(CloudLocalColumn column, float altitude)
 }
 
 public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
   RWTexture3D<float2> output)
 {
   if (!cloudLayerEnabled(args, layer))
@@ -97,7 +97,7 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   }
 }
 
-public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2D<float4> weather,
+public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2DArray<float4> weather,
   Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
 {
   const uint layer = index.y < CLOUD_DIRECT_LIGHT_LOW_HEIGHT ? 0u : 1u;
@@ -105,11 +105,12 @@ public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2D<f
   {
     return 0;
   }
-  const bool farField = index.y >= cloudDirectLightHeightOffset(layer, true);
-  const uint sampleIndex = index.y - cloudDirectLightHeightOffset(layer, farField);
-  const float fraction = (float(sampleIndex) + 0.5f) / float(cloudDirectLightHeightSamples(layer, farField));
+  const uint cascade = layer == 1 ? (index.y - CLOUD_DIRECT_LIGHT_LOW_HEIGHT) / CLOUD_DIRECT_LIGHT_HIGH_SAMPLES
+    : index.y < cloudDirectLightHeightOffset(0, 1) ? 0 : index.y < cloudDirectLightHeightOffset(0, 2) ? 1 : 2;
+  const uint sampleIndex = index.y - cloudDirectLightHeightOffset(layer, cascade);
+  const float fraction = (float(sampleIndex) + 0.5f) / float(cloudDirectLightHeightSamples(layer, cascade));
   const float altitude = lerp(cloudLayerBase(args, layer), cloudLayerTop(args, layer), fraction);
-  const CloudDirectLightGrid grid = cloudDirectLightGrid(args, farField);
+  const CloudDirectLightGrid grid = cloudDirectLightGrid(args, cascade);
   const float3 position = cloudLightPositionAtAltitude(args, grid.position(index.xz), altitude);
   const float aboveDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0).x;
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
