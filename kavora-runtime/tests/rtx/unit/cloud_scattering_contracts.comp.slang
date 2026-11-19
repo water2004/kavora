@@ -6,7 +6,6 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 
 StructuredBuffer<float4> Inputs;
-StructuredBuffer<float4> ExtraInputs;
 RWStructuredBuffer<float4> Results;
 uint Count;
 
@@ -68,19 +67,6 @@ void groundBoundary(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void isotropicBeam(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const float4 sample = Inputs[index];
-  const float4 extra = ExtraInputs[index];
-  Results[index] = float4(cloudIsotropicBeamRadiance(sample.xy, sample.z, sample.w, extra.x, extra.y), 0, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
 void columnSupport(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
@@ -89,9 +75,8 @@ void columnSupport(uint index : SV_DispatchThreadID)
   }
   const float4 sample = Inputs[index];
   CloudDensityArgs args = {};
-  args.thickness = 1500.0f;
-  args.weather = sample.y;
-  args.thunder = sample.z;
-  const CloudColumn column = { 1.0f, sample.x, sample.w, 0.0f };
+  args.thickness = sample.x;
+  CloudColumn column = {};
+  column.thickness = sample.y;
   Results[index] = float4(cloudColumnThickness(args, column), 0, 0, 0);
 }

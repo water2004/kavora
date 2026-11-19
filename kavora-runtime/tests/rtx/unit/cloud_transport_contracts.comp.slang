@@ -15,12 +15,13 @@ Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
 Sampler3D<float>.Handle CloudSunDepth;
 Sampler3D<float>.Handle CloudMoonDepth;
+Sampler3D<float2>.Handle VerticalDepth;
 uint Count;
 
 CloudLightingCache lightingCache()
 {
-  const Sampler3D<float4> local = Sampler3D<float4>(Base);
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local, local };
+  const Sampler3D<float4> unused = Sampler3D<float4>(Base);
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float2>(VerticalDepth), unused, unused };
 }
 
 [shader("compute")]
@@ -157,7 +158,7 @@ void viewTransmission(uint index : SV_DispatchThreadID)
   const float3 direction = Directions[index].xyz;
   const float transmission = cloudTransmittance(Clouds, origin.xyz, direction, origin.w,
     Sampler2D<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
-  Results[index] = float4(transmission, cloudSampleSpacing(Clouds, direction, 1), 0, 0);
+  Results[index] = float4(transmission, 0, 0, 0);
 }
 
 // Independent fine-step reference: it reads the production field directly and

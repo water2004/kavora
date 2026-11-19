@@ -66,39 +66,3 @@ public float cloudDiffuseBeamRadiance(float2 opticalDepth, float cosine)
     * (opticalDepth.x + opticalDepth.y + 2.0f * d));
   return normalization * (upper + lower);
 }
-
-// Integral of exp(-rate * t). Retain the continuous limit at rate=0.
-float cloudExponentialIntegral(float rate, float depth)
-{
-  const float x = rate * depth;
-  if (x < 0.01f)
-  {
-    return depth * (1.0f - x * (0.5f - x * (1.0f / 6.0f)));
-  }
-  return (1.0f - exp(-x)) / rate;
-}
-
-// Integrate the unit beam's first-collision source against the symmetric
-// exponential diffusion kernel on a finite interval in optical depth.
-float cloudDiffuseBeamIntegral(float2 depth, float decay)
-{
-  const float sunward = exp(-min(1.0f, decay) * depth.x) * cloudExponentialIntegral(abs(1.0f - decay), depth.x);
-  const float leeward = exp(-depth.x) * cloudExponentialIntegral(1.0f + decay, depth.y);
-  return sunward + leeward;
-}
-
-// Low-order local approximation to diffuse transport from a collimated beam.
-// The first transverse vacuum mode bounds escape even for unit albedo.
-// Subtract the part that retains the beam direction over its transport depth.
-// The remaining quantity is isotropic radiance per unit incident irradiance.
-public float cloudIsotropicBeamRadiance(float2 beamDepth, float transverseDepth, float externalDepth,
-  float albedo, float meanCosine)
-{
-  const float pi = 3.14159265359f;
-  const float escape = pi / (transverseDepth + 4.0f / 3.0f);
-  const float decay = sqrt(3.0f * (1.0f - albedo) + escape * escape);
-  const float directionMemory = albedo * (1.0f - meanCosine);
-  const float diffuse = cloudDiffuseBeamIntegral(beamDepth, decay)
-    - cloudDiffuseBeamIntegral(beamDepth, decay + directionMemory);
-  return albedo * max(diffuse, 0.0f) * exp(-externalDepth) / (4.0f * pi);
-}

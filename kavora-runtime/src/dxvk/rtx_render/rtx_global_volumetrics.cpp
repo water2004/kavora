@@ -882,22 +882,14 @@ namespace dxvk {
     CloudArgs lightingKey = clouds;
     lightingKey.previousWindDelta = Vector3(0.f);
     lightingKey.viewAngularFootprint = 0.f;
+    lightingKey.steps = 0;
     // A byte-exact comparison is conservative for the remaining inputs: any
     // changed density, light direction, or cache extent still triggers a rebuild.
-    const auto lightHasEnergy = [](const CloudLight& light) {
-      bool active = light.irradiance.x > 0 || light.irradiance.y > 0 || light.irradiance.z > 0;
-      if (light.hasRadianceProfile) {
-        for (const auto& sample : light.radianceProfile) {
-          active |= sample.x > 0 || sample.y > 0 || sample.z > 0;
-        }
-      }
-      return active;
-    };
     const bool activeBeam[2] = {
-      lowClouds && lightHasEnergy(clouds.lights[0]),
-      lowClouds && lightHasEnergy(clouds.lights[1])
+      lowClouds && (clouds.activeCloudLights & 1u),
+      lowClouds && (clouds.activeCloudLights & 2u)
     };
-    const bool neuralActive = clouds.neuralScattering && activeBeam[clouds.neuralScattering - 1];
+    const bool neuralActive = clouds.activeCloudLights && clouds.multipleScattering > 0;
     const bool useTensor = neuralActive && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
     const bool cacheResourcesReady =
       (!activeBeam[0] || m_cloudLightOpticalDepth[0].isValid())
@@ -911,7 +903,7 @@ namespace dxvk {
     }
     const uint32_t resolution = CLOUD_LIGHTING_RESOLUTION_PER_STEP
       * std::clamp(clouds.lightSteps, uint32_t(CLOUD_LIGHTING_MIN_QUALITY), uint32_t(CLOUD_LIGHTING_MAX_QUALITY));
-    const bool farCascade = clouds.lightingNearDistance > 0 && clouds.maxDistance > clouds.lightingNearDistance;
+    const bool farCascade = clouds.lightingNearDistance > 0 && clouds.lightMaxDistance > clouds.lightingNearDistance;
     const uint32_t depth = resolution + (farCascade ? resolution / 2 : 0);
     const VkExtent3D lightExtent { resolution, resolution / CLOUD_LIGHTING_LIGHT_HEIGHT_DIVISOR, depth };
     Rc<DxvkContext> resourceContext = ctx;
@@ -943,16 +935,16 @@ namespace dxvk {
       constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_PACKED_HEIGHT,
         CLOUD_LOCAL_LIGHT_RESOLUTION };
       if (!m_cloudLocalLight.isValid()) {
-        m_cloudLocalLight = Resources::createImageResource(resourceContext, "cloud local lighting", localExtent,
-          VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
+        m_cloudLocalLight = Resources::createImageResource(resourceContext, "cloud vertical optical depth", localExtent,
+          VK_FORMAT_R16G16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
       }
-      ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, getCloudLightOpticalDepth(0), nullptr);
-      ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, getCloudLightOpticalDepth(1), nullptr);
       ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, m_cloudLocalLight.view, nullptr);
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudLocalLightShader::getShader());
       ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, highClouds ? 2 : 1);
     }
     {
+      ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, getCloudLightOpticalDepth(0), nullptr);
+      ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, getCloudLightOpticalDepth(1), nullptr);
       constexpr VkExtent3D extent { CLOUD_DIRECT_LIGHT_RESOLUTION, CLOUD_DIRECT_LIGHT_PACKED_HEIGHT,
         CLOUD_DIRECT_LIGHT_RESOLUTION };
       if (!m_cloudDirectLight.isValid()) {
@@ -966,22 +958,19 @@ namespace dxvk {
       ctx->dispatch(extent.width / 8, extent.height / 4, extent.depth / 2);
     }
     if (neuralActive) {
-      constexpr VkExtent3D extent { CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT * CLOUD_NEURAL_BANDS, CLOUD_NEURAL_RESOLUTION };
+      constexpr uint32_t lightingRows = 2 * CLOUD_NEURAL_COLUMN_HEIGHT;
+      constexpr VkExtent3D extent { CLOUD_NEURAL_RESOLUTION, lightingRows * CLOUD_NEURAL_BANDS, CLOUD_NEURAL_RESOLUTION };
       if (!m_cloudNeuralLight.isValid()) {
         m_cloudNeuralLight = Resources::createImageResource(resourceContext, "cloud neural scattering", extent,
           VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
       }
+      ctx->bindResourceView(BINDING_CLOUD_DIRECT_LIGHT_INPUT, m_cloudDirectLight.view, nullptr);
       ctx->bindResourceView(CLOUD_NEURAL_OUTPUT_BINDING, m_cloudNeuralLight.view, nullptr);
       ctx->bindResourceBuffer(CLOUD_NEURAL_WEIGHTS_BINDING, DxvkBufferSlice(m_cloudNeuralModel.weights(*ctx, useTensor)));
-      if (useTensor) {
-        ScopedGpuProfileZone(ctx, "Cloud Neural Tensor");
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudNeuralLightTensorShader::getShader());
-        ctx->dispatch(CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT, CLOUD_NEURAL_RESOLUTION);
-      } else {
-        ScopedGpuProfileZone(ctx, "Cloud Neural Scalar");
-        ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudNeuralLightShader::getShader());
-        ctx->dispatch(CLOUD_NEURAL_RESOLUTION, CLOUD_NEURAL_HEIGHT, CLOUD_NEURAL_RESOLUTION);
-      }
+      ScopedGpuProfileZone(ctx, useTensor ? "Cloud Neural Tensor" : "Cloud Neural Scalar");
+      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, useTensor
+        ? GenerateCloudNeuralLightTensorShader::getShader() : GenerateCloudNeuralLightShader::getShader());
+      ctx->dispatch(extent.width, lightingRows, extent.depth);
     } else {
       m_cloudNeuralLight.reset();
     }

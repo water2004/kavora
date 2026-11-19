@@ -22,32 +22,27 @@ void buildLight(uint2 column : SV_DispatchThreadID)
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
 Sampler3D<float>.Handle CloudSunDepth;
 Sampler3D<float>.Handle CloudMoonDepth;
-RWTexture3D<float4> LocalLightOutput;
+RWTexture3D<float2> LocalLightOutput;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void buildLocalLight(uint3 index : SV_DispatchThreadID)
 {
-  const Sampler3D<float4> local = Sampler3D<float4>(Base);
-  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local
-#if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
-    , local
-#endif
-  };
   buildCloudLocalLightColumn(Clouds, index.xy, index.z, Sampler2D<float4>(Weather),
-    Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache, LocalLightOutput);
+    Sampler3D<float4>(Base), Sampler3D<float4>(Detail), LocalLightOutput);
 }
 
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
-Sampler3D<float4>.Handle CloudLocalLight;
+Sampler3D<float2>.Handle CloudLocalLight;
 RWTexture3D<float4> DirectLightOutput;
 
 [shader("compute")]
 [numthreads(8, 4, 2)]
 void buildDirectLight(uint3 index : SV_DispatchThreadID)
 {
-  const Sampler3D<float4> local = Sampler3D<float4>(CloudLocalLight);
-  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local, local };
+  const Sampler3D<float2> local = Sampler3D<float2>(CloudLocalLight);
+  const Sampler3D<float4> unused = Sampler3D<float4>(Base);
+  const CloudLightingCache cache = { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, unused, unused };
   DirectLightOutput[index] = buildCloudDirectLightCell(Clouds, index, Sampler2D<float4>(Weather),
     Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache);
 }

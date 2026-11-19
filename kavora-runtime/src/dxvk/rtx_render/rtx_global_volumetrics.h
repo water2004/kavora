@@ -42,8 +42,6 @@ namespace dxvk {
       "World rain strength supplied by the host.");
     RTX_OPTION_FLAG("rtx.clouds", float, thunder, 0.0f, RtxOptionFlags::NoSave,
       "World thunderstorm strength supplied by the host.");
-    RTX_OPTION_FLAG("rtx.clouds", Vector3, solarDirection, Vector3(0.f), RtxOptionFlags::NoSave,
-      "Host direction to the sun. Zero means no solar light is available.");
     RTX_OPTION_ARGS("rtx.clouds", float, coverage, 0.45f, "Coverage of fair-weather cumulus formations. Rain increases coverage.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, windSpeed, 1.0f, "Multiplier on world-synchronized cloud advection.",
@@ -52,8 +50,6 @@ namespace dxvk {
       args.minValue = 0.0f, args.maxValue = 0.95f);
     RTX_OPTION_ARGS("rtx.clouds", float, multipleScattering, 0.8f, "Strength of the higher-order cloud illumination approximation.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
-    RTX_OPTION("rtx.clouds", bool, neuralScattering, false,
-      "Use the experimental learned solar multiple scattering for lower clouds within the local lighting field.");
     RTX_OPTION("rtx.clouds", bool, neuralTensorCores, true,
       "Use FP16 cooperative-vector inference when supported by the Vulkan device.");
     RTX_OPTION_ARGS("rtx.clouds", float, groundAlbedo, 0.18f,
@@ -67,7 +63,7 @@ namespace dxvk {
       args.minValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, extinctionPerMeter, 0.03f, "Cloud extinction at unit density, per meter.",
       args.minValue = 0.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, maxDistanceMeters, 96000.0f, "Cloud visibility distance, including the fade to the background sky.",
+    RTX_OPTION_ARGS("rtx.clouds", float, maxDistanceMeters, 24000.0f, "Cloud visibility distance, including the fade to the background sky.",
       args.minValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, highAltitudeMeters, 6375.0f, "Thin high-cloud base height. Kept at least 1000 meters above the cumulus top.",
       args.minValue = 1.0f);
@@ -77,9 +73,9 @@ namespace dxvk {
       args.minValue = 0.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, highCoverage, 0.35f, "Regional amount of optically thin high clouds. Zero disables this layer.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, highMaxDistanceMeters, 96000.0f, "High-cloud visibility distance, including its fade to the background sky.",
+    RTX_OPTION_ARGS("rtx.clouds", float, highMaxDistanceMeters, 24000.0f, "High-cloud visibility distance, including its fade to the background sky.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, steps, 384u, "Maximum view integration cells per cloud-layer interval. Short rays use fewer cells.",
+    RTX_OPTION_ARGS("rtx.clouds", uint32_t, steps, 40u, "Maximum view integration cells per cloud-layer interval. The layer and view angle set the actual budget.",
       args.minValue = 8u, args.maxValue = 512u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud self-shadow quality. Controls shared optical-depth volume resolution and bounded local integration.",
       args.minValue = 1u, args.maxValue = 16u);

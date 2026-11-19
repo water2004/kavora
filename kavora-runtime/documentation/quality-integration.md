@@ -29,11 +29,13 @@ approximation. Segment extinction comes from the difference between successive
 prefixes. Radiance uses eight cells per air interval, with the source sampled
 once per cell and weighted by the segment's integrated extinction.
 
-The cloud light atlas stores vertical optical depth and the isotropic radiance
-induced by each unit celestial beam. The same field serves the primary,
-reflection, transmission and indirect rays. The local diffuse solve uses finite
-optical-depth intervals, escape through the cloud layer and attenuation by
-exterior blockers. The existing multiple-scattering control scales this field.
+Cloud view rays share an angle-dependent sample budget. The default near-horizontal
+cumulus limit is 40 cells and falls to 20 overhead. A fractional budget clips
+only the terminal cell. A direction-derived offset stratifies the cumulus samples
+across nearby rays and stays constant when a ray is split. The high shell uses
+its integrated height profile and one cell where the horizontal footprint covers
+the segment. Both layers default to a 24 km view range. The directional shadow
+prefix field uses its own light-transport extent.
 
 The shared direct-light field bakes the solar and lunar transmission to points
 in both cloud layers, including the transmission used for ground bounce.
@@ -42,17 +44,16 @@ for short segments and positions beyond the field. Primary rays, PSR and sky
 generation sample the same field. View extinction is still integrated along
 each ray.
 
-### Experimental solar multiple scattering
+### Cloud multiple scattering
 
-`rtx.clouds.neuralScattering` selects the experimental solar scattering cache.
-It runs the `depth64_angles/model_last.pt` network from `Neural_Volumetric_Cloud`
-in a Vulkan compute pass. The pass projects 25 directional responses at each
-node of a 24×12×24 wind-aligned grid onto nine second-order harmonics. The
-shared atmosphere integrator reads this field when tracing the lower cloud
-layer. It blends to the analytic solar approximation at the grid boundary.
-Moonlight, upper clouds, direct solar light, sky and ground boundaries and
-visibility continue through their existing evaluators. The host supplies the
-solar direction so light ordering cannot substitute the moon for the sun.
+The local atlas stores optical depth toward the top and bottom of each cloud
+layer in RG16F. The `depth64_angles/model_last.pt` network from
+`Neural_Volumetric_Cloud` supplies multiple scattering for the two cloud layers
+and the active directional beams. It projects 25 directional responses onto nine
+second-order harmonics at each node of a wind-aligned grid. Each layer has
+24×24 horizontal nodes with 12 height samples for cumulus and four for high
+clouds. The bake reuses the direct-light field where it covers a node. The
+sky and ground boundary terms continue to use the two-stream transport model.
 
 The embedded `cloud_neural_sun.bin` comes from the demo's selected `sun.npz`
 export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b9`).
@@ -66,9 +67,6 @@ inference layout once. The shared features and harmonic projection use
 float32 arithmetic. The scalar bake remains available for other devices
 and as a comparison mode.
 
-The `neuralCloudComparison` client GameTest option captures both solvers at
-matching solar times and frozen exposure in the `sunset-ocean` fixture.
-Use it with `cloudsOnly`, `sunsetRecovery` and `sunsetFixtures=sunset-ocean`.
 Use `neuralTensorProfile` with `cloudsOnly` and `cloudProfileStartFile` to
 record both neural backends with advancing time and the normal wind speed.
 

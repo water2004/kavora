@@ -36,6 +36,8 @@ def main():
             usage=spy.TextureUsage.shader_resource)
         tex.copy_from_numpy(data)
         return tex.create_view(sampler=sampler)
+    vertical_depth = texture(np.zeros((1, 1, 1, 2), np.float32), spy.Format.rg32_float)
+    unused_lighting = texture(np.zeros((1, 1, 1, 4), np.float32), spy.Format.rgba32_float)
     programs = {}
     def run(name, origins, directions, args, sun=None):
         origins = np.asarray(origins, np.float32).reshape(-1, 4)
@@ -48,12 +50,13 @@ def main():
             'Directions': device.create_buffer(data=directions, usage=spy.BufferUsage.shader_resource),
             'Results': output, 'Count': len(origins), 'Clouds': args}
         if name in ('depths', 'cascadeDepths', 'energyParts', 'reusedGrid'):
-            bindings.update(Sun=sun.descriptor_handle_combined)
+            bindings.update(Sun=sun.descriptor_handle_combined, VerticalDepth=vertical_depth.descriptor_handle_combined,
+                            UnusedLighting=unused_lighting.descriptor_handle_combined)
         programs[name].dispatch(thread_count=[len(origins), 1, 1], vars=bindings)
         return output.to_numpy().view(np.float32).reshape(-1, 4)
 
     args = cloud_parameters(baseHeight=800.0, thickness=1500.0, extinction=SIGMA,
-        maxDistance=24000.0, highMaxDistance=24000.0)
+        maxDistance=24000.0, highMaxDistance=24000.0, lightingNearDistance=0.0)
     report = {'scope': 'Synthetic homogeneous R32 prefix readback and production grid mapping. Not GPU frame timing or visual acceptance.'}
     depth_reports = []
     for angle in (-1.0, 0.0, 1.0, 45.0, 90.0):
@@ -61,8 +64,9 @@ def main():
         direction = np.array([0, np.sin(a), np.cos(a)])
         args['lights'] = [{'directionToLight': direction.tolist(), 'irradiance': [1, 1, 1]},
                           {'directionToLight': (-direction).tolist(), 'irradiance': [0, 0, 0]}]
-        height = args['baseHeight'] + args['thickness'] + 24000**2 / args['planetRadius']
-        length = 2 * 24000 * abs(direction[2]) + height * abs(direction[1]) + args['lightMaxDistance']
+        light_radius = args['lightMaxDistance']
+        height = args['baseHeight'] + args['thickness'] + light_radius**2 / args['planetRadius']
+        length = 2 * light_radius * abs(direction[2]) + height * abs(direction[1]) + args['lightMaxDistance']
         values = np.broadcast_to(np.linspace(length * SIGMA, 0, N, dtype=np.float32)[:, None, None],
             (N, N // 2, N)).copy()
         sun = texture(values, spy.Format.r32_float)
@@ -80,18 +84,18 @@ def main():
     report['prefixDepths'] = depth_reports
     # Wide cascades occupy only half the physical U/V extent. Poison padding
     # so a coordinate error cannot silently read an apparently empty shadow.
-    cascade_args = args | {'maxDistance': 96000.0, 'lightingNearDistance': 24000.0}
+    cascade_args = args | {'lightMaxDistance': 96000.0, 'lightingNearDistance': 24000.0}
     cascade_args['lights'] = [{'directionToLight': [0, 0, 1], 'irradiance': [1, 1, 1]},
                              {'directionToLight': [0, 0, -1], 'irradiance': [0, 0, 0]}]
     packed = np.full((N + N // 2, N // 2, N), np.nan, np.float32)
-    packed[:N] = np.linspace(108000 * SIGMA, 0, N, dtype=np.float32)[:, None, None]
-    packed[N:, :N // 4, :N // 2] = np.linspace(252000 * SIGMA, 0, N // 2,
+    packed[:N] = np.linspace(144000 * SIGMA, 0, N, dtype=np.float32)[:, None, None]
+    packed[N:, :N // 4, :N // 2] = np.linspace(288000 * SIGMA, 0, N // 2,
                                              dtype=np.float32)[:, None, None]
     packed_sun = texture(packed, spy.Format.r32_float)
     distances = (0, 17999, 18000, 21000, 23999, 24000, 24001, 95999, 96000, 96001)
     origins = [[x, 1200, 0, 1024] for cascade in (0, 1) for x in distances]
     directions = [[0, 0, 1, cascade] for cascade in (0, 1) for x in distances]
-    origins += [[0, 1200, 90000, 1024], [0, 1200, 160000, 1024]]
+    origins += [[0, 1200, 130000, 1024], [0, 1200, 196000, 1024]]
     directions += [[0, 0, 1, 0], [0, 0, 1, 1]]
     packed_depths = run('cascadeDepths', origins, directions, cascade_args, packed_sun)
     expected_found = np.array([x <= radius for radius in (24000, 96000) for x in distances] + [False, False])
@@ -127,6 +131,27 @@ def main():
     report['gridCases'] = 4 * len(grids)
     report['maximumCloudCells'] = int(grids[:, 0].max())
 
+    view_args = args | {'highThickness': 50.0, 'steps': 40}
+    view_grids = run('viewGrids', [[800, 6800, 0, 0], [800, 2300, 0, 0],
+                                  [6400, 6450, 0, 0], [8000, 10000, 0, 0]],
+                     [[1, 0, 0, 0], [0, 1, 0, 0], [0, 1, 0, 1], [1, 0, 0, 1]], view_args)
+    np.testing.assert_array_equal(view_grids[:, 0], [40, 20, 1, 12])
+    np.testing.assert_array_equal(view_grids[:, 2], [6800, 2300, 6450, 10000])
+    assert view_grids[2, 3] == 6425
+    report['layerViewCells'] = view_grids[:, 0].astype(int).tolist()
+
+    # Neighboring rays that straddle the 32/33-cell threshold must share
+    # the same interior nodes in the limit. The extra cell starts at zero span.
+    near_threshold = (0.4 - 1e-5, 0.4 + 1e-5)
+    threshold_grids = run('viewGrids', [[1825, 5570, 0, 16]] * 2,
+                          [[np.sqrt(1 - up * up), up, 0, 0] for up in near_threshold], view_args)
+    np.testing.assert_array_equal(threshold_grids[:, 0], [33, 32])
+    np.testing.assert_array_equal(threshold_grids[:, 2], [5570, 5570])
+    sample_delta = abs(threshold_grids[0, 3] - threshold_grids[1, 3])
+    extra_span = threshold_grids[0, 2] - threshold_grids[0, 1]
+    assert sample_delta < 0.05 and 0 < extra_span < 0.1, threshold_grids
+    report['integerBudgetCrossing'] = {'interiorSampleDelta': float(sample_delta), 'extraCellSpan': float(extra_span)}
+
     # Phase terms depend only on the view ray and light directions, so the
     # hoisted helper must exactly match the former per-cell expression.
     rng = np.random.default_rng(20261117)
@@ -147,8 +172,8 @@ def main():
     field[:, :, :N // 2] = np.clip((0.5 - depth_axis) * 8, 0, 2)[:, None, None]
     field[:, :, N // 2:] = np.clip((0.75 - depth_axis) * 8, 0, 2)[:, None, None]
     sun = texture(field, spy.Format.r32_float)
-    length = 2 * args['maxDistance'] + args['lightMaxDistance']
-    origin = [0, 1200, -args['maxDistance'] + 0.25 * length, 0.5 * length]
+    length = 3 * args['lightMaxDistance']
+    origin = [0, 1200, -args['lightMaxDistance'] + 0.25 * length, 0.5 * length]
     parts = run('energyParts', [origin], [[0, 0, 1, 0.5]], args, sun)[0]
     assert parts[3] == 1
     assert abs(parts[2] - 2) < 0.01

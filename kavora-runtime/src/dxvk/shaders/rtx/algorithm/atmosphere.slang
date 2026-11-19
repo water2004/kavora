@@ -295,6 +295,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   }
   const float3 origin = ray.origin;
   const float3 direction = ray.direction;
+  const float cloudViewOffset = ray.hasCloud ? cloudViewSampleOffset(direction) : 0.5f;
   const AirRayPhase airPhase = ray.airPhase;
   const CloudRayPhase cloudPhase = ray.cloudPhase;
   const float originDepth = ray.fogProjection.originDepth;
@@ -341,8 +342,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       {
         cloudActive = true;
         cloudLayer = i / 2;
-        cloudGrid = createCloudRayGrid(cloud, cloudSampleSpacing(args.clouds, direction, i / 2),
-          ray.cloudAngularFootprint, args.clouds.steps);
+        cloudGrid = createCloudViewGrid(args.clouds, cloud, direction, ray.cloudAngularFootprint, cloudLayer);
       }
     }
     if (!fogActive && !cloudActive && !airActive)
@@ -377,6 +377,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
     float cloudSigma = 0;
     float3 cloudSource = 0;
     bool cloudSampleValid = false;
+    const float cloudSampleOffset = cloudLayer == 0 ? cloudViewOffset : 0.5f;
     AirMedium airMedium = {};
     bool airSampleValid = false;
     while (previous < end)
@@ -417,7 +418,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       // Fog cells and prefix checkpoints retain the cloud cell's sample and footprint.
       if (cloudActive && !cloudSampleValid)
       {
-        const float cloudSample = cloudGrid.sampleAt(cloudCell);
+        const float cloudSample = cloudGrid.sampleAt(cloudCell, cloudSampleOffset);
         const float3 cloudPosition = origin + direction * cloudSample;
         const float cloudFootprint = cloudDensityFootprint(args.clouds, direction, cloudGrid.spanAt(cloudCell),
           ray.cloudAngularFootprint * cloudSample, cloudLayer);

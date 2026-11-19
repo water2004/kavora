@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
+import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/clouds/cloud_neural_model.h"
@@ -33,41 +34,74 @@ groupshared float Activations[2][kDirections][kWidth];
 groupshared float Prediction[kDirections];
 groupshared float Coefficients[9];
 
-float densityFeature(CloudDensityArgs density, float3 position, float footprint = 0, float heightFootprint = 0)
+float densityFeature(CloudDensityArgs density, float3 position, uint layer, float footprint = 0, float heightFootprint = 0)
 {
   return cloudDensity(density, position, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
-    footprint, 0, heightFootprint);
+    footprint, layer, heightFootprint);
 }
 
-void writeSpatialFeatures(CloudArgs args, float3 position, uint heightIndex, uint lane)
+void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint lightIndex, float height, float altitude, uint lane)
 {
   const CloudDensityArgs density = cloudDensityParameters(args);
-  const uint lightIndex = args.neuralScattering - 1;
-  const float3 sun = args.lights[lightIndex].directionToLight;
+  const float3 light = args.lights[lightIndex].directionToLight;
   if (lane < 4)
   {
     // The trained pyramid averages a 128 x 64 x 128 grid over an 8 x 2 x 8 km box.
     const float footprint = lane == 0 ? 0.0f : float(1 << lane) * (62.5f * args.meterToWorld);
-    SpatialFeatures[lane] = densityFeature(density, position, footprint, footprint * 0.5f);
+    SpatialFeatures[lane] = densityFeature(density, position, layer, footprint, footprint * 0.5f);
   }
   else if (lane == 4)
   {
-    const float tau = cloudLightOpticalDepth(args, position, sun, 3.402823466e+38f,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), 0, 24.0f, int(lightIndex)).total;
-    SpatialFeatures[4] = exp(-tau);
+    const CloudLightingCache cache = sceneCloudLightingCache();
+    float weight;
+    const float4 beam = sampleCloudDirectLight(args, cache.direct, position, altitude, 3.402823466e+38f, layer, weight);
+    float transmission = beam[2 * lightIndex];
+    if (weight < 1)
+    {
+      const float depth = cloudLightOpticalDepth(args, position, light, 3.402823466e+38f,
+        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, cache, 0, 24.0f, int(lightIndex)).total;
+      transmission = lerp(exp(-depth), transmission, weight);
+    }
+    const float tau = -log(max(transmission, 3.7751345e-11f));
+    SpatialFeatures[4] = transmission;
     SpatialFeatures[5] = tau / (1.0f + tau);
-    SpatialFeatures[6] = float(heightIndex) / (CLOUD_NEURAL_HEIGHT - 1);
+    SpatialFeatures[6] = height;
   }
   else if (lane < 8)
   {
-    SpatialFeatures[lane + 5] = densityFeature(density, position + sun * args.meterToWorld
-      * (lane == 5 ? 150.0f : lane == 6 ? 500.0f : 1200.0f));
+    SpatialFeatures[lane + 5] = densityFeature(density, position + light * args.meterToWorld
+      * (lane == 5 ? 150.0f : lane == 6 ? 500.0f : 1200.0f), layer);
   }
   else
   {
-    const float3 offset = lane == 8 ? -sun * 300.0f : args.up * 500.0f;
-    SpatialFeatures[lane + 5] = densityFeature(density, position + offset * args.meterToWorld);
+    const float3 offset = lane == 8 ? -light * 300.0f : args.up * 500.0f;
+    SpatialFeatures[lane + 5] = densityFeature(density, position + offset * args.meterToWorld, layer);
   }
+}
+
+uint3 cloudNeuralTexel(uint3 cell, uint band)
+{
+  const uint light = cell.y / CLOUD_NEURAL_COLUMN_HEIGHT;
+  const uint row = cell.y % CLOUD_NEURAL_COLUMN_HEIGHT;
+  return uint3(cell.x, (light * CLOUD_NEURAL_BANDS + band) * CLOUD_NEURAL_COLUMN_HEIGHT + row, cell.z);
+}
+
+bool prepareNeuralCell(CloudArgs args, uint3 cell, uint lane, out uint lightIndex)
+{
+  lightIndex = cell.y / CLOUD_NEURAL_COLUMN_HEIGHT;
+  const uint row = cell.y % CLOUD_NEURAL_COLUMN_HEIGHT;
+  const uint layer = uint(row >= CLOUD_NEURAL_HEIGHT);
+  if ((args.activeCloudLights & (1u << lightIndex)) == 0 || !cloudLayerEnabled(args, layer))
+  {
+    return false;
+  }
+  if (lane < 10)
+  {
+    const float height = float(row - cloudNeuralRowOffset(layer)) / float(cloudNeuralHeightSamples(layer) - 1);
+    const float altitude = lerp(cloudLayerBase(args, layer), cloudLayerTop(args, layer), height);
+    writeSpatialFeatures(args, cloudNeuralPosition(args, cell.xz, layer, altitude), layer, lightIndex, height, altitude, lane);
+  }
+  return true;
 }
 
 float silu(float x)
@@ -89,12 +123,12 @@ float tableValue(uint index)
 #endif
 }
 
-float3 neuralAngularFeatures(CloudArgs args, uint angle)
+float3 neuralAngularFeatures(CloudArgs args, uint lightIndex, uint angle)
 {
   const uint directionOffset = kDirectionTable + angle * 3;
   const float3 direction = float3(tableValue(directionOffset), tableValue(directionOffset + 1), tableValue(directionOffset + 2));
-  const float3 sun = args.lights[args.neuralScattering - 1].directionToLight;
-  const float cosine = clamp(dot(direction, cloudNeuralFrame(args, sun)), -1.0f, 1.0f);
+  const float3 light = args.lights[lightIndex].directionToLight;
+  const float cosine = clamp(dot(direction, cloudNeuralFrame(args, light)), -1.0f, 1.0f);
   // The feature is the checkpoint's HG evaluation. Host direct lighting retains its own phase.
   const float g = 0.8f;
   const float invRoot = rsqrt(1.0f + g * g - 2.0f * g * cosine);
@@ -134,14 +168,15 @@ CoopVec<float16_t, CLOUD_NEURAL_WIDTH> neuralActivation(CoopVec<float16_t, CLOUD
 void main(uint3 cell : SV_GroupID, uint lane : SV_GroupIndex)
 {
   const CloudArgs args = cb.volumeArgs.clouds;
-  if (lane < 10)
+  uint lightIndex;
+  if (!prepareNeuralCell(args, cell, lane, lightIndex))
   {
-    writeSpatialFeatures(args, cloudNeuralPosition(args, cell), cell.y, lane);
+    return;
   }
   GroupMemoryBarrierWithGroupSync();
 
   // Every lane participates in inference. Padded lanes repeat a valid input.
-  const float3 angular = neuralAngularFeatures(args, min(lane, kDirections - 1));
+  const float3 angular = neuralAngularFeatures(args, lightIndex, min(lane, kDirections - 1));
   CoopVec<float16_t, CLOUD_NEURAL_TENSOR_INPUTS> input;
   [unroll]
   for (uint i = 0; i < kInputs; i++)
@@ -168,14 +203,15 @@ void main(uint3 cell : SV_GroupID, uint lane : SV_GroupIndex)
 void main(uint3 cell : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane : SV_GroupIndex)
 {
   const CloudArgs args = cb.volumeArgs.clouds;
-  if (lane < 10)
+  uint lightIndex;
+  if (!prepareNeuralCell(args, cell, lane, lightIndex))
   {
-    writeSpatialFeatures(args, cloudNeuralPosition(args, cell), cell.y, lane);
+    return;
   }
   GroupMemoryBarrierWithGroupSync();
 
   const uint angle = thread.y;
-  const float3 angular = neuralAngularFeatures(args, angle);
+  const float3 angular = neuralAngularFeatures(args, lightIndex, angle);
   [unroll]
   for (uint neuron = thread.x; neuron < kWidth; neuron += kLaneCount)
   {
@@ -242,6 +278,6 @@ void projectCloudLighting(uint3 cell, uint lane)
     {
       coefficients.yzw = float3(Coefficients[first + 1], Coefficients[first + 2], Coefficients[first + 3]);
     }
-    NeuralCloudOutput[cell + uint3(0, lane * CLOUD_NEURAL_HEIGHT, 0)] = coefficients;
+    NeuralCloudOutput[cloudNeuralTexel(cell, lane)] = coefficients;
   }
 }

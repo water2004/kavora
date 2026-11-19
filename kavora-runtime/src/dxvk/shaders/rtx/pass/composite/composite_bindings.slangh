@@ -133,7 +133,7 @@ Sampler3D<float> CloudSunDepthSampler;
 layout(binding = COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
 Sampler3D<float> CloudMoonDepthSampler;
 layout(binding = COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
-Sampler3D<float4> CloudLocalLightSampler;
+Sampler3D<float2> CloudLocalLightSampler;
 layout(binding = COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT)
 Sampler3D<float4> CloudNeuralLightSampler;
 layout(binding = COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT)

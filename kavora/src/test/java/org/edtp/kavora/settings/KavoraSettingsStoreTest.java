@@ -22,8 +22,10 @@ import org.junit.jupiter.api.io.TempDir;
 
 class KavoraSettingsStoreTest {
 
+    private static final int ULTRA_CLOUD_SAMPLES = (int) KavoraQualityPresets.values(QualityPreset.ULTRA).get("clouds.samples");
+
     private KavoraSettings registryWith(double[] f, int[] i, boolean[] b) {
-        int[] cloudSamples = {384};
+        int[] cloudSamples = {ULTRA_CLOUD_SAMPLES};
         return new KavoraSettings(List.of(
                 KavoraSetting.ofFloat("f", SettingGroup.MATERIALS, "l", "t", 0.0, 10.0, 1.0,
                         () -> f[0], v -> f[0] = v),
@@ -31,7 +33,7 @@ class KavoraSettingsStoreTest {
                         () -> i[0], v -> i[0] = v),
                 KavoraSetting.ofBool("b", SettingGroup.SKY, "l", "t", true,
                         () -> b[0], v -> b[0] = v),
-                KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "l", "t", 8, 512, 384,
+                KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "l", "t", 8, 512, ULTRA_CLOUD_SAMPLES,
                         () -> cloudSamples[0], v -> cloudSamples[0] = v)));
     }
 
@@ -41,7 +43,8 @@ class KavoraSettingsStoreTest {
         double[] f = {1.0}; int[] i = {42}; boolean[] b = {true};
         KavoraSettings settings = registryWith(f, i, b);
         var edit = new KavoraSettingsSession(settings);
-        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 256));
+        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples",
+                KavoraQualityPresets.values(QualityPreset.HIGH).get("clouds.samples")));
         @SuppressWarnings("unchecked")
         var artistic = (KavoraSetting<Boolean>) settings.byId("b");
         @SuppressWarnings("unchecked")
@@ -106,7 +109,7 @@ class KavoraSettingsStoreTest {
         JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
         assertEquals(6, root.get("version").getAsInt());
         JsonObject values = root.getAsJsonObject("settings");
-        assertEquals(384, values.get("clouds.samples").getAsInt());
+        assertEquals(ULTRA_CLOUD_SAMPLES, values.get("clouds.samples").getAsInt());
         assertEquals(42, values.get("i").getAsInt());
         assertFalse(values.has("f"));
         assertFalse(values.has("b"));
@@ -126,7 +129,7 @@ class KavoraSettingsStoreTest {
         assertEquals("medium", quality.get("base").getAsString());
         assertFalse(quality.get("custom").getAsBoolean());
         JsonObject values = root.getAsJsonObject("settings");
-        assertEquals(384, values.get("clouds.samples").getAsInt());
+        assertEquals(ULTRA_CLOUD_SAMPLES, values.get("clouds.samples").getAsInt());
         assertFalse(values.has("i"));
         assertFalse(values.has("f"));
         assertFalse(values.has("b"));

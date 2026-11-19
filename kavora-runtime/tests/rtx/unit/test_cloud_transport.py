@@ -70,6 +70,10 @@ class Probe:
         self.lighting_key = None
         self.lighting_bindings = None
         self.lighting_resources = None
+        self.vertical_depth = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rg32_float,
+            width=1, height=1, depth=1, usage=spy.TextureUsage.shader_resource,
+            data=np.zeros((1, 1, 1, 2), np.float32))
+        self.vertical_depth_view = self.vertical_depth.create_view(sampler=device.create_sampler())
 
     def run(self, entry, inputs, directions=None, clouds=None, textures=None):
         data = np.ascontiguousarray(inputs, dtype=np.float32).reshape(-1, 4)
@@ -80,7 +84,7 @@ class Probe:
                                            usage=spy.BufferUsage.unordered_access)
         bindings = {
             "Inputs": self.device.create_buffer(data=data, usage=spy.BufferUsage.shader_resource),
-            "Results": output, "Count": len(data),
+            "Results": output, "Count": len(data), "VerticalDepth": self.vertical_depth_view.descriptor_handle_combined,
         }
         if directions is not None:
             bindings["Directions"] = self.device.create_buffer(

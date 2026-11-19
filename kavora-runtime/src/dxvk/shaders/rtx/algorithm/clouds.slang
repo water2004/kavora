@@ -8,6 +8,8 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
+#include "rtx/pass/cloud_noise.h"
+#include "rtx/utility/cloud_noise.slangh"
 
 static const float kFloatMax = 3.402823466e+38f;
 
@@ -55,7 +57,7 @@ float2 cloudSphereRoots(CloudArgs args, float3 origin, float3 direction, float a
 }
 
 [ForceInline]
-bool cloudLayerEnabled(CloudArgs args, uint layer)
+public bool cloudLayerEnabled(CloudArgs args, uint layer)
 {
   return args.enable != 0 && (layer == 0 ? args.extinction > 0 && args.thickness > 0
     : args.highExtinction > 0 && args.highThickness > 0 && args.highCoverage > 0);
@@ -170,14 +172,6 @@ public float cloudViewExtinction(CloudArgs args, float3 position, float distance
   return visibility * cloudExtinction(args, position, weatherSampler, baseSampler, detailSampler, footprint, heightFootprint);
 }
 
-public float cloudSampleSpacing(CloudArgs args, float3 direction, uint layer = 0)
-{
-  const float horizontalSpacing = args.shapeScale * (layer == 0 ? 1.25f : 8.0f) / float(args.steps);
-  const float thickness = layer == 0 ? args.thickness : args.highThickness;
-  const float verticalSpacing = thickness * 0.125f / max(abs(dot(direction, args.up)), 1e-4f);
-  return min(horizontalSpacing, verticalSpacing);
-}
-
 public static const float kOpaqueCloudTransmittance = 1e-8f;
 
 // Clipped prefixes share the full ray's cells and density samples.
@@ -185,16 +179,16 @@ public struct CloudRayGrid
 {
   public float2 interval;
   public uint cells;
-  public float linearLength;
-  public float quadraticLength;
+  public float linearStep;
+  public float quadraticStep;
 
   public uint cellAt(float distance)
   {
     const float offset = max(0.0f, distance - interval.x);
-    const float denominator = linearLength
-      + sqrt(linearLength * linearLength + 4.0f * quadraticLength * offset);
-    const float fraction = denominator > 0 ? 2.0f * offset / denominator : 0;
-    uint cell = min(uint(floor(fraction * float(cells))), max(cells, 1u) - 1);
+    const float denominator = linearStep
+      + sqrt(linearStep * linearStep + 4.0f * quadraticStep * offset);
+    const float coordinate = denominator > 0 ? 2.0f * offset / denominator : 0;
+    uint cell = min(uint(floor(coordinate)), max(cells, 1u) - 1);
     if (cell > 0 && distance < boundary(cell))
     {
       --cell;
@@ -208,14 +202,14 @@ public struct CloudRayGrid
 
   public float boundary(uint index)
   {
-    const float fraction = min(float(index) / float(max(cells, 1u)), 1.0f);
+    const float coordinate = float(index);
     return index >= cells ? interval.y
-      : interval.x + fraction * (linearLength + quadraticLength * fraction);
+      : min(interval.y, interval.x + coordinate * (linearStep + quadraticStep * coordinate));
   }
 
-  public float sampleAt(uint index)
+  public float sampleAt(uint index, float offset = 0.5f)
   {
-    return 0.5f * (boundary(index) + boundary(index + 1));
+    return lerp(boundary(index), boundary(index + 1), offset);
   }
 
   public float spanAt(uint index)
@@ -224,42 +218,74 @@ public struct CloudRayGrid
   }
 };
 
-public CloudRayGrid createCloudRayGrid(float2 interval, float spacing, float angularFootprint, uint maxCells)
+public CloudRayGrid createCloudRayGrid(float2 interval, float spacing, float angularFootprint, float maxCells)
 {
   CloudRayGrid grid = {};
   grid.interval = interval;
   const float length = max(0.0f, interval.y - interval.x);
   const float nearSpacing = max(spacing, angularFootprint * max(interval.x, 0.0f));
-  grid.cells = min(max(1u, maxCells), max(1u, uint(ceil(length / max(nearSpacing, 1e-5f)))));
-  // Short rays keep their spatial resolution. Long rays spend the same finite
-  // budget with progressively wider, explicitly filtered cells. The full shell
-  // interval fixes every node before endpoint/prefix clipping takes place.
-  grid.linearLength = min(length, float(grid.cells) * nearSpacing);
-  grid.quadraticLength = length - grid.linearLength;
+  const float budget = clamp(length / max(nearSpacing, 1e-5f), 1.0f, max(maxCells, 1.0f));
+  grid.cells = uint(ceil(budget));
+  // Measure the polynomial in cell coordinates. Only the terminal cell is
+  // clipped, so crossing an integer budget leaves the other samples continuous.
+  const float inverseBudget = rcp(budget);
+  const float linearLength = min(length, budget * nearSpacing);
+  grid.linearStep = linearLength * inverseBudget;
+  grid.quadraticStep = (length - linearLength) * inverseBudget * inverseBudget;
   return grid;
+}
+
+public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 direction,
+  float angularFootprint, uint layer)
+{
+  const float up = abs(dot(direction, args.up));
+  const float budget = float(args.steps) * lerp(1.0f, 0.5f, up);
+  if (layer == 0)
+  {
+    const float spacing = min(1.25f * args.shapeScale / max(budget, 1.0f),
+      0.125f * args.thickness / max(up, 1e-4f));
+    return createCloudRayGrid(interval, spacing, angularFootprint, budget);
+  }
+
+  // The high layer has a 2D density map and an integrated height profile.
+  // One cell suffices when the projected path fits one filtered texel.
+  const float horizontal = sqrt(max(0.0f, 1.0f - up * up));
+  const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudWeatherResolution);
+  const float footprint = max(texel, angularFootprint * interval.x);
+  return createCloudRayGrid(interval, footprint / max(horizontal, 1e-4f), angularFootprint, 0.3f * budget);
+}
+
+[ForceInline]
+public float cloudViewSampleOffset(float3 direction)
+{
+  // The same ray must reuse its strata when a prefix or cached tail clips it.
+  return cloudNoiseUnit(cloudNoiseHash(asuint(direction), kCloudNoiseSeed));
 }
 
 public float cloudTransmittance(CloudArgs args, float3 origin, float3 direction, float distance,
   Sampler2D<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
 {
   float transmittance = 1;
+  const float viewOffset = cloudViewSampleOffset(direction);
   for (uint layer = 0; layer < 2; layer++)
   {
     if (!cloudLayerEnabled(args, layer))
     {
       continue;
     }
+    // The high layer averages its height profile over a centered interval.
+    const float sampleOffset = layer == 0 ? viewOffset : 0.5f;
     for (uint segment = 0; segment < 2; segment++)
     {
-      const CloudRayGrid grid = createCloudRayGrid(
+      const CloudRayGrid grid = createCloudViewGrid(args,
         cloudLayerInterval(args, origin, direction, cloudLayerMaxDistance(args, layer), layer, segment),
-        cloudSampleSpacing(args, direction, layer), args.viewAngularFootprint, args.steps);
+        direction, args.viewAngularFootprint, layer);
       const float end = min(grid.interval.y, distance);
       float previous = grid.interval.x;
       for (uint cell = 0; cell < grid.cells && previous < end; cell++)
       {
         const float next = min(end, grid.boundary(cell + 1));
-        const float sampleDistance = grid.sampleAt(cell);
+        const float sampleDistance = grid.sampleAt(cell, sampleOffset);
         const float3 position = origin + direction * sampleDistance;
         const float footprint = cloudDensityFootprint(args, direction, grid.spanAt(cell),
           args.viewAngularFootprint * sampleDistance, layer);
@@ -531,7 +557,8 @@ public CloudOpticalDepth cloudLightOpticalDepth(CloudArgs args, float3 origin, f
       }
       continue;
     }
-    const float spacing = cloudSampleSpacing(args, direction, layer);
+    const float spacing = min(args.shapeScale / 48.0f,
+      0.125f * args.highThickness / max(abs(dot(direction, args.up)), 1e-4f));
     const float stretch = log(1.0f + lightRange / spacing);
     const uint steps = max(4u, (args.lightSteps + 1) / 2);
     // Keep one grid through the inner clear-air gap as a ray crosses the shell's tangent.
@@ -702,36 +729,9 @@ float cloudMeanCosine(CloudArgs args)
   return 0.85f * args.anisotropy - 0.15f * 0.25f;
 }
 
-float2 cloudDiffuseLocalBeam(CloudArgs args, float3 position, float transverseDepth,
-  Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
-{
-  float2 radiance = 0;
-  const float range = args.shapeScale;
-  const float opaqueDepth = -log(kOpaqueCloudTransmittance);
-  for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
-  {
-    const CloudLight light = args.lights[lightIndex];
-    if (!cloudLightHasEnergy(light))
-    {
-      continue;
-    }
-    const CloudOpticalDepth toward = cloudLightOpticalDepth(args, position, light.directionToLight, kFloatMax,
-      weather, base, detail, cache, range, kFloatMax, int(lightIndex));
-    if (toward.external >= opaqueDepth)
-    {
-      continue;
-    }
-    const float behind = cloudLightOpticalDepth(args, position, -light.directionToLight, range,
-      weather, base, detail, cache, 0, kFloatMax, int(lightIndex)).total;
-    radiance[lightIndex] = cloudIsotropicBeamRadiance(float2(toward.local, behind), transverseDepth,
-      toward.external, args.albedo, cloudMeanCosine(args));
-  }
-  return radiance;
-}
-
 public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   Sampler2D<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
-  CloudLightingCache cache, RWTexture3D<float4> output)
+  RWTexture3D<float2> output)
 {
   if (!cloudLayerEnabled(args, layer))
   {
@@ -747,14 +747,7 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   for (uint y = 0; y < samples; y++)
   {
     const float altitude = bottom + (float(y) + 0.5f) * thickness / float(samples);
-    const float2 vertical = cloudVerticalOpticalDepth(column, altitude);
-    float2 diffuse = 0;
-    if (column.total > 0 && args.multipleScattering > 0)
-    {
-      const float3 position = cloudLocalLightPosition(args, uv, altitude, layer);
-      diffuse = cloudDiffuseLocalBeam(args, position, column.total, weather, base, detail, cache);
-    }
-    output[uint3(index.x, offset + y, index.y)] = float4(vertical, diffuse);
+    output[uint3(index.x, offset + y, index.y)] = cloudVerticalOpticalDepth(column, altitude);
   }
 }
 
@@ -807,8 +800,7 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
 {
   float3 source = 0.0f;
   const float altitude = cloudAltitude(cloudDensityParameters(args), position);
-  const float4 localLight = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
-  const float2 verticalDepth = localLight.xy;
+  const float2 verticalDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
   const float meanCosine = cloudMeanCosine(args);
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;
   float3 groundBeamIrradianceOverPi = 0;
@@ -834,11 +826,9 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float3 dire
       beam = lerp(resolved, beam, cacheWeight);
     }
     const float singleScattering = rayPhase.phase[lightIndex] * beam.x;
-    float diffuse = localLight[lightIndex + 2];
-    if (args.neuralScattering == lightIndex + 1 && layer == 0)
-    {
-      diffuse = cloudNeuralDiffuse(args, cache.neural, position, altitude, cloudNeuralFrame(args, direction), diffuse);
-    }
+    const float diffuse = args.multipleScattering > 0 && (args.activeCloudLights & (1u << lightIndex)) != 0
+      ? cloudNeuralDiffuse(args, cache.neural, position, altitude, cloudNeuralFrame(args, direction), layer, lightIndex)
+      : 0.0f;
     source += irradiance * (singleScattering + args.multipleScattering * diffuse);
     if (groundReceivesBeam)
     {

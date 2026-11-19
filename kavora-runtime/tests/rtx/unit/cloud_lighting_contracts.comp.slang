@@ -5,12 +5,14 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
 ConstantBuffer<CloudArgs> Clouds;
 Sampler3D<float>.Handle Sun;
-Sampler3D<float4> UnusedLocalLight;
+Sampler3D<float2>.Handle VerticalDepth;
+Sampler3D<float4>.Handle UnusedLighting;
 
 CloudLightingCache directionalCache()
 {
   const Sampler3D<float> depth = Sampler3D<float>(Sun);
-  return { depth, depth, UnusedLocalLight, UnusedLocalLight, UnusedLocalLight };
+  const Sampler3D<float4> unused = Sampler3D<float4>(UnusedLighting);
+  return { depth, depth, Sampler3D<float2>(VerticalDepth), unused, unused };
 }
 StructuredBuffer<float4> Origins;
 StructuredBuffer<float4> Directions;
@@ -76,6 +78,21 @@ void grids(uint index : SV_DispatchThreadID)
     previous = boundary;
   }
   Results[index] = float4(grid.cells, previous, maximumError, grid.boundary(1) - input.x);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void viewGrids(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+  {
+    return;
+  }
+  const float4 interval = Origins[index];
+  const float4 view = Directions[index];
+  const CloudRayGrid grid = createCloudViewGrid(Clouds, interval.xy, view.xyz, interval.z, uint(view.w));
+  Results[index] = float4(grid.cells, grid.boundary(grid.cells - 1), grid.boundary(grid.cells),
+    grid.sampleAt(uint(interval.w)));
 }
 
 [shader("compute")]

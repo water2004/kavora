@@ -20,7 +20,7 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
     resolution = int(quality) * constant('CLOUD_LIGHTING_RESOLUTION_PER_STEP')
     light_height = resolution // constant('CLOUD_LIGHTING_LIGHT_HEIGHT_DIVISOR')
     near_distance = clouds.get('lightingNearDistance', 0.0)
-    packed_depth = resolution + (resolution // 2 if 0 < near_distance < clouds['maxDistance'] else 0)
+    packed_depth = resolution + (resolution // 2 if 0 < near_distance < clouds['lightMaxDistance'] else 0)
     sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
                                     mag_filter=spy.TextureFilteringMode.linear,
                                     address_u=spy.TextureAddressingMode.clamp_to_edge,
@@ -73,17 +73,18 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
         local_resolution = constant('CLOUD_LOCAL_LIGHT_RESOLUTION')
         local_height = constant('CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES') + constant('CLOUD_LOCAL_LIGHT_HIGH_HEIGHT_SAMPLES')
         local_extent = [local_resolution, local_height, local_resolution]
-        fields = [('LocalLight', local_extent, [local_resolution, local_resolution, 2 if high else 1])]
+        fields = [('LocalLight', local_extent, [local_resolution, local_resolution, 2 if high else 1], 2)]
         if 'CLOUD_DIRECT_LIGHT_RESOLUTION' in source:
             resolution = constant('CLOUD_DIRECT_LIGHT_RESOLUTION')
             height = (constant('CLOUD_DIRECT_LIGHT_LOW_NEAR_SAMPLES') +
                       constant('CLOUD_DIRECT_LIGHT_LOW_FAR_SAMPLES') +
                       2 * constant('CLOUD_DIRECT_LIGHT_HIGH_SAMPLES'))
             extent = [resolution, height, resolution]
-            fields.append(('DirectLight', extent, extent))
-        for field, extent, threads in fields:
+            fields.append(('DirectLight', extent, extent, 4))
+        for field, extent, threads, channels in fields:
             width, height, depth = extent if active else [1, 1, 1]
-            texture = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba16_float,
+            format = spy.Format.rg16_float if channels == 2 else spy.Format.rgba16_float
+            texture = device.create_texture(type=spy.TextureType.texture_3d, format=format,
                                             width=width, height=height, depth=depth, mip_count=1, usage=usage)
             samples = []
             if active:
@@ -99,13 +100,13 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
                     device.wait_for_idle()
                     samples.append(time.monotonic() - started)
             else:
-                texture.copy_from_numpy(np.zeros((1, 1, 1, 4), np.float16))
+                texture.copy_from_numpy(np.zeros((1, 1, 1, channels), np.float16))
             view = texture.create_view(sampler=sampler)
             resources.extend((texture, view))
             name = 'Cloud' + field
             result[name] = view.descriptor_handle_combined
             measurements['volumes'].append({'name': name, 'extent': [width, height, depth], 'active': bool(active),
-                                           'bytes': width * height * depth * 8,
+                                           'bytes': width * height * depth * channels * 2,
                                            'dispatchWaitSeconds': float(np.median(samples)) if samples else 0.0,
                                            'dispatchWaitSamplesSeconds': samples, 'warmedUp': active and warmup})
     measurements['bytes'] = sum(v['bytes'] for v in measurements['volumes'])

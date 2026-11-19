@@ -51,7 +51,9 @@ Sampler3D<float4>.Handle Detail;
 Sampler3D<float>.Handle CloudSunDepth;
 Sampler3D<float>.Handle CloudMoonDepth;
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
-Sampler3D<float4>.Handle CloudLocalLight;
+Sampler3D<float2>.Handle CloudLocalLight;
+#else
+Sampler3D<float2> UnusedVerticalDepth;
 #endif
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
 Sampler3D<float4>.Handle CloudDirectLight;
@@ -60,11 +62,11 @@ Sampler3D<float4>.Handle CloudDirectLight;
 CloudLightingCache previewCloudLighting()
 {
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
-  const Sampler3D<float4> local = Sampler3D<float4>(CloudLocalLight);
+  const Sampler3D<float2> local = Sampler3D<float2>(CloudLocalLight);
 #else
-  const Sampler3D<float4> local = Sampler3D<float4>(Base);
+  const Sampler3D<float2> local = UnusedVerticalDepth;
 #endif
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, local
+  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), local, Sampler3D<float4>(Base)
 #if defined(CLOUD_PREVIEW_HAS_DIRECT_LIGHT)
     , Sampler3D<float4>(CloudDirectLight)
 #endif
@@ -218,6 +220,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
   const CloudRayPhase phase = createCloudRayPhase(Clouds, direction);
 #endif
+#if defined(CLOUD_PREVIEW_HAS_SAMPLE_OFFSET)
+  const float viewOffset = cloudViewSampleOffset(direction);
+#endif
   for (uint intervalIndex = 0; intervalIndex < 4; intervalIndex++)
   {
     uint nearest = 0;
@@ -229,7 +234,10 @@ void main(uint2 pixel : SV_DispatchThreadID)
         nearest = i;
       }
     }
-#if defined(CLOUD_PREVIEW_HAS_ADAPTIVE_GRID)
+#if defined(CLOUD_PREVIEW_HAS_VIEW_GRID)
+    const CloudRayGrid grid = createCloudViewGrid(Clouds, intervals[nearest], direction,
+      Projection == 1 ? 0.0f : Clouds.viewAngularFootprint, nearest / 2);
+#elif defined(CLOUD_PREVIEW_HAS_ADAPTIVE_GRID)
     const CloudRayGrid grid = createCloudRayGrid(intervals[nearest], cloudSampleSpacing(Clouds, direction, nearest / 2),
       Projection == 1 ? 0.0f : Clouds.viewAngularFootprint
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
@@ -244,7 +252,11 @@ void main(uint2 pixel : SV_DispatchThreadID)
     for (uint cell = 0; previous < grid.interval.y; cell++)
     {
       const float next = grid.boundary(cell + 1);
+#if defined(CLOUD_PREVIEW_HAS_SAMPLE_OFFSET)
+      const float distance = grid.sampleAt(cell, nearest / 2 == 0 ? viewOffset : 0.5f);
+#else
       const float distance = grid.sampleAt(cell);
+#endif
       const float3 position = origin + direction * distance;
       const float pixelFootprint = Projection == 1 ? TopSpan / float(Size.x) : Clouds.viewAngularFootprint * distance;
 #if defined(CLOUD_PREVIEW_HAS_CELL_SPAN)

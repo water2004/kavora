@@ -6,13 +6,13 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
-// The directional tables contain beam optical depth. The altitude atlas
-// contains vertical optical depths (xy) and unit-irradiance diffuse radiance (zw).
+// The directional tables contain beam optical depth. The local atlas
+// contains vertical optical depth toward the top and bottom of the layer.
 public struct CloudLightingCache
 {
   public Sampler3D<float> sun;
   public Sampler3D<float> moon;
-  public Sampler3D<float4> local;
+  public Sampler3D<float2> local;
   public Sampler3D<float4> neural;
   public Sampler3D<float4> direct;
 };
@@ -27,7 +27,7 @@ public uint cloudLightingResolution(CloudArgs args)
 [ForceInline]
 public bool cloudLightingHasFarCascade(CloudArgs args)
 {
-  return args.lightingNearDistance > 0 && args.maxDistance > args.lightingNearDistance;
+  return args.lightingNearDistance > 0 && args.lightMaxDistance > args.lightingNearDistance;
 }
 
 [ForceInline]
@@ -50,7 +50,7 @@ public float2 cloudLightHorizontal(CloudArgs args, float3 position)
 [ForceInline]
 public float cloudLightingRadius(CloudArgs args)
 {
-  return max(args.maxDistance, 4.0f * args.shapeScale);
+  return max(args.lightMaxDistance, 4.0f * args.shapeScale);
 }
 
 public uint cloudLocalLightHeightSamples(uint layer)
@@ -63,7 +63,7 @@ public uint cloudLocalLightHeightOffset(uint layer)
   return layer == 0 ? 0 : CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES;
 }
 
-float cloudLocalLightRadius(CloudArgs args, uint layer)
+public float cloudLocalLightRadius(CloudArgs args, uint layer)
 {
   return max(layer == 0 ? args.maxDistance : args.highMaxDistance, 4.0f * args.shapeScale);
 }

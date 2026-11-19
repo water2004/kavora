@@ -965,17 +965,7 @@ namespace dxvk {
           }
         }
       }
-      auto& clouds = raytraceArgs.volumeArgs.clouds;
-      if (CloudOptions::neuralScattering() && clouds.multipleScattering > 0 && clouds.extinction > 0 && clouds.thickness > 0) {
-        const Vector3 sun = CloudOptions::solarDirection();
-        for (uint32_t i = 0; i < 2; i++) {
-          const auto& direction = cloudLights[i].directionToLight;
-          if (dot(Vector3(direction.x, direction.y, direction.z), sun) > 0.999999f) {
-            clouds.neuralScattering = i + 1;
-            break;
-          }
-        }
-      }
+      raytraceArgs.volumeArgs.clouds.activeCloudLights = uint32_t(powers[0] > 0) | (uint32_t(powers[1] > 0) << 1);
     }
     // The algorithm below performs two tasks:
     // 1. Fills raytraceArgs.lightRanges[] with light range offsets and counts;

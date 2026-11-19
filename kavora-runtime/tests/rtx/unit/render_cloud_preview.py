@@ -407,6 +407,10 @@ def main():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DENSITY_FOOTPRINT'] = '1'
     if 'createCloudRayGrid' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_ADAPTIVE_GRID'] = '1'
+    if 'createCloudViewGrid' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_VIEW_GRID'] = '1'
+    if 'cloudViewSampleOffset' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_SAMPLE_OFFSET'] = '1'
     has_lighting_cache = (shaders / 'rtx/algorithm/cloud_lighting_cache.slang').exists()
     if has_lighting_cache:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LIGHTING_CACHE'] = '1'

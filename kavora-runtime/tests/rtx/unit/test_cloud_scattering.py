@@ -24,7 +24,7 @@ class Probe:
         self.device = device
         self.kernels = {}
 
-    def run(self, entry, samples, extra=None):
+    def run(self, entry, samples):
         data = np.asarray(samples, dtype=np.float32).reshape(-1, 4)
         if entry not in self.kernels:
             program = self.device.load_program("cloud_scattering_contracts.comp.slang", [entry])
@@ -35,10 +35,6 @@ class Probe:
             "Inputs": self.device.create_buffer(data=data, usage=spy.BufferUsage.shader_resource),
             "Results": output, "Count": len(data),
         }
-        if extra is not None:
-            extra_data = np.asarray(extra, dtype=np.float32).reshape(len(data), 4)
-            bindings["ExtraInputs"] = self.device.create_buffer(data=extra_data,
-                                                                usage=spy.BufferUsage.shader_resource)
         self.kernels[entry].dispatch(thread_count=[len(data), 1, 1], vars=bindings)
         return output.to_numpy().view(np.float32).reshape(-1, 4)
 
@@ -130,38 +126,6 @@ def beam_reference(above, below, cosine):
     return cosine * integral / (4 * np.pi * d * d * (total + 2 * d))
 
 
-def check_isotropic_beam(probe):
-    nodes, weights = leggauss(64)
-    samples, extra, expected = [], [], []
-    for sunward in (0, 1e-5, 0.1, 1, 4, 25):
-        for leeward in (0, 1e-5, 0.1, 1, 8):
-            for transverse in (0, 0.1, 1, 10, 64):
-                for albedo in (0, 0.9, 0.999, 1):
-                    for g in (-0.0375, 0.5, 0.8, 1):
-                        escape = np.pi / (transverse + 4 / 3)
-                        decay = np.sqrt(3 * (1 - albedo) + escape ** 2)
-                        memory = albedo * (1 - g)
-                        integral = 0.0
-                        for lower, upper in ((0, sunward), (sunward, sunward + leeward)):
-                            t = lower + (nodes + 1) * (upper - lower) * 0.5
-                            distance = np.abs(sunward - t)
-                            kernel = np.exp(-decay * distance) * -np.expm1(-memory * distance)
-                            integral += (upper - lower) * 0.5 * np.dot(weights, np.exp(-t) * kernel)
-                        for blocker in (0, 0.5, 6, 80):
-                            samples.append((sunward, leeward, transverse, blocker))
-                            extra.append((albedo, g, 0, 0))
-                            expected.append(albedo * integral * np.exp(-blocker) / (4 * np.pi))
-    values = probe.run("isotropicBeam", samples, extra)[:, 0]
-    np.testing.assert_allclose(values, expected, atol=3e-8, rtol=2e-4)
-    assert np.isfinite(values).all() and np.all((values >= 0) & (values <= 1 / (4 * np.pi)))
-    assert np.all(np.diff(values.reshape(-1, 4), axis=1) <= 0)
-    empty = probe.run("isotropicBeam", [(0, 0, 0, 0)], [(1, 0.5, 0, 0)])[0, 0]
-    thin = probe.run("isotropicBeam", [(1e-5, 1e-5, 1e-5, 0)], [(1, 0.5, 0, 0)])[0, 0]
-    thick = probe.run("isotropicBeam", [(4, 8, 10, 0)], [(1, 0.5, 0, 0)])[0, 0]
-    assert empty == 0 and 0 <= thin < 1e-9 and thick > 0.005, (empty, thin, thick)
-    print(f"PASS isotropic diffuse beam: {len(values)} quadrature checks, thin limit, and exterior attenuation")
-
-
 def check_beam(probe):
     samples = np.array([(total * fraction, total * (1 - fraction), cosine, 0)
                         for total in (0, 1e-8, 1e-6, 0.001, 0.1, 1, 10, 100, 10000)
@@ -184,22 +148,12 @@ def check_beam(probe):
 
 
 def check_column_support(probe):
-    def smoothstep(lower, upper, value):
-        t = np.clip((value - lower) / (upper - lower), 0, 1)
-        return t * t * (3 - 2 * t)
-
-    samples = []
-    expected = []
-    for cloud_type in np.linspace(0, 1, 101):
-        thickness = 140 + 460 * smoothstep(0.1, 0.6, cloud_type) + 900 * smoothstep(0.72, 1, cloud_type)
-        for weather, thunder in ((0, 0), (0.01, 0), (1, 0), (1, 1)):
-            overcast = 1500 * (0.20 + 0.15 * thunder) * (1 + 0.35 * cloud_type) if weather > 0 else 0
-            samples.append((cloud_type, weather, thunder, thickness))
-            expected.append(max(thickness, overcast))
+    samples = [(thickness, support, 0, 0) for thickness in (50, 800, 1500)
+               for support in (0, 1, thickness / 2, thickness)]
+    expected = [support if support > 0 else thickness for thickness, support, _, _ in samples]
     actual = probe.run("columnSupport", samples)[:, 0]
-    np.testing.assert_allclose(actual, expected, atol=2e-4, rtol=3e-7)
-    assert np.all(actual <= 1500)
-    print(f"PASS local column support: {len(samples)} clear/rain/thunder types including overcast above cumulus")
+    np.testing.assert_array_equal(actual, expected)
+    print(f"PASS local column support: {len(samples)} empty and occupied optical-depth columns")
 
 
 def single_escape(outgoing_cosine, thickness, incident_cosine):
@@ -275,7 +229,6 @@ def main():
     check_boundaries(probe)
     check_ground_boundary(probe)
     check_beam(probe)
-    check_isotropic_beam(probe)
     check_column_support(probe)
     check_slab_energy(probe)
 
