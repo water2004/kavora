@@ -304,6 +304,17 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   const float2 cache = float2(ray.intervals.starts[5], ray.intervals.ends[5]);
   const AirRayGrid airGrid = { float2(ray.intervals.starts[6], ray.intervals.ends[6]) };
   const float limit = min(rangeEnd, ray.intervals.last());
+  AirOpticalDepthRay airOptics = {};
+  float3 previousAirDepth = 0;
+  const float airEnd = min(limit, airGrid.interval.y);
+  if (airEnd > max(rangeBegin, airGrid.interval.x))
+  {
+    airOptics = createAirOpticalDepthRay(args.air, origin, direction, float2(airGrid.interval.x, airEnd));
+    if (rangeBegin > airGrid.interval.x)
+    {
+      previousAirDepth = airOptics.prefix(args.air, direction, rangeBegin);
+    }
+  }
   float previousEnd = rangeBegin;
 
   for (float intervalBegin = ray.intervals.first(); intervalBegin < limit;)
@@ -392,9 +403,17 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
       {
         const float3 airPosition = origin + direction * airGrid.sampleAt(airCell);
         airMedium = sampleAirMedium(args.air, airTables, airPosition, direction, airPhase);
+        airMedium.source /= max(airMedium.extinction, 1e-20f);
         airSampleValid = true;
       }
-      source += airMedium.source;
+      float3 airExtinction = 0;
+      if (airActive && length > 0)
+      {
+        const float3 opticalDepth = airOptics.prefix(args.air, direction, next);
+        airExtinction = max(0.0f, opticalDepth - previousAirDepth) / length;
+        previousAirDepth = opticalDepth;
+        source += airMedium.source * airExtinction;
+      }
       // Fog cells and prefix checkpoints retain the cloud cell's sample and footprint.
       if (cloudActive && !cloudSampleValid)
       {
@@ -410,7 +429,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
               weather, base, detail, cloudLighting, cloudPhase) : 0;
         cloudSampleValid = true;
       }
-      const float3 extinction = fogMedium.extinction + cloudSigma + airMedium.extinction + ray.mediumExtinction;
+      const float3 extinction = fogMedium.extinction + cloudSigma + airExtinction + ray.mediumExtinction;
       if (cloudSigma > 0)
       {
         source += cloudSource;

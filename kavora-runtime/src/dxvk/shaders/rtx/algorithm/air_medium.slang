@@ -7,7 +7,7 @@ module air_medium;
 import "rtx/pass/air_parameters.slang";
 
 static const float kAirPi = 3.141592653589793f;
-public static const uint kAirViewSteps = 32;
+public static const uint kAirViewSteps = 8;
 
 public struct AirTables
 {
@@ -267,20 +267,82 @@ public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position
   return sampleAirMedium(args, tables, position, direction, createAirRayPhase(args, direction));
 }
 
-// Uses the same absolute cells as radiance integration, including clipped prefixes.
+float2 outwardAirMass(AirArgs args, float height, float cosine, float2 scaleHeight)
+{
+  const float2 c = sqrt(0.5f * kAirPi * (args.innerRadius + height) / scaleHeight);
+  const float2 relativeDensity = exp((args.lowerDepth - height) / scaleHeight);
+  return scaleHeight * relativeDensity * c / (1.0f + (c - 1.0f) * cosine);
+}
+
+// Absolute optical-depth prefixes share the same left endpoint and tangent.
+public struct AirOpticalDepthRay
+{
+  public float3 start;
+  public float startDistance;
+  public float startHeight;
+  public float startAlong;
+  public float tangentHeight;
+  public float2 startMass;
+  public float2 tangentMass;
+
+  public float3 prefix(AirArgs args, float3 direction, float distance)
+  {
+    const float span = (distance - startDistance) * args.worldToKilometers;
+    const float endHeight = airAltitude(args, start + direction * span);
+    const float endAlong = startAlong + span;
+    const bool crossesTangent = startAlong < 0 && endAlong > 0;
+    const float minimum = crossesTangent ? tangentHeight : min(startHeight, endHeight);
+    const float2 scaleHeight = float2(args.rayleighHeight, args.mieHeight);
+    const bool2 nearlyConstant = max(startHeight, endHeight) - minimum < 0.002f * scaleHeight;
+    float2 mass = 0;
+    if (!all(nearlyConstant))
+    {
+      const float2 endMass = outwardAirMass(args, endHeight, abs(endAlong) / (args.innerRadius + endHeight), scaleHeight);
+      mass = crossesTangent ? 2.0f * tangentMass - startMass - endMass
+        : startAlong >= 0 ? startMass - endMass : endMass - startMass;
+      mass = max(0.0f, mass);
+    }
+    if (any(nearlyConstant))
+    {
+      const float midpoint = airAltitude(args, start + (0.5f * span) * direction);
+      const float2 shortMass = span * exp((args.lowerDepth - midpoint) / scaleHeight);
+      mass = float2(nearlyConstant.x ? shortMass.x : mass.x, nearlyConstant.y ? shortMass.y : mass.y);
+    }
+    return args.rayleighExtinction * mass.x + args.mieExtinction * mass.y;
+  }
+};
+
+public AirOpticalDepthRay createAirOpticalDepthRay(AirArgs args, float3 origin, float3 direction, float2 interval)
+{
+  AirOpticalDepthRay optical = {};
+  optical.startDistance = interval.x;
+  optical.start = airCoordinates(args, origin) + direction * (interval.x * args.worldToKilometers);
+  optical.startHeight = airAltitude(args, optical.start);
+  optical.startAlong = dot(optical.start, direction) + args.innerRadius * dot(args.up, direction);
+  const float2 scaleHeight = float2(args.rayleighHeight, args.mieHeight);
+  optical.startMass = outwardAirMass(args, optical.startHeight,
+    abs(optical.startAlong) / (args.innerRadius + optical.startHeight), scaleHeight);
+  const float span = (interval.y - interval.x) * args.worldToKilometers;
+  if (optical.startAlong < 0 && optical.startAlong + span > 0)
+  {
+    optical.tangentHeight = airAltitude(args, optical.start - optical.startAlong * direction);
+    optical.tangentMass = outwardAirMass(args, optical.tangentHeight, 0, scaleHeight);
+  }
+  return optical;
+}
+
+public float3 airSegmentOpticalDepth(AirArgs args, float3 origin, float3 direction, float2 interval)
+{
+  return createAirOpticalDepthRay(args, origin, direction, interval).prefix(args, direction, interval.y);
+}
+
 public float3 airTransmittance(AirArgs args, float3 origin, float3 direction, float distance)
 {
   if (!args.enable)
   {
     return 1;
   }
-  const AirRayGrid grid = { airInterval(args, origin, direction) };
-  const float end = min(grid.interval.y, distance);
-  float3 opticalDepth = 0;
-  for (uint cell = 0; cell < kAirViewSteps && grid.boundary(cell) < end; cell++)
-  {
-    const float span = min(grid.boundary(cell + 1), end) - grid.boundary(cell);
-    opticalDepth += airExtinction(args, origin + direction * grid.sampleAt(cell)) * span;
-  }
-  return exp(-opticalDepth);
+  const float2 interval = airInterval(args, origin, direction);
+  const float end = min(interval.y, distance);
+  return end > interval.x ? exp(-airSegmentOpticalDepth(args, origin, direction, float2(interval.x, end))) : 1;
 }

@@ -28,8 +28,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
   const VolumeArgs volume = cb.volumeArgs;
   const float3 direction = cloudSkyDirection((float2(pixel) + 0.5f) / float2(extent), volume.clouds.up);
   const float3 origin = cameraGetWorldPosition(cb.camera);
-  const float angularFootprint = 3.14159265359f / float(CLOUD_SKY_RESOLUTION);
-  const AtmosphereRay ray = createAtmosphereRay<ClearAtmosphereFog>(volume, origin, direction, 0, 0, angularFootprint);
+  const AtmosphereRay ray = createAtmosphereRay<ClearAtmosphereFog>(volume, origin, direction, 0, 0, kCloudSkyTexelAngle);
   const float split = cloudSkyTailStart(volume);
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   const CloudLightingCache lighting = sceneCloudLightingCache();

@@ -9,13 +9,15 @@ import "rtx/concept/camera/camera.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_sky.slang";
 
-// A cached tail begins on the plane perpendicular to its sampled ray. Shift
-// an escaped ray's local integration endpoint onto that plane before composing.
+// The cached tail starts on a sphere about the camera. Project the new
+// direction through the nearest remaining cloud shell, and bound the error
+// at the ends of the cached cloud range by the bilinear sampling footprint.
 bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distance, uint volumeHint,
-  out float begin, out float2 uv)
+  out float begin, out float2 uv, out float2 depthProjection)
 {
   begin = 0;
   uv = 0;
+  depthProjection = 0;
   if (distance != floatMax || volumeHint != 0
       || !ray.hasCloud || any(ray.mediumExtinction > 0))
   {
@@ -23,27 +25,50 @@ bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distan
   }
   const float3 relative = ray.origin - cameraGetWorldPosition(cb.camera);
   const float along = dot(relative, ray.direction);
-  begin = cloudSkyTailStart(volume) - along;
+  const float3 lateral = relative - along * ray.direction;
+  const float lateralSquared = dot(lateral, lateral);
+  const float radius = cloudSkyTailStart(volume);
+  const float cutSquared = radius * radius - lateralSquared;
+  if (cutSquared <= 0)
+  {
+    return false;
+  }
+  begin = sqrt(cutSquared) - along;
   if (begin <= 0 || ray.intervals.ends[0] > begin)
   {
     return false;
   }
-
-  float cloudEnd = 0;
+  float2 firstCloud = floatMax;
+  float lastCloud = begin;
   [unroll]
   for (uint i = 1; i <= 4; i++)
   {
-    cloudEnd = max(cloudEnd, ray.intervals.ends[i]);
+    const float end = ray.intervals.ends[i];
+    const float start = max(ray.intervals.starts[i], begin);
+    if (end > start)
+    {
+      if (start < firstCloud.x)
+      {
+        firstCloud = float2(start, end);
+      }
+      lastCloud = max(lastCloud, end);
+    }
   }
-  // Keep actual ray integration where the parallax exceeds the local cloud
-  // detail scale, or where the ray clears the clouds before the cached interval.
-  const float3 lateral = relative - along * ray.direction;
-  const float parallaxLimit = volume.clouds.shapeScale * 0.125f;
-  if (cloudEnd <= begin || dot(lateral, lateral) > parallaxLimit * parallaxLimit)
+  if (firstCloud.y <= firstCloud.x)
   {
     return false;
   }
-  uv = cloudSkyUv(volume.clouds, ray.direction);
+  const float focus = 0.5f * (firstCloud.x + firstCloud.y);
+  const float inverseFocus = rcp(focus + along);
+  const float error = max(rcp(firstCloud.x + along) - inverseFocus, inverseFocus - rcp(lastCloud + along));
+  const float footprint = 2.0f * kCloudSkyTexelAngle;
+  if (lateralSquared * error * error > footprint * footprint)
+  {
+    return false;
+  }
+  const float3 cacheDirection = normalize(lateral + (focus + along) * ray.direction);
+  uv = cloudSkyUv(volume.clouds, cacheDirection);
+  depthProjection = float2(dot(cacheDirection, ray.direction), along / cloudMaxViewDistance(volume.clouds));
   return true;
 }
 
@@ -56,17 +81,20 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   float cachedBegin;
   float2 cachedUV;
-  const bool useTail = allowFarTail && findSharedAtmosphereTail(volume, ray, distance, volumeHint, cachedBegin, cachedUV);
+  float2 cachedDepthProjection;
+  const bool useTail = allowFarTail && findSharedAtmosphereTail(volume, ray, distance, volumeHint,
+    cachedBegin, cachedUV, cachedDepthProjection);
   AtmosphereSegment transfer = integrateAtmosphereRange<SceneAtmosphereFog>(volume, VolumeFilteredRadianceY,
     VolumeFilteredRadianceCoCg, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
     sceneCloudLightingCache(), ray, 0, useTail ? cachedBegin : distance, ambient, sceneAirTables(volume.air, LinearWrapSampler));
-  if (useTail)
+  // An opaque prefix has already reached the integral's cutoff. Appending the
+  // cached cloud moments here could attribute motion to a cloud behind it.
+  if (useTail && any(transfer.transmittance >= kOpaqueCloudTransmittance))
   {
     const float4 radiance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailRadianceLayer), 0);
     const float4 transmittance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailTransmittanceLayer), 0);
-    AtmosphereSegment tail = { radiance.xyz, transmittance.xyz,
-      float2(max(0.0f, transmittance.w - radiance.w * (cloudSkyTailStart(volume) - cachedBegin)
-        / cloudMaxViewDistance(volume.clouds)), radiance.w) };
+    const float firstMoment = max(0.0f, transmittance.w * cachedDepthProjection.x - radiance.w * cachedDepthProjection.y);
+    AtmosphereSegment tail = { radiance.xyz, transmittance.xyz, float2(firstMoment, radiance.w) };
     transfer = composeAtmosphereSegments(transfer, tail);
   }
   return transfer;

@@ -18,8 +18,16 @@ and cloud distance. Neighboring columns contribute where the scene depths
 match. The input slab is reused by the ray queues after primary shading.
 Camera and wind reprojection use the existing cloud motion guides. The
 directional atlas shares distant air and cloud transport between escaped rays
-within its spatial support. Fog lighting uses the same transfer combined with the
+within its spatial support. Reflected and refracted rays project through the
+first cloud interval beyond the atlas split. A footprint test bounds parallax
+across the remaining cloud intervals, and the cached depth moment is projected
+back onto the original ray. Fog lighting combines the same transfer with the
 near atmosphere. Finite light paths resolve in world space.
+
+Air attenuation uses absolute optical-depth prefixes from a finite Chapman
+approximation. Segment extinction comes from the difference between successive
+prefixes. Radiance uses eight cells per air interval, with the source sampled
+once per cell and weighted by the segment's integrated extinction.
 
 The cloud light atlas stores vertical optical depth and the isotropic radiance
 induced by each unit celestial beam. The same field serves the primary,

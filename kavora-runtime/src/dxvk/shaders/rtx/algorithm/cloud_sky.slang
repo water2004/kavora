@@ -10,6 +10,7 @@ public static const uint kCloudSkyTailRadianceLayer = 1;
 public static const uint kCloudSkyTailTransmittanceLayer = 2;
 
 static const float kCloudSkyPi = 3.141592653589793f;
+public static const float kCloudSkyTexelAngle = kCloudSkyPi / float(CLOUD_SKY_RESOLUTION);
 public static const uint kCloudAmbientSampleCount = 8192;
 
 // Equal-area Hammersley nodes integrate upper-hemisphere radiance divided by 4 pi.
