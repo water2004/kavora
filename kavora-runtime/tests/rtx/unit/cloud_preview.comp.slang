@@ -203,7 +203,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     volume.air = Air;
     const AirTables tables = { Texture2D<float4>(AirTransmission), Texture2D<float4>(AirScattering), SamplerState(AirSampler) };
     const AtmosphereRay ray = createAtmosphereRay<PreviewFog>(volume, origin, direction);
-    const AtmosphereSegment result = integrateAtmosphereRange<PreviewFog>(volume, base, Sampler3D<float2>(FogChroma),
+    const AtmosphereSegment result = integrateAtmosphereRange<PreviewFog, UnobstructedAir>(volume, base, Sampler3D<float2>(FogChroma),
       weather, base, detail,
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
       previewCloudLighting(),

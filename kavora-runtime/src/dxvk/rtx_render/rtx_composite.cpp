@@ -23,6 +23,7 @@
 #include "rtx_animation_time.h"
 #include "dxvk_device.h"
 #include "rtx/pass/composite/composite_binding_indices.h"
+#include "rtx/pass/volumetrics/air_shadow.h"
 #include "rtx/pass/composite/composite_args.h"
 #include "composite_layout_asserts.h"
 #include "composite_alpha_blend_layout_asserts.h"
@@ -139,6 +140,7 @@ namespace dxvk {
         TEXTURE2D(COMPOSITE_AIR_TRANSMITTANCE_INPUT)
         TEXTURE2D(COMPOSITE_AIR_SCATTERING_INPUT)
         SAMPLER(COMPOSITE_AIR_LINEAR_SAMPLER)
+        TEXTURE2DARRAY(AIR_SHADOW_DEPTH_BINDING)
         SAMPLER3D(COMPOSITE_CLOUD_SUN_DEPTH_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
@@ -385,6 +387,7 @@ namespace dxvk {
     ctx->bindResourceSampler(COMPOSITE_AIR_LINEAR_SAMPLER, linearSampler);
 
     const RtxGlobalVolumetrics& globalVolumetrics = ctx->getCommonObjects()->metaGlobalVolumetrics();
+    ctx->bindResourceView(AIR_SHADOW_DEPTH_BINDING, globalVolumetrics.getAirShadowDepth(), nullptr);
     ctx->bindResourceView(COMPOSITE_VOLUME_FILTERED_RADIANCE_AGE_INPUT, globalVolumetrics.getCurrentVolumeAccumulatedRadianceAge().view, nullptr);
     ctx->bindResourceSampler(COMPOSITE_VOLUME_FILTERED_RADIANCE_AGE_INPUT, linearSampler);
     ctx->bindResourceView(COMPOSITE_VOLUME_FILTERED_RADIANCE_Y_INPUT, globalVolumetrics.getFilteredRadianceY().view, nullptr);

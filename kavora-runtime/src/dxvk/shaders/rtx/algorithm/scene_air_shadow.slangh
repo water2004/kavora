@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+import "rtx/algorithm/air_medium.slang";
+import "rtx/concept/camera/camera.slang";
+#include "rtx/algorithm/air_shadow_grid.slangh"
+
+layout(binding = AIR_SHADOW_DEPTH_BINDING)
+Texture2DArray<float> AirShadowDepth;
+
+struct SceneAirVisibility : IAirLightVisibility
+{
+  static float visibility(AirArgs args, uint index, float3 position)
+  {
+    const AirShadowGrid grid = AirShadowGrid(args, index);
+    const float3 offset = position - cameraGetWorldPosition(cb.camera);
+    const float2 pixel = grid.pixel(offset);
+    const int2 base = int2(floor(pixel));
+    const float2 f = frac(pixel);
+    const float receiver = dot(offset, grid.light);
+    float4 visible;
+    [unroll]
+    for (uint i = 0; i < 4; i++)
+    {
+      const int2 tap = clamp(base + int2(i & 1, i >> 1), 0, AIR_SHADOW_RESOLUTION - 1);
+      visible[i] = float(receiver >= AirShadowDepth.Load(int4(tap, index, 0)));
+    }
+    return lerp(lerp(visible.x, visible.y, f.x), lerp(visible.z, visible.w, f.x), f.y);
+  }
+};

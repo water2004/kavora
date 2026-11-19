@@ -211,7 +211,7 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
 
 // Air and froxel fog are a continuous background. Cloud samples never split
 // the air grid, so their count cannot multiply Chapman or scattering lookups.
-AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance, Visibility : IAirLightVisibility>(VolumeArgs args,
   FogRadiance fogRadiance, AtmosphereRay ray, float rangeBegin, float rangeEnd, AirTables airTables)
 {
   AtmosphereSegment result = emptyAtmosphereSegment();
@@ -311,7 +311,9 @@ AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosp
       if (airActive && !airSampleValid)
       {
         const float3 airPosition = origin + direction * airGrid.sampleAt(airCell);
-        airMedium = sampleAirMedium(args.air, airTables, airPosition, ray.airPhase);
+        // The terrain endpoint can truncate a cell well before its optical quadrature node.
+        const float3 shadowPosition = origin + direction * (0.5f * (previous + min(nextAir, end)));
+        airMedium = sampleAirMedium<Visibility>(args.air, airTables, airPosition, shadowPosition, ray.airPhase);
         airMedium.source /= max(airMedium.extinction, 1e-20f);
         airSampleValid = true;
       }
@@ -365,7 +367,7 @@ public interface IAtmosphereHaze
   AtmosphereSegment range(VolumeArgs args, AtmosphereRay ray, float begin, float end, AirTables airTables);
 };
 
-public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance> : IAtmosphereHaze
+public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance, Visibility : IAirLightVisibility> : IAtmosphereHaze
 {
   FogRadiance fogRadiance;
 
@@ -376,7 +378,7 @@ public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmo
 
   public AtmosphereSegment range(VolumeArgs args, AtmosphereRay ray, float begin, float end, AirTables airTables)
   {
-    return integrateHazeRange<Fog, FogRadiance>(args, fogRadiance, ray, begin, end, airTables);
+    return integrateHazeRange<Fog, FogRadiance, Visibility>(args, fogRadiance, ray, begin, end, airTables);
   }
 };
 
@@ -438,31 +440,31 @@ public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze>(Vol
   return result;
 }
 
-public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance>(VolumeArgs args,
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadiance : IAtmosphereFogRadiance, Visibility : IAirLightVisibility>(VolumeArgs args,
   FogRadiance fogRadiance,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
-  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance>(fogRadiance),
+  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance, Visibility>(fogRadiance),
     weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 
-public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog>(VolumeArgs args,
+public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, Visibility : IAirLightVisibility>(VolumeArgs args,
   Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
-  return integrateAtmosphereRange<Fog, FroxelFogRadiance>(args, FroxelFogRadiance(radianceY, radianceCoCg),
+  return integrateAtmosphereRange<Fog, FroxelFogRadiance, Visibility>(args, FroxelFogRadiance(radianceY, radianceCoCg),
     weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 
-public AtmosphereSegment integrateAtmosphereSegment<Fog : IAtmosphereFog>(VolumeArgs args,
+public AtmosphereSegment integrateAtmosphereSegment<Fog : IAtmosphereFog, Visibility : IAirLightVisibility>(VolumeArgs args,
   Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   float3 origin, float3 direction, float distance, float3 cloudAmbient, AirTables airTables,
   uint volumeHint = 0, float3 mediumExtinction = float3(0))
 {
   const AtmosphereRay ray = createAtmosphereRay<Fog>(args, origin, direction, volumeHint, mediumExtinction);
-  return integrateAtmosphereRange<Fog>(args, radianceY, radianceCoCg, weather, base, detail, cloudLighting, ray, 0, distance,
+  return integrateAtmosphereRange<Fog, Visibility>(args, radianceY, radianceCoCg, weather, base, detail, cloudLighting, ray, 0, distance,
     cloudAmbient, airTables);
 }

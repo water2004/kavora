@@ -4,6 +4,7 @@ import "rtx/algorithm/cloud_sky.slang";
 import "rtx/algorithm/atmosphere.slang";
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/algorithm/scene_air.slangh"
+#include "rtx/algorithm/scene_air_shadow.slangh"
 #include "rtx/algorithm/scene_cloud_lighting.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
@@ -33,7 +34,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   const CloudLightingCache lighting = sceneCloudLightingCache();
   const AirTables air = sceneAirTables(volume.air, CloudAirSampler);
-  const AtmosphereSegment tail = integrateAtmosphereRange<ClearAtmosphereFog, ClearFogRadiance>(volume, {},
+  const AtmosphereSegment tail = integrateAtmosphereRange<ClearAtmosphereFog, ClearFogRadiance, SceneAirVisibility>(volume, {},
     CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, lighting, ray, split, floatMax, ambient, air);
   CloudSky[uint3(pixel, kCloudSkyTailRadianceLayer)] = float4(tail.radiance, tail.cloudMoments.y);
   CloudSky[uint3(pixel, kCloudSkyTailTransmittanceLayer)] = float4(tail.transmittance, tail.cloudMoments.x);
@@ -42,7 +43,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
   // The near integration ends where the shared far transfer begins.
   if (volume.enable)
   {
-    const AtmosphereSegment near = integrateAtmosphereRange<ClearAtmosphereFog, ClearFogRadiance>(volume, {},
+    const AtmosphereSegment near = integrateAtmosphereRange<ClearAtmosphereFog, ClearFogRadiance, SceneAirVisibility>(volume, {},
       CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, lighting, ray, 0, split, ambient, air);
     const float3 boundary = sampleIndirectEnvironmentRadiance(direction, CloudSkyProbe, CloudAirSampler);
     const float3 radiance = near.radiance + near.transmittance * (tail.radiance + tail.transmittance * boundary);

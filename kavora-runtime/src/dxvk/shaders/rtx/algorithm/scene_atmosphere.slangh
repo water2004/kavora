@@ -2,6 +2,7 @@
 #pragma once
 
 #include "rtx/algorithm/scene_air.slangh"
+#include "rtx/algorithm/scene_air_shadow.slangh"
 #include "rtx/algorithm/scene_cloud_lighting.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
@@ -85,7 +86,7 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   float2 cachedDepthProjection;
   const bool useTail = allowFarTail && findSharedAtmosphereTail(volume, ray, distance, volumeHint,
     cachedBegin, cachedUV, cachedDepthProjection);
-  AtmosphereSegment transfer = integrateAtmosphereRange<SceneAtmosphereFog>(volume, VolumeFilteredRadianceY,
+  AtmosphereSegment transfer = integrateAtmosphereRange<SceneAtmosphereFog, SceneAirVisibility>(volume, VolumeFilteredRadianceY,
     VolumeFilteredRadianceCoCg, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
     sceneCloudLightingCache(), ray, 0, useTail ? cachedBegin : distance, ambient, sceneAirTables(volume.air, LinearWrapSampler));
   // An opaque prefix has already reached the integral's cutoff. Appending the

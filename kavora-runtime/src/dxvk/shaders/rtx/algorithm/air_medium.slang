@@ -224,7 +224,19 @@ public AirRayPhase createAirRayPhase(AirArgs args, float3 direction)
   return phase;
 }
 
-public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position, AirRayPhase phase)
+public interface IAirLightVisibility
+{
+  static float visibility(AirArgs args, uint light, float3 position);
+};
+
+// Sky-only transport fixtures have no scene geometry.
+public struct UnobstructedAir : IAirLightVisibility
+{
+  public static float visibility(AirArgs args, uint light, float3 position) { return 1; }
+};
+
+public AirMedium sampleAirMedium<Visibility : IAirLightVisibility>(AirArgs args, AirTables tables,
+  float3 position, float3 shadowPosition, AirRayPhase phase)
 {
   const float3 coordinates = airCoordinates(args, position);
   const float height = airAltitude(args, coordinates);
@@ -245,6 +257,7 @@ public AirMedium sampleAirMedium(AirArgs args, AirTables tables, float3 position
       medium.source += light.irradiance * ((rayleigh * phase.rayleigh[index]
         + mie * args.mieAlbedo * phase.mie[index])
         * airTransmittanceToLight(args, tables, height, mu, light.angularRadius)
+        * Visibility.visibility(args, index, shadowPosition)
         + (rayleigh + mie * args.mieAlbedo) * airMultipleScattering(args, tables, height, mu));
     }
   }

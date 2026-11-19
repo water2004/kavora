@@ -12,6 +12,7 @@ import "rtx/concept/surface_material/translucent_medium.slang";
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/algorithm/scene_air.slangh"
+#include "rtx/algorithm/scene_air_shadow.slangh"
 #include "rtx/pass/gbuffer/gbuffer_binding_indices.h"
 #include "rtx/utility/brdf.slangh"
 #include "rtx/algorithm/volume_lighting.slangh"
@@ -87,7 +88,7 @@ void integrateHazeColumn(uint2 column, AtmosphereRay ray, float4 scene, VolumeAr
       depths[i] = near;
     }
   }
-  let haze = IntegratedAtmosphereHaze<SceneAtmosphereFog, FroxelFogRadiance>(
+  let haze = IntegratedAtmosphereHaze<SceneAtmosphereFog, FroxelFogRadiance, SceneAirVisibility>(
     FroxelFogRadiance(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg));
   const AirTables airTables = sceneAirTables(volume.air, LinearWrapSampler);
   const uint base = hazeColumnOffset(column);
@@ -138,7 +139,7 @@ void main(uint2 invocation : SV_DispatchThreadID)
 #else
   const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction, 0, medium,
     float(stride) * cb.volumeArgs.clouds.viewAngularFootprint);
-  let haze = IntegratedAtmosphereHaze<SceneAtmosphereFog, FroxelFogRadiance>(
+  let haze = IntegratedAtmosphereHaze<SceneAtmosphereFog, FroxelFogRadiance, SceneAirVisibility>(
     FroxelFogRadiance(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg));
 #endif
   const float3 ambient = ray.hasCloud

@@ -25,6 +25,7 @@ import "rtx/algorithm/air_medium.slang";
 import "rtx/algorithm/fog_froxel_sampling.slang";
 #include "rtx/pass/composite/composite_bindings.slangh"
 #include "rtx/algorithm/scene_cloud_lighting.slangh"
+#include "rtx/algorithm/scene_air_shadow.slangh"
 
 #include "rtx/pass/composite/composite_args.h"
 #include "rtx/pass/composite/composite.slangh"
@@ -446,7 +447,7 @@ void applyAlphaBlendForeground(
           cameraPosition, primaryRayDirections.worldDirection);
         const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance() : float3(0);
         const AirTables air = { AirTransmittanceInput, AirScatteringInput, AirLinearSampler };
-        AtmosphereSegment atmosphere = integrateAtmosphereRange<SceneAtmosphereFog>(cb.volumeArgs, VolumeFilteredRadianceY,
+        AtmosphereSegment atmosphere = integrateAtmosphereRange<SceneAtmosphereFog, SceneAirVisibility>(cb.volumeArgs, VolumeFilteredRadianceY,
           VolumeFilteredRadianceCoCg,
           CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, sceneCloudLightingCache(), ray, 0, surface.hitT, ambient, air);
         alphaBlendOutput = (alphaBlendOutput * atmosphere.transmittance + atmosphere.radiance) * (1 - backgroundAlpha);

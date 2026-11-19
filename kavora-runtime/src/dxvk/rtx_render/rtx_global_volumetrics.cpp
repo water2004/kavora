@@ -38,8 +38,10 @@
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_integrate_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_filter_binding_indices.h"
+#include "rtx/pass/volumetrics/air_shadow.h"
 
 #include <rtx_shaders/volume_integrate_rayquery_raygen.h>
+#include <rtx_shaders/air_shadow.h>
 #include <rtx_shaders/generate_cloud_ambient.h>
 #include <rtx_shaders/generate_cloud_direct_light.h>
 #include <rtx_shaders/generate_cloud_light_sun.h>
@@ -138,12 +140,24 @@ namespace dxvk {
 
     PREWARM_SHADER_PIPELINE(GenerateCloudAmbientShader);
 
+    class AirShadowShader : public ManagedShader {
+      SHADER_SOURCE(AirShadowShader, VK_SHADER_STAGE_COMPUTE_BIT, air_shadow)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        RW_TEXTURE2DARRAY(AIR_SHADOW_DEPTH_BINDING)
+      END_PARAMETER()
+    };
+
+    PREWARM_SHADER_PIPELINE(AirShadowShader);
+
     class GenerateCloudSkyShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudSkyShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_sky)
       BINDLESS_ENABLED()
       BEGIN_PARAMETER()
         COMMON_RAYTRACING_BINDINGS
         RW_TEXTURE2DARRAY(CLOUD_SKY_BINDING_OUTPUT)
+        TEXTURE2DARRAY(AIR_SHADOW_DEPTH_BINDING)
         SAMPLERCUBE(CLOUD_SKY_BINDING_PROBE)
         SAMPLER(CLOUD_SKY_BINDING_AIR_SAMPLER)
       END_PARAMETER()
@@ -985,7 +999,26 @@ namespace dxvk {
     m_cloudLightingUsesTensor = useTensor;
   }
 
+  void RtxGlobalVolumetrics::dispatchAirShadows(RtxContext* ctx, const AirArgs& air) {
+    if (!air.enable) {
+      m_airShadowDepth.reset();
+      return;
+    }
+    ScopedGpuProfileZone(ctx, "Air shadow depth");
+    constexpr VkExtent3D extent { AIR_SHADOW_RESOLUTION, AIR_SHADOW_RESOLUTION, 1 };
+    if (!m_airShadowDepth.isValid()) {
+      Rc<DxvkContext> resourceContext = ctx;
+      m_airShadowDepth = Resources::createImageResource(resourceContext, "Air shadow depth", extent,
+        VK_FORMAT_R32_SFLOAT, 2, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY);
+    }
+    ctx->bindCommonRayTracingResources();
+    ctx->bindResourceView(AIR_SHADOW_DEPTH_BINDING, m_airShadowDepth.view, nullptr);
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, AirShadowShader::getShader());
+    ctx->dispatch(AIR_SHADOW_RESOLUTION / 8, AIR_SHADOW_RESOLUTION / 8, 2);
+  }
+
   void RtxGlobalVolumetrics::dispatchCloudSky(RtxContext* ctx, const VolumeArgs& volume) {
+    dispatchAirShadows(ctx, volume.air);
     const auto& clouds = volume.clouds;
     dispatchCloudLighting(ctx, clouds);
     if (!clouds.enable) {
@@ -1022,6 +1055,7 @@ namespace dxvk {
     }
     ctx->bindCommonRayTracingResources();
     ctx->bindResourceView(CLOUD_SKY_BINDING_OUTPUT, m_cloudSky.view, nullptr);
+    ctx->bindResourceView(AIR_SHADOW_DEPTH_BINDING, m_airShadowDepth.view, nullptr);
     ctx->bindResourceView(CLOUD_SKY_BINDING_PROBE, ctx->getResourceManager().getSkyProbe(ctx).view, nullptr);
     ctx->bindResourceSampler(CLOUD_SKY_BINDING_PROBE, clampSampler);
     ctx->bindResourceSampler(CLOUD_SKY_BINDING_AIR_SAMPLER, wrapSampler);

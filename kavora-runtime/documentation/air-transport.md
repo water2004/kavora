@@ -100,6 +100,17 @@ The air and cloud media share a ray-segment transport integrator. Authored local
 fog remains an additional medium. Direct solar attenuation already supplied in
 the host's cloud radiance profiles must not be applied a second time.
 
+Primary intersection depth terminates the view segment at the terrain. To shade
+the air in front of that endpoint, each active physical atmosphere also builds
+a pair of 128 by 128 light-space depth maps against the ordered scene TLAS.
+The depth test uses the sun or moon direction and the midpoint of the portion
+of the air cell actually traversed. The result modulates single scattering.
+Diffuse multiple scattering and view transmittance retain their LUT values.
+The sampled maps are shared by primary columns, secondary rays, the sky atlas
+and alpha composition. They occupy 128 KiB in R32F. Resolution falls with
+transverse distance from the eye. The maps represent opaque and cutout
+geometry and do not model coloured transmission through glass.
+
 The multiple-scattering source retains the existing clear-atmosphere
 approximation. Clouds do not feed their shadowing back into the global air
 multiple-scattering table. This is not a fully coupled three-dimensional

@@ -82,6 +82,8 @@ class Probe:
             self.keep.extend([result, view])
             return view
 
+        self.texture2d = lambda data: texture(data, 2)
+
         from test_cloud_transport import weather_fixture
         weather = weather_fixture(self.device, np.zeros((3, 1, 1, 4))).create_view(sampler=sampler)
         self.keep.append(weather)
@@ -103,13 +105,14 @@ class Probe:
         if entry not in self.kernels:
             program = self.device.load_program("air_transport_contracts.comp.slang", [entry])
             self.kernels[entry] = self.device.create_compute_kernel(program)
-        stride = 5 if entry == "integrate" else 1
+        transport = entry in ("integrate", "underRoof")
+        stride = 5 if transport else 1
         output = self.device.create_buffer(element_count=len(origins) * stride, struct_size=16,
                                           usage=spy.BufferUsage.unordered_access)
         bindings = {"Air": args, "Origins": self.device.create_buffer(data=origins, usage=spy.BufferUsage.shader_resource),
                     "Directions": self.device.create_buffer(data=directions, usage=spy.BufferUsage.shader_resource),
                     "Count": len(origins), "Results": output}
-        if entry == "integrate":
+        if transport:
             bindings.update(self.bindings)
             bindings["MediumExtinction"] = list(medium_extinction)
         self.kernels[entry].dispatch(thread_count=[len(origins), 1, 1], vars=bindings)
@@ -118,6 +121,22 @@ class Probe:
 
 def main():
     probe = Probe()
+    # Both view segments are far shorter than the first atmospheric quadrature cell.
+    # Only the first lies under the roof. Diffuse sky light still reaches both.
+    origins = [[0, 80, 0, 16], [64, 80, 0, 16]]
+    rays = [[1, 0, 0, .5]] * 2
+    sky = probe.texture2d(np.full((2, 2, 4), .2, np.float32))
+    clear_table = probe.bindings["Scattering"]
+    probe.bindings["Scattering"] = sky.descriptor_handle_ro
+    clear = probe.run("integrate", parameters(), origins, rays)
+    shadow = probe.run("underRoof", parameters(), origins, rays)
+    np.testing.assert_array_equal(shadow[:, 1], clear[:, 1])
+    np.testing.assert_array_equal(shadow[1], clear[1])
+    assert np.all((shadow[0, 0, :3] > 0) & (shadow[0, 0, :3] < clear[0, 0, :3]))
+    probe.bindings["Scattering"] = clear_table
+    dark = probe.run("underRoof", parameters(), origins, rays)
+    np.testing.assert_array_equal(dark[0, 0, :3], 0)
+    print("PASS terrain shadow gates single scattering within the visible segment and preserves diffuse sky and extinction")
     intervals = np.array([[13292.854, 51125.395], [4645.4365, 30093.865], [0, 51125.395]], np.float32)
     inputs = np.pad(intervals, ((0, 0), (0, 2)))
     boundaries = probe.run("airGridEndpoints", parameters(), inputs, np.zeros_like(inputs))[:, 0]

@@ -51,9 +51,7 @@ void airGridEndpoints(uint index : SV_DispatchThreadID)
   Results[index] = float4(grid.boundary(0), grid.boundary(last - 1), grid.boundary(last), grid.boundary(last + 1));
 }
 
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void integrate(uint index : SV_DispatchThreadID)
+void probeTransport<Visibility : IAirLightVisibility>(uint index)
 {
   if (index >= Count) return;
   VolumeArgs volume = {};
@@ -64,13 +62,13 @@ void integrate(uint index : SV_DispatchThreadID)
   const float split = end * Directions[index].w;
   const CloudLightingCache noCloudLighting = { Sampler3D<float>(CloudDepth), Sampler3D<float>(CloudDepth),
     Sampler3D<float2>(Chroma), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume) };
-  const AtmosphereSegment full = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
+  const AtmosphereSegment full = integrateAtmosphereRange<NoFog, Visibility>(volume, Sampler3D<float4>(Volume),
     Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, end, 0, tables);
-  const AtmosphereSegment first = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
+  const AtmosphereSegment first = integrateAtmosphereRange<NoFog, Visibility>(volume, Sampler3D<float4>(Volume),
     Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, split, 0, tables);
-  const AtmosphereSegment second = integrateAtmosphereRange<NoFog>(volume, Sampler3D<float4>(Volume),
+  const AtmosphereSegment second = integrateAtmosphereRange<NoFog, Visibility>(volume, Sampler3D<float4>(Volume),
     Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, split, end, 0, tables);
   const AtmosphereSegment composed = composeAtmosphereSegments(first, second);
@@ -80,3 +78,16 @@ void integrate(uint index : SV_DispatchThreadID)
   Results[index * 5 + 3] = float4(composed.transmittance, 0);
   Results[index * 5 + 4] = float4(airTransmittance(Air, Origins[index].xyz, Directions[index].xyz, end), 0);
 }
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void integrate(uint index : SV_DispatchThreadID) { probeTransport<UnobstructedAir>(index); }
+
+struct Roof : IAirLightVisibility
+{
+  static float visibility(AirArgs args, uint light, float3 position) { return float(position.x >= 32); }
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void underRoof(uint index : SV_DispatchThreadID) { probeTransport<Roof>(index); }

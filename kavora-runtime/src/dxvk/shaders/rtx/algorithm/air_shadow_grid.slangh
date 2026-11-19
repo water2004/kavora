@@ -1,0 +1,33 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+import "rtx/pass/air_parameters.slang";
+#include "rtx/utility/math.slangh"
+#include "rtx/pass/volumetrics/air_shadow.h"
+
+// Parallel light rays share a column. Concentrate its transverse resolution around the observer.
+struct AirShadowGrid
+{
+  float3 u, v, light;
+  float scale;
+
+  __init(AirArgs args, uint index)
+  {
+    light = args.lights[index].directionToLight;
+    calcOrthonormalBasis(light, u, v);
+    scale = 0.064f / args.worldToKilometers;
+  }
+
+  float2 pixel(float3 offset)
+  {
+    const float2 plane = float2(dot(offset, u), dot(offset, v));
+    return (0.5f + 0.5f * plane / (scale + abs(plane))) * AIR_SHADOW_RESOLUTION - 0.5f;
+  }
+
+  float3 offset(uint2 pixel)
+  {
+    const float2 q = ((float2(pixel) + 0.5f) / AIR_SHADOW_RESOLUTION) * 2.0f - 1.0f;
+    const float2 plane = scale * q / (1.0f - abs(q));
+    return u * plane.x + v * plane.y;
+  }
+};
