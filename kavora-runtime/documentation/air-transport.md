@@ -84,11 +84,9 @@ layer is omitted from both boundaries. Native path callers select a boundary
 only when that ray integrates physical air. Ambient and direct-light sampling
 continue to use the full lighting environment.
 
-When this physical atmosphere is available, clouds use the shared world-space
-integrator at every quality level. Sampling budgets still follow their selected
-quality settings. The camera-centred cloud transport mode remains available to
-hosts without the atmosphere extension. The low-resolution cloud sky used by
-the fog-lighting cache remains separate from view-ray transport.
+Clouds use the shared world-space integrator at every quality level. Sampling
+budgets follow the selected quality settings. The directional cloud sky atlas
+shares distant transport for eligible rays and the fog-lighting cache.
 
 At the existing 4096 by 2048 R11G11B10 dome resolution, the extra boundary image
 requires 32 MiB. The two runtime RGBA32F tables require 4.0625 MiB. Their host

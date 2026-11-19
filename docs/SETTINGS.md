@@ -57,15 +57,14 @@ The source tier and values persist together. Independent settings such as
 cloud style and shape, fog and water color, and exposure keep their values
 when you switch profiles.
 
-| Profile | Clouds | Fog lighting | Relief | Indirect bounces | Reflection/refraction limits |
+| Profile | Cloud view samples (low / high) | Fog lighting | Relief | Indirect bounces | Reflection/refraction limits |
 | --- | --- | --- | --- | --- | --- |
-| Ultra | World-space volume | Lighting-grid integration | Quadtree, 64 iterations | 2 | 10 / 10 |
-| High | Shared 1536×768 sky | View volume, 8-pixel columns | Quadtree, 48 iterations | 2 | 8 / 8 |
-| Medium | Shared 1024×512 sky | View volume, 12-pixel columns | Ray-marched, 24 iterations | 1 | 4 / 4 |
-| Low | Shared 512×256 sky | View volume, 16-pixel columns | Two-sample offset parallax | 1 | 2 / 2 |
+| Ultra | 64 / 20 | Lighting-grid integration | Quadtree, 64 iterations | 2 | 10 / 10 |
+| High | 40 / 12 | View volume, 8-pixel columns | Quadtree, 48 iterations | 2 | 8 / 8 |
+| Medium | 28 / 8 | View volume, 12-pixel columns | Ray-marched, 24 iterations | 1 | 4 / 4 |
+| Low | 16 / 4 | View volume, 16-pixel columns | Two-sample offset parallax | 1 | 2 / 2 |
 
-Ultra preserves the established visual baseline; it does not select the native
-runtime's separately defined Ultra preset. Lower tiers keep path-traced scene
+Ultra uses the largest cloud sampling budgets. Lower tiers keep path-traced scene
 lighting, primary reflection/refraction, cloud shadows, scattering and
 camera-surface relief. They use cheaper approximations and smaller light,
 fog and cache sampling budgets. Offset parallax keeps normal-mapped shading
@@ -143,9 +142,8 @@ contains clouds, fog, and ground mist. Minecraft's cloud option
 remains the master switch: Off removes both styles. Volumetric clouds use a
 world-space density field along camera, reflection, and refraction rays;
 Classic uses Minecraft's blocky cloud pattern. Cloud distance is independent
-of terrain render distance and does not require the far-terrain addon. Both
-volumetric layers default to a 96-kilometer view range; the low-cloud distance
-control permits up to 160 kilometers.
+of terrain render distance. Both volumetric layers reach 24 km on Ultra and High,
+18 km and 20 km on Medium, and 12 km and 16 km on Low.
 
 Celestial Lights separates Moon Size from Moon Intensity. Moon Phase Contrast
 controls the illumination change across the month: zero keeps constant light,
@@ -158,14 +156,6 @@ integration at every quality level so air, clouds and local fog share the same
 ray transfer. Lower quality levels reduce their sampling budgets. Classic
 clouds retain the complete sky and authored weather composition.
 
-For hosts without the physical-atmosphere extension, **Cloud transport** selects
-either world-space integration or a shared sky map. The map is regenerated every rendered frame
-from the same density and lighting model and sampled along each background
-ray, including distorted water reflections. Cloud shadows retain world-space
-visibility sampling. The sky-map approximation omits local cloud occlusion
-against geometry and cloud parallax between ray origins; use World volume
-when flying through clouds. Its resolution is independent of DLSS.
-
 Low-cloud shape and weather distribution adapt Community Edition's periodic
 Perlin-Worley fields. Regional weather forms groups and clear corridors over
 128 shape periods, with a smooth spatial variation in individual cloud shape.
@@ -173,19 +163,16 @@ High clouds use finite feathered shapes derived from
 credited CC0 photographs, distributed in regional groups with clear areas.
 Their colour and lighting come from the volumetric renderer. All ray types
 use the same density including edge erosion.
-World-volume transport uses ray marching with sampled self-shadowing and an
-approximation for multiple scattering; it is not a stochastic volumetric path
-tracer. The sky-map transport reuses that integration for background directions.
+The **Cloud Quality** folder has separate view samples and distances for the low
+and high layers, plus a shared self-shadow control. Self-shadow quality is
+16 on Ultra, 12 on High, 8 on Medium and 4 on Low. Coverage, thickness, shape
+scale, density, wind and scattering live in the cloud appearance settings.
+Classic edge smoothing and thickness apply to Classic clouds, while the height
+offset applies to both styles.
 
-Volumetric controls include coverage, thickness, shape scale, density, wind,
-scattering, distance, and view and shadow samples. Classic edge smoothing and
-thickness affect only Classic clouds; the height offset applies to both styles.
-Saved overrides retain their previous values after an update. To reproduce the
-current cloud defaults, reset the Clouds category and choose **Apply**, leaving
-other categories alone. Restart if you had changed native effect controls, as
-described under [Resetting](#resetting). This also restores the low-layer
-608-meter height offset, 0.03-per-meter extinction and 96-kilometer range, and
-the high layer's 6375-meter base, 50-meter thickness and 0.024-per-meter extinction.
+Schema 6 replaces the saved schema 5 presets' stock view and shadow budgets
+with the new profile values. Customized budgets and explicit distances carry
+over. The old cloud transport and sky resolution settings are removed.
 
 **Weather & Volumes → Volumetric Fog** has separate Overworld, Nether, and End folders.
 Each dimension exposes transmittance, optical distance,

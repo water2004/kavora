@@ -14,11 +14,17 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class KavoraSettingsSessionTest {
+    private static int cloudSamples(QualityPreset preset) {
+        return (int) KavoraQualityPresets.values(preset).get("clouds.samples");
+    }
+
     @Test
     void selectingEditingAndCancellingKeepLiveValuesAndQualityUntilApply() {
-        int[] live = {384};
+        int ultraSamples = cloudSamples(QualityPreset.ULTRA);
+        int highSamples = cloudSamples(QualityPreset.HIGH);
+        int[] live = {ultraSamples};
         int[] writes = {0};
-        var value = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "k", "t", 8, 512, 384,
+        var value = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUD_QUALITY, "k", "t", 8, 512, ultraSamples,
                 () -> live[0], next -> { live[0] = next; writes[0]++; });
         var settings = new KavoraSettings(List.of(value));
         var edit = new KavoraSettingsSession(settings);
@@ -26,27 +32,27 @@ class KavoraSettingsSessionTest {
         var high = new KavoraQualitySelection(QualityPreset.HIGH, false);
         var customizedHigh = new KavoraQualitySelection(QualityPreset.HIGH, true);
 
-        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 256));
+        edit.stagePreset(QualityPreset.HIGH, Map.of(value.id(), highSamples));
         assertEquals(high, edit.quality());
-        assertEquals(256, edit.value(value));
+        assertEquals(highSamples, edit.value(value));
         assertTrue(edit.hasChanges());
         edit.stage(value, 120);
         assertEquals(customizedHigh, edit.quality());
-        edit.stage(value, 256);
+        edit.stage(value, highSamples);
         assertEquals(high, edit.quality());
         edit.stage(value, 144);
         assertEquals(ultra, settings.quality());
-        assertEquals(384, live[0]);
+        assertEquals(ultraSamples, live[0]);
 
         edit.discard();
         assertFalse(edit.hasChanges());
         assertEquals(ultra, edit.quality());
-        assertEquals(384, edit.value(value));
+        assertEquals(ultraSamples, edit.value(value));
         assertEquals(0, writes[0]);
 
-        edit.stagePreset(QualityPreset.HIGH, Map.of("clouds.samples", 256));
+        edit.stagePreset(QualityPreset.HIGH, Map.of(value.id(), highSamples));
         edit.stage(value, 120);
-        assertEquals(EnumSet.of(SettingGroup.CLOUDS), edit.apply());
+        assertEquals(EnumSet.of(SettingGroup.CLOUD_QUALITY), edit.apply());
         assertEquals(120, live[0]);
         assertEquals(1, writes[0]);
         assertEquals(customizedHigh, settings.quality());
@@ -54,19 +60,20 @@ class KavoraSettingsSessionTest {
         assertTrue(edit.apply().isEmpty());
         assertEquals(1, writes[0]);
 
-        edit.stagePreset(QualityPreset.MEDIUM, Map.of("clouds.samples", 160));
+        edit.stagePreset(QualityPreset.MEDIUM, Map.of(value.id(), cloudSamples(QualityPreset.MEDIUM)));
         edit.discard();
         assertEquals(120, edit.value(value));
         assertEquals(customizedHigh, edit.quality());
-        edit.stage(value, 256);
+        edit.stage(value, highSamples);
         assertEquals(high, edit.quality());
     }
 
     @Test
     void reselectingCurrentPresetWritesItsValuesOnlyOnApply() {
         var operations = new ArrayList<String>();
-        var samples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUDS, "k", "t", 8, 512, 384,
-                () -> 256, next -> operations.add("samples=" + next));
+        int highSamples = cloudSamples(QualityPreset.HIGH);
+        var samples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUD_QUALITY, "k", "t", 8, 512,
+                cloudSamples(QualityPreset.ULTRA), () -> highSamples, next -> operations.add("samples=" + next));
         var coverage = KavoraSetting.ofFloat("clouds.coverage", SettingGroup.CLOUDS, "k", "t", 0, 1, 0.5,
                 () -> 0.65, next -> operations.add("coverage=" + next));
         var bounces = KavoraSetting.ofInt("reflection.bounces", SettingGroup.REFLECTIONS, "k", "t", 1, 16, 10,
@@ -76,7 +83,7 @@ class KavoraSettingsSessionTest {
         settings.setQuality(high);
         var edit = new KavoraSettingsSession(settings);
         var values = new LinkedHashMap<String, Integer>();
-        values.put(samples.id(), 256);
+        values.put(samples.id(), highSamples);
         values.put(bounces.id(), 8);
 
         edit.stagePreset(QualityPreset.HIGH, values);
@@ -90,7 +97,7 @@ class KavoraSettingsSessionTest {
         edit.stagePreset(QualityPreset.HIGH, values);
         assertTrue(edit.hasChanges());
         edit.apply();
-        assertEquals(List.of("samples=256", "bounces=8"), operations);
+        assertEquals(List.of("samples=" + highSamples, "bounces=8"), operations);
         assertEquals(high, settings.quality());
         assertFalse(edit.hasChanges());
     }
@@ -154,9 +161,10 @@ class KavoraSettingsSessionTest {
 
     @Test
     void folderResetIncludesQualityChildrenAndKeepsOtherPendingEdits() {
+        int ultraSamples = cloudSamples(QualityPreset.ULTRA);
         int[] samples = {96};
         double[] fog = {0.2};
-        var cloudSamples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUD_QUALITY, "k", "t", 8, 512, 384,
+        var cloudSamples = KavoraSetting.ofInt("clouds.samples", SettingGroup.CLOUD_QUALITY, "k", "t", 8, 512, ultraSamples,
                 () -> samples[0], value -> samples[0] = value);
         var fogDensity = KavoraSetting.ofFloat("fog.density", SettingGroup.FOG, "k", "t", 0, 1, 0.1,
                 () -> fog[0], value -> fog[0] = value);
@@ -165,11 +173,11 @@ class KavoraSettingsSessionTest {
         edit.stage(fogDensity, 0.3);
         edit.reset(setting -> SettingGroup.CLOUDS.contains(setting.group()));
         assertTrue(settings.hasGroup(SettingGroup.CLOUDS));
-        assertEquals(384, edit.value(cloudSamples));
+        assertEquals(ultraSamples, edit.value(cloudSamples));
         assertEquals(0.3, edit.value(fogDensity));
         assertEquals(96, samples[0]);
         assertEquals(EnumSet.of(SettingGroup.CLOUD_QUALITY, SettingGroup.FOG), edit.apply());
-        assertEquals(384, samples[0]);
+        assertEquals(ultraSamples, samples[0]);
         assertEquals(0.3, fog[0]);
     }
 }

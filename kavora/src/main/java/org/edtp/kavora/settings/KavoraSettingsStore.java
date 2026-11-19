@@ -190,18 +190,28 @@ public final class KavoraSettingsStore {
                 || custom.getAsBoolean()) return;
         var base = QualityPreset.byId(selection.get("base").getAsString());
         if (base.isEmpty()) return;
-        int previousSamples = switch (base.get()) {
+        int previousViewSamples = switch (base.get()) {
             case ULTRA -> 160;
             case HIGH -> 128;
             case MEDIUM -> 96;
             case LOW -> 64;
         };
-        JsonElement samples = values.get("clouds.samples");
-        if (samples != null && samples.isJsonPrimitive() && samples.getAsJsonPrimitive().isNumber()
-                && samples.getAsBigDecimal().compareTo(java.math.BigDecimal.valueOf(previousSamples)) == 0) {
-            // Adopt the new bounded integration budget only for an unedited stock profile.
-            // Explicit/custom values retain their owner and are never silently raised.
-            values.remove("clouds.samples");
+        int previousShadowSamples = switch (base.get()) {
+            case ULTRA, HIGH -> 6;
+            case MEDIUM -> 4;
+            case LOW -> 3;
+        };
+        // Missing values inherit the selected profile. A stored range was an
+        // independent edit in schema 5 and stays explicit in schema 6.
+        dropStockValue(values, "clouds.samples", previousViewSamples);
+        dropStockValue(values, "clouds.shadowSamples", previousShadowSamples);
+    }
+
+    private static void dropStockValue(JsonObject values, String id, int previousDefault) {
+        JsonElement value = values.get(id);
+        if (value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber()
+                && value.getAsBigDecimal().compareTo(java.math.BigDecimal.valueOf(previousDefault)) == 0) {
+            values.remove(id);
         }
     }
 

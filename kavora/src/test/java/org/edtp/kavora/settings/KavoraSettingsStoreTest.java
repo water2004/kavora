@@ -354,21 +354,33 @@ class KavoraSettingsStoreTest {
     void updatesStockCloudBudgetsWithoutOverwritingCustomValues(@TempDir Path dir) throws Exception {
         Map<QualityPreset, Integer> previous = Map.of(QualityPreset.ULTRA, 160, QualityPreset.HIGH, 128,
                 QualityPreset.MEDIUM, 96, QualityPreset.LOW, 64);
+        Map<QualityPreset, Integer> previousShadows = Map.of(QualityPreset.ULTRA, 6, QualityPreset.HIGH, 6,
+                QualityPreset.MEDIUM, 4, QualityPreset.LOW, 3);
         for (var entry : previous.entrySet()) {
+            var profile = KavoraQualityPresets.values(entry.getKey());
             for (boolean custom : new boolean[]{false, true}) {
                 Path file = dir.resolve(entry.getKey().id() + "-" + custom + ".json");
                 Files.writeString(file, """
                         {"version":5,"quality":{"base":"%s","custom":%s},
-                         "settings":{"clouds.samples":%d,"clouds.transport":1,"clouds.skyResolution":768,"f":2.5,"unknown":9}}
-                        """.formatted(entry.getKey().id(), custom, entry.getValue()));
+                         "settings":{"clouds.samples":%d,"clouds.shadowSamples":%d,
+                                     "clouds.transport":1,"clouds.skyResolution":768,"f":2.5,"unknown":9}}
+                        """.formatted(entry.getKey().id(), custom, entry.getValue(), previousShadows.get(entry.getKey())));
                 double[] artistic = {1};
-                KavoraSettings settings = registryWith(artistic, new int[]{0}, new boolean[]{true});
+                var controls = new ArrayList<>(registryWith(artistic, new int[]{0}, new boolean[]{true}).all());
+                int[] shadows = {16};
+                int[] highSamples = {20};
+                controls.add(KavoraSetting.ofInt("clouds.shadowSamples", SettingGroup.CLOUD_QUALITY, "l", "t", 1, 16, shadows[0],
+                        () -> shadows[0], v -> shadows[0] = v));
+                controls.add(KavoraSetting.ofInt("clouds.highSamples", SettingGroup.CLOUD_QUALITY, "l", "t", 1, 160, highSamples[0],
+                        () -> highSamples[0], v -> highSamples[0] = v));
+                var settings = new KavoraSettings(controls);
                 var store = new KavoraSettingsStore(file);
                 store.load(settings);
 
-                Object expected = custom ? entry.getValue()
-                        : KavoraQualityPresets.values(entry.getKey()).get("clouds.samples");
+                Object expected = custom ? entry.getValue() : profile.get("clouds.samples");
                 assertEquals(expected, settings.byId("clouds.samples").get());
+                assertEquals(custom ? previousShadows.get(entry.getKey()) : profile.get("clouds.shadowSamples"), shadows[0]);
+                assertEquals(profile.get("clouds.highSamples"), highSamples[0]);
                 assertEquals(2.5, artistic[0]);
                 assertEquals(new KavoraQualitySelection(entry.getKey(), custom), settings.quality());
                 String migrated = Files.readString(file);
@@ -384,16 +396,26 @@ class KavoraSettingsStoreTest {
     }
 
     @Test
-    void retainsExplicitSamplesEvenWhenTheOldQualityLabelWasNotCustomized(@TempDir Path dir) throws Exception {
+    void retainsExplicitCloudValuesEvenWhenTheOldQualityLabelWasNotCustomized(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("edited-clouds.json");
         Files.writeString(file, """
-                {"version":5,"quality":{"base":"ultra","custom":false},"settings":{"clouds.samples":112}}
+                {"version":5,"quality":{"base":"ultra","custom":false},
+                 "settings":{"clouds.samples":112,"clouds.shadowSamples":11,"clouds.distance":48000}}
                 """);
-        var settings = registryWith(new double[]{1}, new int[]{0}, new boolean[]{true});
+        var controls = new ArrayList<>(registryWith(new double[]{1}, new int[]{0}, new boolean[]{true}).all());
+        int[] shadows = {16};
+        double[] distance = {24000};
+        controls.add(KavoraSetting.ofInt("clouds.shadowSamples", SettingGroup.CLOUD_QUALITY, "l", "t", 1, 16, shadows[0],
+                () -> shadows[0], v -> shadows[0] = v));
+        controls.add(KavoraSetting.ofFloat("clouds.distance", SettingGroup.CLOUD_QUALITY, "l", "t", 512, 160000, distance[0],
+                () -> distance[0], v -> distance[0] = v));
+        var settings = new KavoraSettings(controls);
 
         new KavoraSettingsStore(file).load(settings);
 
         assertEquals(112, settings.byId("clouds.samples").get());
+        assertEquals(11, shadows[0]);
+        assertEquals(48000, distance[0]);
         assertEquals(new KavoraQualitySelection(QualityPreset.ULTRA, true), settings.quality());
     }
 

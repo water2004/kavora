@@ -258,9 +258,8 @@ World-volume transport integrates extinction and in-scattering along each ray
 through the existing atmosphere-segment integrator. Physical air, authored fog
 and cloud contributions share a Beer-Lambert transfer. Camera, reflection, refraction and light
 visibility use the same density field, with footprints appropriate to each
-integration. Both cloud layers default to a 96-kilometer view range. View
-distance fading remains a rendering approximation; it does
-not shorten the celestial shadow path.
+integration. Each cloud layer has its own view range and fades before its
+distance limit. Celestial shadow paths use a separate light-transport extent.
 
 The host publishes the existing atmospheric optical tables and completed light
 state through `LightInfoAtmosphereEXT`. Finite air transport attenuates distant
@@ -326,8 +325,8 @@ cloud detail inside its own footprint. It replaces that interval in the
 cache query; the remaining interval is queried directly, without subtracting
 two already-filtered effective depths. The finite-side multiple-scattering
 closure can request the same bounded correction in the reverse direction.
-The local sample count remains bounded by light quality, including at the
-default 96-kilometre view range. It does not repeat a 60-kilometre density march at each occupied view sample.
+Light quality bounds the local sample count. The shared field amortizes
+long-distance density integration across views.
 
 Surface light sampling retains the sampled direction of the solar or lunar
 disk for this local correction. A small celestial disk, up to 0.02 radians in
@@ -426,43 +425,18 @@ transmittance retain their existing precision. The guide reaches the normal
 G-buffer motion path, including camera translation and inter-frame wind.
 Camera cuts and discontinuous cloud frames reset the wind history.
 
-Sky-map transport integrates the same layers into a camera-centered
-equirectangular radiance/transmittance texture. Background rays reuse it,
-while light visibility stays world-space. Its distance texture supplies the
-cloud motion guide. Secondary rays approximate parallax with the camera-origin
-map, and map transport approximates cloud occlusion against local geometry.
-The transport option remains independent of host quality-profile names.
+The directional sky atlas caches distant transport and motion-guide distance
+moments. Escaping rays reuse it when their projected path fits the atlas
+footprint. Near segments and light visibility resolve in world space.
 
 ## Quality and cost
 
-The host uses Ultra as the reference configuration. Lower profiles reduce
-integration and map budgets while preserving the same density and lighting
-model. With the physical atmosphere, every profile uses world-volume transport.
-The requested sky-map mode applies only to hosts without that extension:
-
-| Profile | Requested transport without physical air | Map height | View quality | Light quality |
-| --- | --- | ---: | ---: | ---: |
-| Ultra | World volume | 1024 when map mode is selected | 384 | 16 |
-| High | Sky map | 1024 | 256 | 12 |
-| Medium | Sky map | 640 | 160 | 8 |
-| Low | Sky map | 384 | 96 | 4 |
-
-Maps have a 2:1 aspect ratio. World-volume mode can generate a separate
-64-pixel-high map for fog illumination. View quality is a true upper bound on
-cells per shell interval. At the default shape scale the nearest low-cloud
-spacing is approximately 3.33 metres at Ultra; distant cells widen smoothly to fit the
-budget, with density filtered to their actual span. Lower profiles reduce
-these budgets without selecting a different morphology or scattering model.
-
-The 384-cell Ultra baseline was selected after full-resolution comparisons
-showed regular integration bands at 160 and residual bands at 256. This raises
-the bounded view budget; it does not restore the unbounded nested shadow loop.
-The native and Java defaults agree, and custom view budgets range from 8 to 512.
-Settings schema 6 updates an unedited stock profile only when its saved cloud
-budget matches the former tier. Custom profiles and explicitly edited values
-are preserved. Before/after previews use their respective released Ultra
-budgets (old spacing parameter 160, new cell limit 384), with the same camera,
-cloud ranges, light, weather and display settings.
+All profiles share the same cloud transport, density and scattering model.
+The two view budgets bound cells per shell interval. Distant cells widen
+smoothly to fit the budget, and density filtering follows the cell span.
+See the [settings guide](../../docs/SETTINGS.md#quality-profiles) for profile
+values and [Quality integration](quality-integration.md) for
+the current view and lighting contracts.
 
 The old nested loop could issue 1875 forward density queries per occupied
 view sample at the default 60-kilometre light range, plus a vertical column and
