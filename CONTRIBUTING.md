@@ -83,6 +83,9 @@ API changes update both C headers, FFM layouts and descriptors, facade and
 callers together. A matching version label cannot establish ABI compatibility.
 Source-build provenance must describe the actual completed runtime DLL.
 
+The [cloud scattering training workflow](kavora-runtime/training/cloud-scattering/README.md)
+covers reference generation, training and Vulkan weight export.
+
 ## Engineering
 
 Keep one Vulkan path and explicit ownership. Render-thread-only native calls,

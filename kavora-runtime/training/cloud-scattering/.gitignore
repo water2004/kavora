@@ -1,0 +1,10 @@
+/outputs/
+/data/
+/cache/
+/checkpoints/
+*.exr
+*.npy
+*.npz
+*.pt
+*.pth
+*.bin

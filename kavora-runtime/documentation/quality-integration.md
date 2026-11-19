@@ -57,8 +57,9 @@ sky and ground boundary terms continue to use the two-stream transport model.
 
 The embedded `cloud_neural_sun.bin` comes from the demo's selected `sun.npz`
 export (SHA-256 `75d0aaddf7e87fbf74412f269998620b05ca1f4b2a5ed4fedd72ae42a63382b9`).
-Use `scripts-common/export_cloud_neural_weights.py` to reproduce the packed
-float32 weights from that export. The build embeds those bytes directly.
+The [cloud scattering training workflow](../training/cloud-scattering/README.md)
+generates the reference data, trains the model, and packs the weights. Its packer
+accepts the selected export above to reproduce the embedded float32 payload.
 
 `rtx.clouds.neuralTensorCores` defaults to enabled. A Vulkan device with
 the FP16 cooperative-vector compute format uses it to bake the same field.
