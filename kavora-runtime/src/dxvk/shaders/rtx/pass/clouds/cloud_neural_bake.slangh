@@ -5,14 +5,11 @@ import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/algorithm/cloud_source_interpolation.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
+import "rtx/utility/cloud_phase.slang";
 #include "rtx/pass/clouds/cloud_neural_model.h"
 
-static const uint kLaneCount = 8;
-static const uint kWidth = CLOUD_NEURAL_WIDTH;
 static const uint kInputs = CLOUD_NEURAL_INPUTS;
 static const uint kDirections = CLOUD_NEURAL_DIRECTIONS;
-static const uint kHiddenStride = CLOUD_NEURAL_HIDDEN_STRIDE;
-static const uint kHead = CLOUD_NEURAL_HEAD;
 
 struct NeuralCell
 {
@@ -20,12 +17,7 @@ struct NeuralCell
   float2 skyDepth;
   float prediction[kDirections];
 };
-#if defined(CLOUD_NEURAL_TENSOR)
 groupshared NeuralCell Cells[CLOUD_NEURAL_SKY_BATCH];
-#else
-groupshared NeuralCell Cells[1];
-groupshared float Activations[2][kDirections][kWidth];
-#endif
 
 float densityFeature(CloudDensityArgs density, float3 position, uint layer)
 {
@@ -38,22 +30,8 @@ void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint ligh
   const bool sky = lightIndex == CLOUD_NEURAL_SKY_CHANNEL;
   if (lane < 4)
   {
-    // The trained pyramid averages a 128 x 64 x 128 grid over an 8 x 2 x 8 km box.
-    float sample = densityFeature(density, position, layer);
-    if (lane > 0)
-    {
-      const float radius = float(1 << lane) * (62.5f * args.meterToWorld) * 0.25f;
-      const float3 offsets[4] = {
-        float3(1, 1, 1), float3(1, -1, -1), float3(-1, 1, -1), float3(-1, -1, 1)
-      };
-      sample = 0;
-      [unroll]
-      for (uint tap = 0; tap < 4; ++tap)
-      {
-        sample += 0.25f * densityFeature(density, position + radius * offsets[tap], layer);
-      }
-    }
-    Cells[slot].features[lane] = sample;
+    Cells[slot].features[lane] = cloudDensityFeature(density, position, layer, lane, args.meterToWorld,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler);
     return;
   }
   if (sky)
@@ -121,10 +99,6 @@ bool prepareNeuralCell(CloudArgs args, uint3 cell, uint lane, out uint lightInde
   return true;
 }
 
-float silu(float x)
-{
-  return x / (1.0f + exp(-x));
-}
 
 float softplus(float x)
 {
@@ -139,20 +113,20 @@ float sourceForCache(float result, uint3 cell, bool sky, float cosine, uint slot
   return softplus(result) - (sky ? 0.0f : cloudSourceVariation(layer, Cells[slot].features[0], Cells[slot].features[4], cosine));
 }
 
-float3 neuralAngularFeatures(CloudArgs args, uint lightIndex, uint angle)
+float3 neuralAngularFeatures(CloudArgs args, uint lightIndex, uint angle, uint layer)
 {
   if (lightIndex == CLOUD_NEURAL_SKY_CHANNEL)
     return float3(0, 0, float(min(angle, 3u)) * (2.0f / 3.0f) - 1.0f);
   const float2 knot = cloudNeuralKnot(angle + 1, dot(args.up, args.lights[lightIndex].directionToLight));
-  // The trained feature is the forward lobe. The reference transport samples
-  // both lobes with the same weights as createCloudRayPhase.
-  return float3(knot.x, cloudPhase(knot.x, args.anisotropy), knot.y);
+  return float3(knot.x, cloudPhase(CloudPhaseSampler, knot.x, layer), knot.y);
 }
 
-float neuralFeature(uint index, float3 angular, bool sky, uint slot = 0)
+float neuralFeature(uint index, float3 angular, float meanCosine, bool sky, uint slot = 0)
 {
   if (sky)
-    return index == 6 ? angular.z : index < 9 ? Cells[slot].features[index] : 0;
+    return index == 6 ? angular.z : index < 9 ? Cells[slot].features[index] : index == 9 ? meanCosine : 0;
+  if (index == 15)
+    return meanCosine;
   return index >= 7 && index <= 9 ? angular[index - 7] : Cells[slot].features[index];
 }
 
@@ -166,7 +140,8 @@ void storeCloudLighting(uint3 cell, uint lane, uint channel, float strength, uin
       float4 coefficients;
       [unroll]
       for (uint i = 0; i < 4; i++)
-        coefficients[i] = cloudDiffuseBoundaryResponse(Cells[slot].skyDepth, i, strength > 0 ? Cells[slot].prediction[i] : 0, strength)[lane];
+        coefficients[i] = cloudDiffuseBoundaryResponse(Cells[slot].skyDepth, i, strength > 0 ? Cells[slot].prediction[i] : 0, strength,
+          uint(cell.y % CLOUD_NEURAL_COLUMN_HEIGHT >= CLOUD_NEURAL_HEIGHT))[lane];
       NeuralCloudOutput[cloudNeuralTexel(cell, lane)] = coefficients;
     }
     return;
@@ -181,7 +156,6 @@ void storeCloudLighting(uint3 cell, uint lane, uint channel, float strength, uin
   }
 }
 
-#if defined(CLOUD_NEURAL_TENSOR)
 CoopVec<float16_t, Rows> neuralLayer<int Rows, int Columns>(CoopVec<float16_t, Columns> inputs, uint layer)
 {
   const int2 offsets = asint(NeuralCloudWeights.Load2(layer * 8));
@@ -193,12 +167,7 @@ CoopVec<float16_t, Rows> neuralLayer<int Rows, int Columns>(CoopVec<float16_t, C
 
 CoopVec<float16_t, CLOUD_NEURAL_WIDTH> neuralActivation(CoopVec<float16_t, CLOUD_NEURAL_WIDTH> value)
 {
-  [unroll]
-  for (uint i = 0; i < kWidth; i++)
-  {
-    value[i] = float16_t(silu(float(value[i])));
-  }
-  return value;
+  return max(value, value * float16_t(0.01f));
 }
 
 [shader("compute")]
@@ -229,15 +198,16 @@ void main(uint3 group : SV_GroupID, uint invocation : SV_GroupIndex)
     return;
   }
   const uint bank = sky ? CLOUD_NEURAL_HIDDEN_LAYERS + 1 : 0;
-  const float3 angular = neuralAngularFeatures(args, lightIndex, min(lane, directions - 1));
-  CoopVec<float16_t, CLOUD_NEURAL_TENSOR_INPUTS> input;
+  const uint layerIndex = uint(group.y >= CLOUD_NEURAL_HEIGHT);
+  const float meanCosine = cloudMeanCosine(layerIndex);
+  const float3 angular = neuralAngularFeatures(args, lightIndex, min(lane, directions - 1), layerIndex);
+  CoopVec<float16_t, CLOUD_NEURAL_INPUTS> input;
   [unroll]
   for (uint i = 0; i < kInputs; i++)
   {
-    input[i] = float16_t(neuralFeature(i, angular, sky, slot));
+    input[i] = float16_t(neuralFeature(i, angular, meanCosine, sky, slot));
   }
-  input[kInputs] = 0;
-  var value = neuralActivation(neuralLayer<CLOUD_NEURAL_WIDTH, CLOUD_NEURAL_TENSOR_INPUTS>(input, bank));
+  var value = neuralActivation(neuralLayer<CLOUD_NEURAL_WIDTH, CLOUD_NEURAL_INPUTS>(input, bank));
   [unroll]
   for (uint layer = 1; layer < CLOUD_NEURAL_HIDDEN_LAYERS; layer++)
   {
@@ -250,68 +220,3 @@ void main(uint3 group : SV_GroupID, uint invocation : SV_GroupIndex)
   }
   storeCloudLighting(cell, lane, lightIndex, args.multipleScattering, slot);
 }
-#else
-[shader("compute")]
-[numthreads(8, CLOUD_NEURAL_DIRECTIONS, 1)]
-void main(uint3 cell : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane : SV_GroupIndex)
-{
-  const CloudArgs args = neuralCloudArgs();
-  uint lightIndex;
-  if (!prepareNeuralCell(args, cell, lane, lightIndex))
-  {
-    return;
-  }
-  GroupMemoryBarrierWithGroupSync();
-
-  if (args.multipleScattering <= 0)
-  {
-    storeCloudLighting(cell, lane, lightIndex, 0);
-    return;
-  }
-  const bool sky = lightIndex == CLOUD_NEURAL_SKY_CHANNEL;
-  const uint bank = sky ? CLOUD_NEURAL_WEIGHT_COUNT : 0;
-  const uint angle = thread.y;
-  const bool evaluate = !sky || angle < 4;
-  const float3 angular = neuralAngularFeatures(args, lightIndex, angle);
-  [unroll]
-  for (uint neuron = thread.x; evaluate && neuron < kWidth; neuron += kLaneCount)
-  {
-    float sum = NeuralCloudWeights[bank + neuron];
-    [unroll]
-    for (uint input = 0; input < kInputs; input++)
-    {
-      const float feature = neuralFeature(input, angular, sky);
-      sum = mad(feature, NeuralCloudWeights[bank + (input + 1) * kWidth + neuron], sum);
-    }
-    Activations[0][angle][neuron] = silu(sum);
-  }
-  GroupMemoryBarrierWithGroupSync();
-
-  for (uint layer = 1; layer < CLOUD_NEURAL_HIDDEN_LAYERS; layer++)
-  {
-    const uint offset = bank + (kInputs + 1) * kWidth + (layer - 1) * kHiddenStride;
-    const uint source = (layer - 1) & 1;
-    for (uint neuron = thread.x; evaluate && neuron < kWidth; neuron += kLaneCount)
-    {
-      float sum = NeuralCloudWeights[offset + neuron];
-      for (uint input = 0; input < kWidth; input++)
-      {
-        sum = mad(Activations[source][angle][input], NeuralCloudWeights[offset + (input + 1) * kWidth + neuron], sum);
-      }
-      Activations[layer & 1][angle][neuron] = silu(sum);
-    }
-    GroupMemoryBarrierWithGroupSync();
-  }
-
-  if (evaluate && thread.x == 0)
-  {
-    float sum = NeuralCloudWeights[bank + kHead];
-    for (uint input = 0; input < kWidth; input++)
-    {
-      sum = mad(Activations[(CLOUD_NEURAL_HIDDEN_LAYERS - 1) & 1][angle][input], NeuralCloudWeights[bank + kHead + 1 + input], sum);
-    }
-    Cells[0].prediction[angle] = sourceForCache(sum, cell, sky, angular.x);
-  }
-  storeCloudLighting(cell, lane, lightIndex, args.multipleScattering);
-}
-#endif

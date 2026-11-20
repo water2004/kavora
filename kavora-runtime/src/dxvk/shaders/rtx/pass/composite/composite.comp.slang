@@ -444,7 +444,7 @@ void applyAlphaBlendForeground(
 
       if (cb.volumeArgs.enable || cb.volumeArgs.clouds.enable || cb.volumeArgs.air.enable)
       {
-        const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs,
+        const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, CloudPhaseSampler,
           cameraPosition, primaryRayDirections.worldDirection);
         const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance() : float3(0);
         const float3 exterior = cb.volumeArgs.air.enable ? CloudAmbientInput.Load(int3(kExteriorAmbientTexel, 0, 0)).rgb : float3(0);

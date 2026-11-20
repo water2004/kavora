@@ -262,6 +262,7 @@ dxvk_src = files([
   'shaders/rtx/pass/air_args.h',
   'shaders/rtx/concept/camera/volume_camera.h',
   'shaders/rtx/pass/cloud_noise.h',
+  'shaders/rtx/pass/clouds/cloud_phase.h',
   'shaders/rtx/pass/clouds/cloud_shadow.h',
   'shaders/rtx/pass/clouds/cloud_sky_binding_indices.h',
   'rtx_render/rtx_gpu_crash_recorder.cpp',
@@ -558,6 +559,7 @@ dxvk_embedded_data_files = files([
   '../../external/fonts/RobotoMono/RobotoMonoRg.ttf',
   'rtx_render/clouds/cloud_neural_lighting.bin',
   'rtx_render/clouds/revelation_maps.bin',
+  'rtx_render/clouds/revelation_phase.bin',
   'rtx_render/clouds/revelation_body.bin',
   'rtx_render/clouds/revelation_curl.bin'
 ])

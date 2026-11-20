@@ -363,7 +363,7 @@ class KavoraSettingsStoreTest {
                 Files.writeString(file, """
                         {"version":5,"quality":{"base":"%s","custom":%s},
                          "settings":{"clouds.samples":%d,"clouds.shadowSamples":%d,
-                                     "clouds.transport":1,"clouds.skyResolution":768,
+                                     "clouds.transport":1,"clouds.skyResolution":768,"clouds.anisotropy":0.74,
                                      "cache.combine":false,"f":2.5,"unknown":9}}
                         """.formatted(entry.getKey().id(), custom, entry.getValue(), previousShadows.get(entry.getKey())));
                 double[] artistic = {1};
@@ -390,6 +390,7 @@ class KavoraSettingsStoreTest {
                 assertEquals(9, root.getAsJsonObject("settings").get("unknown").getAsInt());
                 assertFalse(root.getAsJsonObject("settings").has("clouds.transport"));
                 assertFalse(root.getAsJsonObject("settings").has("clouds.skyResolution"));
+                assertFalse(root.getAsJsonObject("settings").has("clouds.anisotropy"));
                 assertFalse(root.getAsJsonObject("settings").has("cache.combine"));
                 store.load(settings);
                 assertEquals(migrated, Files.readString(file));

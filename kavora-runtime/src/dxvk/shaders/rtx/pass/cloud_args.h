@@ -33,7 +33,7 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float albedo;
   CLOUD_PARAMETER uint steps;
   CLOUD_PARAMETER uint lightSteps;
-  CLOUD_PARAMETER float anisotropy;
+  CLOUD_PARAMETER uint phasePadding;
   CLOUD_PARAMETER float multipleScattering;
   CLOUD_PARAMETER float weather;
   CLOUD_PARAMETER float thunder;

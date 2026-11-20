@@ -132,15 +132,15 @@ void main(uint2 invocation : SV_DispatchThreadID)
 #ifdef CACHED_HAZE_BUILD
   VolumeArgs volume = cb.volumeArgs;
   volume.clouds.enable = 0;
-  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, cameraRay.origin, cameraRay.direction, 0, medium);
+  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, CloudPhaseSampler, cameraRay.origin, cameraRay.direction, 0, medium);
   integrateHazeColumn(column, ray, distances, volume);
 #else
 #ifdef CACHED_HAZE_SAMPLE
-  const AtmosphereRay ray = createAtmosphereRay<ClearAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction, 0, medium,
+  const AtmosphereRay ray = createAtmosphereRay<ClearAtmosphereFog>(cb.volumeArgs, CloudPhaseSampler, cameraRay.origin, cameraRay.direction, 0, medium,
     float(stride) * cb.volumeArgs.clouds.viewAngularFootprint);
   const CachedAtmosphereHaze haze = CachedAtmosphereHaze(center);
 #else
-  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, cameraRay.origin, cameraRay.direction, 0, medium,
+  const AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(cb.volumeArgs, CloudPhaseSampler, cameraRay.origin, cameraRay.direction, 0, medium,
     float(stride) * cb.volumeArgs.clouds.viewAngularFootprint);
   let haze = IntegratedAtmosphereHaze<SceneAtmosphereFog, FroxelFogRadiance, SceneAirVisibility>(
     FroxelFogRadiance(VolumeFilteredRadianceY, VolumeFilteredRadianceCoCg));

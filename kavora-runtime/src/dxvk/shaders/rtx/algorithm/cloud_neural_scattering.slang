@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 module cloud_neural_scattering;
 
+import "rtx/utility/cloud_phase.slang";
+import "rtx/utility/cloud_phase_constants.slang";
+
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 #include "rtx/pass/clouds/cloud_neural_scattering.h"
@@ -90,20 +93,14 @@ float sampleNeuralAngles(Sampler3D<float4> field, float2 uv, float v, CloudNeura
   return lerp(endpoints.x, endpoints.y, angle.elevationBlend);
 }
 
-// Sky checkpoint reference: HG(0.8) integrated over four zenith bands.
-// The lower boundary sees the same quadrature reflected about the horizon.
-public float2 cloudDiffuseBoundaryResponse(float2 depth, uint knot, float multiple, float strength)
+// The lower boundary sees the same phase quadrature reflected about the horizon.
+public float2 cloudDiffuseBoundaryResponse(float2 depth, uint knot, float multiple, float strength, uint layer)
 {
-  const float4 weights[4] = {
-    float4(.00435158, .01133408, .01630040, .01870475),
-    float4(.00823114, .02488450, .04836735, .08752539),
-    float4(.02537780, .12562319, .43463539, .24420488),
-    float4(.68172067, .18125303, .06151701, .02751767)
-  };
-  const float4 airmass = float4(1.035, 1.36, 2.37, 7.66);
-  const float4 upper = weights[knot], lower = weights[3 - knot];
-  const float2 single = float2(dot(upper, exp(-depth.x * airmass)), dot(lower, exp(-depth.y * airmass)))
-    / dot(upper + lower, float4(1));
+  const uint base = 4 * cloudPhaseMaterial(layer);
+  const float4 upper = kCloudPhaseSkyWeights[base + knot];
+  const float4 lower = kCloudPhaseSkyWeights[base + 3 - knot];
+  const float2 single = float2(dot(upper, exp(-depth.x * kCloudPhaseSkyAirmass[base + knot])),
+    dot(lower, exp(-depth.y * kCloudPhaseSkyAirmass[base + 3 - knot]))) / dot(upper + lower, float4(1));
   // Unit-albedo droplets conserve equal illumination from both boundaries.
   const float residual = saturate(1.0f - single.x - single.y);
   const float sky = clamp(multiple, 0.0f, residual);

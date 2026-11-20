@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from common.medium import hg_phase_torch
+from common.revelation_phase import TorchPhase
 from neural.feature_layout import feature_names
 
 
@@ -34,7 +34,7 @@ class FeatureBuilder:
         self.channel = channel
         self.device = torch.device(device) if device is not None else grid.device
         self.sun_dir = torch.as_tensor(np.asarray(sun_dir, dtype=np.float32), device=self.device)
-        self.g = float(cfg["medium"]["g"])
+        self.phase = TorchPhase(int(cfg["medium"].get("phase_material", 0)), self.device)
         self.y0 = float(grid.lo[1])
         self.y1 = float(grid.hi[1])
         self.names = feature_names(channel)
@@ -79,13 +79,14 @@ class FeatureBuilder:
                       for dist in (150.0, 500.0, 1200.0, -300.0)]
             probes.append(self._up(pts, 500.0))
         prefix.extend((tau / (1.0 + tau), self._height(pts)))
+        probes.append(torch.full_like(prefix[0], self.phase.mean_cosine))
         return prefix, probes
 
     def with_directions(self, spatial, dirs: torch.Tensor, cos_sun: torch.Tensor) -> torch.Tensor:
         prefix, probes = spatial
         angular = [dirs[:, 1:2]]
         if self.channel == "sun":
-            angular = [cos_sun[:, None], hg_phase_torch(cos_sun, self.g)[:, None], *angular]
+            angular = [cos_sun[:, None], self.phase.probability(cos_sun)[:, None], *angular]
         shape = (len(dirs), prefix[0].shape[1])
         return torch.stack([v.expand(shape) for v in (*prefix, *angular, *probes)], dim=-1)
 

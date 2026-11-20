@@ -11,13 +11,14 @@ SUN_FEATURE_NAMES = [
     "sun_tau_n",      # tau_sun / (1 + tau_sun)
     "height",         # 0 at cloud base, 1 at cloud top
     "cos_sun",        # dot(sun_dir, view_ray_dir)
-    "phase",          # HG phase at cos_sun
+    "phase",          # OPAC phase at cos_sun
     "view_up",        # view ray y component
     "rho_toward_sun_150",   # density 150 m towards the sun
     "rho_toward_sun_500",   # density 500 m towards the sun
     "rho_toward_sun_1200",  # density 1200 m towards the sun
     "rho_away_sun_300",     # density 300 m away from the sun
     "rho_up_500",           # density 500 m above (sky occlusion probe)
+    "phase_g",              # First phase moment as the material feature
 ]
 
 SKY_FEATURE_NAMES = [
@@ -30,6 +31,7 @@ SKY_FEATURE_NAMES = [
     "cos_up",         # dot(view_ray_dir, up)
     "rho_up_300",     # density 300 m above
     "rho_up_800",     # density 800 m above
+    "phase_g",
 ]
 
 def feature_names(channel: str = "sun") -> list[str]:

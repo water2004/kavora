@@ -1686,7 +1686,7 @@ public class BenchmarkController {
                     "rtx.clouds.coverage", "rtx.clouds.worldBaseHeightMeters", "rtx.clouds.altitudeOffsetMeters",
                     "rtx.clouds.thicknessMeters", "rtx.clouds.shapeScaleMeters", "rtx.clouds.extinctionPerMeter",
                     "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters",
-                    "rtx.clouds.anisotropy", "rtx.clouds.multipleScattering",
+                    "rtx.clouds.multipleScattering",
                     "rtx.advanceTime", "rtx.timeDeltaBetweenFrames",
                     "rtx.enableShaderExecutionReorderingInPathtracerGbuffer" }) {
                 runtime.addProperty(key, renderer.getRemixApi().getConfigVariableResolved(key));

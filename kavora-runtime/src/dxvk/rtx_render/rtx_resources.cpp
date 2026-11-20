@@ -49,6 +49,8 @@
 #include "rtx/pass/cloud_noise.h"
 #include <bit>
 #include <revelation_maps.bin.h>
+#include <revelation_phase.bin.h>
+#include "rtx/pass/clouds/cloud_phase.h"
 #include <revelation_body.bin.h>
 #include <revelation_curl.bin.h>
 
@@ -1080,6 +1082,12 @@ namespace dxvk {
       data += size * size * 4;
     }
     assert(data == ___revelation_maps + sizeof(___revelation_maps));
+
+    constexpr VkExtent3D phaseExtent { CLOUD_PHASE_WIDTH, CLOUD_PHASE_HEIGHT, 1 };
+    static_assert(sizeof(___revelation_phase) == CLOUD_PHASE_WIDTH * CLOUD_PHASE_HEIGHT * sizeof(uint16_t));
+    m_cloudPhaseLut = createImageResource(ctx, "Revelation phase functions", phaseExtent, VK_FORMAT_R16_SFLOAT);
+    ctx->updateImage(m_cloudPhaseLut.image, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 },
+      phaseExtent, ___revelation_phase, CLOUD_PHASE_WIDTH * sizeof(uint16_t), sizeof(___revelation_phase));
   }
 
   Resources::Resource Resources::getSkyMatte(Rc<DxvkContext> ctx, VkFormat format) {

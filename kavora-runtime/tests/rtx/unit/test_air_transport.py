@@ -84,7 +84,9 @@ class Probe:
 
         self.texture2d = lambda data: texture(data, 2)
 
-        from test_cloud_transport import weather_fixture
+        from test_cloud_transport import cloud_phase_texture, weather_fixture
+        phase = cloud_phase_texture(self.device)
+        self.keep.append(phase)
         weather = weather_fixture(self.device, np.zeros((3, 1, 1, 4))).create_view(sampler=sampler)
         self.keep.append(weather)
         trans = texture(np.ones((2, 2, 4)), 2)
@@ -95,6 +97,7 @@ class Probe:
                          "Scattering": scatter.descriptor_handle_ro,
                          "TableSampler": sampler.descriptor_handle,
                          "Weather": weather.descriptor_handle_combined,
+                         "Phase": phase.descriptor_handle_combined,
                          "Volume": volume.descriptor_handle_combined,
                          "Chroma": chroma.descriptor_handle_combined}
 

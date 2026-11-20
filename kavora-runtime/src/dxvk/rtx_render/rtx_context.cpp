@@ -1502,6 +1502,8 @@ namespace dxvk {
     const auto cloudDepthSampler = getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     bindResourceSampler(BINDING_CLOUD_SHADOW_SAMPLER, cloudDepthSampler);
+    bindResourceView(BINDING_CLOUD_PHASE_SAMPLER, getResourceManager().getCloudPhaseLut(), nullptr);
+    bindResourceSampler(BINDING_CLOUD_PHASE_SAMPLER, cloudDepthSampler);
     const auto& cloudVolumes = m_common->metaGlobalVolumetrics();
     bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
     bindResourceSampler(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudSampler);

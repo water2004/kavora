@@ -4,11 +4,11 @@ module cloud_source_interpolation;
 
 public float cloudSourceVariation(uint layer, float density, float transmission, float cosine)
 {
-  const float2 densityWeight = layer == 0 ? float2(0.135074834f, -0.00115364871f) : float2(0.00197390386f, -0.00210075559f);
-  const float2 rootWeight = layer == 0 ? float2(-0.0749045813f, 0.00948096804f) : float2(-0.00269305875f, -0.000267208638f);
-  const float2 beamWeight = layer == 0 ? float2(0.173402639f, 0.0517678314f) : float2(0.0439832406f, 0.0273826481f);
-  const float2 crossWeight = layer == 0 ? float2(0.279891182f, -0.0574162652f) : float2(0.0324901325f, -0.00072877229f);
-  const float2 squareWeight = layer == 0 ? float2(-0.153087378f, -0.058768319f) : float2(-0.0479431171f, -0.028111981f);
+  const float2 densityWeight = layer == 0 ? float2(0.274557011f, 0.463814781f) : float2(-0.881103436f, -8.97035619f);
+  const float2 rootWeight = layer == 0 ? float2(0.1565412f, 0.781842847f) : float2(-0.276919127f, -1.09261033f);
+  const float2 beamWeight = layer == 0 ? float2(2.37581541f, 7.83705101f) : float2(0.598020402f, -5.5526872f);
+  const float2 crossWeight = layer == 0 ? float2(-0.890051195f, -4.54380361f) : float2(0.894161924f, 9.99520622f);
+  const float2 squareWeight = layer == 0 ? float2(-2.67899332f, -8.75818079f) : float2(-1.80837481f, -1.90389412f);
   const float2 value = density * (densityWeight + transmission * crossWeight)
     + sqrt(max(density, 0.0f)) * rootWeight + transmission * (beamWeight + transmission * squareWeight);
   return value.x + cosine * value.y;

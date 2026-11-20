@@ -19,59 +19,26 @@ import numpy as np
 import torch
 
 from common.config import bounds, sun_direction
-from common.medium import hg_phase, hg_phase_torch
+from common.revelation_phase import TorchPhase, sky_quadrature
 from runtime.volumegrid import VolumeGrid, build_mip_chain, resolve_device, vertical_optical_depth
 from runtime.sun_cache import SunCache
 
 
 class SkyBands:
-    """Hemispherical sky term with a plane-parallel air-mass approximation.
+    """Restore the order-one sky term with the same angular bands as Vulkan."""
 
-        J1_sky(x, w_o) = L_sky * sum_b w_b(g, c) * exp(-m_b * tau_up(x))
-
-    ``w_b(g, c) = int_{band b} p(w_i . w_o) dw_i`` is precomputed on a grid of
-    ``c = cos(angle between w_o and up)``, and ``m_b`` is the air mass of the
-    band's mid elevation.  Pulling ``tau_up`` out of the integral is an
-    approximation; the residual it leaves is smooth and is learned by the
-    neural sky channel (measured in ``tests/test_sky_channel.py``).
-    """
-
-    BANDS = ((0.0, 30.0, 1.035), (30.0, 55.0, 1.36), (55.0, 75.0, 2.37), (75.0, 90.0, 7.66))
-
-    def __init__(self, g: float, device, n_c: int = 65, n_theta: int = 10, n_phi: int = 32):
-        self.g = float(g)
-        self.device = torch.device(device)
-        c_grid = np.linspace(-1.0, 1.0, n_c)
-        weights = np.zeros((len(self.BANDS), n_c), dtype=np.float32)
-        for bi, (t0, t1, _m) in enumerate(self.BANDS):
-            th = np.radians(t0) + (np.arange(n_theta) + 0.5) * np.radians(t1 - t0) / n_theta
-            dth = np.radians(t1 - t0) / n_theta
-            ph = (np.arange(n_phi) + 0.5) * (2.0 * np.pi) / n_phi
-            dph = 2.0 * np.pi / n_phi
-            sin_t = np.sin(th)[:, None]
-            cos_t = np.cos(th)[:, None]
-            cos_ph = np.cos(ph)[None, :]
-            for ci, c in enumerate(c_grid):
-                theta_o = np.arccos(float(np.clip(c, -1.0, 1.0)))
-                cos_ang = sin_t * np.sin(theta_o) * cos_ph + cos_t * np.cos(theta_o)
-                p = hg_phase(cos_ang, self.g)
-                weights[bi, ci] = float(np.sum(p * sin_t) * dth * dph)
-        self.weights = torch.as_tensor(weights, device=self.device)          # (B, n_c)
-        self.airmass = torch.as_tensor([b[2] for b in self.BANDS],
-                                       dtype=torch.float32, device=self.device)
-        self.n_c = int(n_c)
+    def __init__(self, phase, device):
+        quadrature = np.array(list(sky_quadrature(phase.inverse)), dtype=np.float32)
+        self.weights = torch.as_tensor(quadrature[:, 0, :], device=device)
+        self.airmass = torch.as_tensor(quadrature[:, 1, :], device=device)
 
     def j1(self, tau_up: torch.Tensor, cos_up: torch.Tensor) -> torch.Tensor:
-        u = (cos_up.clamp(-1.0, 1.0) + 1.0) * 0.5 * (self.n_c - 1)
-        i0 = u.floor().clamp(0, self.n_c - 2).long()
-        frac = (u - i0.float()).unsqueeze(0)                                 # (1, R)
-        w0 = self.weights[:, i0]
-        w1 = self.weights[:, i0 + 1]
-        w = w0 + (w1 - w0) * frac                                            # (B, R)
-        out = torch.zeros_like(tau_up)
-        for b in range(len(self.BANDS)):
-            out = out + w[b][:, None] * torch.exp(-self.airmass[b] * tau_up)
-        return out
+        u = (cos_up.clamp(-1.0, 1.0) + 1.0) * 1.5
+        lower = u.floor().clamp(0, 2).long()
+        upper = lower + 1
+        first = (self.weights[lower, None, :] * (-self.airmass[lower, None, :] * tau_up[..., None]).exp()).sum(-1)
+        last = (self.weights[upper, None, :] * (-self.airmass[upper, None, :] * tau_up[..., None]).exp()).sum(-1)
+        return first.lerp(last, (u - lower).unsqueeze(1))
 
 
 def camera_rays_torch(view: dict, width: int, height: int, device) -> torch.Tensor:
@@ -168,7 +135,7 @@ class VolumeRenderer:
         self.device = resolve_device(device)
         self.kappa = float(cfg["medium"]["extinction_scale_per_m"])
         self.albedo = float(cfg["medium"]["single_scattering_albedo"])
-        self.g = float(cfg["medium"]["g"])
+        self.phase = TorchPhase(int(cfg["medium"].get("phase_material", 0)), self.device)
         self.irradiance = float(cfg["lighting"]["sun_irradiance"])
         self.sun_dir_np = sun_direction(cfg)
         self.sun_dir = torch.as_tensor(self.sun_dir_np, dtype=torch.float32, device=self.device)
@@ -185,7 +152,7 @@ class VolumeRenderer:
             vertical_optical_depth(density, self.grid.dy, self.kappa),
             self.lo, self.hi, device=self.device,
         )
-        self.sky_bands = SkyBands(self.g, self.device)
+        self.sky_bands = SkyBands(self.phase, self.device)
         self.sky_radiance = float(cfg["lighting"].get("sky_radiance", 0.0))
         self.sun_cache = sun_cache
         if self.sun_cache is None and build_sun:
@@ -269,7 +236,7 @@ class VolumeRenderer:
     def _unit_sun_j1(self, pts: torch.Tensor, cos_sun: torch.Tensor):
         """Single-scatter source per unit solar irradiance."""
         tau_sun = self.sun_cache.tau(pts)
-        phase = hg_phase_torch(cos_sun, self.g)[:, None]                   # (R, 1)
+        phase = self.phase.probability(cos_sun)[:, None]                   # (R, 1)
         return phase * torch.exp(-tau_sun)
 
     def _unit_sky_j1(self, pts: torch.Tensor, cos_up: torch.Tensor):
@@ -435,7 +402,7 @@ class VolumeRenderer:
             def source(pts, _dirs, b=b, w=w, mix=mix):
                 tau_sun = self.sun_cache.tau(pts)
                 t_sun = torch.exp(-tau_sun * b)
-                p_aniso = hg_phase_torch(cos_sun, self.g)[:, None]
+                p_aniso = self.phase.probability(cos_sun)[:, None]
                 p_i = (1.0 - mix) * p_aniso + mix * iso
                 j = w * p_i * self.irradiance * t_sun
                 return torch.zeros_like(j), j

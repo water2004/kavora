@@ -139,6 +139,9 @@ Sampler2DArray<float4> CloudSkySampler;
 layout(binding = BINDING_CLOUD_SHADOW_SAMPLER)
 Sampler2DArray<float> CloudShadowSampler;
 
+layout(binding = BINDING_CLOUD_PHASE_SAMPLER)
+Sampler2D<float> CloudPhaseSampler;
+
 layout(binding = BINDING_CLOUD_AMBIENT_INPUT)
 Texture2D<float4> CloudAmbientInput;
 

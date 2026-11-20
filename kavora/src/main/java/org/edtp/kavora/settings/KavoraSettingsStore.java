@@ -184,6 +184,7 @@ public final class KavoraSettingsStore {
         if (values == null) return;
         values.remove("clouds.transport");
         values.remove("clouds.skyResolution");
+        values.remove("clouds.anisotropy");
         values.remove("cache.combine");
         if (selection == null || !selection.has("base")) return;
         JsonElement custom = selection.get("custom");

@@ -48,12 +48,8 @@ namespace dxvk {
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, windSpeed, 1.0f, "Multiplier on world-synchronized cloud advection.",
       args.minValue = 0.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, anisotropy, 0.65f, "Forward scattering asymmetry of cloud droplets.",
-      args.minValue = 0.0f, args.maxValue = 0.95f);
     RTX_OPTION_ARGS("rtx.clouds", float, multipleScattering, 1.0f, "Fraction of the predicted higher-order cloud scattering to retain.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
-    RTX_OPTION("rtx.clouds", bool, neuralTensorCores, true,
-      "Use FP16 cooperative-vector inference when supported by the Vulkan device.");
     RTX_OPTION_ARGS("rtx.clouds", float, groundAlbedo, 0.18f,
       "Mean Lambertian terrain reflectance used by the local cloud illumination approximation. Surface path tracing still uses each material's actual albedo.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
@@ -387,7 +383,6 @@ namespace dxvk {
     Resources::Resource m_airShadowDepth;
     CloudArgs m_previousCloudLightingArgs{};
     bool m_cloudLightingArgsValid = false;
-    bool m_cloudLightingUsesTensor = false;
     Vector3 m_previousCloudWindOffset = Vector3(0.f);
     uint32_t m_previousCloudFrame = 0;
     std::chrono::steady_clock::time_point m_previousCloudTime;

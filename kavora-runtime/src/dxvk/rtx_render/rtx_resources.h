@@ -510,6 +510,7 @@ namespace dxvk
     Rc<DxvkImageView> getCloudBaseLut() const { return m_cloudBaseLut.view; }
     Rc<DxvkImageView> getCloudDetailLut() const { return m_cloudDetailLut.view; }
     Rc<DxvkImageView> getCloudWeatherLut() const { return m_cloudWeatherLut.view; }
+    Rc<DxvkImageView> getCloudPhaseLut() const { return m_cloudPhaseLut.view; }
     Rc<DxvkImageView> getWhiteTexture(Rc<DxvkContext> ctx);
     Resources::Resource getSkyProbe(Rc<DxvkContext> ctx, VkFormat format = VK_FORMAT_UNDEFINED);
     Resources::Resource getSkyMatte(Rc<DxvkContext> ctx, VkFormat format = VK_FORMAT_UNDEFINED);
@@ -606,6 +607,7 @@ namespace dxvk
     Resource m_cloudBaseLut;
     Resource m_cloudDetailLut;
     Resource m_cloudWeatherLut;
+    Resource m_cloudPhaseLut;
     Rc<DxvkImage> m_whiteTex;
     Rc<DxvkImageView> m_whiteTexView;
 

@@ -28,7 +28,7 @@ class MultiScatterMLP(nn.Module):
         self.out_scale = float(out_scale)
         self.activation = activation
 
-        act = {"silu": nn.SiLU, "relu": nn.ReLU, "gelu": nn.GELU}[activation]
+        act = {"silu": nn.SiLU, "relu": nn.ReLU, "gelu": nn.GELU, "leaky_relu": nn.LeakyReLU}[activation]
         dims = [self.in_dim] + [self.hidden] * self.layers
         blocks = []
         for i in range(len(dims) - 1):

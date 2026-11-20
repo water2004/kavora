@@ -10,7 +10,7 @@ sampling noise:
   weighted out), so there is no step-size bias in the transmittance;
 * at every real collision a **next-event estimate** towards the sun is added
   using the same cached sun optical depth as the runtime;
-* continuation directions are sampled from the HG phase function, which makes
+* continuation directions are sampled from the Revelation phase LUT, which makes
   the continuation weight exactly 1.
 
 The slab has a directional sun, an optional uniform upper sky boundary and a
@@ -22,7 +22,7 @@ import math
 
 import torch
 
-from common.medium import hg_phase_torch, hg_sample_cos_torch
+from common.revelation_phase import TorchPhase
 from runtime.renderer import camera_rays_torch, slab_interval
 from runtime.volumegrid import resolve_device
 
@@ -39,9 +39,9 @@ def _orthonormal_basis_torch(d: torch.Tensor):
     return t, b
 
 
-def sample_hg_direction(axis: torch.Tensor, g: float, u1: torch.Tensor,
+def sample_scatter_direction(axis: torch.Tensor, phase: TorchPhase, u1: torch.Tensor,
                         u2: torch.Tensor) -> torch.Tensor:
-    cos_theta = hg_sample_cos_torch(g, u1)
+    cos_theta = phase.sample(u1)
     phi = 2.0 * math.pi * u2
     t, b = _orthonormal_basis_torch(axis)
     sin_theta = torch.sqrt(torch.clamp(1.0 - cos_theta * cos_theta, min=0.0))
@@ -60,7 +60,7 @@ class VolumePathTracer:
         self.sun_cache = sun_cache
         self.kappa = float(cfg["medium"]["extinction_scale_per_m"])
         self.albedo = float(cfg["medium"]["single_scattering_albedo"])
-        self.g = float(cfg["medium"]["g"])
+        self.phase = TorchPhase(int(cfg["medium"].get("phase_material", 0)), self.device)
         self.irradiance = float(cfg["lighting"]["sun_irradiance"])
         from common.config import sun_direction
 
@@ -180,7 +180,7 @@ class VolumePathTracer:
             t_safe = torch.where(hit, t_hit, torch.zeros_like(t_hit))
             pos = cur_o + t_safe[:, None] * cur_d
             cos_sun = (cur_d * self.sun_dir).sum(-1).clamp(-1.0, 1.0)
-            phase = hg_phase_torch(cos_sun, self.g)
+            phase = self.phase.probability(cos_sun)
             t_sun = self.sun_cache.transmittance(pos)
             contrib = throughput * self.albedo * phase * self.irradiance * t_sun
             L.index_add_(0, cur_ids, torch.where(hit, contrib, torch.zeros_like(contrib)))
@@ -207,7 +207,7 @@ class VolumePathTracer:
                 break
 
             ids_next = cur_ids[idx]
-            new_d = sample_hg_direction(cur_d[idx], self.g,
+            new_d = sample_scatter_direction(cur_d[idx], self.phase,
                                         torch.rand(idx.numel(), device=device),
                                         torch.rand(idx.numel(), device=device))
             new_o = pos[idx]

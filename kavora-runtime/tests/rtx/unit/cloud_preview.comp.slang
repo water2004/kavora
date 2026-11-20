@@ -47,6 +47,7 @@ ConstantBuffer<CloudArgs> Clouds;
 Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
+Sampler2D<float>.Handle Phase;
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
 Sampler3D<float2>.Handle CloudLocalLight;
@@ -194,7 +195,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     volume.clouds = Clouds;
     volume.air = Air;
     const AirTables tables = { Texture2D<float4>(AirTransmission), Texture2D<float4>(AirScattering), SamplerState(AirSampler), float3(0) };
-    const AtmosphereRay ray = createAtmosphereRay<PreviewFog>(volume, origin, direction);
+    const AtmosphereRay ray = createAtmosphereRay<PreviewFog>(volume, Sampler2D<float>(Phase), origin, direction);
     const AtmosphereSegment result = integrateAtmosphereRange<PreviewFog, UnobstructedAir>(volume, base, Sampler3D<float2>(FogChroma),
       weather, base, detail,
 #if defined(CLOUD_PREVIEW_HAS_LIGHTING_CACHE)
@@ -218,7 +219,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
   float transmission = 1;
   float opticalDepth = 0;
 #if defined(CLOUD_PREVIEW_HAS_LOCAL_LIGHT)
-  const CloudRayPhase phase = createCloudRayPhase(Clouds, direction);
+  const CloudRayPhase phase = createCloudRayPhase(Clouds, direction, Sampler2D<float>(Phase));
 #endif
 #if defined(CLOUD_PREVIEW_HAS_SAMPLE_OFFSET)
   const float viewOffset = cloudViewSampleOffset(direction);

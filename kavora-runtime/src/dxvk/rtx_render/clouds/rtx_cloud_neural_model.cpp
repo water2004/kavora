@@ -12,6 +12,7 @@
 #include "dxvk_device.h"
 #include "rtx/pass/clouds/cloud_neural_model.h"
 #include "rtx_cloud_neural_model.h"
+#include "../../../util/util_error.h"
 
 namespace dxvk {
 
@@ -35,7 +36,7 @@ namespace dxvk {
     std::vector<uint8_t> convertTensorWeights(const vk::DeviceFn& vkd) {
       const auto convert = reinterpret_cast<PFN_vkConvertCooperativeVectorMatrixNV>(vkd.sym("vkConvertCooperativeVectorMatrixNV"));
       if (!convert) {
-        return {};
+        throw DxvkError("Cloud neural scattering: Vulkan cooperative-vector matrix conversion is unavailable.");
       }
       std::array<float, 2 * kWeightCount> source;
       std::memcpy(source.data(), ___cloud_neural_lighting, sizeof(source));
@@ -51,7 +52,7 @@ namespace dxvk {
         const bool last = layer == CLOUD_NEURAL_HIDDEN_LAYERS;
         const uint32_t inputCount = first ? CLOUD_NEURAL_INPUTS : width;
         const uint32_t outputCount = last ? 1 : width;
-        const uint32_t columns = first ? CLOUD_NEURAL_TENSOR_INPUTS : width;
+        const uint32_t columns = inputCount;
         const uint32_t rows = last ? CLOUD_NEURAL_TENSOR_OUTPUTS : width;
 
         bias.fill(0);
@@ -75,7 +76,7 @@ namespace dxvk {
         info.srcStride = columns * sizeof(uint16_t);
         info.dstLayout = VK_COOPERATIVE_VECTOR_MATRIX_LAYOUT_INFERENCING_OPTIMAL_NV;
         if (convert(vkd.device(), &info) != VK_SUCCESS || !matrixSize) {
-          return {};
+          throw DxvkError("Cloud neural scattering: Vulkan could not determine the inference matrix size.");
         }
         constexpr size_t alignment = CLOUD_NEURAL_TENSOR_ALIGNMENT;
         const size_t matrixOffset = align(packed.size(), alignment);
@@ -85,7 +86,7 @@ namespace dxvk {
         info.srcData.hostAddress = matrix.data();
         info.dstData.hostAddress = packed.data() + matrixOffset;
         if (convert(vkd.device(), &info) != VK_SUCCESS) {
-          return {};
+          throw DxvkError("Cloud neural scattering: Vulkan could not pack the inference matrix.");
         }
         std::memcpy(packed.data() + biasOffset, bias.data(), rows * sizeof(uint16_t));
         const std::array<uint32_t, 2> offsets { uint32_t(matrixOffset), uint32_t(biasOffset) };
@@ -95,32 +96,13 @@ namespace dxvk {
     }
   }
 
-  bool CloudNeuralModel::prepareTensorWeights(DxvkContext& ctx) {
-    if (m_tensorWeights.ptr()) {
-      return true;
+  const Rc<DxvkBuffer>& CloudNeuralModel::weights(DxvkContext& ctx) {
+    if (!m_weights.ptr()) {
+      const auto packed = convertTensorWeights(*ctx.getDevice()->vkd().ptr());
+      m_weights = uploadWeights(ctx, packed.data(), packed.size());
+      Logger::info(str::format("Cloud neural scattering: FP16 cooperative vectors, ", packed.size(), " bytes of packed weights"));
     }
-    if (m_tensorConversionFailed || ctx.getDevice()->features().cooperativeVectorFp16Components < CLOUD_NEURAL_WIDTH) {
-      return false;
-    }
-    const auto packed = convertTensorWeights(*ctx.getDevice()->vkd().ptr());
-    if (packed.empty()) {
-      m_tensorConversionFailed = true;
-      Logger::warn("Cloud neural scattering: Vulkan cooperative-vector weight conversion unavailable");
-      return false;
-    }
-    m_tensorWeights = uploadWeights(ctx, packed.data(), packed.size());
-    Logger::info(str::format("Cloud neural scattering: FP16 cooperative vectors, ", packed.size(), " bytes of packed weights"));
-    return true;
-  }
-
-  const Rc<DxvkBuffer>& CloudNeuralModel::weights(DxvkContext& ctx, bool tensor) {
-    if (tensor) {
-      return m_tensorWeights;
-    }
-    if (!m_scalarWeights.ptr()) {
-      m_scalarWeights = uploadWeights(ctx, ___cloud_neural_lighting, sizeof(___cloud_neural_lighting));
-    }
-    return m_scalarWeights;
+    return m_weights;
   }
 
 }

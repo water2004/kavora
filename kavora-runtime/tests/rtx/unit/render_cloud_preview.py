@@ -483,13 +483,14 @@ def main():
             'Atmosphere': atmosphere_view.descriptor_handle_combined,
             'AtmosphereVerticalScale': atmosphere['verticalScale'],
             'AmbientScale': float(args.lighting != 'direct')})
+    phase_view = support.cloud_phase_texture(device, shaders)
     lighting_bindings = {}
     if has_lighting_cache:
         from cloud_lighting_preview import build_lighting_cache
         lighting_bindings, lighting_resources, lighting_metadata = build_lighting_cache(
             device, clouds, textures, shaders, args.radiance and any(view != 'top' for view in views),
             args.warmup, args.repeat,
-            include_neural='CLOUD_PREVIEW_HAS_NEURAL_SKY' in support.OPTIONS['defines'])
+            include_neural='CLOUD_PREVIEW_HAS_NEURAL_SKY' in support.OPTIONS['defines'], phase_view=phase_view)
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {'label': args.label, 'shaderRoot': str(shaders), 'textureCache': cache,
                 'textureSources': texture_sources,
@@ -549,7 +550,7 @@ def main():
                             'EnvironmentResults': environment,
                             'AtmosphereVerticalScale': atmosphere['verticalScale']}
         view_bindings = {
-            'Clouds': clouds, 'Results': output, 'Size': [args.width, args.height],
+            'Clouds': clouds, 'Phase': phase_view.descriptor_handle_combined, 'Results': output, 'Size': [args.width, args.height],
             'Origin': origin, 'Forward': forward, 'Right': right, 'CameraUp': up,
             'TanHalfFov': np.tan(np.radians(args.vfov) * 0.5), 'TopSpan': args.top_span,
             'Projection': int(view == 'top'), **illumination,

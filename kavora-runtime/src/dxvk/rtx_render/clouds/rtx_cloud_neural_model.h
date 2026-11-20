@@ -10,14 +10,10 @@ namespace dxvk {
 
   class CloudNeuralModel {
   public:
-    // Prepares the device-native weight layout once for cooperative-vector inference.
-    bool prepareTensorWeights(DxvkContext& ctx);
-    const Rc<DxvkBuffer>& weights(DxvkContext& ctx, bool tensor);
+    const Rc<DxvkBuffer>& weights(DxvkContext& ctx);
 
   private:
-    Rc<DxvkBuffer> m_scalarWeights;
-    Rc<DxvkBuffer> m_tensorWeights;
-    bool m_tensorConversionFailed = false;
+    Rc<DxvkBuffer> m_weights;
   };
 
 }

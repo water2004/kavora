@@ -293,7 +293,12 @@ Camera and PSR cloud single scattering and the sky atlas use the sum of both
 layers' optical depths for direct transmission. The neural bake uses that
 same short integral to generate its transmission and optical-depth inputs.
 Diffuse lighting still uses vertical optical depths and neural multiple
-scattering. The finite integration length approximates shadows from distant
+scattering. Direct single scattering reads Revelation’s scalar phase table
+once per light and layer on a view ray. The phase is averaged over a common
+0.2625° sun/moon radius for direct illumination. The neural reference uses the
+point phase function at each collision and its inverse CDF for continuation.
+The first angular moment and hemispherical quadrature follow the same table.
+The finite integration length approximates shadows from distant
 cloud banks along grazing light rays.
 
 ### Projected cloud shadows
@@ -380,9 +385,8 @@ The scattering test checks sky quadrature normalization and angular moments
 in several up frames. It compares the production boundary and beam solutions
 with independent integrals, exercises reflective-terrain, finite-domain,
 external-blocker, thin and grazing limits, and integrates
-outgoing slab flux with the actual dual-HG single-scattering phase. Its parameter
-grid covers the supported anisotropy range and maximum multiple-scattering
-strength. This checks that grid, not energy conservation for every heterogeneous
+outgoing slab flux with the Revelation liquid and ice phase distributions at
+maximum multiple-scattering strength. This checks that grid, not energy conservation for every heterogeneous
 three-dimensional cloud. `--device cpu` also runs these math kernels through
 Slang's CPU backend. The normal Slang compiler and SPIR-V validation
 remain separate build gates.

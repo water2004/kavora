@@ -135,3 +135,20 @@ public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray
   return revelationLowDensity(field, rayPos, heightFraction, args.thickness * inverseScale,
     args.coverage, args.wetness, useCurl);
 }
+
+public float cloudDensityFeature(CloudDensityArgs args, float3 position, uint layer, uint level, float meterToWorld,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
+{
+  if (level == 0)
+    return cloudDensity(args, position, weather, base, detail, layer);
+
+  const float radius = float(1 << level) * (62.5f * meterToWorld) * 0.25f;
+  const float3 offsets[4] = {
+    float3(1, 1, 1), float3(1, -1, -1), float3(-1, 1, -1), float3(-1, -1, 1)
+  };
+  float density = 0;
+  [unroll]
+  for (uint tap = 0; tap < 4; ++tap)
+    density += 0.25f * cloudDensity(args, position + radius * offsets[tap], weather, base, detail, layer);
+  return density;
+}

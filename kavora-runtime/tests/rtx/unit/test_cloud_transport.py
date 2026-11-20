@@ -25,7 +25,7 @@ def cloud_parameters(**changes):
         "baseHeight": 400.0, "thickness": 1500.0, "shapeScale": 1024.0,
         "extinction": 0.06, "coverage": 0.45, "maxDistance": 12000.0,
         "albedo": 1.0, "steps": 160, "highSteps": 48, "lightSteps": 16,
-        "anisotropy": 0.65, "multipleScattering": 0.8, "weather": 0.0,
+        "multipleScattering": 0.8, "weather": 0.0,
         "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
         "wetness": 0.0, "meterToWorld": 1.0, "highMapOrigin": [0., 0.], "highLookupOrigin": [0., 0.],
         "lightMaxDistance": 60000.0, "previousWindDelta": [0, 0, 0],
@@ -37,6 +37,15 @@ def cloud_parameters(**changes):
     }
     result.update(changes)
     return result
+
+
+def cloud_phase_texture(device, shaders=SHADERS):
+    data = np.fromfile(shaders.parent / "rtx_render/clouds/revelation_phase.bin", "<f2").reshape(6, 512)
+    texture = device.create_texture(type=spy.TextureType.texture_2d, format=spy.Format.r16_float,
+        width=512, height=6, mip_count=1, usage=spy.TextureUsage.shader_resource, data=data)
+    sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear, mag_filter=spy.TextureFilteringMode.linear,
+        address_u=spy.TextureAddressingMode.clamp_to_edge, address_v=spy.TextureAddressingMode.clamp_to_edge)
+    return texture.create_view(sampler=sampler)
 
 
 def cloud_weather_periods():
@@ -97,15 +106,17 @@ def check_air_skylight(probe):
     spectrum = np.array([.5, 1, 2, 0])
     actual = probe.run("airSkylight", origins, [spectrum] * 4, clouds, {"VerticalDepth": view})
     d = 1 / np.sqrt(3)
-    reduced_depth = 1 - .5 * (clouds["anisotropy"] - .25)
+    reduced_depth = 1 - 0.8524832
     below = np.array([0, 6, 8, 0]) * reduced_depth
     weights = (d + below) / (2 * d + 8 * reduced_depth)
     np.testing.assert_allclose(actual, weights[:, None] * spectrum, atol=2e-5)
-    # In the gap between two equal columns the upper and lower optical
-    # depths match. A perfectly reflecting floor returns the full field.
+    # The gap sees one column of each material. A perfectly reflecting
+    # floor returns the full field.
     gap = probe.run("airSkylight", [origins[2]], [spectrum],
                     cloud_parameters(groundAlbedo=0, highExtinction=.01), {"VerticalDepth": view})
-    np.testing.assert_allclose(gap[0], .5 * spectrum, atol=2e-5)
+    ice_depth = 1 - 0.77133145
+    gap_weight = (d + 8 * reduced_depth) / (2 * d + 8 * (reduced_depth + ice_depth))
+    np.testing.assert_allclose(gap[0], gap_weight * spectrum, atol=2e-5)
     bright = probe.run("airSkylight", origins, [spectrum] * 4,
                        cloud_parameters(groundAlbedo=1), {"VerticalDepth": view})
     np.testing.assert_allclose(bright, np.broadcast_to(spectrum, bright.shape), atol=2e-5)

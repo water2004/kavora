@@ -21,6 +21,22 @@ uint Count;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
+void neuralDensities(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+    return;
+  const float4 point = Inputs[index];
+  const CloudDensityArgs density = cloudDensityParameters(Clouds);
+  float4 features;
+  [unroll]
+  for (uint level = 0; level < 4; ++level)
+    features[level] = cloudDensityFeature(density, point.xyz, uint(point.w), level, Clouds.meterToWorld,
+      Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
+  Results[index] = features;
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
 void airSkylight(uint index : SV_DispatchThreadID)
 {
   if (index >= Count) return;

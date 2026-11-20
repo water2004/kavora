@@ -6,13 +6,15 @@ ConstantBuffer<CloudArgs> Clouds;
 Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
+Sampler2D<float>.Handle Phase;
 Sampler3D<float2>.Handle CloudLocalLight;
 RWTexture3D<float4> CloudNeuralLightOutput;
 #define NeuralCloudOutput CloudNeuralLightOutput
-StructuredBuffer<float> NeuralCloudWeights;
+ByteAddressBuffer NeuralCloudWeights;
 #define CloudWeatherSampler Sampler2DArray<float4>(Weather)
 #define CloudBaseSampler Sampler3D<float4>(Base)
 #define CloudDetailSampler Sampler3D<float4>(Detail)
+#define CloudPhaseSampler Sampler2D<float>(Phase)
 
 CloudArgs neuralCloudArgs() { return Clouds; }
 CloudLightingCache sceneCloudLightingCache()

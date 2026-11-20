@@ -39,7 +39,6 @@ DEFAULT_CONFIG = {
         "extinction_scale_per_m": 0.008,
         "single_scattering_albedo": 0.99,
         "phase": "hg",
-        "g": 0.80,
     },
     "lighting": {
         "solar_elevation_deg": 25.0,
@@ -202,7 +201,7 @@ def medium_params(cfg: dict) -> dict:
     return {
         "extinction_scale": float(med["extinction_scale_per_m"]),
         "albedo": float(med["single_scattering_albedo"]),
-        "g": float(med["g"]),
+        "phase_material": int(med.get("phase_material", 0)),
     }
 
 

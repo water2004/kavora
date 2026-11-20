@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Fit the directional cloud source, select on one weather region and report on another."""
+"""Fit and validate the directional and upper-hemisphere sources."""
 
 import argparse
 import copy
+import json
 from pathlib import Path
 import sys
 
@@ -10,17 +11,18 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from neural.feature_layout import SUN_FEATURE_NAMES
+from neural.feature_layout import feature_names
 from neural.model import MultiScatterMLP
 from pack_weights import pack_weights
 
 
-def dataset(files, device):
+def dataset(files, device, channel="sun"):
     xs, ys = [], []
     for path in files:
         with np.load(path) as data:
-            xs.append(data["features"])
-            ys.append(data["source"])
+            prefix = "" if channel == "sun" else "sky_"
+            xs.append(data[prefix + "features"])
+            ys.append(data[prefix + "source"])
     return tuple(torch.tensor(np.concatenate(arrays), device=device) for arrays in (xs, ys))
 
 
@@ -53,15 +55,11 @@ def export_interpolator(files, out):
         )
 
 
-def fit(labels, sky, out, device, smoke=False):
-    out.mkdir(parents=True, exist_ok=True)
+def fit_channel(files, device, channel, activation, smoke):
     torch.manual_seed(3321)
-    files = sorted(labels.glob("region-*.npz"))
-    if len(files) != 12:
-        raise ValueError("Expected six independent regions of both cloud layers")
-    x, y = dataset(files[:8], device)
-    val, reference = dataset(files[8:10], device)
-    model = MultiScatterMLP(len(SUN_FEATURE_NAMES), hidden=96, layers=4).to(device)
+    x, y = dataset(files[:8], device, channel)
+    val, reference = dataset(files[8:10], device, channel)
+    model = MultiScatterMLP(len(feature_names(channel)), hidden=96, layers=4, activation=activation).to(device)
     model.set_feature_norm(x.mean(0).cpu().numpy(), x.std(0).cpu().numpy())
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.002, weight_decay=0.0001)
     iterations = 2 if smoke else 3600
@@ -87,36 +85,49 @@ def fit(labels, sky, out, device, smoke=False):
                 selected = copy.deepcopy(model.state_dict())
     model.load_state_dict(selected)
     model.cpu()
-    solar = out / "hanpi_sun.npz"
-    model.export_numpy(solar, SUN_FEATURE_NAMES)
-    pack_weights(solar, sky, out / "cloud_neural_lighting.bin")
-    export_interpolator(files[:8], out / "cloud_source_interpolation.slang")
+    metrics = {}
     with torch.no_grad():
         for path in files[-2:]:
-            x, y = dataset([path], "cpu")
+            x, y = dataset([path], "cpu", channel)
             p = model(x).ravel()
+            cosine = x[:, 7] if channel == "sun" else x[:, 6]
             for name, mask in (
                 ("all", torch.ones_like(y, dtype=torch.bool)),
-                ("sunward", x[:, 7] > 0.8),
-                ("away", x[:, 7] < -0.8),
+                ("forward", cosine > .99),
+                ("backscatter", cosine < -.75),
             ):
-                print(
-                    path.stem,
-                    name,
-                    "count, reference, prediction, MAE:",
-                    int(mask.sum()),
-                    y[mask].mean().item(),
-                    p[mask].mean().item(),
-                    (p[mask] - y[mask]).abs().mean().item(),
-                )
+                if mask.any():
+                    metrics[f"{path.stem}/{name}"] = {
+                        "count": int(mask.sum()),
+                        "reference": y[mask].mean().item(),
+                        "prediction": p[mask].mean().item(),
+                        "mae": (p[mask] - y[mask]).abs().mean().item(),
+                    }
+    return model, metrics
+
+
+def fit(labels, out, device, activation, smoke=False):
+    out.mkdir(parents=True, exist_ok=True)
+    files = sorted(labels.glob("region-*.npz"))
+    if len(files) != 12:
+        raise ValueError("Expected six independent regions of both cloud layers")
+    metrics = {}
+    for channel in ("sun", "sky"):
+        model, metrics[channel] = fit_channel(files, device, channel, activation, smoke)
+        model.export_numpy(out / f"{channel}.npz", feature_names(channel))
+    pack_weights(out / "sun.npz", out / "sky.npz", out / "cloud_neural_lighting.bin", activation)
+    export_interpolator(files[:8], out / "cloud_source_interpolation.slang")
+    report = json.dumps(metrics, indent=2)
+    (out / "validation.json").write_text(report + "\n", encoding="utf-8")
+    print(report, flush=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("labels", type=Path)
-    parser.add_argument("sky", type=Path)
     parser.add_argument("out", type=Path)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--activation", choices=("silu", "leaky_relu"), default="leaky_relu")
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
-    fit(args.labels, args.sky, args.out, args.device, args.smoke)
+    fit(args.labels, args.out, args.device, args.activation, args.smoke)

@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import slangpy as spy
 
-from test_cloud_transport import SHADERS, cloud_parameters, cloud_weather_periods, weather_resolutions
+from test_cloud_transport import SHADERS, cloud_parameters, cloud_phase_texture, cloud_weather_periods, weather_resolutions
 
 HERE = Path(__file__).resolve().parent
 
@@ -29,6 +29,7 @@ def main():
             usage=spy.TextureUsage.shader_resource)
         tex.copy_from_numpy(data)
         return tex.create_view(sampler=sampler)
+    phase_table = cloud_phase_texture(device)
     programs = {}
     def run(name, origins, directions, args, neural=None):
         origins = np.asarray(origins, np.float32).reshape(-1, 4)
@@ -40,6 +41,8 @@ def main():
         bindings = {'Origins': device.create_buffer(data=origins, usage=spy.BufferUsage.shader_resource),
             'Directions': device.create_buffer(data=directions, usage=spy.BufferUsage.shader_resource),
             'Results': output, 'Count': len(origins), 'Clouds': args}
+        if name == 'rayPhases':
+            bindings['Phase'] = phase_table.descriptor_handle_combined
         if neural is not None:
             bindings['UnusedLighting'] = neural.descriptor_handle_combined
         programs[name].dispatch(thread_count=[len(origins), 1, 1], vars=bindings)
@@ -183,15 +186,20 @@ def main():
     report['highCloudBudgetCrossings'] = {
         'cases': len(high_crossings), 'maximumFirstSampleDelta': max(high_crossings)}
 
-    # Phase terms depend only on the view ray and light directions, so the
-    # hoisted helper must exactly match the former per-cell expression.
-    rng = np.random.default_rng(20261117)
-    phase_directions = rng.normal(size=(128, 3)).astype(np.float32)
-    phase_directions /= np.linalg.norm(phase_directions, axis=1, keepdims=True)
-    phase_directions = np.column_stack((phase_directions, np.zeros(128, np.float32)))
-    phase_results = run('rayPhases', np.zeros((128, 4), np.float32), phase_directions, args)
-    np.testing.assert_array_equal(phase_results[:, :2], 0)
-    report['hoistedRayPhaseCases'] = len(phase_results)
+    # Compare the exact runtime sampler and the stored values at texel centres.
+    # Endpoints cover forward/backscatter and the interior samples catch axis warp errors.
+    asset = np.fromfile(SHADERS.parent / "rtx_render/clouds/revelation_phase.bin", "<f2").reshape(6, 512)
+    indices = np.r_[0, 1, 3, 9, 24, 65, 128, 256, 383, 510, 511]
+    u = indices / 511
+    centered = 2 * .84 * u / (1 - .16 * u) - 1
+    cosine = np.cos(np.pi * (.5 + .99 * centered / (1 + .98 * abs(centered))))
+    args["lights"][0]["directionToLight"] = [1, 0, 0]
+    origins = np.column_stack((cosine, np.zeros((len(cosine), 3))))
+    actual = run('rayPhases', origins, np.zeros_like(origins), args)
+    expected = np.exp2(asset[[3, 5, 0, 2]][:, indices].astype(np.float64)).T
+    expected[:, 2:] /= [.9995592, .99963014]
+    np.testing.assert_allclose(actual, expected, rtol=0.008, atol=1e-5)
+    report['phaseLutTexels'] = len(indices) * 4
 
     if options.dump:
         options.dump.mkdir(parents=True, exist_ok=True)

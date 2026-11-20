@@ -142,8 +142,6 @@
   "kavora.effect.image.colorBalance.blue.tip": "启用调色时的颜色通道增益，两种色调映射模式均可使用。",
   "kavora.effect.clouds.windSpeed": "风速",
   "kavora.effect.clouds.windSpeed.tip": "控制云随风移动的速度，零会停止云的平移。",
-  "kavora.effect.clouds.anisotropy": "前向散射",
-  "kavora.effect.clouds.anisotropy.tip": "控制云滴散射光线的方向性。",
   "kavora.effect.clouds.multipleScattering": "多次散射",
   "kavora.effect.clouds.multipleScattering.tip": "浓云内部近似漫射光传播的强度。",
   "kavora.settings.group.shadows": "直接与间接光照",

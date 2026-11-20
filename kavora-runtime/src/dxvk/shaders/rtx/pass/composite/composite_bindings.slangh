@@ -101,6 +101,8 @@ Sampler3D<float4> CloudDetailSampler;
 
 layout(binding = COMPOSITE_CLOUD_WEATHER_SAMPLER)
 Sampler2DArray<float4> CloudWeatherSampler;
+layout(binding = COMPOSITE_CLOUD_PHASE_SAMPLER)
+Sampler2D<float> CloudPhaseSampler;
 
 
 layout(r8ui, binding = COMPOSITE_ACTIVE_PIXEL_MASK_INPUT)

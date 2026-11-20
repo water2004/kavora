@@ -20,6 +20,7 @@ SamplerState.Handle TableSampler;
 Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Volume;
 Sampler3D<float2>.Handle Chroma;
+Sampler2D<float>.Handle Phase;
 float3 MediumExtinction;
 float3 DiffuseBoundary;
 uint Count;
@@ -100,7 +101,7 @@ void probeTransport<Visibility : IAirLightVisibility>(uint index)
   VolumeArgs volume = {};
   volume.air = Air;
   const AirTables tables = { Texture2D<float4>(Transmission), Texture2D<float4>(Scattering), SamplerState(TableSampler), DiffuseBoundary };
-  const AtmosphereRay ray = createAtmosphereRay<NoFog>(volume, Origins[index].xyz, Directions[index].xyz, 0, MediumExtinction);
+  const AtmosphereRay ray = createAtmosphereRay<NoFog>(volume, Sampler2D<float>(Phase), Origins[index].xyz, Directions[index].xyz, 0, MediumExtinction);
   const float end = Origins[index].w;
   const float split = end * Directions[index].w;
   const CloudLightingCache noCloudLighting = { Sampler3D<float2>(Chroma), Sampler3D<float4>(Volume) };

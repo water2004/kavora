@@ -22,7 +22,7 @@ Kavora 是面向 Minecraft 的渲染模组，通过 Vulkan 和 NVIDIA RTX Remix 
 
 ## 安装
 
-目前面向 **Windows x64、Minecraft 26.3、Java 25**。需要 **NVIDIA RTX 显卡**及 **616 或更新版本的驱动**。帧生成需要 RTX 40 / 50 系列显卡，可用倍率由设备和运行时检测决定。
+目前面向 **Windows x64、Minecraft 26.3、Java 25**。需要 **NVIDIA RTX 显卡**及 **616 或更新版本的驱动**，驱动须提供 FP16 Vulkan 协作向量计算支持（`VK_NV_cooperative_vector`）。帧生成需要 RTX 40 / 50 系列显卡，可用倍率由设备和运行时检测决定。
 
 使用 **Fabric Loader 0.20.1 或更新版本**，在实例的 `mods` 目录放入：
 

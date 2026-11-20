@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests/rtx/unit"))
 from test_cloud_transport import OPTIONS, Probe, cloud_parameters, cloud_textures, spy
 
 # Independent weather regions. The last low and high slabs are reserved for evaluation.
-REGIONS = [(8043, 1240), (-18000, 7300), (28000, -19000), (2000, -41000), (37000, 19000), (-62000, -31000)]
+LOW_REGIONS = [(8043, 1240), (-18000, 7300), (28000, -19000), (2000, -41000), (37000, 19000), (-62000, -31000)]
+HIGH_REGIONS = [(-150000, 300000), (100000, 100000), (200000, 50000), (-200000, -100000),
+                (-350000, -350000), (300000, 250000)]
 
 
 def capture(output, smoke=False):
@@ -19,8 +21,8 @@ def capture(output, smoke=False):
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
     probe = Probe(device)
     textures = cloud_textures(device, None)
-    for region, (cx, cz) in enumerate(REGIONS):
-        for layer in (0, 1):
+    for region, (low, high) in enumerate(zip(LOW_REGIONS, HIGH_REGIONS)):
+        for layer, (cx, cz) in enumerate((low, high)):
             side, levels = (24, 16) if smoke else (96, 48)
             span = 6000.0 if layer == 0 else 24000.0
             base, depth, extinction = (800.0, 1500.0, 0.03) if layer == 0 else (6375.0, 50.0, 0.024)
@@ -37,9 +39,12 @@ def capture(output, smoke=False):
             )
             axis = np.arange(side) * (span / side) - span / 2
             x, z = np.meshgrid(axis + cx, axis + cz)
+            offset_squared = (x - cx)**2 + (z - cz)**2
+            radius = args["planetRadius"]
             fields = []
             for y in np.linspace(base, base + depth, levels):
-                points = np.column_stack((x.ravel(), np.full(x.size, y), z.ravel(), np.full(x.size, layer)))
+                slab_y = np.sqrt((radius + y)**2 - offset_squared) - radius
+                points = np.column_stack((x.ravel(), slab_y.ravel(), z.ravel(), np.full(x.size, layer)))
                 fields.append(
                     probe.run("neuralDensities", points, clouds=args, textures=textures).reshape(
                         side, side, 4

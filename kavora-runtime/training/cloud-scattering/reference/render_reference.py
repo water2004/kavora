@@ -178,7 +178,7 @@ def main() -> None:
             cfg["lighting"]["sun_cache_resolution"] = [24, 12, 24]
             cfg["lighting"]["sun_cache_steps"] = 16
         t0 = time.perf_counter()
-        density = get_cloud_grid(cfg)
+        density = get_cloud_grid(cfg, root=os.path.join(args.out, "grids"))
         renderer = VolumeRenderer(cfg, density, device=args.device)
         if args.device == "cuda":
             torch.cuda.synchronize()

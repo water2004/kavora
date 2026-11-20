@@ -143,6 +143,7 @@ namespace dxvk {
         TEXTURE2DARRAY(AIR_SHADOW_DEPTH_BINDING)
         SAMPLER3D(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT)
+        SAMPLER2D(COMPOSITE_CLOUD_PHASE_SAMPLER)
 
         RW_TEXTURE2D(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ACCUMULATED_FINAL_OUTPUT_INPUT_OUTPUT)
@@ -428,6 +429,8 @@ namespace dxvk {
     ctx->bindResourceSampler(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, valueNoiseSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudVolumes.getCloudNeuralLight(), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudDepthSampler);
+    ctx->bindResourceView(COMPOSITE_CLOUD_PHASE_SAMPLER, ctx->getResourceManager().getCloudPhaseLut(), nullptr);
+    ctx->bindResourceSampler(COMPOSITE_CLOUD_PHASE_SAMPLER, cloudDepthSampler);
 
     compositeArgs.camera = sceneManager.getCamera().getShaderConstants();
     compositeArgs.frameIdx = frameIdx;

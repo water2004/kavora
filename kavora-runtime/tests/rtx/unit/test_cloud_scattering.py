@@ -3,12 +3,13 @@
 """Read back production cloud diffusion and test slab energy independently of Minecraft.
 
 Install NumPy and SlangPy. Both CPU and Vulkan devices execute the production
-math module. The energy check includes the actual dual-HG single-scattering
+math module. The energy check includes the actual Revelation single-scattering
 distribution and continuous outgoing directions, not only the two ordinates.
 It bounds this parameter grid; it is not a proof for heterogeneous 3D clouds.
 """
 import argparse
 from pathlib import Path
+import sys
 
 import numpy as np
 from numpy.polynomial.legendre import leggauss
@@ -17,6 +18,8 @@ import slangpy as spy
 
 HERE = Path(__file__).resolve().parent
 SHADERS = HERE.parents[2] / "src/dxvk/shaders"
+sys.path.insert(0, str(HERE.parents[2] / "training/cloud-scattering"))
+from common.revelation_phase import transport_tables
 
 
 class Probe:
@@ -177,10 +180,8 @@ def single_escape(outgoing_cosine, thickness, incident_cosine):
     return result
 
 
-def phase_escape(thickness, incident_cosine, g, nodes, weights, azimuth):
-    # HG inverse-CDF quadrature resolves the g=0.95 forward peak without a huge uniform angular grid.
-    cosine = ((1 + g * g - ((1 - g * g) / (1 - g + 2 * g * nodes)) ** 2) / (2 * g)
-              if abs(g) > 1e-6 else 2 * nodes - 1)
+def phase_escape(thickness, incident_cosine, inverse, nodes, weights, azimuth):
+    cosine = np.interp(nodes, np.linspace(0, 1, len(inverse)), inverse)
     outgoing = (incident_cosine * cosine[:, None]
                 + np.sqrt(1 - incident_cosine ** 2) * np.sqrt(np.maximum(0, 1 - cosine ** 2))[:, None]
                 * np.cos(azimuth)[None, :])
@@ -193,6 +194,8 @@ def check_slab_energy(probe):
     angular_weights /= 2
     azimuth = (np.arange(256) + 0.5) * 2 * np.pi / 256
     depth_nodes, depth_weights = leggauss(24)
+    _, _, _, cdfs = transport_tables()
+    phases = (cdfs[0], cdfs[2])
     worst = (0, None)
     cases = 0
     for incident_cosine in (0.0001, 0.001, 0.01, 0.035, 0.1, 0.3, 0.5, 0.7, 0.9, 1):
@@ -209,16 +212,15 @@ def check_slab_energy(probe):
             escape = np.sum((np.exp(-depths[:, None] / angular)
                              + np.exp(-(thickness - depths[:, None]) / angular)) * angular_weights, axis=1)
             multiple_power = 2 * np.pi * np.sum(diffuse * escape * weights) / incident_cosine
-            backward = phase_escape(thickness, incident_cosine, -0.25, angular, angular_weights, azimuth)
-            for g in (0, 0.3, 0.5, 0.65, 0.75, 0.85, 0.9, 0.95):
-                forward = phase_escape(thickness, incident_cosine, g, angular, angular_weights, azimuth)
-                outgoing = np.exp(-thickness / incident_cosine) + 0.85 * forward + 0.15 * backward + multiple_power
-                assert np.isfinite(outgoing) and 0 <= outgoing <= 1 + 2e-6, (incident_cosine, thickness, g, outgoing)
+            for layer, inverse in enumerate(phases):
+                scattered = phase_escape(thickness, incident_cosine, inverse, angular, angular_weights, azimuth)
+                outgoing = np.exp(-thickness / incident_cosine) + scattered + multiple_power
+                assert np.isfinite(outgoing) and 0 <= outgoing <= 1 + 2e-6, (incident_cosine, thickness, layer, outgoing)
                 if outgoing > worst[0]:
-                    worst = (outgoing, (incident_cosine, thickness, g))
+                    worst = (outgoing, (incident_cosine, thickness, layer))
                 cases += 1
-    print(f"PASS slab energy: {cases} dual-HG cases at maximum multiple strength, "
-          f"maximum outgoing/incoming {worst[0]:.9f} at (mu, tau, g)={worst[1]}")
+    print(f"PASS slab energy: {cases} Revelation cases at maximum multiple strength, "
+          f"maximum outgoing/incoming {worst[0]:.9f} at (mu, tau, layer)={worst[1]}")
 
 
 def main():

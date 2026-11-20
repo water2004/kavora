@@ -78,7 +78,7 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   float3 mediumExtinction, bool allowFarTail, float cloudAngularFootprint = 0)
 {
   const VolumeArgs volume = cb.volumeArgs;
-  AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
+  AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, CloudPhaseSampler, origin, direction,
     volumeHint, mediumExtinction, cloudAngularFootprint);
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   float cachedBegin;

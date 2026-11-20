@@ -62,7 +62,6 @@ final class KavoraEffectOptions {
         decimal("endSky.rotation", SettingGroup.END_SKY, "rtx.endSky.rotation", 0, 360),
         decimal("endSky.elevation", SettingGroup.END_SKY, "rtx.endSky.elevation", -90, 90),
         decimal("clouds.windSpeed", SettingGroup.CLOUDS, "rtx.clouds.windSpeed", 0, 5),
-        decimal("clouds.anisotropy", SettingGroup.CLOUDS, "rtx.clouds.anisotropy", 0, 0.95),
         decimal("clouds.multipleScattering", SettingGroup.CLOUDS, "rtx.clouds.multipleScattering", 0, 1),
         decimal("clouds.coverage", SettingGroup.CLOUDS, "rtx.clouds.coverage", 0, 1),
         decimal("clouds.altitudeOffset", SettingGroup.CLOUDS, "rtx.clouds.altitudeOffsetMeters", 0, 2000),

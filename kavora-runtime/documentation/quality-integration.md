@@ -70,9 +70,10 @@ low deck and three in the high deck. It is shared by camera and secondary
 cloud shading, sky generation and neural feature preparation. Surface and fog
 visibility first trace geometry, then use the [projected cloud shadow](cloud-field.md#projected-cloud-shadows)
 for complete celestial columns and the short integral for other segments.
-Direct single scattering uses normalized forward and backward lobes. High-cloud
-directional light includes HanPi's powder response. View extinction is
-integrated separately along the camera or secondary ray.
+Direct single scattering uses the normalized scalar Revelation phase table.
+The low layer uses its liquid cumulus row and the high layer its cirrus row.
+A finite-disk lookup is shared by all cells along a view ray. View extinction
+is integrated along the camera or secondary ray.
 
 ### Cloud multiple scattering
 
@@ -102,15 +103,13 @@ The runtime embeds both networks in [`cloud_neural_lighting.bin`](../src/dxvk/rt
 The [cloud scattering training workflow](../training/cloud-scattering/README.md)
 generates the reference data, trains both models, and packs the selected exports.
 
-`rtx.clouds.neuralTensorCores` defaults to enabled. A Vulkan device with
-the FP16 cooperative-vector compute format uses it to bake the same field.
+Device creation requires the FP16 Vulkan cooperative-vector compute format.
 The runtime converts the embedded checkpoint to the device's optimal
 inference layout once. The shared features and angular interpolation use
-float32 arithmetic. The scalar bake remains available for other devices
-and as a comparison mode.
+float32 arithmetic.
 
-Use `neuralTensorProfile` with `cloudsOnly` and `cloudProfileStartFile` to
-record both neural backends with advancing time and the normal wind speed.
+Use `cloudFullDayProfile` with `cloudsOnly` and `cloudProfileStartFile` to
+record cloud lighting with advancing time and the normal wind speed.
 
 ## Offset parallax
 

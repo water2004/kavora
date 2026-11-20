@@ -30,6 +30,9 @@
 
 #include "dxvk_device.h"
 #include "dxvk_instance.h"
+// NV-DXVK start: Required cloud inference width.
+#include "rtx/pass/clouds/cloud_neural_scattering.h"
+// NV-DXVK end
 #include "../util/util_once.h"
 #include "../util/util_sentry.h"
 #include "../util/util_string.h"
@@ -518,14 +521,15 @@ namespace dxvk {
 
     // Enable additional extensions if necessary
     extensionsEnabled.merge(m_extraExtensions);
-    // NV-DXVK start: Add cooperative-vector inference to the shared logical device.
+    // NV-DXVK start: Require cooperative-vector inference on the shared logical device.
     VkPhysicalDeviceCooperativeVectorFeaturesNV cooperativeVector { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_VECTOR_FEATURES_NV };
-    if (m_deviceExtensions.supports(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME) && m_deviceFeatures.vulkan12Features.shaderFloat16) {
-      enabledFeatures.cooperativeVectorFp16Components = queryCooperativeVectorFp16(*m_vki.ptr(), m_handle, cooperativeVector);
-      if (enabledFeatures.cooperativeVectorFp16Components) {
-        extensionsEnabled.add(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
-      }
+    if (!m_deviceExtensions.supports(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME) ||
+        !m_deviceFeatures.vulkan12Features.shaderFloat16 ||
+        queryCooperativeVectorFp16(*m_vki.ptr(), m_handle, cooperativeVector) < CLOUD_NEURAL_WIDTH) {
+      throw DxvkErrorWithId(REMIXAPI_ERROR_CODE_HRESULT_NO_REQUIRED_GPU_FEATURES,
+        "Kavora requires VK_NV_cooperative_vector with FP16 compute inference for cloud lighting.");
     }
+    extensionsEnabled.add(VK_NV_COOPERATIVE_VECTOR_EXTENSION_NAME);
     // NV-DXVK end
     // NV-DXVK start: The device enables both clients' requested extensions.
     if (host) {
@@ -624,9 +628,7 @@ namespace dxvk {
     enabledFeatures.vulkan12Features.pNext = std::exchange(enabledFeatures.core.pNext, &enabledFeatures.vulkan12Features);
 
     // NV-DXVK start: Enable the negotiated inference feature when creating the device.
-    if (enabledFeatures.cooperativeVectorFp16Components) {
-      cooperativeVector.pNext = std::exchange(enabledFeatures.core.pNext, &cooperativeVector);
-    }
+    cooperativeVector.pNext = std::exchange(enabledFeatures.core.pNext, &cooperativeVector);
     // NV-DXVK end
 
 #ifdef _WIN64

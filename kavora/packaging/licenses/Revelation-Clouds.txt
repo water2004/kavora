@@ -12,6 +12,7 @@ The projected surface shadow pass follows shaders/program/prepare/GenCloudShadow
 The source texture channels are stored at their original resolutions and
 are repacked for Vulkan:
 
+  shaders/texture/cloud/CloudPhaseLut.bin
   shaders/texture/Noise2D.png
   shaders/texture/cloud/AlligatorFbm_128.bin
   shaders/texture/cloud/SimplexGrad_64.bin
@@ -20,5 +21,11 @@ are repacked for Vulkan:
   shaders/texture/cloud/HaringPro/CloudMapLow.bin
   shaders/texture/cloud/HaringPro/CloudMapHigh.bin
   shaders/texture/cloud/HaringPro/vertical_gradient_lut_32x32.bin
+
+Kavora uses the angular mapping from shaders/lib/atmosphere/clouds/PhaseLut.glsl
+and derives the camera's finite-disk samples, first moments and boundary
+quadrature from the scalar phase rows. The original phase data is derived from
+OPAC. See scripts/cloud_phase_data/README.md and scripts/generate_cloud_phase_lut.py
+in the referenced Revelation revision for provenance.
 
 The Apache License 2.0 text accompanies this package.

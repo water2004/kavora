@@ -142,8 +142,6 @@
   "kavora.effect.image.colorBalance.blue.tip": "Color-channel gain with color grading enabled, in either tone-mapping mode.",
   "kavora.effect.clouds.windSpeed": "Wind Speed",
   "kavora.effect.clouds.windSpeed.tip": "Multiplier on wind-driven cloud movement. Zero freezes advection.",
-  "kavora.effect.clouds.anisotropy": "Forward Scattering",
-  "kavora.effect.clouds.anisotropy.tip": "Controls the directionality of light scattering by cloud droplets.",
   "kavora.effect.clouds.multipleScattering": "Multiple Scattering",
   "kavora.effect.clouds.multipleScattering.tip": "Strength of the approximate diffuse light transport inside dense clouds.",
   "kavora.settings.group.shadows": "Direct & Indirect Light",

@@ -399,8 +399,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
 
     private static void profileOceanClouds(ClientGameTestContext context, Path startFile) {
         context.waitFor(client -> KavoraMod.renderer != null && KavoraMod.renderer.isInitialized(), 2400);
-        boolean tensorProfile = Boolean.getBoolean("kavora.gametest.neuralTensorProfile");
-        boolean fullDay = tensorProfile || Boolean.getBoolean("kavora.gametest.cloudFullDayProfile");
+        boolean fullDay = Boolean.getBoolean("kavora.gametest.cloudFullDayProfile");
         if (fullDay) {
             context.runOnClient(client -> {
                 client.options.renderDistance().set(16);
@@ -451,21 +450,15 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 var diagnostics = KavoraMod.renderer.getChunkManager().getTerrainDiagnostics();
                 System.out.println("KAVORA_PROFILE_TERRAIN " + diagnostics);
             });
-            if (tensorProfile) {
-                profileNeuralOceanTime(context, server, 6000, 90, "noon");
-                profileNeuralOceanTime(context, server, 23250, -90, "sunrise");
-                profileNeuralOceanTime(context, server, 12750, 90, "sunset");
-            } else {
-                if (fullDay) {
-                    prepareOceanProfileView(context, server, 6000, 90, 32_000);
-                }
-                measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
-                if (fullDay) {
-                    prepareOceanProfileView(context, server, 23250, -90, 32_200);
-                    measureOceanProfileView(context, "sunrise", true);
-                    prepareOceanProfileView(context, server, 12750, 90, 32_400);
-                    measureOceanProfileView(context, "sunset", true);
-                }
+            if (fullDay) {
+                prepareOceanProfileView(context, server, 6000, 90, 32_000);
+            }
+            measureOceanProfileView(context, fullDay ? "noon" : "live", fullDay);
+            if (fullDay) {
+                prepareOceanProfileView(context, server, 23250, -90, 32_200);
+                measureOceanProfileView(context, "sunrise", true);
+                prepareOceanProfileView(context, server, 12750, 90, 32_400);
+                measureOceanProfileView(context, "sunset", true);
             }
             KavoraWorldGameTest.require(context.computeOnClient(client -> KavoraFrameProbe.failures == 0),
                     "Ocean cloud profile encountered a native frame failure");
@@ -505,23 +498,6 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         var resume = CompletableFuture.runAsync(() -> server.getGameRules().set(GameRules.ADVANCE_TIME, true, server), server);
         context.waitFor(client -> resume.isDone(), 200);
         resume.join();
-    }
-
-    private static void profileNeuralOceanTime(ClientGameTestContext context, MinecraftServer server,
-                                               int tick, float yaw, String view) {
-        positionOceanProfileView(context, server, tick, yaw);
-        try (var exposure = RuntimeOptionScope.acquire(context, "rtx.autoExposure.autoExposureSpeed", "0")) {
-            for (boolean tensor : new boolean[] {false, true}) {
-                String variant = view + (tensor ? "-tensor" : "-scalar");
-                try (var backend = RuntimeOptionScope.acquire(context, "rtx.clouds.neuralTensorCores", Boolean.toString(tensor))) {
-                    positionOceanProfileView(context, server, tick, yaw);
-                    Path image = KavoraWorldGameTest.captureCompletedFrame(context, "cloud-neural-" + variant);
-                    KavoraWorldGameTest.requireVisibleWorld(image);
-                    resumeOceanProfileTime(context, server);
-                    measureOceanProfileView(context, variant, false);
-                }
-            }
-        }
     }
 
     private static void measureOceanProfileView(ClientGameTestContext context, String view, boolean screenshot) {
@@ -641,8 +617,8 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             var api = KavoraMod.renderer.getRemixApi();
             var sky = KavoraMod.renderer.getLightManager().getSkyLightState();
             org.slf4j.LoggerFactory.getLogger(KavoraVolumetricCloudGameTest.class).info(
-                    "Cloud lighting: scattering={}, anisotropy={}, lightSteps={}, sun={}, radiance={}",
-                    cloudValue("multipleScattering"), cloudValue("anisotropy"), cloudValue("lightSteps"),
+                    "Cloud lighting: scattering={}, lightSteps={}, sun={}, radiance={}",
+                    cloudValue("multipleScattering"), cloudValue("lightSteps"),
                     java.util.Arrays.toString(sky.sunPosition()), java.util.Arrays.toString(sky.sunDirectRadiance()));
             for (String key : new String[] {"rtx.tonemappingMode", "rtx.useLegacyACES", "rtx.localtonemap.finalizeWithACES",
                     "rtx.localtonemap.exposure", "rtx.autoExposure.enabled"}) {

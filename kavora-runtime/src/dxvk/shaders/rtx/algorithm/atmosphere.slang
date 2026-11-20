@@ -147,7 +147,7 @@ public AtmosphereSegment composeAtmosphereSegments(AtmosphereSegment first, Atmo
 }
 
 public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
-  float3 origin, float3 direction, uint volumeHint = 0, float3 mediumExtinction = float3(0),
+  Sampler2D<float> cloudPhaseTable, float3 origin, float3 direction, uint volumeHint = 0, float3 mediumExtinction = float3(0),
   float cloudAngularFootprint = 0)
 {
   AtmosphereRay ray;
@@ -206,7 +206,7 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   }
   if (ray.hasCloud)
   {
-    ray.cloudPhase = createCloudRayPhase(args.clouds, direction);
+    ray.cloudPhase = createCloudRayPhase(args.clouds, direction, cloudPhaseTable);
   }
   ray.projectedPhase = projectFogPhase(args.volumetricFogAnisotropy, direction);
   return ray;
@@ -482,15 +482,4 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, Visibili
 {
   return integrateAtmosphereRange<Fog, FroxelFogRadiance, Visibility>(args, FroxelFogRadiance(radianceY, radianceCoCg),
     weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
-}
-
-public AtmosphereSegment integrateAtmosphereSegment<Fog : IAtmosphereFog, Visibility : IAirLightVisibility>(VolumeArgs args,
-  Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
-  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
-  float3 origin, float3 direction, float distance, float3 cloudAmbient, AirTables airTables,
-  uint volumeHint = 0, float3 mediumExtinction = float3(0))
-{
-  const AtmosphereRay ray = createAtmosphereRay<Fog>(args, origin, direction, volumeHint, mediumExtinction);
-  return integrateAtmosphereRange<Fog, Visibility>(args, radianceY, radianceCoCg, weather, base, detail, cloudLighting, ray, 0, distance,
-    cloudAmbient, airTables);
 }

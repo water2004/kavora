@@ -22,7 +22,7 @@ Kavora is an independent community project. It is not affiliated with NVIDIA, Mo
 
 ## Installation
 
-Kavora currently targets **Windows x64, Minecraft 26.3 and Java 25**. It requires an **NVIDIA RTX GPU** and **driver 616 or newer**. Frame generation requires an RTX 40- or 50-series GPU; the available multipliers depend on the GPU and runtime.
+Kavora currently targets **Windows x64, Minecraft 26.3 and Java 25**. It requires an **NVIDIA RTX GPU** and **driver 616 or newer** with FP16 Vulkan cooperative-vector compute support (`VK_NV_cooperative_vector`). Frame generation requires an RTX 40- or 50-series GPU; the available multipliers depend on the GPU and runtime.
 
 Use **Fabric Loader 0.20.1 or newer**, and place these JARs in your instance's `mods` folder:
 
