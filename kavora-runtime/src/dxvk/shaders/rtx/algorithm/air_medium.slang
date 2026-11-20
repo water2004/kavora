@@ -14,6 +14,8 @@ public struct AirTables
   public Texture2D<float4> transmittance;
   public Texture2D<float4> scattering;
   public SamplerState sampler;
+  // Upper boundary radiance before the scene's diffuse light transport.
+  public float3 diffuseBoundary;
 };
 
 public struct AirMedium
@@ -227,12 +229,14 @@ public AirRayPhase createAirRayPhase(AirArgs args, float3 direction)
 public interface IAirLightVisibility
 {
   static float visibility(AirArgs args, uint light, float3 position);
+  static float3 diffuseIncident(float3 exterior, float3 position);
 };
 
 // Sky-only transport fixtures have no scene geometry.
 public struct UnobstructedAir : IAirLightVisibility
 {
   public static float visibility(AirArgs args, uint light, float3 position) { return 1; }
+  public static float3 diffuseIncident(float3 exterior, float3 position) { return exterior; }
 };
 
 public AirMedium sampleAirMedium<Visibility : IAirLightVisibility>(AirArgs args, AirTables tables,
@@ -246,7 +250,8 @@ public AirMedium sampleAirMedium<Visibility : IAirLightVisibility>(AirArgs args,
   const float mie = args.mieExtinction * exp(-seaHeight / args.mieHeight);
   AirMedium medium;
   medium.extinction = (rayleigh + mie) * args.worldToKilometers;
-  medium.source = 0;
+  const float3 diffuseIncident = Visibility.diffuseIncident(tables.diffuseBoundary, shadowPosition);
+  medium.source = (rayleigh + mie * args.mieAlbedo) * diffuseIncident;
   [unroll]
   for (uint index = 0; index < 2; index++)
   {
@@ -265,11 +270,21 @@ public AirMedium sampleAirMedium<Visibility : IAirLightVisibility>(AirArgs args,
   return medium;
 }
 
-float2 outwardAirMass(AirArgs args, float height, float cosine, float2 scaleHeight)
+// Optical depth to the same top boundary supplies both ends of each finite segment.
+float3 outwardAirDepth(AirArgs args, AirTables tables, float height, float cosine)
 {
+  const float3 transmission = airTransmittanceToSpace(args, tables, height, cosine);
+  const float3 depth = -log(max(transmission, 1e-30f));
+  if (all(transmission > 1e-30f))
+    return depth;
+  // Far below sea level RGB transmission can underflow at both ends of a short
+  // ray. A ratio of two zeros has lost the column information.
+  const float2 scaleHeight = float2(args.rayleighHeight, args.mieHeight);
   const float2 c = sqrt(0.5f * kAirPi * (args.innerRadius + height) / scaleHeight);
   const float2 relativeDensity = exp((args.lowerDepth - height) / scaleHeight);
-  return scaleHeight * relativeDensity * c / (1.0f + (c - 1.0f) * cosine);
+  const float2 mass = scaleHeight * relativeDensity * c / (1.0f + (c - 1.0f) * cosine);
+  const float3 opaqueDepth = args.rayleighExtinction * mass.x + args.mieExtinction * mass.y;
+  return select(transmission > 1e-30f, depth, opaqueDepth);
 }
 
 // Absolute optical-depth prefixes share the same left endpoint and tangent.
@@ -280,10 +295,10 @@ public struct AirOpticalDepthRay
   public float startHeight;
   public float startAlong;
   public float tangentHeight;
-  public float2 startMass;
-  public float2 tangentMass;
+  public float3 startDepth;
+  public float3 tangentDepth;
 
-  public float3 prefix(AirArgs args, float3 direction, float distance)
+  public float3 prefix(AirArgs args, AirTables tables, float3 direction, float distance)
   {
     const float span = (distance - startDistance) * args.worldToKilometers;
     const float endHeight = airAltitude(args, start + direction * span);
@@ -291,56 +306,40 @@ public struct AirOpticalDepthRay
     const bool crossesTangent = startAlong < 0 && endAlong > 0;
     const float minimum = crossesTangent ? tangentHeight : min(startHeight, endHeight);
     const float2 scaleHeight = float2(args.rayleighHeight, args.mieHeight);
-    const bool2 nearlyConstant = max(startHeight, endHeight) - minimum < 0.002f * scaleHeight;
-    float2 mass = 0;
-    if (!all(nearlyConstant))
-    {
-      const float2 endMass = outwardAirMass(args, endHeight, abs(endAlong) / (args.innerRadius + endHeight), scaleHeight);
-      mass = crossesTangent ? 2.0f * tangentMass - startMass - endMass
-        : startAlong >= 0 ? startMass - endMass : endMass - startMass;
-      mass = max(0.0f, mass);
-    }
-    if (any(nearlyConstant))
+    if (max(startHeight, endHeight) - minimum < 0.002f * min(scaleHeight.x, scaleHeight.y))
     {
       const float midpoint = airAltitude(args, start + (0.5f * span) * direction);
       const float2 shortMass = span * exp((args.lowerDepth - midpoint) / scaleHeight);
-      mass = float2(nearlyConstant.x ? shortMass.x : mass.x, nearlyConstant.y ? shortMass.y : mass.y);
+      return args.rayleighExtinction * shortMass.x + args.mieExtinction * shortMass.y;
     }
-    return args.rayleighExtinction * mass.x + args.mieExtinction * mass.y;
+    const float3 endDepth = outwardAirDepth(args, tables, endHeight, abs(endAlong) / (args.innerRadius + endHeight));
+    return max(0.0f, crossesTangent ? 2.0f * tangentDepth - startDepth - endDepth
+      : startAlong >= 0 ? startDepth - endDepth : endDepth - startDepth);
   }
 };
 
-public AirOpticalDepthRay createAirOpticalDepthRay(AirArgs args, float3 origin, float3 direction, float2 interval)
+public AirOpticalDepthRay createAirOpticalDepthRay(AirArgs args, AirTables tables, float3 origin, float3 direction, float2 interval)
 {
   AirOpticalDepthRay optical = {};
   optical.startDistance = interval.x;
   optical.start = airCoordinates(args, origin) + direction * (interval.x * args.worldToKilometers);
   optical.startHeight = airAltitude(args, optical.start);
   optical.startAlong = dot(optical.start, direction) + args.innerRadius * dot(args.up, direction);
-  const float2 scaleHeight = float2(args.rayleighHeight, args.mieHeight);
-  optical.startMass = outwardAirMass(args, optical.startHeight,
-    abs(optical.startAlong) / (args.innerRadius + optical.startHeight), scaleHeight);
+  optical.startDepth = outwardAirDepth(args, tables, optical.startHeight,
+    abs(optical.startAlong) / (args.innerRadius + optical.startHeight));
   const float span = (interval.y - interval.x) * args.worldToKilometers;
   if (optical.startAlong < 0 && optical.startAlong + span > 0)
   {
     optical.tangentHeight = airAltitude(args, optical.start - optical.startAlong * direction);
-    optical.tangentMass = outwardAirMass(args, optical.tangentHeight, 0, scaleHeight);
+    optical.tangentDepth = outwardAirDepth(args, tables, optical.tangentHeight, 0);
   }
   return optical;
 }
 
-public float3 airSegmentOpticalDepth(AirArgs args, float3 origin, float3 direction, float2 interval)
+public float3 airTransmittance(AirArgs args, AirTables tables, float3 origin, float3 direction, float2 interval, float distance)
 {
-  return createAirOpticalDepthRay(args, origin, direction, interval).prefix(args, direction, interval.y);
-}
-
-public float3 airTransmittance(AirArgs args, float3 origin, float3 direction, float distance)
-{
-  if (!args.enable)
-  {
-    return 1;
-  }
-  const float2 interval = airInterval(args, origin, direction);
   const float end = min(interval.y, distance);
-  return end > interval.x ? exp(-airSegmentOpticalDepth(args, origin, direction, float2(interval.x, end))) : 1;
+  if (end <= interval.x) return 1;
+  const AirOpticalDepthRay column = createAirOpticalDepthRay(args, tables, origin, direction, float2(interval.x, end));
+  return exp(-column.prefix(args, tables, direction, end));
 }

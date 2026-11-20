@@ -75,16 +75,16 @@ class NativeExtractorTest {
                 rtx.autoExposure.evMaxValue = -1.0
                 """;
         String revised = "rtx.volumetrics.transmittanceMeasurementDistanceMeters = 10.0\n";
-        Files.writeString(bundled.resolve("rain.conf"), revised);
-        Path rain = installed.resolve("rain.conf");
+        Files.writeString(Files.createDirectory(bundled.resolve("weather")).resolve("rain.conf"), revised);
+        Path rain = Files.createDirectory(installed.resolve("weather")).resolve("rain.conf");
         Files.writeString(rain, original.replace("\n", "\r\n"));
 
-        NativeExtractor.refreshWeatherProfiles(bundled, installed);
+        NativeExtractor.refreshProfiles(bundled, installed);
         assertEquals(revised, Files.readString(rain));
 
         String custom = original.replace("10.0", "12.5");
         Files.writeString(rain, custom);
-        NativeExtractor.refreshWeatherProfiles(bundled, installed);
+        NativeExtractor.refreshProfiles(bundled, installed);
         assertEquals(custom, Files.readString(rain));
     }
 

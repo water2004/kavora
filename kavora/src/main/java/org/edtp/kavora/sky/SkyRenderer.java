@@ -27,11 +27,11 @@ import org.edtp.kavora.util.DirectBufferPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.phys.Vec3;
 
@@ -39,8 +39,8 @@ import net.minecraft.world.phys.Vec3;
  * Manages sky rendering for Kavora.
  *
  * <p>Uses a physically-based dome light generated from Rayleigh+Mie atmospheric
- * scattering, driven by Minecraft's time-of-day. Procedural clouds transport weather;
- * classic clouds use an HDR overcast dome. Dimensions without a NORMAL sky publish a
+ * scattering, driven by Minecraft's time-of-day. The HDR weather dome provides the
+ * environment behind procedural and classic clouds. Other dimensions publish a
  * fixed dome instead: the End's shared cosmic environment, and black with no sky ambient for a
  * skyless (SkyType.NONE) dimension such as the Nether.
  */
@@ -51,11 +51,7 @@ public class SkyRenderer {
     /** Equirectangular sky texture resolution. */
     private static final int SKY_W = AtmosphericSkyGenerator.WIDTH;
     private static final int SKY_H = AtmosphericSkyGenerator.HEIGHT;
-    private static final String OVERCAST_TEXTURE_DDS = "textures/overcast_thunderstorm_bc6u.dds";
-    private static final float RAIN_DOME_MIN_INTENSITY = 0.02f;
-    private static final float OVERCAST_MEAN_R = 0.2393801f;
-    private static final float OVERCAST_MEAN_G = 0.26890025f;
-    private static final float OVERCAST_MEAN_B = 0.31064802f;
+    private static final int OVERCAST_LATITUDES = 128;
     private static final float WEATHER_UPDATE_DELTA = 1.0e-4f;
     /** Sky ambient rect light: Y position just above the 1.18+ overworld build limit (y=320). */
     private static final float SKY_AMBIENT_RECT_Y = 325.0f;
@@ -121,7 +117,7 @@ public class SkyRenderer {
     private final LightInfo skyLightInfo = new LightInfo();
     private boolean hasAtmosphericTransport;
     private boolean atmosphereInfoChanged;
-    private long overcastTextureHandle;
+    private KavoraTexture overcastTexture;
     private KavoraLight overcastDomeLightAsset;
     private KavoraLight skyAmbientRectLight;
     private final CelestialSky celestialSky = new CelestialSky();
@@ -134,12 +130,10 @@ public class SkyRenderer {
     private final TexturePatchInfo atmosphericTextureUpdate = new TexturePatchInfo();
     private final float[] atmosphericMean = new float[3];
     private float lastWeatherOpacity = -1f;
-    private float lastWeatherIntensity = -1f;
+    private final float[] overcastIrradianceOverPi = new float[3];
+    private final float[] lastWeatherRadiance = new float[3];
     private float lastSkyDomeMultiplier = Float.NaN;
-    private float atmosphericMeanR;
-    private float atmosphericMeanG;
-    private float atmosphericMeanB;
-    private boolean overcastInitializationFailed;
+    private OvercastIllumination lastAirWeather = OvercastIllumination.CLEAR;
 
     private static boolean enabled = true;
     private static boolean skyAmbientRectEnabled = DEFAULT_SKY_AMBIENT_RECT_ENABLED;
@@ -177,7 +171,6 @@ public class SkyRenderer {
     /** Invalidates cached sky parameters so they are applied on the next frame. */
     public void forceRefresh() {
         lastWeatherOpacity = -1f;
-        lastWeatherIntensity = -1f;
     }
 
     // ====================================================================
@@ -230,19 +223,8 @@ public class SkyRenderer {
             Vec3 cameraPos,
             EnvironmentSnapshot environment,
             boolean volumetricClouds) {
-        float skyAngle;
-        LightManager.SkyLightState lightState;
-        float[] sunDirection;
-        WeatherDomeState weather;
-        try (ProfileScope ignored = ProfileScope.begin("Sky.Prepare")) {
-            skyAngle = environment.sunAngle;
-            lightState = lights.getSkyLightState();
-            sunDirection = LightManager.computeSunDirection(skyAngle);
-            float celestialIntensity = lightState.weatherDomeRadiance();
-            weather = weatherDomeState(environment.rain, environment.thunder,
-                    Math.max(celestialIntensity, RAIN_DOME_MIN_INTENSITY),
-                    celestialIntensity * LightManager.THUNDER_SKY_INTENSITY);
-        }
+        LightManager.SkyLightState lightState = lights.getSkyLightState();
+        OvercastIllumination weather = lightState.weather();
 
         try (ProfileScope ignored = ProfileScope.begin("Sky.Celestial")) {
             celestialSky.draw(api, lightState);
@@ -253,15 +235,17 @@ public class SkyRenderer {
             updateAtmosphericDomeLight(api, lightState, (float) (cameraPos.y - world.getSeaLevel()),
                     world.getSeaLevel(), volumetricClouds);
         }
-        boolean weatherRendered;
         try (ProfileScope ignored = ProfileScope.begin("Sky.Weather")) {
-            weatherRendered = !volumetricClouds && updateWeatherDomeLight(api, weather);
+            if (weather.opacity() > 0) {
+                for (int i = 0; i < 3; i++) {
+                    overcastIrradianceOverPi[i] = atmosphericMean[i] * weather.diffuseSky()
+                            + lightState.scatteredWeatherBeam()[i];
+                }
+                drawWeatherDomeLight(api, weather);
+            }
         }
         try (ProfileScope ignored = ProfileScope.begin("Sky.Ambient")) {
-            publishCombinedSkyAmbient(
-                    api,
-                    sunDirection[1],
-                    weatherRendered ? weather : WeatherDomeState.CLEAR);
+            publishCombinedSkyAmbient(api, lightState.sunPosition()[1], weather);
         }
     }
 
@@ -276,7 +260,7 @@ public class SkyRenderer {
             fillFixedDome(pixels, radiance);
             skyTextureAsset = createSkyTexture(pixels);
         }
-        publishSkyDome(api, false);
+        publishSkyDome(api, false, OvercastIllumination.CLEAR);
     }
 
     /**
@@ -312,21 +296,25 @@ public class SkyRenderer {
             LightManager.SkyLightState lightState, float observerHeight, float seaLevelMeters,
             boolean finiteAtmosphere) {
         regenerateSkyTexture(api, lightState, observerHeight, seaLevelMeters);
-        publishSkyDome(api, finiteAtmosphere);
+        publishSkyDome(api, finiteAtmosphere, lightState.weather());
     }
 
     /**
      * Publishes the live sky texture with its matching optical state and multiplier.
      * Does nothing until the texture exists.
      */
-    private void publishSkyDome(RemixAPI api, boolean finiteAtmosphere) {
+    private void publishSkyDome(RemixAPI api, boolean finiteAtmosphere, OvercastIllumination weather) {
         if (skyTextureAsset == null || !skyTextureAsset.isAlive()) {
             return;
         }
         boolean domeAlive = skyDomeLightAsset != null && skyDomeLightAsset.isAlive();
         LightInfoAtmosphereEXT desiredAtmosphere = finiteAtmosphere && hasAtmosphericTransport ? atmosphereInfo : null;
+        boolean airChanged = desiredAtmosphere != null
+                && (atmosphereInfoChanged || lastAirWeather.sunBeam() != weather.sunBeam()
+                || lastAirWeather.moonBeam() != weather.moonBeam());
+        if (airChanged) atmosphericGenerator.describeAtmosphere(desiredAtmosphere, weather);
         if (!domeAlive || skyLightInfo.atmosphereExt != desiredAtmosphere
-                || (desiredAtmosphere != null && atmosphereInfoChanged)
+                || airChanged
                 || Float.compare(lastSkyDomeMultiplier, skyDomeMultiplier) != 0) {
             skyDomeInfo.colorTexture = skyTextureAsset.getHandle();
             skyDomeInfo.transmittanceTexture = skyTransmittanceAsset != null ? skyTransmittanceAsset.getHandle() : 0;
@@ -342,7 +330,10 @@ public class SkyRenderer {
                 KavoraLightStore.get().create(skyDomeLightAsset);
             }
             lastSkyDomeMultiplier = skyDomeMultiplier;
-            atmosphereInfoChanged = false;
+            if (desiredAtmosphere != null) {
+                lastAirWeather = weather;
+                atmosphereInfoChanged = false;
+            }
         }
         if (skyDomeLightAsset.isAlive()) {
             try (ProfileScope ignored =
@@ -352,27 +343,27 @@ public class SkyRenderer {
         }
     }
 
-    private boolean updateWeatherDomeLight(RemixAPI api, WeatherDomeState weather) {
-        if (weather.opacity() <= 0.0f) {
-            return false;
+    private void drawWeatherDomeLight(RemixAPI api, OvercastIllumination weather) {
+        boolean textureChanged = overcastTexture == null || !overcastTexture.isAlive();
+        if (textureChanged) {
+            destroyAsset(overcastTexture);
+            overcastTexture = createOvercastTexture();
+        }
+        boolean needsUpdate = textureChanged || overcastDomeLightAsset == null
+                || !overcastDomeLightAsset.isAlive()
+                || Math.abs(weather.opacity() - lastWeatherOpacity) > WEATHER_UPDATE_DELTA;
+        for (int i = 0; i < 3; i++) {
+            needsUpdate |= Math.abs(overcastIrradianceOverPi[i] * skyDomeMultiplier - lastWeatherRadiance[i]) > WEATHER_UPDATE_DELTA;
         }
 
-        float domeIntensity = weather.intensity() * skyDomeMultiplier;
-        boolean needsUpdate = overcastDomeLightAsset == null
-                || Math.abs(weather.opacity() - lastWeatherOpacity) > WEATHER_UPDATE_DELTA
-                || Math.abs(domeIntensity - lastWeatherIntensity) > WEATHER_UPDATE_DELTA;
-
         if (needsUpdate) {
-            if (!ensureOvercastTexture(api)) {
-                return false;
-            }
-
             LightInfoDomeEXT domeExt = new LightInfoDomeEXT();
-            domeExt.setColorTexture(overcastTextureHandle);
+            domeExt.setColorTexture(overcastTexture.getHandle());
             domeExt.setOpacity(weather.opacity());
             domeExt.setBlendType(MaterialInfoOpaqueEXT.BLEND_TYPE_ALPHA);
+            for (int i = 0; i < 3; i++) lastWeatherRadiance[i] = overcastIrradianceOverPi[i] * skyDomeMultiplier;
             LightInfo lightInfo = LightInfo.builder()
-                    .radiance(domeIntensity, domeIntensity, domeIntensity)
+                    .radiance(lastWeatherRadiance[0], lastWeatherRadiance[1], lastWeatherRadiance[2])
                     .domeExt(domeExt)
                     .build();
 
@@ -387,39 +378,24 @@ public class SkyRenderer {
             }
 
             lastWeatherOpacity = weather.opacity();
-            lastWeatherIntensity = domeIntensity;
         }
 
-        if (overcastDomeLightAsset == null || !overcastDomeLightAsset.isAlive()) {
-            return false;
-        }
-        overcastDomeLightAsset.draw(api);
-        return true;
+        if (overcastDomeLightAsset.isAlive()) overcastDomeLightAsset.draw(api);
     }
 
-    private boolean ensureOvercastTexture(RemixAPI api) {
-        if (overcastTextureHandle != 0) {
-            return true;
+    private static KavoraTexture createOvercastTexture() {
+        ByteBuffer pixels = DirectBufferPool.acquire(OVERCAST_LATITUDES * 8);
+        short opaque = Float.floatToFloat16(1f);
+        for (int y = 0; y < OVERCAST_LATITUDES; y++) {
+            float elevation = (float) Math.cos(Math.PI * (y + 0.5) / OVERCAST_LATITUDES);
+            // Normalize the angular profile so its cosine-weighted mean equals one.
+            // The published RGB then represents the same E/pi as the sky reduction.
+            short radiance = Float.floatToFloat16((9f + 6f * Math.max(0f, elevation)) / 13f);
+            pixels.putShort(radiance).putShort(radiance).putShort(radiance).putShort(opaque);
         }
-        if (overcastInitializationFailed) {
-            return false;
-        }
-
-        String gameDirectory = Minecraft.getInstance()
-                .gameDirectory.getAbsolutePath();
-        String texturePath = gameDirectory + File.separator + OVERCAST_TEXTURE_DDS;
-        try {
-            overcastTextureHandle = api.createTextureFromFile(texturePath);
-            if (overcastTextureHandle == 0) {
-                throw new IllegalStateException("Remix returned a null texture handle");
-            }
-            LOGGER.info("Loaded overcast dome texture {}", texturePath);
-            return true;
-        } catch (RuntimeException e) {
-            overcastInitializationFailed = true;
-            LOGGER.error("Failed to load overcast dome texture {}; using atmospheric sky", texturePath, e);
-            return false;
-        }
+        pixels.flip();
+        return KavoraTextureStore.get().create(
+                new KavoraTexture(1, OVERCAST_LATITUDES, TextureFormat.RGBA16_SFLOAT, 0, pixels, true));
     }
 
     private void regenerateSkyTexture(
@@ -464,9 +440,6 @@ public class SkyRenderer {
                 throw new java.io.UncheckedIOException(e);
             }
         }
-        atmosphericMeanR = atmosphericMean[0];
-        atmosphericMeanG = atmosphericMean[1];
-        atmosphericMeanB = atmosphericMean[2];
 
         try (ProfileScope ignored =
                 ProfileScope.begin("Sky.Atmosphere.Upload")
@@ -501,7 +474,6 @@ public class SkyRenderer {
             destroyAsset(airScatteringLutAsset);
             airScatteringLutAsset = createAirTable(1, AtmosphericSkyGenerator.SCATTERING_WIDTH, AtmosphericSkyGenerator.SCATTERING_HEIGHT);
         }
-        atmosphericGenerator.describeAtmosphere(atmosphereInfo);
         atmosphereInfo.transmittanceLut = airTransmittanceLutAsset.getHandle();
         atmosphereInfo.scatteringLut = airScatteringLutAsset.getHandle();
         hasAtmosphericTransport = true;
@@ -536,16 +508,13 @@ public class SkyRenderer {
     private void publishCombinedSkyAmbient(
             RemixAPI api,
             float sunHeight,
-            WeatherDomeState weather) {
+            OvercastIllumination weather) {
         float multiplier = skyAmbientMultiplier(sunHeight);
         publishSkyAmbient(
                 api,
-                lerp(atmosphericMeanR, OVERCAST_MEAN_R * weather.intensity(), weather.opacity())
-                        * multiplier,
-                lerp(atmosphericMeanG, OVERCAST_MEAN_G * weather.intensity(), weather.opacity())
-                        * multiplier,
-                lerp(atmosphericMeanB, OVERCAST_MEAN_B * weather.intensity(), weather.opacity())
-                        * multiplier);
+                Mth.lerp(weather.opacity(), atmosphericMean[0], overcastIrradianceOverPi[0]) * multiplier,
+                Mth.lerp(weather.opacity(), atmosphericMean[1], overcastIrradianceOverPi[1]) * multiplier,
+                Mth.lerp(weather.opacity(), atmosphericMean[2], overcastIrradianceOverPi[2]) * multiplier);
     }
 
     /** Updates the sky ambient rect to this radiance and draws it; a black or disabled rect stays undrawn. */
@@ -597,34 +566,6 @@ public class SkyRenderer {
         }
     }
 
-    record WeatherDomeState(float opacity, float intensity) {
-        private static final WeatherDomeState CLEAR = new WeatherDomeState(0.0f, 0.0f);
-    }
-
-    static WeatherDomeState weatherDomeState(
-            float rainStrength,
-            float thunderStrength,
-            float rainIntensity,
-            float thunderIntensity) {
-        float rain = clamp01(rainStrength);
-        float thunder = clamp01(thunderStrength);
-        float opacity = lerp(rain, 1.0f, thunder);
-        float premultipliedIntensity = lerp(
-                rain * rainIntensity,
-                thunderIntensity,
-                thunder);
-        float intensity = opacity > 0.0f ? premultipliedIntensity / opacity : 0.0f;
-        return new WeatherDomeState(opacity, intensity);
-    }
-
-    private static float lerp(float from, float to, float amount) {
-        return from + (to - from) * clamp01(amount);
-    }
-
-    private static float clamp01(float value) {
-        return Math.max(0.0f, Math.min(1.0f, value));
-    }
-
     // ====================================================================
     //  Sun direction (shared with LightManager)
     // ====================================================================
@@ -650,16 +591,6 @@ public class SkyRenderer {
         celestialSky.close();
         releaseSkyLights();
         currentWorld = null;
-
-        if (overcastTextureHandle != 0) {
-            try {
-                api.destroyTexture(overcastTextureHandle);
-            } catch (RuntimeException e) {
-                LOGGER.warn("Failed to destroy overcast dome texture: {}", e.getMessage());
-            }
-        }
-        overcastTextureHandle = 0;
-        overcastInitializationFailed = false;
     }
 
     /**
@@ -684,14 +615,14 @@ public class SkyRenderer {
         transmittanceTexturePatch.pixelData = null;
         destroyAsset(overcastDomeLightAsset);
         overcastDomeLightAsset = null;
+        destroyAsset(overcastTexture);
+        overcastTexture = null;
         destroyAsset(skyAmbientRectLight);
         skyAmbientRectLight = null;
         lastWeatherOpacity = -1f;
-        lastWeatherIntensity = -1f;
         lastSkyDomeMultiplier = Float.NaN;
-        atmosphericMeanR = 0.0f;
-        atmosphericMeanG = 0.0f;
-        atmosphericMeanB = 0.0f;
+        lastAirWeather = OvercastIllumination.CLEAR;
+        java.util.Arrays.fill(atmosphericMean, 0f);
     }
 
     /** Releases world assets and process-lifetime atmospheric Vulkan resources. */

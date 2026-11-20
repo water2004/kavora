@@ -53,14 +53,14 @@ float fogSegmentDensity(VolumeArgs args, float3 fromWorld, float3 toWorld, float
   return heightFogBetween(args, fromWorld, toWorld);
 }
 
-float3 fogAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
+FogMedium fogOpticalDepth(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
   bool infinitelyDistant, float hitDistance, float3 origin, float3 direction, bool densityKnown, float density)
 {
   float3 fromWorld = camera == none ? origin : translatedWorldToWorld(camera.value, origin);
   float2 interval;
   if (!fogInterval(args, fromWorld, direction, infinitelyDistant ? floatMax : hitDistance, interval))
   {
-    return 1.0f;
+    return {};
   }
   fromWorld += direction * interval.x;
   float distance = interval.y - interval.x;
@@ -70,20 +70,20 @@ float3 fogAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
     density = fogSegmentDensity(args, fromWorld, toWorld, distance);
   }
   FogMedium medium = fogSegmentMedium(args, ValueNoiseSampler, fromWorld, toWorld, distance, density);
-  return evalBeerLambertAttenuation(medium.extinction, distance);
+  return { medium.extinction * distance, medium.scattering * distance };
 }
 
 float3 calcVolumetricAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
   bool infinitelyDistant, float hitDistance, float3 origin, float3 direction)
 {
-  return fogAttenuation(args, camera, infinitelyDistant, hitDistance, origin, direction, false, 0);
+  return exp(-fogOpticalDepth(args, camera, infinitelyDistant, hitDistance, origin, direction, false, 0).extinction);
 }
 
 // An explicit base density already includes the authored fog's height and noise field.
 float3 calcVolumetricAttenuation(VolumeArgs args, Optional<VolumeDefinitionCamera> camera,
   bool infinitelyDistant, float hitDistance, float3 origin, float3 direction, float density)
 {
-  return fogAttenuation(args, camera, infinitelyDistant, hitDistance, origin, direction, true, density);
+  return exp(-fogOpticalDepth(args, camera, infinitelyDistant, hitDistance, origin, direction, true, density).extinction);
 }
 
 struct SceneAtmosphereFog : IAtmosphereFog

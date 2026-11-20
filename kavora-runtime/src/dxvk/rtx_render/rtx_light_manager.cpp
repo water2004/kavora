@@ -876,7 +876,10 @@ namespace dxvk {
           && scattering->imageInfo().extent.width >= 2
           && scattering->imageInfo().extent.width == scattering->imageInfo().extent.height) {
         air.transmittanceExtent = { transmission->imageInfo().extent.width, transmission->imageInfo().extent.height };
-        air.scatteringSize = scattering->imageInfo().extent.width;
+        air.scatteringSize = static_cast<uint16_t>(scattering->imageInfo().extent.width);
+        air.tableSamplerIndex = sceneManager.trackSampler(ctx->getResourceManager().getSampler(
+          VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+          VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE));
         air.up = RtxOptions::zUp() ? Vector3(0, 0, 1) : Vector3(0, 1, 0);
         const float worldScale = RtxOptions::getMeterToWorldUnitScale();
         air.worldToKilometers = 0.001f / worldScale;

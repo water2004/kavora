@@ -143,8 +143,13 @@ SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 
     }
     if (isSky)
     {
-      irradiance.addRadiance(sanitize(sample.radiance * visibility.attenuation * volumeLightAttenuation(shadowRay)
-        / sample.solidAnglePdf, float3(0)), direction);
+      const FogMedium opticalDepth = fogOpticalDepth(cb.volumeArgs, none, true, shadowRay.tMax,
+        shadowRay.origin, direction, false, 0);
+      float3 mean, directional;
+      fogSkyBandTransmittance(opticalDepth, cb.volumeArgs.volumetricFogAnisotropy, mean, directional);
+      const float3 sky = sanitize(sample.radiance * visibility.attenuation / sample.solidAnglePdf, float3(0));
+      irradiance.addRadiance(sky * directional, direction);
+      irradiance.addRadiance(sky * (mean - directional), float3(0));
     }
     else
     {

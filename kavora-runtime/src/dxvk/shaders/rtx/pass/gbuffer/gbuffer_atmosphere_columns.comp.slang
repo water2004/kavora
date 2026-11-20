@@ -32,6 +32,9 @@ ConstantBuffer<GbufferPushConstants> push;
 #include "rtx/pass/gbuffer/primary_haze_cache.slangh"
 #include "rtx/algorithm/environment_radiance.slangh"
 #include "rtx/algorithm/scene_cloud_lighting.slangh"
+#ifndef CACHED_HAZE_BUILD
+#include "rtx/pass/gbuffer/cloud_column_history.slangh"
+#endif
 
 float4 columnEndpointDistances(uint2 begin, uint2 end, uint stride)
 {
@@ -146,19 +149,25 @@ void main(uint2 invocation : SV_DispatchThreadID)
     ? sampleCloudAmbientRadiance(cb.volumeArgs.clouds)
     : float3(0);
   AtmosphereSegment accumulated = emptyAtmosphereSegment();
+  CloudColumnHistory history = {};
+  history.offset = cloudColumnSampleOffset(column, cb.frameIdx);
   float previous = 0;
   for (uint endpoint = 0; endpoint < GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS; endpoint++)
   {
     const float next = distances[endpoint];
     if (next > previous)
     {
-      const AtmosphereSegment segment = integrateAtmosphereWithHaze(cb.volumeArgs, haze,
+      const AtmosphereSegment segment = integrateAtmosphereWithHaze(cb.volumeArgs, haze, history,
         CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
         sceneCloudLightingCache(), ray, previous, next, ambient, sceneAirTables(cb.volumeArgs.air, LinearWrapSampler));
       accumulated = composeAtmosphereSegments(accumulated, segment);
     }
     storeAtmosphereColumnEndpoint(column, endpoint, next, accumulated);
     previous = next;
+  }
+  if (cb.volumeArgs.clouds.enable)
+  {
+    history.store(column);
   }
 #endif
 }

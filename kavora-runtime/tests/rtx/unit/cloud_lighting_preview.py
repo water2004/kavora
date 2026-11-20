@@ -21,6 +21,9 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
     light_height = resolution // constant('CLOUD_LIGHTING_LIGHT_HEIGHT_DIVISOR')
     near_distance = clouds.get('lightingNearDistance', 0.0)
     packed_depth = resolution + (resolution // 2 if 0 < near_distance < clouds['lightMaxDistance'] else 0)
+    column_sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
+        mag_filter=spy.TextureFilteringMode.linear, address_u=spy.TextureAddressingMode.wrap,
+        address_v=spy.TextureAddressingMode.clamp_to_edge, address_w=spy.TextureAddressingMode.wrap)
     sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
                                     mag_filter=spy.TextureFilteringMode.linear,
                                     address_u=spy.TextureAddressingMode.clamp_to_edge,
@@ -101,7 +104,7 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
                     samples.append(time.monotonic() - started)
             else:
                 texture.copy_from_numpy(np.zeros((1, 1, 1, channels), np.float16))
-            view = texture.create_view(sampler=sampler)
+            view = texture.create_view(sampler=column_sampler if field == 'LocalLight' else sampler)
             resources.extend((texture, view))
             name = 'Cloud' + field
             result[name] = view.descriptor_handle_combined

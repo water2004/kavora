@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import slangpy as spy
 
-from test_cloud_transport import SHADERS, cloud_parameters
+from test_cloud_transport import SHADERS, cloud_parameters, cloud_weather_periods, weather_resolutions
 
 HERE = Path(__file__).resolve().parent
 
@@ -242,6 +242,27 @@ def main():
     extra_span = threshold_grids[0, 2] - threshold_grids[0, 1]
     assert sample_delta < 0.05 and 0 < extra_span < 0.1, threshold_grids
     report['integerBudgetCrossing'] = {'interiorSampleDelta': float(sample_delta), 'extraCellSpan': float(extra_span)}
+
+    # Test both the weather texel and the pixel cone as the limiting footprint.
+    # Moving across a high-cloud threshold must not resample the existing lit cells.
+    high_crossings = []
+    high_texel = view_args['shapeScale'] * cloud_weather_periods()[1] / weather_resolutions()[1]
+    for cone in (0.0, 0.01):
+        start = 12800.0
+        spacing = max(high_texel, cone * start) / 0.8
+        for cells in (1, 2, 3):
+            edge = start + cells * spacing
+            ends = np.array([edge - .01, edge + .01], dtype=np.float32)
+            grids = run('viewGrids', [[start, end, cone, 0] for end in ends],
+                        [[0.8, 0.6, 0, 1]] * 2, view_args)
+            np.testing.assert_array_equal(grids[:, 0], [cells, cells + 1])
+            np.testing.assert_array_equal(grids[:, 2], ends)
+            first_sample_delta = abs(grids[0, 3] - grids[1, 3])
+            added_span = grids[1, 2] - grids[1, 1]
+            assert first_sample_delta < 0.01 and 0 < added_span < 0.02, grids
+            high_crossings.append(float(first_sample_delta))
+    report['highCloudBudgetCrossings'] = {
+        'cases': len(high_crossings), 'maximumFirstSampleDelta': max(high_crossings)}
 
     # Phase terms depend only on the view ray and light directions, so the
     # hoisted helper must exactly match the former per-cell expression.

@@ -7,6 +7,7 @@ import "rtx/algorithm/fog_medium.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_sky.slang";
 import "rtx/algorithm/air_medium.slang";
 import "rtx/pass/volume_parameters.slang";
 
@@ -99,11 +100,13 @@ public struct ClearFogRadiance : IAtmosphereFogRadiance
 public float3 atmosphereTransmittance<Fog : IAtmosphereFog>(VolumeArgs args,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
   float3 origin, float3 direction, float distance,
-  float3 mediumExtinction = float3(0))
+  float3 mediumExtinction, AirTables airTables)
 {
+  const float2 interval = airInterval(args.air, origin, direction);
   return Fog.transmittance(args, origin, direction, distance)
-    * airTransmittance(args.air, origin, direction, distance)
-    * cloudTransmittance(args.clouds, origin, direction, distance, weather, base, detail)
+    * airTransmittance(args.air, airTables, origin, direction, interval, distance)
+    * cloudTransmittance(args.clouds, origin, direction, distance, weather, base, detail,
+        args.air.enable != 0 ? interval.y : floatMax)
     * volumeTransmittance(mediumExtinction, distance);
 }
 
@@ -156,12 +159,15 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   ray.cloudAngularFootprint = max(args.clouds.viewAngularFootprint, cloudAngularFootprint);
   float2 fog;
   const bool hasFog = Fog.interval(args, origin, direction, floatMax, fog);
+  ray.airInterval = airInterval(args.air, origin, direction);
+  const float cloudEnd = min(cloudHemisphereEnd(args.clouds, origin, direction),
+    args.air.enable != 0 ? ray.airInterval.y : floatMax);
   ray.hasCloud = false;
   [unroll]
   for (uint i = 0; i < 4; i++)
   {
     const uint layer = i / 2;
-    const float2 cloud = cloudLayerInterval(args.clouds, origin, direction, cloudLayerMaxDistance(args.clouds, layer), layer, i % 2);
+    const float2 cloud = cloudLayerInterval(args.clouds, origin, direction, cloudEnd, layer, i % 2);
     ray.cloudIntervals[i] = cloud;
     ray.hasCloud = ray.hasCloud || cloud.y > cloud.x;
   }
@@ -194,7 +200,6 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   }
   ray.fogInterval = fog;
   ray.froxelInterval = cache;
-  ray.airInterval = airInterval(args.air, origin, direction);
   ray.airPhase = {};
   ray.cloudPhase = {};
   if (ray.airInterval.y > ray.airInterval.x)
@@ -229,10 +234,10 @@ AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosp
   const float airEnd = min(limit, airGrid.interval.y);
   if (airEnd > max(rangeBegin, airGrid.interval.x))
   {
-    airOptics = createAirOpticalDepthRay(args.air, origin, direction, float2(airGrid.interval.x, airEnd));
+    airOptics = createAirOpticalDepthRay(args.air, airTables, origin, direction, float2(ray.airInterval.x, airEnd));
     if (rangeBegin > airGrid.interval.x)
     {
-      previousAirDepth = airOptics.prefix(args.air, direction, rangeBegin);
+      previousAirDepth = airOptics.prefix(args.air, airTables, direction, rangeBegin);
     }
   }
   float previousEnd = rangeBegin;
@@ -320,7 +325,7 @@ AtmosphereSegment integrateHazeRange<Fog : IAtmosphereFog, FogRadiance : IAtmosp
       float3 airExtinction = 0;
       if (airActive && length > 0)
       {
-        const float3 opticalDepth = airOptics.prefix(args.air, direction, next);
+        const float3 opticalDepth = airOptics.prefix(args.air, airTables, direction, next);
         airExtinction = max(0.0f, opticalDepth - previousAirDepth) / length;
         previousAirDepth = opticalDepth;
         source += airMedium.source * airExtinction;
@@ -382,7 +387,22 @@ public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmo
   }
 };
 
-public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze>(VolumeArgs args, Haze haze,
+// Primary columns own view history. World-space probes and secondary rays integrate
+// the same cloud transport without sampling screen-space data.
+public interface ICloudViewHistory
+{
+  float sampleOffset(float3 direction);
+  [mutating] void resolve(uint shell, AtmosphereRay ray, inout float depth, inout AtmosphereSegment cloud);
+};
+
+struct CurrentCloudView : ICloudViewHistory
+{
+  float sampleOffset(float3 direction) { return cloudViewSampleOffset(direction); }
+  [mutating] void resolve(uint shell, AtmosphereRay ray, inout float depth, inout AtmosphereSegment cloud) {}
+};
+
+public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze, History : ICloudViewHistory>(
+  VolumeArgs args, Haze haze, inout History history,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
@@ -421,13 +441,20 @@ public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze>(Vol
       CloudViewTransfer cloud = CloudViewTransfer(ray.eye, layer, cloudAmbient,
         cloudLighting, ray.cloudPhase, weather, base, detail);
       marchCloudView(args.clouds, ray.origin, ray.direction, layer, interval, float2(nearestStart, end),
-        ray.cloudAngularFootprint, weather, base, detail, cloud);
-      if (cloud.moments.y == 0)
+        ray.cloudAngularFootprint, weather, base, detail, cloud, history.sampleOffset(ray.direction));
+      depth = cloud.moments.y > 0.0f ? clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end)
+        : 0.5f * (nearestStart + end);
+      clouds = { cloud.radiance, cloud.transmission.xxx, cloud.moments };
+      // A terrain endpoint inside a shell represents only a prefix. Never reuse
+      // a whole-layer history for that prefix or for its remaining segment.
+      if (nearestStart == interval.x && end == interval.y)
+      {
+        history.resolve(nearest, ray, depth, clouds);
+      }
+      if (clouds.cloudMoments.y == 0.0f)
       {
         continue;
       }
-      depth = clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end);
-      clouds = { cloud.radiance, cloud.transmission.xxx, cloud.moments };
     }
     result = composeAtmosphereSegments(result, haze.range(args, ray, previous, depth, airTables));
     result = composeAtmosphereSegments(result, clouds);
@@ -445,7 +472,8 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
-  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance, Visibility>(fogRadiance),
+  CurrentCloudView history = {};
+  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance, Visibility>(fogRadiance), history,
     weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 

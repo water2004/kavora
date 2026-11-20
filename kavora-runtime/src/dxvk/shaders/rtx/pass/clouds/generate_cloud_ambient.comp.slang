@@ -17,14 +17,25 @@ groupshared float3 AmbientSum[256];
 
 [shader("compute")]
 [numthreads(256, 1, 1)]
-void main(uint lane : SV_GroupIndex)
+void main(uint lane : SV_GroupIndex, uint3 group : SV_GroupID)
 {
   const CloudAmbientQuadrature quadrature = createCloudAmbientQuadrature(cb.volumeArgs.clouds);
   float3 radiance = 0;
-  for (uint index = lane; index < kCloudAmbientSampleCount; index += 256)
+  const bool exterior = group.x == kExteriorAmbientTexel || !cb.volumeArgs.clouds.enable;
+  if (exterior)
   {
-    const float4 sample = quadrature.sample(index);
-    radiance += sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, SkySampler, sample.xyz) * sample.w;
+    // Mean upper boundary before cloud transport. The lower hemisphere
+    // receives ground reflection, not a copy of the exterior sky.
+    const float3 direction = quadrature.direction(lane, (float(lane) + 0.5f) / 256.0f);
+    radiance = sampleIndirectEnvironmentRadiance(direction, SkyProbe, SkySampler) / 256.0f;
+  }
+  else
+  {
+    for (uint index = lane; index < kCloudAmbientSampleCount; index += 256)
+    {
+      const float4 sample = quadrature.sample(index);
+      radiance += sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, SkyProbe, SkySampler, sample.xyz) * sample.w;
+    }
   }
   AmbientSum[lane] = radiance;
   GroupMemoryBarrierWithGroupSync();
@@ -38,6 +49,6 @@ void main(uint lane : SV_GroupIndex)
   }
   if (lane == 0)
   {
-    CloudAmbientOutput[uint2(0)] = float4(AmbientSum[0], 1);
+    CloudAmbientOutput[uint2(exterior ? kExteriorAmbientTexel : 0, 0)] = float4(AmbientSum[0], 1);
   }
 }

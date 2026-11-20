@@ -393,7 +393,7 @@ def copyRuntimeConfigTask = tasks.register('copyRuntimeConfig') {
 def runtimeTexturesDir = 'runtime/textures'
 // Packman and repository-owned textures are staged together into <gameDir>/textures/.
 // NativeExtractor installs these textures from the distributable JAR.
-def runtimeTextureFiles = ['overcast_thunderstorm_bc6u.dds', 'water_normals_flipbook.dds']
+def runtimeTextureFiles = ['water_normals_flipbook.dds']
 def ownedRuntimeTexturesDir = 'packaging/runtime-textures'
 def ownedRuntimeTextureFiles = ['milky_way.dds']
 def fetchRuntimeTexturesTask = tasks.register('fetchRuntimeTextures', Exec) {
@@ -451,7 +451,7 @@ def verifyOwnedRuntimeTexturesTask = tasks.register('verifyOwnedRuntimeTextures'
 
 def syncRuntimeTexturesTask = tasks.register('syncRuntimeTextures', Sync) {
     dependsOn fetchRuntimeTexturesTask, verifyOwnedRuntimeTexturesTask
-    from runtimeTexturesDir
+    from(runtimeTexturesDir) { include runtimeTextureFiles }
     from(ownedRuntimeTexturesDir) { include ownedRuntimeTextureFiles }
     into 'run/textures'
 }

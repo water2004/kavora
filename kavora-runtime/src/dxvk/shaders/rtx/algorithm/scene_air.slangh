@@ -3,11 +3,13 @@
 #pragma once
 
 import "rtx/algorithm/air_medium.slang";
+import "rtx/algorithm/cloud_sky.slang";
 import "rtx/pass/air_parameters.slang";
 
 AirTables sceneAirTables(AirArgs args, SamplerState sampler)
 {
   const uint transmission = args.enable ? args.transmittanceTextureIndex : 0;
   const uint scattering = args.enable ? args.scatteringTextureIndex : 0;
-  return { textures[transmission], textures[scattering], sampler };
+  const float3 exterior = args.enable ? CloudAmbientInput.Load(int3(kExteriorAmbientTexel, 0, 0)).rgb : float3(0);
+  return { textures[transmission], textures[scattering], sampler, exterior };
 }

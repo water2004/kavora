@@ -30,6 +30,18 @@ across the remaining cloud intervals, and the cached depth moment is projected
 back onto the original ray. Fog lighting combines the same transfer with the
 near atmosphere. Finite light paths resolve in world space.
 
+Primary low-cloud columns combine the current quadrature observation with the
+two previous raw observations. Each 12-byte record contains premultiplied
+radiance, opacity and signed centroid distance. Each frame stores its projection
+and displacement in a 48-byte header so both observations can be sampled directly.
+Each observation undergoes at most one spatial interpolation. An empty observation
+of a complete shell contributes zero opacity and radiance. A tap from the same
+shell arc loses weight in proportion to its reprojection error in column pixels.
+The sampling sequence belongs to the column and is independent of camera jitter.
+High clouds use the current deterministic height and density integral.
+Clipped terrain prefixes, newly visible pixels and camera cuts use the current
+integral. Haze composes after this step at the filtered extinction centroid.
+
 Air attenuation uses absolute optical-depth prefixes from a finite Chapman
 approximation. Segment extinction comes from the difference between successive
 prefixes. Radiance uses eight cells per air interval, with the source sampled
@@ -48,8 +60,9 @@ positions and density footprints. A cell samples the HanPi density field once,
 including billow and wisp erosion where the body can contribute.
 A high cloud's coverage sets its vertical band. Altocumulus cells thin that band
 and reduce density at the edges. Altostratus uses the same band with a weaker
-cell effect. Uniform view segments integrate the band's smooth edges exactly
-in height. A vertical ray can cover the high shell with one cell.
+cell effect. High-cloud spacing follows the projected weather texel and pixel
+footprint. Each cell integrates the band's smooth edges in height, and a vertical
+ray can cover the high shell with one cell.
 
 The shared density field samples separate satellite-derived low and elevated
 weather maps, a radial RGB profile LUT and four erosion bands. The offline

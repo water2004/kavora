@@ -81,6 +81,9 @@ namespace dxvk {
 
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PATH_STORAGE)
         RW_STRUCTURED_BUFFER(GBUFFER_BINDING_PATH_QUEUE)
+        STRUCTURED_BUFFER(GBUFFER_BINDING_PREVIOUS_CLOUD_COLUMNS)
+        STRUCTURED_BUFFER(GBUFFER_BINDING_OLDER_CLOUD_COLUMNS)
+        RW_STRUCTURED_BUFFER(GBUFFER_BINDING_CURRENT_CLOUD_COLUMNS)
         { GBUFFER_BINDING_FG_FOREGROUND_GUIDE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_IMAGE_VIEW_TYPE_2D,
           VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT },
         SAMPLER(GBUFFER_BINDING_LINEAR_WRAP_SAMPLER)
@@ -615,6 +618,18 @@ namespace dxvk {
     };
     const uint32_t atmosphereStride = atmosphereColumnStride(volume);
     const uint32_t hazeStride = hazeColumnStride(volume);
+    if (volume.clouds.enable) {
+      const VkDeviceSize bytes = (columnCount(atmosphereStride) + GBUFFER_CLOUD_HEADER_RECORDS)
+        * GBUFFER_CLOUD_RECORD_WORDS * sizeof(uint32_t);
+      for (auto& history : m_cloudHistory) {
+        ensureBuffer(history, bytes, "Primary cloud column history", false);
+      }
+    } else {
+      for (auto& history : m_cloudHistory) {
+        history = nullptr;
+      }
+      m_cloudHistoryStride = 0;
+    }
     const VkDeviceSize hazeWords = atmosphereStride < hazeStride
       ? columnCount(hazeStride) * GBUFFER_HAZE_COLUMN_ENDPOINTS * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS : 0;
     const VkDeviceSize atmosphereWords = volume.enable || volume.clouds.enable || volume.air.enable
@@ -937,6 +952,34 @@ namespace dxvk {
     const bool hasAtmosphere = volume.enable || volume.clouds.enable || volume.air.enable;
     ensurePathBuffers(rayDims, volume);
     ctx->bindResourceBuffer(GBUFFER_BINDING_PATH_STORAGE, DxvkBufferSlice(m_pathStorage, 0, m_pathStorage->info().size));
+    if (worldSpaceClouds) {
+      const uint32_t frameId = device()->getCurrentFrameId();
+      const bool consecutive = m_cloudHistoryFrame + 1 == frameId
+        && m_cloudHistoryResolution.width == rayDims.width && m_cloudHistoryResolution.height == rayDims.height
+        && m_cloudHistoryStride == atmosphereStride && !volume.resetHistory
+        && std::abs(m_previousCloudNight - volume.clouds.night) < 0.1f
+        && std::abs(m_previousCloudWeather - volume.clouds.weather) < 0.1f
+        && std::abs(m_previousCloudThunder - volume.clouds.thunder) < 0.1f;
+      pushArgs.cloudHistoryCount = consecutive ? std::min(m_cloudHistoryCount + 1, 2u) : 0u;
+      m_cloudHistoryCount = pushArgs.cloudHistoryCount;
+      const uint32_t current = m_cloudHistoryWrite;
+      const uint32_t older = (current + 1) % 3;
+      const uint32_t previous = (current + 2) % 3;
+      ctx->bindResourceBuffer(GBUFFER_BINDING_PREVIOUS_CLOUD_COLUMNS, DxvkBufferSlice(m_cloudHistory[previous]));
+      ctx->bindResourceBuffer(GBUFFER_BINDING_OLDER_CLOUD_COLUMNS, DxvkBufferSlice(m_cloudHistory[older]));
+      ctx->bindResourceBuffer(GBUFFER_BINDING_CURRENT_CLOUD_COLUMNS, DxvkBufferSlice(m_cloudHistory[current]));
+      m_cloudHistoryWrite = older;
+      m_cloudHistoryFrame = frameId;
+      m_cloudHistoryResolution = { rayDims.width, rayDims.height };
+      m_cloudHistoryStride = atmosphereStride;
+      m_previousCloudNight = volume.clouds.night;
+      m_previousCloudWeather = volume.clouds.weather;
+      m_previousCloudThunder = volume.clouds.thunder;
+    } else {
+      ctx->bindResourceBuffer(GBUFFER_BINDING_PREVIOUS_CLOUD_COLUMNS, {});
+      ctx->bindResourceBuffer(GBUFFER_BINDING_OLDER_CLOUD_COLUMNS, {});
+      ctx->bindResourceBuffer(GBUFFER_BINDING_CURRENT_CLOUD_COLUMNS, {});
+    }
     if (hasAtmosphere) {
       // Primary consumes the atmospheric transfers and motion guides before PSR reuses the storage.
       ScopedGpuCommandStreamZone(ctx, "Primary Atmosphere");

@@ -73,12 +73,12 @@ class Probe:
             data=np.zeros((1, 1, 1, 2), np.float32))
         self.vertical_depth_view = self.vertical_depth.create_view(sampler=device.create_sampler())
 
-    def run(self, entry, inputs, directions=None, clouds=None, textures=None):
+    def run(self, entry, inputs, directions=None, clouds=None, textures=None, output_records=1):
         data = np.ascontiguousarray(inputs, dtype=np.float32).reshape(-1, 4)
         if entry not in self.kernels:
             program = self.device.load_program("cloud_transport_contracts.comp.slang", [entry])
             self.kernels[entry] = self.device.create_compute_kernel(program)
-        output = self.device.create_buffer(element_count=len(data), struct_size=16,
+        output = self.device.create_buffer(element_count=len(data) * output_records, struct_size=16,
                                            usage=spy.BufferUsage.unordered_access)
         bindings = {
             "Inputs": self.device.create_buffer(data=data, usage=spy.BufferUsage.shader_resource),
@@ -103,6 +103,76 @@ class Probe:
         return output.to_numpy().view(np.float32).reshape(-1, 4)
 
 
+def check_column_history(probe):
+    old = [[131072, 0.5, 0, 0]] * 7
+    current = [[depth, parallax, weight, 0] for depth, parallax, weight in (
+        (131072, 1, 1), (131072, 1, 1), (131072, 1, .25), (-131072, 0, 1),
+        (65536, 2, 1), (65536, 0, 1), (65536, 1, 1))]
+    result = probe.run("columnHistory", old, current)
+    expected = np.outer([1, 1, .25, 0, 0, 1, .5], [2, 4, 8, 1])
+    np.testing.assert_allclose(result, expected, atol=1e-5)
+    print("PASS cloud observation: bilinear support, shell sides and parallax rejection")
+
+
+def check_air_skylight(probe):
+    column = probe.device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rg32_float,
+        width=1, height=1, depth=1, usage=spy.TextureUsage.shader_resource,
+        data=np.array([[[[2, 6]]]], np.float32))
+    view = column.create_view(sampler=probe.device.create_sampler())
+    clouds = cloud_parameters(groundAlbedo=0)
+    origins = [[0, 0, 0, 0], [0, 1100, 0, 0], [0, 3000, 0, 0], [24000, 0, 0, 0]]
+    spectrum = np.array([.5, 1, 2, 0])
+    actual = probe.run("airSkylight", origins, [spectrum] * 4, clouds, {"VerticalDepth": view})
+    d = 1 / np.sqrt(3)
+    reduced_depth = 1 - .5 * (clouds["anisotropy"] - .25)
+    below = np.array([0, 6, 8, 0]) * reduced_depth
+    weights = (d + below) / (2 * d + 8 * reduced_depth)
+    np.testing.assert_allclose(actual, weights[:, None] * spectrum, atol=2e-5)
+    # In the gap between two equal columns the upper and lower optical
+    # depths match. A perfectly reflecting floor returns the full field.
+    gap = probe.run("airSkylight", [origins[2]], [spectrum],
+                    cloud_parameters(groundAlbedo=0, highExtinction=.01), {"VerticalDepth": view})
+    np.testing.assert_allclose(gap[0], .5 * spectrum, atol=2e-5)
+    bright = probe.run("airSkylight", origins, [spectrum] * 4,
+                       cloud_parameters(groundAlbedo=1), {"VerticalDepth": view})
+    np.testing.assert_allclose(bright, np.broadcast_to(spectrum, bright.shape), atol=2e-5)
+    print("PASS air receives transmitted, interior and reflected skylight on the correct sides of a cloud")
+
+
+def check_weather_column_coordinates(probe):
+    uv = [[.003, .992, 500., 0], [.957, .12, 6200., 1], [.49, .52, 1100., 0]]
+    for z_up in (False, True):
+        up = [0, 0, 1] if z_up else [0, 1, 0]
+        clouds = cloud_parameters(up=up, groundReference=[8591., 0., 0.], windOffset=[-60300., 0., 755.])
+        period = clouds["shapeScale"] * cloud_weather_periods()[0]
+        across = [0., period if z_up else 0., 0. if z_up else period, 0.]
+        coords = probe.run("columnCoordinates", uv, [[0., 0., 0., 0.], across, [-period, 0., 0., 0.]], clouds)
+        np.testing.assert_allclose(coords[:, :2], np.asarray(uv)[:, :2], atol=1e-6)
+        np.testing.assert_allclose(coords[:, 2], np.asarray(uv)[:, 2], atol=.005)
+    print("PASS baked weather columns return to their texel across tile edges, wind offsets and both up axes")
+
+
+def check_column_noise(probe, textures):
+    rng = np.random.default_rng(225)
+    count = 512
+    origins = np.zeros((count, 4), dtype=np.float32)
+    origins[:, [0, 2]] = rng.uniform(-30000, 30000, (count, 2))
+    directions = rng.normal(size=(count, 3))
+    directions[:, 1] = rng.uniform(.2, 1, count)
+    directions /= np.linalg.norm(directions, axis=1)[:, None]
+    args = cloud_parameters(steps=24, viewAngularFootprint=.002, maxDistance=24000.)
+    samples = probe.run("stationaryColumnNoise", origins, np.column_stack([directions, np.zeros(count)]),
+                        args, textures, output_records=2)
+    data = samples[::2]
+    edges = data[(data[:, 0] > .05) & (data[:, 0] < .95)]
+    assert len(edges) >= 16
+    before, after = np.sqrt(edges[:, 2:].mean(axis=0))
+    mean_shift = abs((edges[:, 0] - edges[:, 1]).mean())
+    assert 0 < after < before and mean_shift < .02
+    print(f"PASS {len(edges)} partly cloudy fixed rays at 24 steps: temporal opacity RMS "
+          f"{before:.5f} -> {after:.5f}, mean opacity shift {mean_shift:.5f}")
+
+
 def check_homogeneous(probe):
     samples = np.array([(sigma, 100.0, 0.93, steps)
                         for sigma in (0.0, 1e-4, 0.01, 0.2)
@@ -113,6 +183,28 @@ def check_homogeneous(probe):
                                 transmission])
     np.testing.assert_allclose(actual, expected, atol=3e-5, rtol=5e-4)
     print("PASS homogeneous Beer integration: 16 density/subdivision cases")
+
+
+def check_cloud_silhouettes(probe, textures):
+    # Neighboring view columns at low elevation through the same weather field.
+    # Only rays that switch between empty and occupied samples exercise this bug.
+    azimuth = (np.arange(96) * .003 + np.arange(4)[:, None] * (np.pi / 2)).ravel()
+    azimuth, elevation = np.meshgrid(azimuth, .09 + np.arange(24) * .003)
+    directions = np.stack([np.cos(elevation) * np.cos(azimuth), np.sin(elevation),
+                           np.cos(elevation) * np.sin(azimuth), np.zeros_like(azimuth)], axis=-1).reshape(-1, 4)
+    args = cloud_parameters(steps=24, viewAngularFootprint=.003, maxDistance=24000.)
+    samples = probe.run("stationaryColumnNoise", np.zeros_like(directions), directions, args, textures,
+                        output_records=2)
+    misses, reference = samples[1::2, :2].T
+    edge = (misses > 0) & (misses < 32) & (reference > .01)
+    assert edge.sum() >= 32, "fixture must cover intermittent silhouettes"
+    moments = samples[::2][edge]
+    error = moments[:, 2:] + (moments[:, :2] - reference[edge, None]) ** 2
+    raw, filtered = np.sqrt(error.mean(axis=0))
+    bias = (moments[:, 1] - reference[edge]).mean()
+    assert filtered < .5 * raw and abs(bias) < .01, (raw, filtered, bias)
+    print(f"PASS {edge.sum()} intermittent silhouette columns, fixed 24-step march: "
+          f"opacity RMSE {raw:.5f} -> {filtered:.5f} vs independent phases, mean error {bias:+.5f}")
 
 
 def shell_interval(clouds, origin, direction, limit):
@@ -599,6 +691,31 @@ def check_high_column_transmission(probe, textures):
           f"maximum Beer-law error {np.max(np.abs(actual - expected)):.7f}")
 
 
+def check_distant_storm_horizon(probe, textures):
+    # Horizontal rays from the ground reach this shell well beyond either detail budget.
+    clouds = cloud_parameters(baseHeight=800.0, coverage=.85, weather=1., thunder=1., extinction=.03)
+    y = -58.
+    radius = clouds["planetRadius"]
+    entry, exit_distance = (np.sqrt((h - y) * (2 * radius + h + y))
+                            for h in (800., 800. + clouds["thickness"]))
+    angle = np.linspace(0., 2 * np.pi, 32, endpoint=False)
+    directions = np.column_stack((np.cos(angle), np.zeros_like(angle), np.sin(angle), np.zeros_like(angle)))
+    def transmission(distance, detail_range, extinction=.03):
+        rays = np.tile([0., y, 0., distance], (len(angle), 1))
+        params = clouds | {"maxDistance": detail_range, "extinction": extinction}
+        return probe.run("viewTransmission", rays, directions, params, textures)[:, 0]
+    np.testing.assert_array_equal(transmission(entry - 10., 24000.), 1.)
+    full = transmission(exit_distance + 10., 24000.)
+    assert np.median(full) < .1, "Overcast shell disappeared beyond the resolved cloud range"
+    np.testing.assert_allclose(full, transmission(exit_distance + 10., 48000.), atol=2e-5)
+    # A translucent column also exercises a meaningful, unsaturated prefix.
+    middle = transmission(.5 * (entry + exit_distance), 24000., .00003)
+    assert np.any((middle > .05) & (middle < .95))
+    np.testing.assert_allclose(transmission(exit_distance + 10., 24000., .00003), middle ** 2, atol=2e-5)
+    print(f"PASS storm horizon at {entry / 1000:.1f} km: foreground is clear, "
+          f"median cloud transmission {np.median(full):.5f} at both detail ranges")
+
+
 def high_column_reference(origin, direction, base, thickness, extinction, distance, radius):
     """Integrate a constant horizontal field between spherical profile knots."""
     origin = np.asarray(origin, np.float64)
@@ -744,13 +861,19 @@ def main():
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
     probe = Probe(device)
     check_morphology_configuration()
+    check_column_history(probe)
+    check_air_skylight(probe)
+    check_weather_column_coordinates(probe)
     check_homogeneous(probe)
     check_intervals(probe)
     check_layer_intervals(probe)
     check_light_profiles(probe)
     textures = cloud_textures(device, args.dump)
+    check_column_noise(probe, textures)
+    check_cloud_silhouettes(probe, textures)
     check_density(probe, textures, args.dump)
     check_horizon_cloud_openings(probe, textures)
+    check_distant_storm_horizon(probe, textures)
     check_low_wind_wrap(probe, textures)
     from test_cloud_morphology import check_family_periodicity, check_erosion_seams
     fixtures = cloud_parameters()

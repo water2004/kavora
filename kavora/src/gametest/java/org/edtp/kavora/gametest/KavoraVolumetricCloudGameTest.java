@@ -70,6 +70,22 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 player.getAbilities().flying = true;
                 player.onUpdateAbilities();
             });
+            if (Boolean.getBoolean("kavora.gametest.overcastOnly")) {
+                captureOvercast(context, world);
+                return;
+            }
+            if (Boolean.getBoolean("kavora.gametest.highAltitudeSun")) {
+                context.runOnClient(client -> {
+                    if (!client.gui.hud.isHidden()) client.gui.hud.toggle();
+                });
+                setCloudsEnabled(context, true);
+                setWeather(context, world, "clear");
+                Path image = captureCelestialView(context, world, 7000, "clear", "high-altitude-sun", 6000, false);
+                Path lowSun = captureCelestialView(context, world, 7000, "clear", "low-sun", 12750, false);
+                requireClearSolarView(image);
+                requireWarmerLowSun(image, lowSun);
+                return;
+            }
             setClock(context, world, 6000);
             context.runOnClient(client -> {
                 var api = KavoraMod.renderer.getRemixApi();
@@ -729,7 +745,103 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
                 && Math.abs(client.player.getXRot() - pitch) < 0.1, 200);
     }
 
-    private static void captureCelestialView(ClientGameTestContext context, TestSingleplayerContext world,
+    private static void captureOvercast(ClientGameTestContext context, TestSingleplayerContext world) {
+        context.runOnClient(client -> {
+            if (!client.gui.hud.isHidden()) client.gui.hud.toggle();
+            KavoraMod.renderer.getCloudRenderer().setProceduralClouds(true);
+        });
+        setCloudsEnabled(context, true);
+        setClock(context, world, 6000);
+        world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                "fill -9 -61 -9 9 -61 22 minecraft:smooth_quartz"));
+        pose(context, world, 0, -60, -4, 25, 0);
+        for (String weather : List.of("clear", "rain", "thunder")) {
+            setWeather(context, world, weather);
+            waitPresentedFrames(context, 48);
+            logFogProfile(context, weather);
+            captureSkyBeforePrecipitation(context, "overcast-" + weather + "-sky");
+            KavoraWorldGameTest.requireVisibleWorld(
+                    KavoraWorldGameTest.captureCompletedFrame(context, "overcast-" + weather));
+        }
+        captureTransmittance(context, "overcast-thunder-horizon-transmission");
+        world.getServer().runOnServer(server ->
+                server.getPlayerList().getPlayers().getFirst().setGameMode(GameType.SPECTATOR));
+        pose(context, world, 0, 1600, -4, 25, 18);
+        waitPresentedFrames(context, 48);
+        KavoraWorldGameTest.require(context.computeOnClient(client -> Math.abs(client.player.getY() - 1600) < 0.01),
+                "Overcast high-altitude camera moved");
+        captureSkyBeforePrecipitation(context, "overcast-thunder-aerial-sky");
+        KavoraWorldGameTest.requireVisibleWorld(
+                KavoraWorldGameTest.captureCompletedFrame(context, "overcast-thunder-aerial"));
+        // The 1600 m camera can be inside the cumulus field. Inspect its upper surface
+        // from the clear gap between the actual low and high layer settings as well.
+        double aboveLow = context.computeOnClient(client -> {
+            double top = cloudValue("worldBaseHeightMeters") + cloudValue("altitudeOffsetMeters")
+                    + cloudValue("thicknessMeters");
+            return (top + Math.max(top + 1000.0, cloudValue("highAltitudeMeters"))) * .5;
+        });
+        pose(context, world, 0, aboveLow, -4, 25, 35);
+        waitPresentedFrames(context, 48);
+        captureSkyBeforePrecipitation(context, "overcast-thunder-above-clouds-sky");
+
+        // The level is flat at -60. At this pitch the centre ray crosses
+        // ground height hundreds of blocks beyond the client's two chunks.
+        setWeather(context, world, "clear");
+        setClock(context, world, 24500);
+        world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
+                "fillbiome -8 64 -12 8 71 4 minecraft:forest"));
+        pose(context, world, 0, 65, -4, 25, 11);
+        context.waitFor(client -> Double.parseDouble(KavoraMod.renderer.getRemixApi()
+                .getConfigVariableResolved("rtx.volumetrics.groundMistExtinctionPerMeter")) > 0.001, 300);
+        waitPresentedFrames(context, 48);
+        logFogProfile(context, "dawn-mist");
+        captureSkyBeforePrecipitation(context, "dawn-mist-missing-terrain");
+        boolean automatic = context.computeOnClient(client -> KavoraMod.renderer.getConfLayerDriver().isAutomaticMist());
+        try {
+            context.runOnClient(client -> KavoraMod.renderer.getConfLayerDriver().setAutomaticMist(false));
+            context.waitFor(client -> Double.parseDouble(KavoraMod.renderer.getRemixApi()
+                    .getConfigVariableResolved("rtx.volumetrics.groundMistExtinctionPerMeter")) < 0.0001, 300);
+            waitPresentedFrames(context, 48);
+            captureSkyBeforePrecipitation(context, "dawn-no-mist-missing-terrain");
+        } finally {
+            context.runOnClient(client -> KavoraMod.renderer.getConfLayerDriver().setAutomaticMist(automatic));
+        }
+    }
+
+    private static void logFogProfile(ClientGameTestContext context, String weather) {
+        context.runOnClient(client -> {
+            var api = KavoraMod.renderer.getRemixApi();
+            System.out.printf("Fog profile %s: enabled=%s finite=%s range=%s transmission=%s mist=%s fade=%s..%s%n", weather,
+                    api.getConfigVariableResolved("rtx.volumetrics.enable"),
+                    api.getConfigVariableResolved("rtx.volumetrics.enableAtmosphere"),
+                    api.getConfigVariableResolved("rtx.volumetrics.transmittanceMeasurementDistanceMeters"),
+                    api.getConfigVariableResolved("rtx.volumetrics.transmittanceColor"),
+                    api.getConfigVariableResolved("rtx.volumetrics.groundMistExtinctionPerMeter"),
+                    api.getConfigVariableResolved("rtx.viewDistance.distanceFadeMin"),
+                    api.getConfigVariableResolved("rtx.viewDistance.distanceFadeMax"));
+        });
+    }
+
+    private static void captureSkyBeforePrecipitation(ClientGameTestContext context, String name) {
+        CompletableFuture<Path> capture = new CompletableFuture<>();
+        context.runOnClient(client -> KavoraFrameProbe.beforePrecipitation = () -> {
+            Path destination = client.gameDirectory.toPath().resolve("screenshots")
+                    .resolve("remix-world-" + name + ".png");
+            KavoraWorldGameTest.captureTarget(client.gameRenderer.mainRenderTarget(), destination)
+                    .whenComplete((path, error) -> {
+                        if (error == null) capture.complete(path);
+                        else capture.completeExceptionally(error);
+                    });
+        });
+        try {
+            context.waitFor(client -> capture.isDone(), 100);
+            KavoraWorldGameTest.requireVisibleWorld(capture.join());
+        } finally {
+            context.runOnClient(client -> KavoraFrameProbe.beforePrecipitation = null);
+        }
+    }
+
+    private static Path captureCelestialView(ClientGameTestContext context, TestSingleplayerContext world,
                                             double height, String weather, String phase, long ticks, boolean moon) {
         setClock(context, world, ticks);
         waitPresentedFrames(context, 8);
@@ -741,7 +853,87 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         float pitch = (float) -Math.toDegrees(Math.atan2(direction[1], Math.hypot(direction[0], direction[2])));
         pose(context, world, 0, height, 0, yaw, pitch);
         waitPresentedFrames(context, 16);
-        KavoraWorldGameTest.captureCompletedFrame(context, "clouds-" + weather + "-" + phase);
+        return KavoraWorldGameTest.captureCompletedFrame(context, "clouds-" + weather + "-" + phase);
+    }
+
+    private static void requireClearSolarView(Path screenshot) {
+        try {
+            var image = ImageIO.read(screenshot.toFile());
+            int centerX = image.getWidth() / 2, centerY = image.getHeight() / 2;
+            int bright = 0;
+            for (int y = centerY - 4; y <= centerY + 4; y++) {
+                for (int x = centerX - 4; x <= centerX + 4; x++) {
+                    int rgb = image.getRGB(x, y);
+                    if ((rgb >> 16 & 255) >= 220 && (rgb >> 8 & 255) >= 220 && (rgb & 255) >= 210) bright++;
+                }
+            }
+            KavoraWorldGameTest.require(bright >= 73, "High-altitude solar core is dim: " + screenshot);
+            // Locate the resolved edge of the eight-texel vanilla disc above the sky.
+            int halfDisc = 0;
+            while (centerX + halfDisc < image.getWidth()) {
+                int rgb = image.getRGB(centerX + halfDisc, centerY);
+                if ((rgb >> 16 & 255) < 180) break;
+                halfDisc++;
+            }
+            // Use the disc edge, not the extent of the soft glow around it.
+            int edge = 1;
+            int greatestFall = 0;
+            for (int x = 1; x < halfDisc; x++) {
+                int fall = (image.getRGB(centerX + x - 1, centerY) >> 16 & 255)
+                        - (image.getRGB(centerX + x, centerY) >> 16 & 255);
+                if (fall > greatestFall) {
+                    greatestFall = fall;
+                    edge = x;
+                }
+            }
+            int rim = Math.round(edge * 0.875f);
+            for (int dx : new int[] {-rim, rim}) {
+                for (int dy : new int[] {-rim, 0, rim}) {
+                    int rgb = image.getRGB(centerX + dx, centerY + dy);
+                    KavoraWorldGameTest.require((rgb >> 16 & 255) >= 215 && (rgb >> 8 & 255) >= 215,
+                            "Solar disc has lost its square outline: " + screenshot);
+                }
+            }
+            // The clear sky beyond the disc must remain blue all the way around it.
+            // A baked sprite halo amplified as direct sunlight turns this region yellow.
+            int radius = image.getHeight() / 3;
+            for (int[] offset : new int[][] {{-radius, 0}, {radius, 0}, {0, -radius}, {0, radius}}) {
+                int rgb = image.getRGB(centerX + offset[0], centerY + offset[1]);
+                KavoraWorldGameTest.require((rgb & 255) > (rgb >> 16 & 255),
+                        "High-altitude sky is discolored around the solar disc: " + screenshot);
+            }
+            int sky = image.getRGB(centerX + radius, centerY);
+            int near = image.getRGB(centerX + 2 * edge, centerY);
+            KavoraWorldGameTest.require((near >> 16 & 255) - (sky >> 16 & 255) >= 35,
+                    "Daylight glare is confined to the solar sprite: " + screenshot);
+            KavoraWorldGameTest.require((near & 255) + 5 >= (sky & 255),
+                    "Daylight glare forms a dirty yellow ring in the blue sky: " + screenshot);
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private static void requireWarmerLowSun(Path high, Path low) {
+        try {
+            var day = ImageIO.read(high.toFile());
+            var dusk = ImageIO.read(low.toFile());
+            // The core and inner rim clip on SDR. Read the resolved glare on both
+            // sides above the disc centre, clear of the low sun's cloud horizon.
+            int cx = day.getWidth() / 2, cy = day.getHeight() / 2;
+            int radius = 0;
+            while (cx + radius < day.getWidth() && (day.getRGB(cx + radius, cy) >> 16 & 255) >= 240) radius++;
+            KavoraWorldGameTest.require(radius > 0 && radius < day.getWidth() / 4, "Missing resolved daylight disc: " + high);
+            for (int side : new int[] {-1, 1}) {
+                int x = cx + side * (3 * radius / 2), y = cy - radius / 2;
+                int a = day.getRGB(x, y), b = dusk.getRGB(x, y);
+                int dayRed = a >> 16 & 255, duskRed = b >> 16 & 255;
+                KavoraWorldGameTest.require(dayRed > 0 && dayRed < 245 && duskRed > 100 && duskRed < 245
+                        && (b & 255) / (double) duskRed + 0.05 < (a & 255) / (double) dayRed,
+                        "Low-sun glare did not redden along the longer air path: " + low);
+            }
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
     }
 
     private static void captureMotion(ClientGameTestContext context, TestSingleplayerContext world) {

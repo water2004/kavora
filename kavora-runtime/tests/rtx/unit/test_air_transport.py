@@ -89,7 +89,7 @@ class Probe:
         self.keep.append(weather)
         trans = texture(np.ones((2, 2, 4)), 2)
         scatter = texture(np.zeros((2, 2, 4)), 2)
-        volume = texture(np.zeros((1, 1, 1, 4)), 3)
+        volume = texture(np.array([[[[0., 0., 0., 1.]]]]), 3)
         chroma = texture(np.zeros((1, 1, 1, 2)), 3)
         self.bindings = {"Transmission": trans.descriptor_handle_ro,
                          "Scattering": scatter.descriptor_handle_ro,
@@ -99,7 +99,28 @@ class Probe:
                          "CloudDepth": volume.descriptor_handle_combined,
                          "Chroma": chroma.descriptor_handle_combined}
 
-    def run(self, entry, args, origins, directions, medium_extinction=(0, 0, 0)):
+    def bake_transmission(self, args, width=512, height=256):
+        # Independent double-precision integral along each spherical ray, in kilometres.
+        radius, top, sea = args["innerRadius"], args["atmosphereHeight"], args["lowerDepth"]
+        v = np.linspace(-1, 1, height)[:, None]
+        h = sea + v * abs(v) * np.where(v < 0, sea, top - sea)
+        rho = np.sqrt(h * (2 * radius + h))
+        d = top - h + np.linspace(0, 1, width) * (rho + np.sqrt(top * (2 * radius + top)) - (top - h))
+        along = ((top - h) * (2 * radius + top + h) - d*d) / (2 * np.maximum(d, 1e-30))
+        mass = np.zeros((height, width, 2))
+        nodes, weights = np.polynomial.legendre.leggauss(96)
+        for node, weight in zip(nodes, weights):
+            t = (node + 1) * d * .5
+            altitude = np.sqrt((radius + h)**2 + t * (2 * along + t)) - radius
+            for i, scale in enumerate((args["rayleighHeight"], args["mieHeight"])):
+                mass[..., i] += weight * np.exp((sea - altitude) / scale)
+        tau = (mass[..., :1] * args["rayleighExtinction"] + mass[..., 1:] * args["mieExtinction"]) * d[..., None] * .5
+        data = np.ones((height, width, 4), np.float32)
+        data[..., :3] = np.exp(-tau)
+        self.bindings["Transmission"] = self.texture2d(data).descriptor_handle_ro
+        args["transmittanceExtent"] = [width, height]
+
+    def run(self, entry, args, origins, directions, medium_extinction=(0, 0, 0), diffuse_boundary=(0, 0, 0)):
         origins = np.asarray(origins, np.float32).reshape(-1, 4)
         directions = np.asarray(directions, np.float32).reshape(-1, 4)
         if entry not in self.kernels:
@@ -115,12 +136,33 @@ class Probe:
         if transport:
             bindings.update(self.bindings)
             bindings["MediumExtinction"] = list(medium_extinction)
+            bindings["DiffuseBoundary"] = list(diffuse_boundary)
+        elif entry == "fogSky":
+            bindings.update({key: self.bindings[key] for key in ("Volume", "Chroma")})
         self.kernels[entry].dispatch(thread_count=[len(origins), 1, 1], vars=bindings)
         return output.to_numpy().view(np.float32).reshape(len(origins), stride, 4)
 
 
 def main():
     probe = Probe()
+    optical = [[8, 8, .5, 0], [8, 8, .5, 0], [8, 0, .5, 0], [8, 8, .5, 0]]
+    rays = [[0, 0, 0, 64], [0, 0, 0, 2048], [0, 0, 0, 256], [4, 0, 0, 2048]]
+    fog = probe.run("fogSky", parameters(), optical, rays)[:, 0]
+    np.testing.assert_allclose(fog[:, 0], [1, 1, np.exp(-8), 1], rtol=1e-5)
+    np.testing.assert_allclose(fog[:, 1], np.exp([-4, -4, -8, -4]), rtol=1e-5)
+    np.testing.assert_array_equal(fog[:3, 2], np.ones(3))
+    assert fog[3, 2] == 0
+    print("PASS fog sky angular transport, absorption, and measured in-frustum radiance across the cache boundary")
+    origins = [[2000, 64, -3000, end] for end in (16, 1e8, 1e8, 1e8)]
+    origins.append([2000, 5000, -3000, 1e8])
+    rays = [[1, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [0, -1, 0, 0], [0, 1, 0, 0]]
+    intervals = probe.run("weatherIntervals", parameters(), origins, rays)[:, 0]
+    np.testing.assert_array_equal(intervals[:4, 0], 0)
+    np.testing.assert_array_equal(intervals[:4, 2], 1)
+    assert intervals[0, 1] == 16 and intervals[1, 1] > 100_000
+    np.testing.assert_allclose(intervals[2:4, 1], [2000 - 64, 12001], atol=1)
+    assert intervals[4, 2] == 0
+    print("PASS weather layer clips at terrain, cloudward exit and deep-air boundary; long horizon rays exceed calibration distance")
     # Both view segments are far shorter than the first atmospheric quadrature cell.
     # Only the first lies under the roof. Diffuse sky light still reaches both.
     origins = [[0, 80, 0, 16], [64, 80, 0, 16]]
@@ -234,11 +276,55 @@ def main():
     print(f"PASS {len(actual)} air-source and independent absorbing-medium RTE cases")
 
     exponential = parameters()
+    probe.bake_transmission(exponential)
+    # A vertical ray to space at sea level has a known per-channel column density.
+    vertical = probe.run("integrate", exponential, [[2000, 63, -3000, 200000]], [[0, 1, 0, .5]])
+    thickness = exponential["atmosphereHeight"] - exponential["lowerDepth"]
+    rayleigh, mie = exponential["rayleighHeight"], exponential["mieHeight"]
+    tau = (np.array(exponential["rayleighExtinction"]) * rayleigh * -np.expm1(-thickness / rayleigh)
+           + exponential["mieExtinction"] * mie * -np.expm1(-thickness / mie))
+    np.testing.assert_allclose(vertical[0, 4, :3], np.exp(-tau), atol=4e-4)
+    # Compare the full RGB transmission at the player's height with ray quadrature
+    # at both noon and dusk, including a ray that crosses its closest approach.
+    angles = np.radians([85., 30., 5., 1., 0., -1.])
+    directions = np.column_stack((np.cos(angles), np.sin(angles), np.zeros_like(angles), np.full_like(angles, .5)))
+    origins = np.tile([2000., 7000., -3000., 2e6], (len(angles), 1))
+    actual = probe.run("integrate", exponential, origins, directions)[:, 4, :3]
+    heights = (origins[:, 1] - 63.) * exponential["worldToKilometers"]
+    r = exponential["innerRadius"] + exponential["lowerDepth"] + heights
+    distance = np.array([shell_reference(exponential, o[:3], d[:3])[1]
+                         for o, d in zip(origins, directions)]) * exponential["worldToKilometers"]
+    nodes, weights = np.polynomial.legendre.leggauss(128)
+    t = .5 * distance[:, None] * (1. + nodes)
+    alt = np.sqrt(r[:, None]**2 + t * (2 * r[:, None] * np.sin(angles[:, None]) + t))
+    alt -= exponential["innerRadius"] + exponential["lowerDepth"]
+    rayleigh = (np.exp(-alt / exponential["rayleighHeight"]) @ weights) * .5 * distance
+    mie = (np.exp(-alt / exponential["mieHeight"]) @ weights) * .5 * distance
+    expected = np.exp(-rayleigh[:, None] * exponential["rayleighExtinction"]
+                      - mie[:, None] * exponential["mieExtinction"])
+    np.testing.assert_allclose(actual, expected, atol=.002)
+    print("PASS sea-level and high-altitude RGB solar transmission against quadrature")
     actual = probe.run("integrate", exponential, selected_origins, selected_rays)
     np.testing.assert_allclose(actual[:, 2, :3], actual[:, 0, :3], rtol=5e-5, atol=3e-6)
     np.testing.assert_allclose(actual[:, 3, :3], actual[:, 1, :3], rtol=5e-5, atol=3e-6)
     np.testing.assert_allclose(actual[:, 4, :3], actual[:, 1, :3], rtol=5e-5, atol=3e-6)
     print(f"PASS {len(actual)} exponential-density prefix/tail and standalone-transmission matches")
+
+    rays = [[1, 0, 0, .001], [1, 0, 0, .5]]
+    origins = [[2000, 63, -3000, 200000]] * 2
+    conservative = parameters(mieAlbedo=1.)
+    for light in conservative["lights"]:
+        light["irradiance"] = [0., 0., 0.]
+    probe.bake_transmission(conservative)
+    exterior = np.array([.6, .8, 1.])
+    dark = probe.run("integrate", conservative, origins, rays)
+    lit = probe.run("integrate", conservative, origins, rays, diffuse_boundary=exterior)
+    for source, transmission in [(0, 1), (2, 3)]:
+        np.testing.assert_allclose(dark[:, source, :3], 0., atol=2e-6)
+        observed = lit[:, source, :3] + lit[:, transmission, :3] * exterior
+        np.testing.assert_allclose(observed, np.broadcast_to(exterior, observed.shape), atol=3e-5)
+        np.testing.assert_allclose(lit[:, transmission, :3], dark[:, 4, :3], atol=3e-5)
+    print("PASS diffuse exterior illumination preserves equilibrium and RGB optical depth across segment splits")
 
 
 if __name__ == "__main__":

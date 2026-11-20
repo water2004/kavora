@@ -154,6 +154,12 @@
 #define GBUFFER_BINDING_PATH_STORAGE 158
 #define GBUFFER_BINDING_PATH_QUEUE 160
 #define GBUFFER_BINDING_FG_FOREGROUND_GUIDE 161
+#define GBUFFER_BINDING_PREVIOUS_CLOUD_COLUMNS 162
+#define GBUFFER_BINDING_CURRENT_CLOUD_COLUMNS 163
+#define GBUFFER_BINDING_OLDER_CLOUD_COLUMNS 164
+// Three projection basis vectors and the per-frame camera/wind displacement.
+#define GBUFFER_CLOUD_HEADER_RECORDS 4
+#define GBUFFER_CLOUD_RECORD_WORDS 3
 #define GBUFFER_PSR_STATE_WORDS 19
 #define GBUFFER_PRIMARY_ATMOSPHERE_WORDS 7
 #define GBUFFER_PRIMARY_TAIL_WORDS 7
@@ -177,4 +183,5 @@ struct GbufferPushConstants
   uint dispatchOffsetY;
   uint psrInputOffset;
   uint psrOutputOffset;
+  uint cloudHistoryCount;
 };

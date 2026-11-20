@@ -1,0 +1,108 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
+// SPDX-License-Identifier: MIT
+#pragma once
+
+import "rtx/concept/camera/camera.slang";
+import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
+
+layout(binding = GBUFFER_BINDING_PREVIOUS_CLOUD_COLUMNS) StructuredBuffer<uint3> PreviousCloudColumns;
+layout(binding = GBUFFER_BINDING_OLDER_CLOUD_COLUMNS) StructuredBuffer<uint3> OlderCloudColumns;
+layout(binding = GBUFFER_BINDING_CURRENT_CLOUD_COLUMNS) RWStructuredBuffer<uint3> CurrentCloudColumns;
+
+float3 cloudFrameDisplacement()
+{
+  return (cameraGetWorldPosition(cb.camera) - cameraGetPreviousWorldPosition(cb.camera))
+    + cb.volumeArgs.clouds.previousWindDelta;
+}
+
+float3 previousCloudClip(float3 relativePosition)
+{
+  return mul(cb.camera.prevWorldToProjectionJittered, float4(relativePosition, 0)).xyw;
+}
+
+void gatherCloudObservation(StructuredBuffer<uint3> columns, float3 clip, float3 motion,
+  AtmosphereRay ray, float depth, float side, inout CloudHistoryGather gather)
+{
+  if (clip.z <= 0 || any(abs(clip.xy) > clip.z))
+  {
+    return;
+  }
+  const float2 uv = cameraNDCToScreenUV(cb.camera, clip.xy / clip.z);
+  const uint2 extent = atmosphereColumnExtent();
+  const float2 coordinate = uv * cb.camera.resolution / float(atmosphereColumnStride()) - 0.5f;
+  const int2 base = int2(floor(coordinate));
+  const float2 fraction = frac(coordinate);
+  const float3 relative = ray.direction * depth + motion;
+  const float previousDepth = length(relative);
+  const float cosine = dot(ray.direction, relative) / previousDepth;
+  const float parallax = length(cross(ray.direction, motion)) / max(previousDepth * ray.cloudAngularFootprint, 1e-6f);
+  [unroll]
+  for (uint tap = 0; tap < 4; ++tap)
+  {
+    const int2 delta = int2(tap & 1, tap >> 1);
+    const int2 p = base + delta;
+    if (any(p < 0) || any(p >= int2(extent)))
+    {
+      continue;
+    }
+    const float2 w = select(delta == 0, 1.0f - fraction, fraction);
+    const uint3 entry = columns[GBUFFER_CLOUD_HEADER_RECORDS + p.y * extent.x + p.x];
+    gather.add(entry, side * previousDepth, parallax, w.x * w.y, cosine);
+  }
+}
+
+struct CloudColumnHistory : ICloudViewHistory
+{
+  uint3 observation;
+  float offset;
+
+  float sampleOffset(float3 direction) { return offset; }
+
+  [mutating] void resolve(uint shell, AtmosphereRay ray, inout float depth, inout AtmosphereSegment cloud)
+  {
+    // Only the low cloud quadrature is jittered. The high layer has a
+    // deterministic midpoint integral and needs no temporal reconstruction.
+    if (shell >= 2 || observation.z != 0)
+    {
+      return;
+    }
+    const float side = shell == 0 ? 1.0f : -1.0f;
+    const float4 current = float4(cloud.radiance, cloud.cloudMoments.y);
+    observation = CloudHistoryGather.encode(current, side * depth);
+    if (push.cloudHistoryCount == 0)
+    {
+      return;
+    }
+    CloudHistoryGather gather = {};
+    const float3 motion = cloudFrameDisplacement();
+    const float3 position = ray.direction * depth + motion;
+    gatherCloudObservation(PreviousCloudColumns, previousCloudClip(position), motion, ray, depth, side, gather);
+    if (push.cloudHistoryCount == 2)
+    {
+      const float3 displacement = asfloat(PreviousCloudColumns[3]);
+      const float3 older = position + displacement;
+      const float3 clip = older.x * asfloat(PreviousCloudColumns[0]) + older.y * asfloat(PreviousCloudColumns[1])
+        + older.z * asfloat(PreviousCloudColumns[2]);
+      gatherCloudObservation(OlderCloudColumns, clip, motion + displacement, ray, depth, side, gather);
+    }
+    const float4 transfer = gather.resolve(current, depth, ray.cloudIntervals[shell]);
+    cloud.radiance = transfer.rgb;
+    cloud.transmittance = (1.0f - transfer.w).xxx;
+    cloud.cloudMoments = float2(depth / cloudMaxViewDistance(cb.volumeArgs.clouds) * transfer.w, transfer.w);
+  }
+
+  void store(uint2 column)
+  {
+    if (all(column == 0))
+    {
+      // The next frame uses this transform to locate the older observation.
+      // Summing frame-relative displacements also survives a shifted world origin.
+      CurrentCloudColumns[0] = asuint(previousCloudClip(float3(1, 0, 0)));
+      CurrentCloudColumns[1] = asuint(previousCloudClip(float3(0, 1, 0)));
+      CurrentCloudColumns[2] = asuint(previousCloudClip(float3(0, 0, 1)));
+      CurrentCloudColumns[3] = asuint(cloudFrameDisplacement());
+    }
+    CurrentCloudColumns[GBUFFER_CLOUD_HEADER_RECORDS + column.y * atmosphereColumnExtent().x + column.x] = observation;
+  }
+};

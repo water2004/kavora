@@ -107,8 +107,8 @@ final class AtmosphericSkyGenerator {
         destination.put(transportTables[index].duplicate()).flip();
     }
 
-    /** Publishes the optical model and the light state of the completed sky, in world coordinates. */
-    void describeAtmosphere(LightInfoAtmosphereEXT air) {
+    /** Publishes the optical model and the celestial beams incident on the local air. */
+    void describeAtmosphere(LightInfoAtmosphereEXT air, OvercastIllumination weather) {
         air.seaLevelMeters = completedSkyParameters.getFloat(72);
         air.innerRadius = (float) SkyAtmosphere.INNER_RADIUS;
         air.lowerDepth = (float) SkyAtmosphere.LOWER_DEPTH;
@@ -123,10 +123,11 @@ final class AtmosphericSkyGenerator {
         air.mieAnisotropy = completedSkyParameters.getFloat(64);
         for (int light = 0; light < 2; light++) {
             int start = light * 4;
+            float beam = light == 0 ? weather.sunBeam() : weather.moonBeam();
             for (int channel = 0; channel < 4; channel++) {
                 float direction = completedSkyParameters.getFloat(light * 16 + channel * 4);
                 air.lightDirections[start + channel] = channel == 0 ? -direction : direction;
-                air.lightIrradiances[start + channel] = completedSkyParameters.getFloat(32 + light * 16 + channel * 4);
+                air.lightIrradiances[start + channel] = beam * completedSkyParameters.getFloat(32 + light * 16 + channel * 4);
             }
         }
     }
@@ -198,10 +199,9 @@ final class AtmosphericSkyGenerator {
     }
 
     private void putIrradiance(int offset, float[] source) {
-        // The runtime's distant-light input is irradiance divided by pi.
-        skyParameters.putFloat(offset, source[0] * (float) Math.PI);
-        skyParameters.putFloat(offset + 4, source[1] * (float) Math.PI);
-        skyParameters.putFloat(offset + 8, source[2] * (float) Math.PI);
+        skyParameters.putFloat(offset, SkyLightState.irradiance(source[0]));
+        skyParameters.putFloat(offset + 4, SkyLightState.irradiance(source[1]));
+        skyParameters.putFloat(offset + 8, SkyLightState.irradiance(source[2]));
         skyParameters.putFloat(offset + 12, 0.0f);
     }
 

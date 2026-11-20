@@ -201,7 +201,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
     VolumeArgs volume = {};
     volume.clouds = Clouds;
     volume.air = Air;
-    const AirTables tables = { Texture2D<float4>(AirTransmission), Texture2D<float4>(AirScattering), SamplerState(AirSampler) };
+    const AirTables tables = { Texture2D<float4>(AirTransmission), Texture2D<float4>(AirScattering), SamplerState(AirSampler), float3(0) };
     const AtmosphereRay ray = createAtmosphereRay<PreviewFog>(volume, origin, direction);
     const AtmosphereSegment result = integrateAtmosphereRange<PreviewFog, UnobstructedAir>(volume, base, Sampler3D<float2>(FogChroma),
       weather, base, detail,
@@ -282,6 +282,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
 #else
       const float heightFootprint = cloudHeightFootprint(Clouds, position, direction, cellSpan, pixelFootprint);
 #endif
+#if defined(CLOUD_PREVIEW_HAS_LAYER_EXTINCTION)
+      const float extinction = cloudLayerExtinction(Clouds, position, nearest / 2, weather, base, detail, footprint, heightFootprint);
+#else
       const float extinction = Projection == 1
         ? cloudExtinction(Clouds, position, weather, base, detail, footprint, heightFootprint)
         : cloudViewExtinction(Clouds, position, distance,
@@ -289,6 +292,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             nearest / 2,
 #endif
             weather, base, detail, footprint, heightFootprint);
+#endif
       opticalDepth += extinction * (next - previous);
       if (Radiance != 0 && extinction > 0)
       {

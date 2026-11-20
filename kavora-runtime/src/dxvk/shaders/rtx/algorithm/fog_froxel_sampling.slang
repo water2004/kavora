@@ -31,3 +31,10 @@ public bool fogFroxelContains(float3 uvw)
 {
   return all(uvw > 0) && all(uvw < 1);
 }
+
+// Depth projection saturates to one past the far face. Continue its measured
+// incident field along that direction while the physical fog still has support.
+public bool fogFroxelBeyondFarFace(float3 uvw)
+{
+  return uvw.z == 1.0f && all(uvw.xy > 0.0f) && all(uvw.xy < 1.0f);
+}

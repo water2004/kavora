@@ -3,6 +3,7 @@ module fog_medium;
 
 import "rtx/pass/volume_parameters.slang";
 import "rtx/utility/value_noise_sampling.slang";
+import "rtx/algorithm/air_medium.slang";
 
 #include "rtx/utility/height_fog.h"
 #include "rtx/utility/shader_types.slangh"
@@ -11,6 +12,16 @@ public struct FogMedium {
   public float3 extinction;
   public float3 scattering;
 };
+
+// Angular transport of an extended sky through homogeneous fog, projected
+// onto the same two SH bands as the light cache. The HG scattering operator
+// has eigenvalues 1 and g. Absorption damps both bands, while scattering
+// redistributes directional radiance without removing its angular mean.
+public void fogSkyBandTransmittance(FogMedium opticalDepth, float g, out float3 mean, out float3 directional)
+{
+  mean = exp(-max(0.0f, opticalDepth.extinction - opticalDepth.scattering));
+  directional = exp(-max(0.0f, opticalDepth.extinction - g * opticalDepth.scattering));
+}
 
 public float heightFogBetween(VolumeArgs args, float3 fromWorld, float3 toWorld)
 {
@@ -30,6 +41,11 @@ public bool fogInterval(VolumeArgs args, float3 origin, float3 direction, float 
     if (discriminant <= 0) return false;
     float radius = sqrt(discriminant);
     interval = float2(max(0.0f, -projection - radius), min(distance, -projection + radius));
+    if (args.air.enable)
+    {
+      const float2 air = airInterval(args.air, origin, direction);
+      interval = float2(max(interval.x, air.x), min(interval.y, air.y));
+    }
   }
   return interval.y > interval.x;
 }

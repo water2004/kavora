@@ -2,6 +2,7 @@
 #pragma once
 
 import "rtx/algorithm/air_medium.slang";
+import "rtx/algorithm/clouds.slang";
 import "rtx/concept/camera/camera.slang";
 #include "rtx/algorithm/air_shadow_grid.slangh"
 
@@ -10,6 +11,12 @@ Texture2DArray<float> AirShadowDepth;
 
 struct SceneAirVisibility : IAirLightVisibility
 {
+  static float3 diffuseIncident(float3 exterior, float3 position)
+  {
+    if (!any(exterior > 0)) return 0;
+    return cloudDiffuseAirIllumination(cb.volumeArgs.clouds, CloudLocalLightSampler, position, exterior);
+  }
+
   static float visibility(AirArgs args, uint index, float3 position)
   {
     const AirShadowGrid grid = AirShadowGrid(args, index);

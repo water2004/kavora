@@ -88,7 +88,7 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   const float bottom = cloudLayerBase(args, layer);
   const float thickness = cloudLayerTop(args, layer) - bottom;
   const float2 uv = (float2(index) + 0.5f) / float(CLOUD_LOCAL_LIGHT_RESOLUTION);
-  const float3 center = cloudLocalLightPosition(args, uv, bottom + 0.5f * thickness, layer);
+  const float3 center = cloudLocalLightPosition(args, uv, bottom + 0.5f * thickness);
   const CloudLocalColumn column = prepareCloudLocalColumn(args, layer, center, weather, base, detail);
   for (uint y = 0; y < samples; y++)
   {

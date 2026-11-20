@@ -63,7 +63,6 @@ def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, migration: Moc
         "packaging/rtx.conf": b"runtime defaults",
         "packaging/rtx-remix/mods/minecraft-logic/weather/rain.conf": b"shipped rain",
         "packaging/runtime-textures/milky_way.dds": b"milky way",
-        "runtime/textures/overcast_thunderstorm_bc6u.dds": b"overcast texture",
         "runtime/textures/water_normals_flipbook.dds": b"water normals",
     }
     for arch in ("win64", "arm64"):
@@ -135,7 +134,6 @@ def test_install_stages_complete_development_payload(installation, capsys, arch)
         "rtx-remix/mods/minecraft-logic/weather/rain.conf": b"shipped rain",
         "rtx-remix/mods/custom/zones/castle.conf": b"author zone",
         "textures/milky_way.dds": b"milky way",
-        "textures/overcast_thunderstorm_bc6u.dds": b"overcast texture",
         "textures/water_normals_flipbook.dds": b"water normals",
         "textures/custom.dds": b"author texture",
         "resourcepacks/rtx-remix-labpbr/custom.txt": b"custom pack file",
@@ -220,7 +218,7 @@ def test_install_checks_prerequisites_before_changing_game(installation, migrati
     elif missing == "texture file":
         (project / "runtime/textures/water_normals_flipbook.dds").unlink()
     elif missing == "empty texture":
-        (project / "runtime/textures/overcast_thunderstorm_bc6u.dds").write_bytes(b"")
+        (project / "runtime/textures/water_normals_flipbook.dds").write_bytes(b"")
     else:
         for jar in (project / "build/libs").glob("*.jar"):
             if "-sources" not in jar.name.lower():
@@ -247,7 +245,7 @@ def test_install_checks_prerequisites_before_changing_game(installation, migrati
         assert "water_normals_flipbook.dds" in output
         assert "fetchRuntimeTextures" in output
     elif missing == "empty texture":
-        assert "overcast_thunderstorm_bc6u.dds" in output
+        assert "water_normals_flipbook.dds" in output
         assert "fetchRuntimeTextures" in output
     else:
         assert "ERROR: no mod jar found in build\\libs\\." in output

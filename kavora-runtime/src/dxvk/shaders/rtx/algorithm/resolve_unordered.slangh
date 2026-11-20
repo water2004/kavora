@@ -35,6 +35,7 @@ import "rtx/utility/quaternion.slang";
 #include "rtx/utility/math.slangh"
 #include "rtx/utility/packing.slangh"
 import "rtx/algorithm/atmosphere.slang";
+#include "rtx/algorithm/scene_air.slangh"
 
 #ifndef GBUFFER_FEATURE_OBJECT_PICKING
 #define GBUFFER_FEATURE_OBJECT_PICKING 1
@@ -393,7 +394,8 @@ float resolveVertexUnorderedParticles<
     }
 
     float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance,
+      mediumExtinction, sceneAirTables(cb.volumeArgs.air, samplers[uint(cb.volumeArgs.air.tableSamplerIndex)]));
 
     float w = oitDepthWeight(rayHitInfo.hitDistance, ray.tMax);
 
@@ -812,7 +814,8 @@ void resolveVertexUnordered<
       }
 
       float3 volumeAttenuation = atmosphereTransmittance<SceneAtmosphereFog>(cb.volumeArgs,
-        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance, mediumExtinction);
+        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, ray.origin, ray.direction, rayHitInfo.hitDistance,
+        mediumExtinction, sceneAirTables(cb.volumeArgs.air, samplers[uint(cb.volumeArgs.air.tableSamplerIndex)]));
 
       // depth weight for this hit
       float w = oitDepthWeight(rayHitInfo.hitDistance, ray.tMax);

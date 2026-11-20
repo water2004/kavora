@@ -5,8 +5,6 @@
 package org.edtp.kavora.light;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -29,93 +27,41 @@ class LightManagerSkyLightStateTest {
         }
     }
 
-    @ParameterizedTest
-    @CsvSource({
-            "1.0, -1.0, 3.0",
-            "-1.0, 1.0, 0.06"
-    })
-    void weatherDomeRadiancePreservesAuthoredSourceScale(
-            float sunHeight, float moonHeight, float expected) {
-        LightManager.SkyLightState state = state(
-                new float[]{0.0f, sunHeight, 0.0f},
-                new float[]{0.0f, moonHeight, 0.0f},
-                new float[]{30.0f, 30.0f, 30.0f},
-                new float[]{0.6f, 0.6f, 0.6f});
-
-        assertEquals(expected, state.weatherDomeRadiance(), 1.0e-6f);
-    }
 
     @Test
-    void weatherInterpolatesDirectLightsWithoutReducingDomeSource() {
-        float clearSun = LightManager.weatherSunDirectScale(0.0f, 0.0f);
-        float rainSun = LightManager.weatherSunDirectScale(1.0f, 0.0f);
-        float thunderSun = LightManager.weatherSunDirectScale(1.0f, 1.0f);
-        float clearMoon = LightManager.weatherMoonDirectScale(0.0f, 0.0f);
-        float rainMoon = LightManager.weatherMoonDirectScale(1.0f, 0.0f);
-        float thunderMoon = LightManager.weatherMoonDirectScale(1.0f, 1.0f);
-
-        assertEquals(1.0f, clearSun, 1.0e-6f);
-        assertEquals(0.0025f, rainSun, 1.0e-6f);
-        assertEquals(0.001f, thunderSun, 1.0e-6f);
-        assertEquals(1.0f, clearMoon, 1.0e-6f);
-        assertEquals(0.375f, rainMoon, 1.0e-6f);
-        assertEquals(0.625f, thunderMoon, 1.0e-6f);
-        assertEquals(
-                (clearSun + rainSun) * 0.5f,
-                LightManager.weatherSunDirectScale(0.5f, 0.0f),
-                1.0e-6f);
-        assertEquals(
-                (rainSun + thunderSun) * 0.5f,
-                LightManager.weatherSunDirectScale(1.0f, 0.5f),
-                1.0e-6f);
-        assertEquals(
-                (clearMoon + rainMoon) * 0.5f,
-                LightManager.weatherMoonDirectScale(0.5f, 0.0f),
-                1.0e-6f);
-        assertEquals(
-                (rainMoon + thunderMoon) * 0.5f,
-                LightManager.weatherMoonDirectScale(1.0f, 0.5f),
-                1.0e-6f);
-    }
-
-    private static LightManager.SkyLightState state(
-            float[] sunPosition,
-            float[] moonPosition,
-            float[] sunSource,
-            float[] moonSource) {
-        return new LightManager.SkyLightState(
-                sunPosition,
-                moonPosition,
-                sunSource,
-                moonSource,
-                new float[3],
-                new float[3],
-                new float[3],
-                new float[3],
-                0.0f,
-                0.0f);
-    }
-
-    @Test
-    void cloudIncidenceUsesClearAirAtTheCloudLayer() {
+    void cloudIncidenceUsesAirAtTheCloudLayerIndependentlyOfTheCamera() {
         var clear = LightManager.evaluateSkyLightState(0f, .5f, 0, 0f, 0f, 64f, 320f);
         var rainy = LightManager.evaluateSkyLightState(0f, .5f, 0, 1f, 0f, 64f, 320f);
         var higherCamera = LightManager.evaluateSkyLightState(0f, .5f, 0, 1f, 0f, 192f, 320f);
         assertTrue(clear.sunCloudRadiance()[0] > clear.sunDirectRadiance()[0]);
-        assertArrayEquals(clear.sunDirectRadiance(), rainy.sunDirectRadiance());
-        assertArrayEquals(clear.sunCloudRadiance(), rainy.sunCloudRadiance());
-        assertArrayEquals(clear.sunCloudRadiance(), higherCamera.sunCloudRadiance());
+        assertTrue(clear.sunCloudRadiance()[0] > rainy.sunCloudRadiance()[0]);
+        assertArrayEquals(rainy.sunCloudRadiance(), higherCamera.sunCloudRadiance());
     }
 
     @Test
-    void proceduralCloudsOwnRainAndThunderExtinctionForBothCelestialLights() {
+    void theSurfaceAndEveryCloudAltitudeReceiveTheSameWeatherBeam() {
+        float[] heights = {320f, 1820f, 6000f, 6900f};
         for (float time : new float[]{0f, .24f, .5f, .74f}) {
             var clear = LightManager.evaluateSkyLightState(time, time + .5f, 0, 0f, 0f, 64f, 320f);
-            var storm = LightManager.evaluateSkyLightState(time, time + .5f, 0, 1f, 1f, 64f, 320f);
-            assertArrayEquals(clear.sunDirectRadiance(), storm.sunDirectRadiance());
-            assertArrayEquals(clear.moonDirectRadiance(), storm.moonDirectRadiance());
-            assertArrayEquals(clear.sunCloudRadiance(), storm.sunCloudRadiance());
-            assertArrayEquals(clear.moonCloudRadiance(), storm.moonCloudRadiance());
+            float[] clearSun = new float[16], clearMoon = new float[16];
+            clear.writeCloudProfiles(heights, 0, clearSun, clearMoon);
+            for (float thunder : new float[]{0f, .5f, 1f}) {
+                var wet = LightManager.evaluateSkyLightState(time, time + .5f, 0, 1f, thunder, 64f, 320f);
+                float sun = wet.weather().sunBeam();
+                float moon = wet.weather().moonBeam();
+                float[] wetSun = new float[16], wetMoon = new float[16];
+                wet.writeCloudProfiles(heights, 0, wetSun, wetMoon);
+                for (int channel = 0; channel < 3; channel++) {
+                    assertEquals(clear.sunDirectRadiance()[channel] * sun, wet.sunDirectRadiance()[channel], 1e-6f);
+                    assertEquals(clear.moonDirectRadiance()[channel] * moon, wet.moonDirectRadiance()[channel], 1e-6f);
+                    assertEquals(wet.sunCloudRadiance()[channel], wetSun[channel], 1e-6f);
+                    assertEquals(wet.moonCloudRadiance()[channel], wetMoon[channel], 1e-6f);
+                    for (int i = channel; i < 16; i += 4) {
+                        assertEquals(clearSun[i] * sun, wetSun[i], 1e-6f);
+                        assertEquals(clearMoon[i] * moon, wetMoon[i], 1e-6f);
+                    }
+                }
+            }
         }
     }
 
@@ -124,8 +70,8 @@ class LightManagerSkyLightStateTest {
         var clear = LightManager.evaluateSkyLightState(0f, .5f, 0, 0f, 0f, 64f, Float.NaN);
         var rainy = LightManager.evaluateSkyLightState(0f, .5f, 0, 1f, 0f, 64f, Float.NaN);
         var storm = LightManager.evaluateSkyLightState(0f, .5f, 0, 1f, 1f, 64f, Float.NaN);
-        assertEquals(clear.sunDirectRadiance()[0] * .0025f, rainy.sunDirectRadiance()[0], 1e-5f);
-        assertEquals(clear.sunDirectRadiance()[0] * .001f, storm.sunDirectRadiance()[0], 1e-5f);
+        assertEquals(clear.sunDirectRadiance()[0] * rainy.weather().sunBeam(), rainy.sunDirectRadiance()[0], 1e-5f);
+        assertEquals(clear.sunDirectRadiance()[0] * storm.weather().sunBeam(), storm.sunDirectRadiance()[0], 1e-5f);
         assertNull(storm.sunCloudRadiance());
         assertNull(storm.moonCloudRadiance());
     }

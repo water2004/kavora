@@ -30,6 +30,12 @@ public struct FogRadianceSample
   SphericalHarmonic radiance;
   bool found;
 
+  __init()
+  {
+    radiance = SphericalHarmonic::create();
+    found = false;
+  }
+
   public float3 evaluate(float4 projectedPhase, float3 multiScattering)
   {
     return found
@@ -53,27 +59,41 @@ FogRadianceSample fogSampleIncidentRadiance(VolumeArgs args, Sampler3D<float4> r
 public FogRadianceSample fogIncidentRadiance(VolumeArgs args, Sampler3D<float4> radianceY, Sampler3D<float2> radianceCoCg,
   float3 position, FogRayProjection firstVolumeRay, float distance)
 {
-  float3 uvw = fogRayFroxelUVW(args.froxelDepthSlices, args.froxelDepthSliceDistributionExponent,
-    args.froxelMaxDistance, firstVolumeRay, distance);
-  if (fogFroxelContains(uvw))
+  if (args.numActiveFroxelVolumes == 0)
   {
-    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, uvw, firstVolumeRay.volume);
+    return FogRadianceSample();
   }
+  const float3 firstUVW = fogRayFroxelUVW(args.froxelDepthSlices, args.froxelDepthSliceDistributionExponent,
+    args.froxelMaxDistance, firstVolumeRay, distance);
+  if (fogFroxelContains(firstUVW))
+  {
+    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, firstUVW, firstVolumeRay.volume);
+  }
+  float3 boundary = firstUVW;
+  uint boundaryVolume = firstVolumeRay.volume;
   for (uint i = 1; i < args.numActiveFroxelVolumes; i++)
   {
     uint volume = (i + firstVolumeRay.volume) % args.numActiveFroxelVolumes;
     VolumeDefinitionCamera camera = args.cameras[volume];
-    uvw = translatedWorldPositionToFroxelUVW(camera.translatedWorldToView,
+    const float3 uvw = translatedWorldPositionToFroxelUVW(camera.translatedWorldToView,
       camera.translatedWorldToProjectionJittered, (camera.flags & rightHandedFlag) != 0,
       args.froxelDepthSlices, args.froxelDepthSliceDistributionExponent, args.froxelMaxDistance, camera.nearPlane,
       worldToTranslatedWorld(camera, position));
-    if (!fogFroxelContains(uvw)) continue;
-    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, uvw, volume);
+    if (fogFroxelContains(uvw))
+    {
+      return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, uvw, volume);
+    }
+    if (!fogFroxelBeyondFarFace(boundary) && fogFroxelBeyondFarFace(uvw))
+    {
+      boundary = uvw;
+      boundaryVolume = volume;
+    }
   }
-  FogRadianceSample sample;
-  sample.radiance = SphericalHarmonic::create();
-  sample.found = false;
-  return sample;
+  if (fogFroxelBeyondFarFace(boundary))
+  {
+    return fogSampleIncidentRadiance(args, radianceY, radianceCoCg, boundary, boundaryVolume);
+  }
+  return FogRadianceSample();
 }
 
 public float4 projectFogPhase(float anisotropy, float3 direction)

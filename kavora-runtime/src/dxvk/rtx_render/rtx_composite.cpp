@@ -432,7 +432,7 @@ namespace dxvk {
     ctx->bindResourceView(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(1), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudDepthSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
-    ctx->bindResourceSampler(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, cloudDepthSampler);
+    ctx->bindResourceSampler(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, valueNoiseSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudVolumes.getCloudNeuralLight(), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudDepthSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT, cloudVolumes.getCloudDirectLight(), nullptr);

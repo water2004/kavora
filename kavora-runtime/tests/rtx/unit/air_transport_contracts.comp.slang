@@ -4,6 +4,8 @@
 import "rtx/algorithm/air_medium.slang";
 import "rtx/algorithm/atmosphere.slang";
 import "rtx/algorithm/fog_medium.slang";
+import "rtx/algorithm/fog_radiance_cache.slang";
+import "rtx/algorithm/fog_froxel_sampling.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/air_parameters.slang";
 import "rtx/pass/volume_parameters.slang";
@@ -20,7 +22,49 @@ Sampler3D<float4>.Handle Volume;
 Sampler3D<float2>.Handle Chroma;
 Sampler3D<float>.Handle CloudDepth;
 float3 MediumExtinction;
+float3 DiffuseBoundary;
 uint Count;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void fogSky(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const FogMedium depth = { Origins[index].xxx, Origins[index].yyy };
+  float3 mean, directional;
+  fogSkyBandTransmittance(depth, Origins[index].z, mean, directional);
+  VolumeArgs volume = {};
+  volume.numActiveFroxelVolumes = 1;
+  volume.inverseNumFroxelVolumes = 1;
+  volume.maxFilteredRadianceU = 1;
+  volume.froxelDepthSlices = 48;
+  volume.froxelDepthSliceDistributionExponent = 2;
+  volume.froxelMaxDistance = 256;
+  FogRayProjection ray = {};
+  ray.projectionOrigin = float3(0, 0, 1);
+  ray.projectionDirection = float3(Directions[index].x, 0, 1);
+  ray.directionDepth = 1;
+  const FogRadianceSample field = fogIncidentRadiance(volume, Sampler3D<float4>(Volume),
+    Sampler3D<float2>(Chroma), 0, ray, Directions[index].w);
+  Results[index] = float4(mean.x, directional.x, field.evaluate(float4(0, 0, 0, 1), 0).x, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void weatherIntervals(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  VolumeArgs volume = {};
+  volume.air = Air;
+  volume.enable = 1;
+  volume.enableAtmosphere = 1;
+  volume.planetCenter = float3(2000, -6360000, -3000);
+  volume.atmosphereRadiusSquared = 6362000.0f * 6362000.0f;
+  volume.maxAttenuationDistanceForNoAtmosphere = 50;
+  float2 interval;
+  const bool inside = fogInterval(volume, Origins[index].xyz, Directions[index].xyz, Origins[index].w, interval);
+  Results[index] = float4(interval, float(inside), 0);
+}
 
 struct NoFog : IAtmosphereFog
 {
@@ -56,7 +100,7 @@ void probeTransport<Visibility : IAirLightVisibility>(uint index)
   if (index >= Count) return;
   VolumeArgs volume = {};
   volume.air = Air;
-  const AirTables tables = { Texture2D<float4>(Transmission), Texture2D<float4>(Scattering), SamplerState(TableSampler) };
+  const AirTables tables = { Texture2D<float4>(Transmission), Texture2D<float4>(Scattering), SamplerState(TableSampler), DiffuseBoundary };
   const AtmosphereRay ray = createAtmosphereRay<NoFog>(volume, Origins[index].xyz, Directions[index].xyz, 0, MediumExtinction);
   const float end = Origins[index].w;
   const float split = end * Directions[index].w;
@@ -76,7 +120,8 @@ void probeTransport<Visibility : IAirLightVisibility>(uint index)
   Results[index * 5 + 1] = float4(full.transmittance, 0);
   Results[index * 5 + 2] = float4(composed.radiance, 0);
   Results[index * 5 + 3] = float4(composed.transmittance, 0);
-  Results[index * 5 + 4] = float4(airTransmittance(Air, Origins[index].xyz, Directions[index].xyz, end), 0);
+  Results[index * 5 + 4] = float4(atmosphereTransmittance<NoFog>(volume, Sampler2DArray<float4>(Weather),
+    Sampler3D<float4>(Volume), Sampler3D<float4>(Volume), ray.origin, ray.direction, end, 0, tables), 0);
 }
 
 [shader("compute")]
@@ -86,6 +131,7 @@ void integrate(uint index : SV_DispatchThreadID) { probeTransport<UnobstructedAi
 struct Roof : IAirLightVisibility
 {
   static float visibility(AirArgs args, uint light, float3 position) { return float(position.x >= 32); }
+  static float3 diffuseIncident(float3 exterior, float3 position) { return exterior; }
 }
 
 [shader("compute")]

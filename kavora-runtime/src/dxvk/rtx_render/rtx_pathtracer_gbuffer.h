@@ -121,6 +121,15 @@ namespace dxvk {
 
     Rc<DxvkBuffer> m_pathStorage;
     Rc<DxvkBuffer> m_pathQueues;
+    Rc<DxvkBuffer> m_cloudHistory[3];
+    uint32_t m_cloudHistoryWrite = 0;
+    uint32_t m_cloudHistoryCount = 0;
+    VkExtent2D m_cloudHistoryResolution = {};
+    uint32_t m_cloudHistoryStride = 0;
+    uint32_t m_cloudHistoryFrame = 0;
+    float m_previousCloudNight = 0;
+    float m_previousCloudWeather = 0;
+    float m_previousCloudThunder = 0;
     size_t m_loggedDispatchHash[2] = {};
 
   };

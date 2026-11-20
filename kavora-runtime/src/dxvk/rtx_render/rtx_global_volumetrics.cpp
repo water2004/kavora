@@ -1021,7 +1021,7 @@ namespace dxvk {
     dispatchAirShadows(ctx, volume.air);
     const auto& clouds = volume.clouds;
     dispatchCloudLighting(ctx, clouds);
-    if (!clouds.enable) {
+    if (!clouds.enable && !volume.air.enable) {
       m_cloudAmbient.reset();
       m_cloudSky.reset();
       return;
@@ -1033,7 +1033,7 @@ namespace dxvk {
       ScopedGpuProfileZone(ctx, "Cloud Ambient Integration");
       if (!m_cloudAmbient.isValid()) {
         Rc<DxvkContext> resourceContext = ctx;
-        m_cloudAmbient = Resources::createImageResource(resourceContext, "cloud ambient radiance", { 1, 1, 1 },
+        m_cloudAmbient = Resources::createImageResource(resourceContext, "cloud and exterior ambient radiance", { 2, 1, 1 },
           VK_FORMAT_R32G32B32A32_SFLOAT, 1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
       }
       ctx->bindCommonRayTracingResources();
@@ -1043,8 +1043,12 @@ namespace dxvk {
       ctx->bindResourceSampler(CLOUD_AMBIENT_BINDING_SAMPLER, wrapSampler);
       ctx->bindResourceView(CLOUD_AMBIENT_BINDING_OUTPUT, m_cloudAmbient.view, nullptr);
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudAmbientShader::getShader());
-      ctx->dispatch(1, 1, 1);
+      ctx->dispatch(uint32_t(clouds.enable != 0) + uint32_t(volume.air.enable != 0), 1, 1);
       ctx->bindResourceView(BINDING_CLOUD_AMBIENT_INPUT, m_cloudAmbient.view, nullptr);
+    }
+    if (!clouds.enable) {
+      m_cloudSky.reset();
+      return;
     }
     ScopedGpuProfileZone(ctx, "Cloud Sky Generation");
     constexpr VkExtent3D extent { CLOUD_SKY_RESOLUTION * 2, CLOUD_SKY_RESOLUTION, 1 };

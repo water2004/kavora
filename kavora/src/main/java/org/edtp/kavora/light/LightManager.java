@@ -23,6 +23,7 @@ import org.edtp.kavora.block.SpotLightBlock;
 import org.edtp.kavora.entity.CopperBeaconAnimationClock;
 import org.edtp.kavora.entity.KavoraFirstPersonPass;
 import org.edtp.kavora.sky.SkyAtmosphere;
+import org.edtp.kavora.sky.OvercastIllumination;
 import org.edtp.kavora.texture.BlockTextureManager;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.joml.Matrix4f;
@@ -97,14 +98,6 @@ public class LightManager {
     private static final float MIN_DIRECT_RADIANCE = 1.0e-6f;
     private static final float BASE_SUN_LUMINANCE = 30.0f;
     private static final float BASE_MOON_LUMINANCE = 0.06f;
-    private static final float RAIN_SUN_LUMINANCE = 0.075f;
-    private static final float THUNDER_SUN_LUMINANCE = 0.03f;
-    private static final float RAIN_MOON_LUMINANCE = 0.0225f;
-    private static final float THUNDER_MOON_LUMINANCE = 0.0375f;
-    // Weather dome intensity is authored in sun-luminance units. Keep that
-    // reference independent of the normalized direct-light multiplier.
-    private static final float WEATHER_DOME_RADIANCE_REFERENCE = 10.0f;
-    public static final float THUNDER_SKY_INTENSITY = 0.8f;
     public static final float DEFAULT_SUN_INTENSITY = 1.0f;
     public static final float DEFAULT_MOON_INTENSITY = 1.0f;
     public static final float DEFAULT_MOON_PHASE_CONTRAST = 0.7f;
@@ -1101,10 +1094,7 @@ public class LightManager {
         cloudProfileAltitudes[1] = cloudProfileAltitudes[0] + cloudOption("thicknessMeters");
         cloudProfileAltitudes[2] = Math.max(cloudProfileAltitudes[1] + 1000f, cloudOption("highAltitudeMeters"));
         cloudProfileAltitudes[3] = cloudProfileAltitudes[2] + cloudOption("highThicknessMeters");
-        SkyAtmosphere.radianceProfile(sunCloudProfile, cloudProfileAltitudes, seaLevel,
-                skyLightState.sunSourceRadiance(), skyLightState.sunPosition()[1], SUN_ANGULAR_RADIUS);
-        SkyAtmosphere.radianceProfile(moonCloudProfile, cloudProfileAltitudes, seaLevel,
-                skyLightState.moonSourceRadiance(), skyLightState.moonPosition()[1], MOON_ANGULAR_RADIUS);
+        skyLightState.writeCloudProfiles(cloudProfileAltitudes, seaLevel, sunCloudProfile, moonCloudProfile);
     }
 
     private float cloudOption(String name) {
@@ -1160,6 +1150,11 @@ public class LightManager {
         float moonLuminance = BASE_MOON_LUMINANCE * moonIntensity * moonPhasePower(moonPhase, moonPhaseContrast);
         float[] sunSource = {sunLuminance, sunLuminance, sunLuminance};
         float[] moonSource = {moonLuminance * 0.85f, moonLuminance * 0.9f, moonLuminance};
+        // The weather dome and the transmitted beam describe the illumination
+        // outside the resolved cloud field. Air transmission then varies with altitude.
+        var weather = OvercastIllumination.evaluate(rainGradient, thunderGradient, sunPosition[1], moonPosition[1]);
+        float[] sunBeam = scaleRadiance(sunSource, weather.sunBeam());
+        float[] moonBeam = scaleRadiance(moonSource, weather.moonBeam());
         float[] sunDirect = applyTransmittance(sunSource,
                 SkyAtmosphere.transmittanceToLight(observerHeight, sunPosition[1], SUN_ANGULAR_RADIUS));
         float[] moonDirect = applyTransmittance(moonSource,
@@ -1167,22 +1162,29 @@ public class LightManager {
         float[] sunCloud = null;
         float[] moonCloud = null;
         if (Float.isFinite(cloudHeightAboveSeaLevel)) {
-            sunCloud = thresholdDirectRadiance(applyTransmittance(sunSource,
-                    SkyAtmosphere.transmittanceToLight(cloudHeightAboveSeaLevel, sunPosition[1], SUN_ANGULAR_RADIUS)));
-            moonCloud = thresholdDirectRadiance(applyTransmittance(moonSource,
-                    SkyAtmosphere.transmittanceToLight(cloudHeightAboveSeaLevel, moonPosition[1], MOON_ANGULAR_RADIUS)));
-        } else {
-            // Procedural cloud visibility already transports weather extinction to every receiver.
-            sunDirect = scaleRadiance(sunDirect, weatherSunDirectScale(rainGradient, thunderGradient));
-            moonDirect = scaleRadiance(moonDirect, weatherMoonDirectScale(rainGradient, thunderGradient));
+            sunCloud = applyTransmittance(sunSource,
+                    SkyAtmosphere.transmittanceToLight(cloudHeightAboveSeaLevel, sunPosition[1], SUN_ANGULAR_RADIUS));
+            moonCloud = applyTransmittance(moonSource,
+                    SkyAtmosphere.transmittanceToLight(cloudHeightAboveSeaLevel, moonPosition[1], MOON_ANGULAR_RADIUS));
         }
-
+        float[] incidentSun = sunCloud != null ? sunCloud : sunDirect;
+        float[] incidentMoon = moonCloud != null ? moonCloud : moonDirect;
+        float[] scattered = new float[3];
+        for (int i = 0; i < 3; i++) {
+            scattered[i] = incidentSun[i] * weather.diffuseSun() + incidentMoon[i] * weather.diffuseMoon();
+            sunDirect[i] *= weather.sunBeam();
+            moonDirect[i] *= weather.moonBeam();
+            if (sunCloud != null) {
+                sunCloud[i] *= weather.sunBeam();
+                moonCloud[i] *= weather.moonBeam();
+            }
+        }
         return new SkyLightState(
                 sunPosition, moonPosition,
-                sunSource, moonSource,
+                sunSource, moonSource, sunBeam, moonBeam,
                 thresholdDirectRadiance(sunDirect), thresholdDirectRadiance(moonDirect),
                 sunCloud, moonCloud,
-                SUN_ANGULAR_RADIUS, MOON_ANGULAR_RADIUS);
+                SUN_ANGULAR_RADIUS, MOON_ANGULAR_RADIUS, weather, scattered);
     }
 
     /** Artistic lunar illumination follows Minecraft's phase brightness, normalized to full moon. */
@@ -1190,22 +1192,6 @@ public class LightManager {
         int index = phase & 7;
         float phaseBrightness = 1f - Math.min(index, 8 - index) * .25f;
         return lerp(1f, phaseBrightness, contrast);
-    }
-
-    static float weatherSunDirectScale(float rainGradient, float thunderGradient) {
-        float weatherSunLuminance = lerp(
-                RAIN_SUN_LUMINANCE,
-                THUNDER_SUN_LUMINANCE,
-                thunderGradient);
-        return lerp(1.0f, weatherSunLuminance / BASE_SUN_LUMINANCE, rainGradient);
-    }
-
-    static float weatherMoonDirectScale(float rainGradient, float thunderGradient) {
-        float weatherMoonLuminance = lerp(
-                RAIN_MOON_LUMINANCE,
-                THUNDER_MOON_LUMINANCE,
-                thunderGradient);
-        return lerp(1.0f, weatherMoonLuminance / BASE_MOON_LUMINANCE, rainGradient);
     }
 
     private static float[] scaleRadiance(float[] radiance, float scale) {
@@ -1311,35 +1297,38 @@ public class LightManager {
             float[] moonPosition,
             float[] sunSourceRadiance,
             float[] moonSourceRadiance,
+            float[] sunBeamRadiance,
+            float[] moonBeamRadiance,
             float[] sunDirectRadiance,
             float[] moonDirectRadiance,
             float[] sunCloudRadiance,
             float[] moonCloudRadiance,
             float sunAngularRadius,
-            float moonAngularRadius) {
-        public float weatherDomeRadiance() {
-            float sunRadiance = luminance(sunSourceRadiance)
-                    * celestialVisibility(sunPosition[1]);
-            float moonRadiance = luminance(moonSourceRadiance)
-                    * celestialVisibility(moonPosition[1]);
-            return (sunRadiance + moonRadiance) / WEATHER_DOME_RADIANCE_REFERENCE;
+            float moonAngularRadius,
+            OvercastIllumination weather,
+            float[] scatteredWeatherBeam) {
+        void writeCloudProfiles(float[] altitudes, float seaLevel, float[] sun, float[] moon) {
+            SkyAtmosphere.radianceProfile(sun, altitudes, seaLevel, sunBeamRadiance, sunPosition[1], sunAngularRadius);
+            SkyAtmosphere.radianceProfile(moon, altitudes, seaLevel, moonBeamRadiance, moonPosition[1], moonAngularRadius);
         }
 
-        private static float luminance(float[] radiance) {
-            return radiance[0] * 0.2126f + radiance[1] * 0.7152f + radiance[2] * 0.0722f;
+        /** The native distant-light convention stores irradiance divided by pi. */
+        public static float irradiance(float sourceChannel) {
+            return sourceChannel * (float) Math.PI;
         }
 
         public static SkyLightState empty() {
             return new SkyLightState(
                     new float[]{0.0f, 1.0f, 0.0f},
                     new float[]{0.0f, -1.0f, 0.0f},
+                    new float[3], new float[3],
                     new float[]{0.0f, 0.0f, 0.0f},
                     new float[]{0.0f, 0.0f, 0.0f},
                     new float[]{0.0f, 0.0f, 0.0f},
                     new float[]{0.0f, 0.0f, 0.0f},
                     null, null,
                     SUN_ANGULAR_RADIUS,
-                    MOON_ANGULAR_RADIUS);
+                    MOON_ANGULAR_RADIUS, OvercastIllumination.CLEAR, new float[3]);
         }
     }
 }

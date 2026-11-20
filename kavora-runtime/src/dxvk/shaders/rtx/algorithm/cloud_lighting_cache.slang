@@ -5,6 +5,7 @@ module cloud_lighting_cache;
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
+#include "rtx/pass/cloud_noise.h"
 
 // The directional tables contain beam optical depth. The local atlas
 // contains vertical optical depth toward the top and bottom of the layer.
@@ -76,8 +77,8 @@ public float cloudLocalLightRadius(CloudArgs args, uint layer)
 
 public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude, uint layer)
 {
-  const float2 horizontal = cloudLightHorizontal(args, position - args.groundReference);
-  const float2 uv = horizontal / (2.0f * cloudLocalLightRadius(args, layer)) + 0.5f;
+  const float period = args.shapeScale * float(kCloudWeatherPeriod);
+  const float2 uv = frac(cloudLightHorizontal(args, position - args.windOffset) / period + 0.5f);
   const float layerBase = layer == 0 ? args.baseHeight : args.highBaseHeight;
   const float thickness = layer == 0 ? args.thickness : args.highThickness;
   const float samples = float(cloudLocalLightHeightSamples(layer));
@@ -86,9 +87,12 @@ public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float 
   return float3(uv.x, (cloudLocalLightHeightOffset(layer) + slice) / CLOUD_LOCAL_LIGHT_PACKED_HEIGHT, uv.y);
 }
 
-public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude, uint layer)
+public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude)
 {
-  const float2 horizontal = (uv - 0.5f) * (2.0f * cloudLocalLightRadius(args, layer));
+  // Bake one wind-aligned weather period using the nearest copy of each column.
+  const float period = args.shapeScale * float(kCloudWeatherPeriod);
+  const float2 center = cloudLightHorizontal(args, args.groundReference - args.windOffset) / period;
+  const float2 horizontal = (frac(uv - center) - 0.5f) * period;
   return cloudLightPositionAtAltitude(args, horizontal, altitude);
 }
 

@@ -36,7 +36,8 @@ AIR_PARAMETER struct AirArgs {
   AIR_PARAMETER uint transmittanceTextureIndex;
   AIR_PARAMETER uint scatteringTextureIndex;
   AIR_PARAMETER uvec2 transmittanceExtent;
-  AIR_PARAMETER uint scatteringSize;
+  AIR_PARAMETER uint16_t scatteringSize;
+  AIR_PARAMETER uint16_t tableSamplerIndex;
 };
 
 #undef AIR_PARAMETER

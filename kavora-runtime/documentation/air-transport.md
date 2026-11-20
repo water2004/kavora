@@ -20,8 +20,9 @@ the two referenced textures alive independently of the temporary arena.
 The atmospheric dome must have unit opacity, latitude-longitude projection and
 both transport tables. Its source radiance is the integrated clear atmosphere.
 Its separate transmission texture is the matching camera-to-boundary RGB
-transmission. This preserves the existing environment used by direct-light
-sampling and cloud ambient lighting.
+transmission. The dome compositor combines it with the weather layer. Cloud
+ambient quadrature samples that lighting environment before any resolved
+clouds have been integrated. Fog samples the resulting cloud sky atlas.
 
 Optical lengths are in kilometres. Rayleigh RGB extinction and scalar Mie
 extinction are inverse kilometres. `innerRadius` locates the lower optical
@@ -31,10 +32,11 @@ air-density reference and does not represent solid terrain. `seaLevelMeters`
 places that reference on the host's world-up axis.
 
 Each light has a world-space unit direction toward the emitter, its angular
-radius in radians, and unattenuated RGB irradiance. The host reverses the sky
+radius in radians, and RGB irradiance. The host reverses the sky
 texture's X mapping when publishing these directions. Irradiance is the same
-`sourceRadiance * pi` used by the GLSL bake. The dome's radiance multiplier also
-scales native air's source irradiance.
+`sourceRadiance * pi` used by the GLSL bake, scaled for finite air by the
+weather layer's beam transmission towards that emitter. The dome's radiance
+multiplier also scales that source.
 
 The completed sky pixels and the native light state come from the same
 fence-protected UBO snapshot. A world generation tag rejects readbacks queued
@@ -42,9 +44,8 @@ before a world transition. Reusing the Vulkan generator across worlds does not
 publish the previous world's atmosphere into the next world.
 
 The host attaches this extension in Volumetric cloud mode. Classic clouds and
-fixed skies keep the complete dome composition, including the existing authored
-weather layers. Switching cloud modes updates the dome extension even when the
-sky's light parameters have not changed.
+fixed skies use the complete dome composition. Switching cloud modes updates
+the dome extension even when the sky's light parameters have not changed.
 
 ## Table coordinates
 
@@ -53,6 +54,13 @@ horizontal coordinate parameterizes the ray length between the minimum and
 maximum upper-boundary intersections for the sample radius. Its vertical
 coordinate parameterizes radial distance above the lower boundary. Lookup
 coordinates include the texel-centre inset used by `sky_atmosphere.comp`.
+
+Direct sun at a scattering point and clear air along a camera or secondary ray
+use this same table. Along an outward ray, subtract the optical depth at the
+end of a finite segment from the optical depth at its start, independently for
+red, green and blue. A ray crossing its closest approach to the planet joins
+the two outward segments there. This recovers transmission through a long
+segment with a bounded number of lookups. Cloud extinction is applied separately.
 
 The multiple-scattering table uses light zenith cosine on its horizontal axis
 and normalized altitude on its vertical axis. It stores the existing clear-air
@@ -84,9 +92,31 @@ layer is omitted from both boundaries. Native path callers select a boundary
 only when that ray integrates physical air. Ambient and direct-light sampling
 continue to use the full lighting environment.
 
-Clouds use the shared world-space integrator at every quality level. Sampling
-budgets follow the selected quality settings. The directional cloud sky atlas
-shares distant transport for eligible rays and the fog-lighting cache.
+Clouds use the shared world-space integrator at every quality level. The view
+distance controls detailed sampling in each shell. The remaining arc uses one
+footprint-filtered weather sample, clipped to the visible atmosphere. A surface
+hit truncates its optical path while retaining the same sample as the full ray.
+The distant cell uses the weather column for beam attenuation and the existing
+neural field for multiple scattering. The vertical optical-depth atlas covers
+one wind-aligned weather period, so air on either side of the detail range
+receives skylight from the same field. The directional sky atlas shares distant
+transport for eligible rays and the fog-lighting cache.
+
+Outdoor fog integrates to the terrain hit or to the boundary of the weather
+layer. Its reference transmission distance sets the extinction coefficient.
+The lighting grid covers the near field. Past its far face an in-frustum ray
+uses the last filtered incident-light cell in the same direction. A point
+inside another active volume uses that volume's measured lighting first.
+This extrapolation also carries any local light visible in that boundary cell.
+
+Fog lighting represents the extended sky with two spherical-harmonic bands.
+For extinction optical depth `t`, scattering optical depth `s` and HG
+anisotropy `g`, the angular transport approximation weights the mean by
+`exp(-(t-s))` and the directional band by `exp(-(t-g*s))`. An isotropic
+sky therefore retains its radiance in a conservative medium. Finite lights
+and solar beams use direct transmittance, and sky samples still require
+unoccluded geometry. This two-band model approximates angular redistribution
+along a segment without solving spatial diffusion through the full fog field.
 
 At the existing 4096 by 2048 R11G11B10 dome resolution, the extra boundary image
 requires 32 MiB. The two runtime RGBA32F tables require 4.0625 MiB. Their host
@@ -97,8 +127,23 @@ sample or per frame.
 ## Scope and validation
 
 The air and cloud media share a ray-segment transport integrator. Authored local
-fog remains an additional medium. Direct solar attenuation already supplied in
-the host's cloud radiance profiles must not be applied a second time.
+fog remains an additional medium. `OvercastIllumination` models the unresolved
+weather layer as a slab. Its vertical optical depth sets both the transmitted
+beam and the fraction scattered downwards. The same beam multiplier applies to
+the surface and to all four cloud lighting altitudes. The diffuse dome uses the
+incident beam spectrum and cosine-weighted clear-sky irradiance. Its angular
+profile integrates to that irradiance. Resolved cloud density supplies the
+remaining local shadow and scattering.
+
+The existing ambient dispatch averages the upper exterior lighting boundary
+into a second texel. At the air sample, each cloud layer's cached vertical
+optical depths describe how much cloud lies above and below it. The same
+two-stream transfer and ground reflectance used for cloud illumination give
+the local diffuse radiance. Finite air scatters it with its local RGB
+scattering coefficient. Extinction still comes from the physical
+column to the endpoint. In nonabsorbing air with a uniform exterior radiance
+`B`, in-scatter plus transmitted background equals `(1 - T) B + T B = B`.
+`test_air_transport.py` checks this for both complete and split segments.
 
 Primary intersection depth terminates the view segment at the terrain. To shade
 the air in front of that endpoint, each active physical atmosphere also builds

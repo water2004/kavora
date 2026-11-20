@@ -12,6 +12,7 @@ public static const uint kCloudSkyTailTransmittanceLayer = 2;
 static const float kCloudSkyPi = 3.141592653589793f;
 public static const float kCloudSkyTexelAngle = kCloudSkyPi / float(CLOUD_SKY_RESOLUTION);
 public static const uint kCloudAmbientSampleCount = 8192;
+public static const uint kExteriorAmbientTexel = 1;
 
 // Equal-area Hammersley nodes integrate upper-hemisphere radiance divided by 4 pi.
 // The world-frame pattern stays fixed as the light directions change.
@@ -21,14 +22,18 @@ public struct CloudAmbientQuadrature
   public float3 tangent;
   public float3 bitangent;
 
-  public float4 sample(uint index)
+  public float3 direction(uint index, float cosine)
   {
-    const float cosine = (float(index) + 0.5f) / float(kCloudAmbientSampleCount);
     const float sine = sqrt(1.0f - cosine * cosine);
     const float longitude = float(reversebits(index)) * (2.0f * kCloudSkyPi / 4294967296.0f);
     const float2 azimuth = float2(cos(longitude), sin(longitude));
-    const float3 direction = cosine * up + sine * (azimuth.x * tangent + azimuth.y * bitangent);
-    return float4(direction, 0.5f / float(kCloudAmbientSampleCount));
+    return cosine * up + sine * (azimuth.x * tangent + azimuth.y * bitangent);
+  }
+
+  public float4 sample(uint index)
+  {
+    const float cosine = (float(index) + 0.5f) / float(kCloudAmbientSampleCount);
+    return float4(direction(index, cosine), 0.5f / float(kCloudAmbientSampleCount));
   }
 };
 

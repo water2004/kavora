@@ -46,14 +46,20 @@ public final class NativeExtractor {
     private static final String VERSION_MARKER = ".kavora-version";
     private static final String RTX_CONF = "rtx.conf";
     private static final String TEXTURES_DIR = "textures";
-    private static final String WEATHER_PROFILES = "rtx-remix/mods/minecraft-logic/confs/weather";
+    private static final String CONF_PROFILES = "rtx-remix/mods/minecraft-logic/confs";
 
-    // Recognize both line endings of the shipped weather profiles with display overrides.
-    private static final Map<String, Set<String>> OLD_WEATHER_DEFAULTS = Map.of(
-            "rain.conf", Set.of("0760e6291bbee483b8eec2a74c6fb16ece0c3613957db8d98612abe18075cb7d",
+    // Previous bundled profiles, as shipped with LF or CRLF. Preserve all author edits.
+    private static final Map<String, Set<String>> OLD_PROFILE_DEFAULTS = Map.of(
+            "weather/rain.conf", Set.of("0760e6291bbee483b8eec2a74c6fb16ece0c3613957db8d98612abe18075cb7d",
                     "cfe634d3f4fe7c75f5c277ebf6e9c61ae60da1faf0a24eeb33ede9abe191de6c"),
-            "thunder.conf", Set.of("c4a32e583a03db01fe3e651242bcdd3958276514f0658ea536105bbe3151c0d1",
-                    "4665fa826f424832fcabde869d5799a098b7fc0a1a33c88d90abc2156882ceea"));
+            "weather/thunder.conf", Set.of("c4a32e583a03db01fe3e651242bcdd3958276514f0658ea536105bbe3151c0d1",
+                    "4665fa826f424832fcabde869d5799a098b7fc0a1a33c88d90abc2156882ceea"),
+            "dimensions/end-lighting.conf", Set.of("0627463e93c0e4fb9ca9058a85510d37e8e77d37e22328a609496f2d50a6abec",
+                    "f97c7944fb6987e1788fbb22f24e77cf6c99af53808e7aa0735eee4600c4f479"),
+            "dimensions/nether-lighting.conf", Set.of("8335a312440d45563c36fea091f73a97dad044b20d502cb122a3cbc7ae5989ce",
+                    "b035502592c079cab9ee5e18292c2836be95d5c0915c7dee8c59de3e4088ce4f"),
+            "water.conf", Set.of("fa82b0114f803965b45a39b94c96469b97ce4ebec8bb29ba7114f39842c9bdf4",
+                    "363359589ba739d3d7736f4842aa65519f51ce9b49aacbc27e164136be0febb9"));
 
     /** Deletes a retired SDK on a daemon thread, off the mod-init path. */
     private static final Executor RETIRED_SDK_CLEANUP = task -> {
@@ -141,7 +147,7 @@ public final class NativeExtractor {
      *
      * <p>A current marker skips the SDK copy only while {@code kavora-runtime/d3d9.dll}
      * is present. Missing author-owned files, {@code rtx.conf}, and runtime
-     * textures are restored on every launch. Weather defaults are refreshed
+     * textures are restored on every launch. Bundled profile defaults are refreshed
      * when their installed contents match a superseded shipped copy.
      * Recovering a small conf must not drag the whole SDK payload with it.
      *
@@ -291,7 +297,7 @@ public final class NativeExtractor {
 
     private static void extractAuthorPayload(Path nativeRoot, Path gameDir, AtomicInteger fileCount,
                                              AtomicLong totalBytes, AtomicInteger keptCount) throws IOException {
-        refreshWeatherProfiles(nativeRoot.resolve(WEATHER_PROFILES), gameDir.resolve(WEATHER_PROFILES));
+        refreshProfiles(nativeRoot.resolve(CONF_PROFILES), gameDir.resolve(CONF_PROFILES));
         try (var topStream = Files.list(nativeRoot)) {
             for (Path entry : (Iterable<Path>) topStream::iterator) {
                 String name = entry.getFileName().toString();
@@ -302,15 +308,15 @@ public final class NativeExtractor {
         }
     }
 
-    static void refreshWeatherProfiles(Path bundled, Path installed) throws IOException {
-        for (var entry : OLD_WEATHER_DEFAULTS.entrySet()) {
+    static void refreshProfiles(Path bundled, Path installed) throws IOException {
+        for (var entry : OLD_PROFILE_DEFAULTS.entrySet()) {
             Path source = bundled.resolve(entry.getKey());
             Path target = installed.resolve(entry.getKey());
             if (!Files.isRegularFile(source) || !Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)
                     || !entry.getValue().contains(sha256(target))) {
                 continue;
             }
-            Path staging = Files.createTempFile(installed, entry.getKey(), ".staging");
+            Path staging = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".staging");
             try {
                 Files.copy(source, staging, StandardCopyOption.REPLACE_EXISTING);
                 Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);

@@ -88,6 +88,14 @@ public float cloudMaxViewDistance(CloudArgs args)
   return max(args.maxDistance, args.highMaxDistance);
 }
 
+// Keep background rays on the observer's side of the planet even when air is disabled.
+public float cloudHemisphereEnd(CloudArgs args, float3 origin, float3 direction)
+{
+  const float cosine = dot(direction, args.up);
+  const float height = args.planetRadius + dot(origin - args.groundReference, args.up);
+  return cosine < 0 ? max(0.0f, height / -cosine) : kFloatMax;
+}
+
 // A grazing ray can cross a shell twice with clear air between the two intervals.
 public float2 cloudLayerInterval(CloudArgs args, float3 origin, float3 direction, float distance,
   uint layer, uint segment = 0)
@@ -158,15 +166,12 @@ public float cloudDensityFootprint(CloudArgs args, float3 direction, float span,
 }
 
 [ForceInline]
-public float cloudViewExtinction(CloudArgs args, float3 position, float distance, uint layer,
+public float cloudLayerExtinction(CloudArgs args, float3 position, uint layer,
   Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   float footprint, float heightFootprint)
 {
-  const float maxDistance = cloudLayerMaxDistance(args, layer);
-  const float fadeLength = min(2.0f * args.shapeScale, 0.25f * maxDistance);
-  const float visibility = smoothstep(0.0f, fadeLength, maxDistance - distance);
   const float extinction = layer == 0 ? args.extinction : args.highExtinction;
-  return visibility * extinction * cloudDensity(cloudDensityParameters(args), position, weatherSampler,
+  return extinction * cloudDensity(cloudDensityParameters(args), position, weatherSampler,
     baseSampler, detailSampler, footprint, layer, heightFootprint);
 }
 
@@ -247,15 +252,9 @@ public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 
   // The high layer has a 2D density map and an integrated height profile.
   // One cell suffices when the projected path fits one filtered texel.
   const float horizontal = sqrt(max(0.0f, 1.0f - up * up));
+  const float toRayDistance = rcp(max(horizontal, 1e-6f));
   const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudHighWeatherResolution);
-  const float footprint = max(texel, angularFootprint * interval.x);
-  const float length = max(interval.y - interval.x, 0.0f);
-  const uint cells = uint(ceil(clamp(length * horizontal / footprint, 1.0f, float(args.highSteps))));
-  CloudRayGrid grid = {};
-  grid.interval = interval;
-  grid.cells = cells;
-  grid.linearStep = length / float(cells);
-  return grid;
+  return createCloudRayGrid(interval, texel * toRayDistance, angularFootprint * toRayDistance, float(args.highSteps));
 }
 
 [ForceInline]
@@ -265,24 +264,34 @@ public float cloudViewSampleOffset(float3 direction)
   return cloudNoiseUnit(cloudNoiseHash(asuint(direction), kCloudNoiseSeed));
 }
 
+public float cloudColumnSampleOffset(uint2 column, uint frame)
+{
+  // Projection jitter changes the direction bits. Keep the scramble tied to
+  // the integration column so successive frames still cover different strata.
+  return cloudNoiseUnit(reversebits(frame) ^ cloudNoiseHash(uint3(column, 0), kCloudNoiseSeed));
+}
+
 public interface ICloudViewIntegral
 {
-  [mutating] void add(CloudArgs args, float3 position, float sigma, float begin, float end);
+  [mutating] void add<let Column : bool>(CloudArgs args, float3 position, float sigma, float begin, float end);
   bool opaque();
 };
 
 // The shell owns the grid so a continuation can start at its first covered cell.
 public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3 origin, float3 direction,
   uint layer, float2 interval, float2 range, float angularFootprint,
-  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, inout Integral integral)
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, inout Integral integral,
+  float lowLayerOffset)
 {
   if (range.y <= range.x)
   {
     return;
   }
-  const CloudRayGrid grid = createCloudViewGrid(args, interval, direction, angularFootprint, layer);
-  const float sampleOffset = layer == 0 ? cloudViewSampleOffset(direction) : 0.5f;
-  for (uint cell = grid.cellAt(range.x); cell < grid.cells; cell++)
+  const float detailEnd = min(interval.y, cloudLayerMaxDistance(args, layer));
+  const CloudRayGrid grid = createCloudViewGrid(args, float2(interval.x, max(interval.x, detailEnd)),
+    direction, angularFootprint, layer);
+  const float sampleOffset = layer == 0 ? lowLayerOffset : 0.5f;
+  for (uint cell = range.x < detailEnd ? grid.cellAt(range.x) : grid.cells; cell < grid.cells; cell++)
   {
     const float2 bounds = float2(grid.boundary(cell), grid.boundary(cell + 1));
     const float begin = max(range.x, bounds.x);
@@ -297,14 +306,32 @@ public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3
     const float cone = angularFootprint * distance;
     const float footprint = cloudDensityFootprint(args, direction, span, cone, layer);
     const float heightFootprint = cloudHeightFootprint(args, position, direction, span, cone, layer);
-    const float extinction = cloudViewExtinction(args, position, distance, layer, weather, base, detail, footprint, heightFootprint);
+    const float extinction = cloudLayerExtinction(args, position, layer, weather, base, detail, footprint, heightFootprint);
     if (extinction > 0)
     {
-      integral.add(args, position, extinction, begin, end);
+      integral.add<false>(args, position, extinction, begin, end);
       if (integral.opaque())
       {
-        break;
+        return;
       }
+    }
+  }
+  // One filtered weather cell closes the shell beyond its resolved part. Anchor it
+  // to the shell rather than the surface hit so prefixes use the same coefficient.
+  const float farBegin = max(interval.x, detailEnd);
+  const float begin = max(range.x, farBegin);
+  if (range.y > begin)
+  {
+    const float span = interval.y - farBegin;
+    const float distance = farBegin + 0.5f * span;
+    const float3 position = origin + direction * distance;
+    const float cone = angularFootprint * distance;
+    const float sigma = cloudLayerExtinction(args, position, layer, weather, base, detail,
+      cloudDensityFootprint(args, direction, span, cone, layer),
+      cloudHeightFootprint(args, position, direction, span, cone, layer));
+    if (sigma > 0)
+    {
+      integral.add<true>(args, position, sigma, begin, range.y);
     }
   }
 }
@@ -313,7 +340,7 @@ struct CloudViewTransmission : ICloudViewIntegral
 {
   float value;
 
-  [mutating] void add(CloudArgs args, float3 position, float sigma, float begin, float end)
+  [mutating] void add<let Column : bool>(CloudArgs args, float3 position, float sigma, float begin, float end)
   {
     value *= exp(-sigma * (end - begin));
   }
@@ -325,7 +352,8 @@ struct CloudViewTransmission : ICloudViewIntegral
 };
 
 public float cloudTransmittance(CloudArgs args, float3 origin, float3 direction, float distance,
-  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
+  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
+  float atmosphereEnd = kFloatMax)
 {
   CloudViewTransmission integral;
   integral.value = 1.0f;
@@ -337,9 +365,10 @@ public float cloudTransmittance(CloudArgs args, float3 origin, float3 direction,
     }
     for (uint segment = 0; segment < 2; segment++)
     {
-      const float2 interval = cloudLayerInterval(args, origin, direction, cloudLayerMaxDistance(args, layer), layer, segment);
+      const float2 interval = cloudLayerInterval(args, origin, direction,
+        min(atmosphereEnd, cloudHemisphereEnd(args, origin, direction)), layer, segment);
       marchCloudView(args, origin, direction, layer, interval, float2(interval.x, min(interval.y, distance)),
-        args.viewAngularFootprint, weatherSampler, baseSampler, detailSampler, integral);
+        args.viewAngularFootprint, weatherSampler, baseSampler, detailSampler, integral, cloudViewSampleOffset(direction));
       if (integral.opaque())
       {
         return integral.value;
@@ -657,6 +686,30 @@ float cloudMeanCosine(CloudArgs args)
   return 0.5f * (args.anisotropy - 0.25f);
 }
 
+// Transfer exterior skylight through the same resolved columns that shade the
+// cloud itself. Air between layers sees cloud above and below its own position.
+public float3 cloudDiffuseAirIllumination(CloudArgs args, Sampler3D<float2> local,
+  float3 position, float3 upper)
+{
+  float2 depths = 0;
+  const float altitude = cloudAltitude(cloudDensityParameters(args), position);
+  [unroll]
+  for (uint layer = 0; layer < 2; layer++)
+  {
+    if (cloudLayerEnabled(args, layer))
+    {
+      float2 column = local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
+      const float total = column.x + column.y;
+      if (altitude <= cloudLayerBase(args, layer)) column = float2(total, 0);
+      if (altitude >= cloudLayerTop(args, layer)) column = float2(0, total);
+      depths += column;
+    }
+  }
+  const float cosine = cloudMeanCosine(args);
+  const float3 lower = cloudGroundBoundaryRadiance(upper, 0, depths.x + depths.y, cosine, args.groundAlbedo);
+  return cloudDiffuseBoundaryRadiance(upper, lower, depths, cosine);
+}
+
 public float2 traceCloudDirectLight(CloudArgs args, float3 position, uint lightIndex, float localBeamDepth,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
 {
@@ -665,21 +718,27 @@ public float2 traceCloudDirectLight(CloudArgs args, float3 position, uint lightI
   return exp(-float2(opticalDepth, max(opticalDepth - localBeamDepth, 0.0f)));
 }
 
-public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float distance,
+public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, float3 position, float distance,
   uint layer, float sigma, float3 ambientRadiance,
   Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
 {
   float3 source = 0.0f;
   const float altitude = cloudAltitude(cloudDensityParameters(args), position);
-  const float2 verticalDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
+  const float3 uv = cloudLocalLightCoordinates(args, position, altitude, layer);
+  const float2 verticalDepth = cache.local.SampleLevel(uv, 0);
+  const float3 neuralPosition = Column ? cloudLocalLightPosition(args, uv.xz, altitude) : position;
   const float meanCosine = cloudMeanCosine(args);
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;
   const float powder = layer == 1 ? hanPiHighPowder(sigma / args.highExtinction) : 1.0f;
   float3 groundBeamIrradianceOverPi = 0;
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
-  float cacheWeight;
-  const CloudDirectLight cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
+  float cacheWeight = 0;
+  CloudDirectLight cachedBeam = CloudDirectLight(0);
+  if (!Column)
+  {
+    cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
+  }
   for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
   {
     const CloudLight light = args.lights[lightIndex];
@@ -690,20 +749,29 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float dista
     }
     const float lightCosine = dot(light.directionToLight, radialUp);
     const bool groundReceivesBeam = lightCosine > 0 && args.groundAlbedo > 0;
-    float2 beam = cachedBeam.at(args, altitude, layer, lightIndex, lightCosine, sigma);
-    if (cacheWeight < 1)
+    float2 beam;
+    if (Column)
     {
-      const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
-      const float2 resolved = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
-        weatherSampler, baseSampler, detailSampler, cache);
-      beam = lerp(resolved, beam, cacheWeight);
+      const float vertical = lightCosine >= 0 ? verticalDepth.x : verticalDepth.y;
+      beam = float2(exp(-vertical / max(abs(lightCosine), 1e-5f)), 1);
+    }
+    else
+    {
+      beam = cachedBeam.at(args, altitude, layer, lightIndex, lightCosine, sigma);
+      if (cacheWeight < 1)
+      {
+        const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
+        const float2 resolved = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
+          weatherSampler, baseSampler, detailSampler, cache);
+        beam = lerp(resolved, beam, cacheWeight);
+      }
     }
     const float singleScattering = rayPhase.phase[lightIndex] * beam.x
       * lerp(1.0f, powder, rayPhase.highPowderWeight[lightIndex]);
     float diffuse = 0;
     if (args.multipleScattering > 0 && (args.activeCloudLights & (1u << lightIndex)) != 0)
     {
-      const float residual = cloudNeuralDiffuse(args, cache.neural, position, altitude, rayPhase.neuralAngles[lightIndex], layer, lightIndex);
+      const float residual = cloudNeuralDiffuse(args, cache.neural, neuralPosition, altitude, rayPhase.neuralAngles[lightIndex], layer, lightIndex);
       const float density = sigma / (layer == 0 ? args.extinction : args.highExtinction);
       diffuse = max(0.0f, residual + cloudSourceVariation(layer, density, beam.x, rayPhase.viewLightCosine[lightIndex]));
     }
@@ -722,6 +790,6 @@ public float3 cloudIncidentRadiance(CloudArgs args, float3 position, float dista
   const float3 upperRadiance = 2.0f * ambientRadiance;
   const float3 lowerRadiance = cloudGroundBoundaryRadiance(upperRadiance, groundBeamIrradianceOverPi,
     totalVerticalDepth, meanCosine, args.groundAlbedo);
-  const float2 boundary = cloudNeuralSky(args, cache.neural, position, altitude, rayPhase.skyAngle, layer);
+  const float2 boundary = cloudNeuralSky(args, cache.neural, neuralPosition, altitude, rayPhase.skyAngle, layer);
   return source + upperRadiance * boundary.x + lowerRadiance * boundary.y;
 }

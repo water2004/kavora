@@ -13,7 +13,7 @@ from .benchmark import util
 from .sdk import validate_runtime_provenance
 
 # Packman and repository-owned textures share <gameDir>/textures/ after staging.
-RUNTIME_TEXTURE_FILES = ("overcast_thunderstorm_bc6u.dds", "water_normals_flipbook.dds")
+RUNTIME_TEXTURE_FILES = ("water_normals_flipbook.dds",)
 OWNED_RUNTIME_TEXTURE_FILES = ("milky_way.dds",)
 
 

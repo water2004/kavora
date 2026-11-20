@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "cloud_preview_integral.slang";
@@ -17,6 +18,100 @@ Sampler3D<float>.Handle CloudSunDepth;
 Sampler3D<float>.Handle CloudMoonDepth;
 Sampler3D<float2>.Handle VerticalDepth;
 uint Count;
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void airSkylight(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  Results[index] = float4(cloudDiffuseAirIllumination(Clouds, Sampler3D<float2>(VerticalDepth),
+    Inputs[index].xyz, Directions[index].rgb), 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void columnCoordinates(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float4 entry = Inputs[index];
+  const float3 position = cloudLocalLightPosition(Clouds, entry.xy, entry.z);
+  const float3 coordinates = cloudLocalLightCoordinates(Clouds, position + Directions[index].xyz, entry.z, uint(entry.w));
+  Results[index] = float4(coordinates.xz, cloudAltitude(cloudDensityParameters(Clouds), position), 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void columnHistory(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+  {
+    return;
+  }
+  const float4 old = Inputs[index];
+  const float4 current = Directions[index];
+  const uint3 entry = CloudHistoryGather.encode(float4(2, 4, 8, old.y), old.x);
+  CloudHistoryGather history = {};
+  history.add(entry, current.x, current.y, current.z, 1);
+  Results[index] = float4(history.sum.rgb, history.weight);
+}
+
+struct CloudOpacityProbe : ICloudViewIntegral
+{
+  float2 moments;
+
+  [mutating] void add<let Column : bool>(CloudArgs args, float3 position, float sigma, float begin, float end)
+  {
+    moments = composeCloudMoments(moments, cloudCellMoments(sigma, begin, end - begin, cloudMaxViewDistance(args)));
+  }
+
+  bool opaque() { return 1.0f - moments.y < kOpaqueCloudTransmittance; }
+};
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void stationaryColumnNoise(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float3 origin = Inputs[index].xyz;
+  const float3 direction = Directions[index].xyz;
+  const float2 shell = cloudLayerInterval(Clouds, origin, direction, Clouds.maxDistance, 0, 0);
+  float2 mean = 0;
+  float2 squaredDeviation = 0;
+  uint3 old = 0;
+  uint3 older = 0;
+  uint misses = 0;
+  float reference = 0;
+  for (uint frame = 0; frame < 64; ++frame)
+  {
+    CloudOpacityProbe sample = {};
+    marchCloudView(Clouds, origin, direction, 0, shell, shell, Clouds.viewAngularFootprint,
+      Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), sample,
+      cloudColumnSampleOffset(uint2(index, 0), frame));
+    if (frame >= 32)
+    {
+      reference += sample.moments.y / 32.0f;
+      continue;
+    }
+    float2 value = sample.moments.yy;
+    misses += uint(value.x == 0);
+    float depth = value.x > 0 ? cloudMaxViewDistance(Clouds) * sample.moments.x / value.x : 0.5f * (shell.x + shell.y);
+    const float expectedDepth = depth;
+    CloudHistoryGather history = {};
+    history.add(old, expectedDepth, 0, 1, 1);
+    history.add(older, expectedDepth, 0, 1, 1);
+    value.y = history.resolve(float4(0, 0, 0, value.x), depth, shell).w;
+    older = old;
+    old = CloudHistoryGather.encode(float4(0, 0, 0, value.x), expectedDepth);
+    if (frame >= 8)
+    {
+      const float2 delta = value - mean;
+      mean += delta / float(frame - 7);
+      squaredDeviation += delta * (value - mean);
+    }
+  }
+  Results[index * 2] = float4(mean, squaredDeviation / 24.0f);
+  Results[index * 2 + 1] = float4(float(misses), reference, 0, 0);
+}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
