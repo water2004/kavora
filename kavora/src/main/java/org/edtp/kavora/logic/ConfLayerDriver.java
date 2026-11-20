@@ -198,10 +198,8 @@ public final class ConfLayerDriver {
                 "confs/dimensions/nether-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.DIMENSION_END_LIGHTING,
                 "confs/dimensions/end-lighting.conf", 3899f, 0.01f, false, LayerSource.MOD));
-        table.add(new LayerSpec(LogicChannels.WEATHER_THUNDER, "confs/weather/thunder.conf", 5500f, 0.01f, false,
-                LayerSource.MOD));
-        table.add(new LayerSpec(LogicChannels.WEATHER_RAIN, "confs/weather/rain.conf", 5000f, 0.01f, false,
-                LayerSource.MOD));
+        table.add(WeatherVisibility.THUNDER.layer);
+        table.add(WeatherVisibility.RAIN.layer);
         table.add(new LayerSpec(LogicChannels.TIME_DAWN, "confs/time/dawn.conf", 4000f, 0.5f, false,
                 LayerSource.MOD));
         table.add(new LayerSpec(LogicChannels.TIME_DAY, "confs/time/day.conf", 4001f, 0.5f, false,
@@ -416,6 +414,7 @@ public final class ConfLayerDriver {
     private float lastRainGradient;
     private float lastThunderGradient;
     private boolean automaticMist = true;
+    private final Map<LayerSpec, Integer> weatherVisibility = new HashMap<>();
     private float mistStrength = 1.0f;
     private final BlockPos.MutableBlockPos biomeProbe = new BlockPos.MutableBlockPos();
 
@@ -492,6 +491,41 @@ public final class ConfLayerDriver {
         return readFogDefaults("confs/water.conf");
     }
 
+    public int weatherVisibility(WeatherVisibility weather) {
+        return weatherVisibility.getOrDefault(weather.layer, 0);
+    }
+
+    public void setWeatherVisibility(WeatherVisibility weather, int meters) {
+        if (weatherVisibility(weather) == meters) return;
+        LayerSpec spec = weather.layer;
+        if (active) {
+            LayerState layer = layersById.get(spec.id());
+            Path path = modRoot().resolve(spec.confPath());
+            long previous = layer.handle;
+            try {
+                layer.handle = acquireAuthoredLayer(spec, path, meters);
+            } catch (IOException | IllegalArgumentException | RemixException e) {
+                throw new IllegalStateException("Could not update " + spec.confPath(), e);
+            }
+            layer.lastSent = 0;
+            layer.inert = meters == 0 && !confFileSetsOptions(path);
+            sendIfChanged(layer);
+            if (previous != 0) releaseHandle(previous, spec.name());
+            settling.advance(true, 0);
+        }
+        if (meters == 0) weatherVisibility.remove(spec);
+        else weatherVisibility.put(spec, meters);
+    }
+
+    private long acquireAuthoredLayer(LayerSpec spec, Path path, int visibility) throws IOException {
+        if (visibility == 0) return configLayerApi.acquireConfigLayer(path.toString(), spec.priority(), spec.blendThreshold());
+        Properties authored = new Properties();
+        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            authored.load(reader);
+        }
+        return acquireFogProfile(spec, WeatherVisibility.calibrated(authored, visibility));
+    }
+
     private Properties readFogDefaults(String confPath) {
         Properties defaults = new Properties();
         Path path = modRoot().resolve(confPath);
@@ -524,7 +558,7 @@ public final class ConfLayerDriver {
             LayerState next = new LayerState(spec);
             if (active) {
                 try {
-                    next.handle = acquirePlayerFogLayer(spec, options);
+                    next.handle = acquireFogProfile(spec, options);
                 } catch (IOException | RemixException e) {
                     throw new IllegalStateException("Could not apply " + spec.confPath() + " settings", e);
                 }
@@ -539,9 +573,9 @@ public final class ConfLayerDriver {
         settling.advance(true, 0.0f);
     }
 
-    private long acquirePlayerFogLayer(LayerSpec spec, Map<String, String> options) throws IOException {
+    private long acquireFogProfile(LayerSpec spec, Map<String, String> options) throws IOException {
         // The runtime parses synchronously. Only the versioned settings JSON persists.
-        Path path = Files.createTempFile("kavora-" + spec.confPath() + "-", ".conf");
+        Path path = Files.createTempFile("kavora-" + Path.of(spec.confPath()).getFileName() + "-", ".conf");
         try {
             StringBuilder contents = new StringBuilder();
             options.forEach((key, value) -> contents.append(key).append(" = ").append(value).append('\n'));
@@ -584,7 +618,7 @@ public final class ConfLayerDriver {
             }
             if (layer.spec.source() == LayerSource.PLAYER) {
                 try {
-                    layer.handle = acquirePlayerFogLayer(layer.spec, fogOverrides.get(layer.spec));
+                    layer.handle = acquireFogProfile(layer.spec, fogOverrides.get(layer.spec));
                     layer.lastSent = 0.0f;
                 } catch (IOException | RemixException e) {
                     LOGGER.warn("Could not restore {} fog settings", layer.spec.id(), e);
@@ -594,23 +628,22 @@ public final class ConfLayerDriver {
             Path confPath = rootFor(layer.spec.source())
                     .resolve(layer.spec.confPath()).toAbsolutePath();
             try {
-                layer.handle = configLayerApi.acquireConfigLayer(
-                        confPath.toString(), layer.spec.priority(), layer.spec.blendThreshold());
-            } catch (RemixException e) {
+                layer.handle = acquireAuthoredLayer(layer.spec, confPath, weatherVisibility.getOrDefault(layer.spec, 0));
+            } catch (IOException | IllegalArgumentException | RemixException e) {
                 if (waterGates && acquireFailureDisablesDriver(layer.spec.name())) {
-                    LOGGER.error("Failed to acquire conf layer {} from {}: {} (code: {}) - conf-layer driving disabled",
-                            layer.spec.name(), confPath, e.getMessage(), e.getErrorCode());
+                    LOGGER.error("Failed to acquire conf layer {} from {}: {} - conf-layer driving disabled",
+                            layer.spec.name(), confPath, e.getMessage());
                     releaseAll();
                     return false;
                 }
-                LOGGER.warn("Failed to acquire conf layer {} from {}: {} (code: {}) - layer skipped "
+                LOGGER.warn("Failed to acquire conf layer {} from {}: {} - layer skipped "
                         + "(retry with /kavora conf reload)",
-                        layer.spec.name(), confPath, e.getMessage(), e.getErrorCode());
+                        layer.spec.name(), confPath, e.getMessage());
                 layer.handle = 0;
                 continue;
             }
             layer.lastSent = 0.0f; // every acquire starts the layer at strength 0
-            layer.inert = !confFileSetsOptions(confPath);
+            layer.inert = !weatherVisibility.containsKey(layer.spec) && !confFileSetsOptions(confPath);
             LOGGER.info("Acquired {} conf layer {} (priority {}, threshold {}): {}",
                     layer.spec.source() == LayerSource.WORLD ? "world" : "mod",
                     layer.spec.name(), layer.spec.priority(), layer.spec.blendThreshold(), confPath);

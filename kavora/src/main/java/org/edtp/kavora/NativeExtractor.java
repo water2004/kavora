@@ -50,6 +50,8 @@ public final class NativeExtractor {
 
     // Previous bundled profiles, as shipped with LF or CRLF. Preserve all author edits.
     private static final Map<String, Set<String>> OLD_PROFILE_DEFAULTS = Map.of(
+            "view_distance.conf", Set.of("510aafd4922131cad43a8a707d20f8f483d12de330be4d8450c09dea5bb8bb54",
+                    "95fa7d6afc77768fcbfa75c330b27a72845a6877e7af3d53bdaeda7813e390df"),
             "weather/rain.conf", Set.of("0760e6291bbee483b8eec2a74c6fb16ece0c3613957db8d98612abe18075cb7d",
                     "cfe634d3f4fe7c75f5c277ebf6e9c61ae60da1faf0a24eeb33ede9abe191de6c"),
             "weather/thunder.conf", Set.of("c4a32e583a03db01fe3e651242bcdd3958276514f0658ea536105bbe3151c0d1",

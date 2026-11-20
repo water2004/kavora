@@ -133,6 +133,10 @@ final class KavoraOptionFactory {
     }
 
     static Component intValueText(String settingId, int value) {
+        if (settingId.startsWith("fog.overworld.visibility.")) {
+            return value == 0 ? Component.translatable("kavora.settings.value.weatherProfile")
+                    : Component.translatable("kavora.settings.value.visibilityMeters", value);
+        }
         if (settingId.equals("fog.integration") || settingId.equals("materials.pom")
                 || settingId.equals("lighting.indirect") || settingId.equals("cache.filter")
                 || settingId.equals(KavoraNeuralRenderingSettings.MODEL)) {

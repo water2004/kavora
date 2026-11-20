@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -650,6 +651,51 @@ class ConfLayerDriverTest {
         assertFalse(api.livePaths.containsValue(override));
         assertFalse(statusesByName(driver).containsKey(overrideId));
         assertTrue(api.isLive(authored));
+    }
+
+    @Test
+    void weatherVisibilitySetsContrastWithoutChangingAuthoredTint() {
+        var authored = new Properties();
+        authored.setProperty(WeatherVisibility.COLOR, "0.95, 0.97, 0.99");
+        authored.setProperty("rtx.volumetrics.anisotropy", "0.3");
+        for (int meters : List.of(16, 256, 16384)) {
+            var adjusted = WeatherVisibility.calibrated(authored, meters);
+            assertEquals(authored.getProperty(WeatherVisibility.COLOR), adjusted.get(WeatherVisibility.COLOR));
+            assertEquals("0.3", adjusted.get("rtx.volumetrics.anisotropy"));
+            double length = Double.parseDouble(adjusted.get(WeatherVisibility.DISTANCE));
+            assertEquals(0.05, Math.pow(0.97, 2.2 * meters / length), 1e-8);
+        }
+    }
+
+    @Test
+    void visibilityUsesOneWeatherLayerAcrossReloadAndReset(@TempDir Path gameDir) throws IOException {
+        var rain = WeatherVisibility.RAIN;
+        var thunder = WeatherVisibility.THUNDER;
+        Path root = gameDir.resolve("rtx-remix/mods/minecraft-logic");
+        Path rainFile = root.resolve(rain.layer.confPath()), thunderFile = root.resolve(thunder.layer.confPath());
+        Files.createDirectories(rainFile.getParent());
+        Files.writeString(rainFile, WeatherVisibility.COLOR + " = 0.996, 0.996, 0.996\n");
+        Files.writeString(thunderFile, WeatherVisibility.COLOR + " = 0.97, 0.97, 0.97\n");
+        var api = new FakeConfigLayerApi();
+        var driver = new ConfLayerDriver();
+        assertTrue(driver.acquireAll(api, gameDir));
+        int handles = api.livePaths.size();
+        driver.setWeatherVisibility(rain, 256);
+        assertFalse(api.isLive(rainFile));
+        assertTrue(api.isLive(thunderFile));
+        assertEquals(0, driver.weatherVisibility(thunder));
+        assertEquals(handles, api.livePaths.size());
+        String replacement = api.livePaths.values().stream().filter(path -> path.contains("kavora-rain.conf-"))
+                .findFirst().orElseThrow();
+        assertEquals(rain.layer.priority(), api.priorities.get(replacement));
+        driver.setWeatherVisibility(rain, 256);
+        assertTrue(api.livePaths.containsValue(replacement));
+        assertTrue(driver.reload());
+        assertEquals(256, driver.weatherVisibility(rain));
+        assertFalse(api.isLive(rainFile));
+        driver.setWeatherVisibility(rain, 0);
+        assertTrue(api.isLive(rainFile));
+        assertEquals(handles, api.livePaths.size());
     }
 
     private static Map<String, ConfLayerDriver.LayerStatus> statusesByName(ConfLayerDriver driver) {

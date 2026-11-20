@@ -56,6 +56,7 @@ class ViewDistanceFadeTest {
     @Test
     void layerStrengthReconstructsTheLinearFadeBand() {
         ViewDistanceFade fade = new ViewDistanceFade();
+        assertEquals(16f, ViewDistanceFade.computeFadeMin(2));
         for (int chunks = ViewDistanceFade.MIN_RENDER_DISTANCE_CHUNKS;
                 chunks <= ViewDistanceFade.MAX_RENDER_DISTANCE_CHUNKS; chunks++) {
             float strength = fade.layerStrength(chunks);
@@ -65,6 +66,7 @@ class ViewDistanceFadeTest {
             assertEquals(ViewDistanceFade.computeFadeMax(chunks),
                     lerp(ViewDistanceFade.RESTORE_FADE_MAX, ViewDistanceFade.LAYER_FADE_MAX, strength),
                     0.001f, "fade max at " + chunks + " chunks");
+            assertEquals(0.8f * (chunks * 16), ViewDistanceFade.computeFadeMax(chunks));
         }
     }
 

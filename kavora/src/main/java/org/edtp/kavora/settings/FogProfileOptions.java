@@ -3,6 +3,7 @@ package org.edtp.kavora.settings;
 
 import org.edtp.kavora.logic.ConfLayerDriver;
 import org.edtp.kavora.logic.AtmosphereDimension;
+import org.edtp.kavora.logic.WeatherVisibility;
 import org.edtp.kavora.sdk.RemixAPI;
 
 import java.util.ArrayList;
@@ -80,6 +81,12 @@ final class FogProfileOptions {
         underwater = OPTICS.stream().map(parameter -> authoredValue(parameter, waterDefaults, runtimeDefaults)).toList();
         for (var value : underwater) {
             addControls(settings, SettingGroup.WATER_FOG, "water.fog", "fog", value);
+        }
+        for (var weather : WeatherVisibility.values()) {
+            String label = "kavora.effect." + weather.settingId;
+            settings.add(KavoraSetting.ofInt(weather.settingId, SettingGroup.FOG_OVERWORLD, label, label + ".tip",
+                    0, 16384, 0, () -> driver.weatherVisibility(weather), meters -> driver.setWeatherVisibility(weather, meters))
+                    .withStep(16));
         }
     }
 

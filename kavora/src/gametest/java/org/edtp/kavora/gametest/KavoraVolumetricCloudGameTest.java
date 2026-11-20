@@ -7,6 +7,7 @@ package org.edtp.kavora.gametest;
 import org.edtp.kavora.KavoraMod;
 import org.edtp.kavora.KavoraPreparationScreen;
 import org.edtp.kavora.UnfocusedFramerateLimit;
+import org.edtp.kavora.logic.WeatherVisibility;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -762,6 +763,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             captureSkyBeforePrecipitation(context, "overcast-" + weather + "-sky");
             KavoraWorldGameTest.requireVisibleWorld(
                     KavoraWorldGameTest.captureCompletedFrame(context, "overcast-" + weather));
+            if (weather.equals("rain")) verifyRainVisibility(context);
         }
         captureTransmittance(context, "overcast-thunder-horizon-transmission");
         world.getServer().runOnServer(server ->
@@ -805,6 +807,25 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             captureSkyBeforePrecipitation(context, "dawn-no-mist-missing-terrain");
         } finally {
             context.runOnClient(client -> KavoraMod.renderer.getConfLayerDriver().setAutomaticMist(automatic));
+        }
+    }
+
+    private static void verifyRainVisibility(ClientGameTestContext context) {
+        var rain = WeatherVisibility.RAIN;
+        int original = context.computeOnClient(client -> KavoraMod.renderer.getConfLayerDriver().weatherVisibility(rain));
+        try {
+            context.runOnClient(client -> KavoraMod.renderer.getConfLayerDriver().setWeatherVisibility(rain, 32));
+            context.waitFor(client -> {
+                var api = KavoraMod.renderer.getRemixApi();
+                String[] tint = api.getConfigVariableResolved("rtx.volumetrics.transmittanceColor").split(",");
+                double length = Double.parseDouble(api.getConfigVariableResolved("rtx.volumetrics.transmittanceMeasurementDistanceMeters"));
+                return Math.abs(Math.pow(Double.parseDouble(tint[1]), 2.2 * 32 / length) - 0.05) < 0.002;
+            }, 250);
+            waitPresentedFrames(context, 48);
+            logFogProfile(context, "rain-32m");
+            captureSkyBeforePrecipitation(context, "overcast-rain-32m");
+        } finally {
+            context.runOnClient(client -> KavoraMod.renderer.getConfLayerDriver().setWeatherVisibility(rain, original));
         }
     }
 

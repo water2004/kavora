@@ -16,9 +16,8 @@ public final class ViewDistanceFade {
     static final int MAX_RENDER_DISTANCE_CHUNKS = 32;
     static final int MAX_FAR_DISTANCE_CHUNKS = 2048;
 
-    // Preserve the original 70%-to-80% fade-band calibration at every
-    // supported Minecraft render distance.
-    private static final float FADE_MIN_RATIO = 0.7f;
+    private static final float SHORT_VIEW_FADE_START = 16.0f;
+    private static final float FAR_FADE_START_RATIO = 0.7f;
     private static final float FADE_MAX_RATIO = 0.8f;
 
     // Keep these endpoints aligned with packaging/rtx.conf and
@@ -36,7 +35,13 @@ public final class ViewDistanceFade {
     private float displayedFadeMax = RESTORE_FADE_MAX;
 
     static float computeFadeMin(int renderDistanceChunks) {
-        return renderDistanceChunks * 16 * FADE_MIN_RATIO;
+        if (renderDistanceChunks >= MAX_RENDER_DISTANCE_CHUNKS) {
+            return renderDistanceChunks * 16 * FAR_FADE_START_RATIO;
+        }
+        float fraction = (float) (renderDistanceChunks - MIN_RENDER_DISTANCE_CHUNKS)
+                / (MAX_RENDER_DISTANCE_CHUNKS - MIN_RENDER_DISTANCE_CHUNKS);
+        return SHORT_VIEW_FADE_START + fraction
+                * (MAX_RENDER_DISTANCE_CHUNKS * 16 * FAR_FADE_START_RATIO - SHORT_VIEW_FADE_START);
     }
 
     static float computeFadeMax(int renderDistanceChunks) {
@@ -45,8 +50,8 @@ public final class ViewDistanceFade {
 
     /**
      * Strength of the 2-chunk endpoint over the 32-chunk baseline. Both
-     * endpoint values are linear in chunk distance, so this one blend
-     * reconstructs the exact 70%-to-80% band for every vanilla setting.
+     * endpoint values are linear in chunk distance. Short views blend over
+     * more of the available terrain while retaining their culling distance.
      */
     public float layerStrength(int renderDistanceChunks) {
         return layerStrength(renderDistanceChunks, 0);
@@ -71,10 +76,11 @@ public final class ViewDistanceFade {
         renderDistanceChunks = Math.max(renderDistanceChunks, far);
         int clamped = Math.clamp(renderDistanceChunks,
                 MIN_RENDER_DISTANCE_CHUNKS, MAX_RENDER_DISTANCE_CHUNKS);
-        displayedFadeMin = computeFadeMin(clamped);
-        displayedFadeMax = computeFadeMax(clamped);
-        return (float) (MAX_RENDER_DISTANCE_CHUNKS - clamped)
+        float strength = (float) (MAX_RENDER_DISTANCE_CHUNKS - clamped)
                 / (MAX_RENDER_DISTANCE_CHUNKS - MIN_RENDER_DISTANCE_CHUNKS);
+        displayedFadeMin = RESTORE_FADE_MIN + strength * (LAYER_FADE_MIN - RESTORE_FADE_MIN);
+        displayedFadeMax = computeFadeMax(clamped);
+        return strength;
     }
 
     public boolean isAuto() {
