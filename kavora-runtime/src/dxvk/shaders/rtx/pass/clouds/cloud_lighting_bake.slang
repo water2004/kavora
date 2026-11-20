@@ -5,7 +5,6 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
-import "rtx/algorithm/cloud_direct_light.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
 struct CloudLocalColumn
@@ -84,42 +83,4 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
     const float altitude = bottom + (float(y) + 0.5f) * thickness / float(samples);
     output[uint3(index.x, offset + y, index.y)] = cloudVerticalOpticalDepth(column, altitude);
   }
-}
-
-public float4 buildCloudDirectLightCell(CloudArgs args, uint3 index, Sampler2DArray<float4> weather,
-  Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
-{
-  const uint layer = index.y < CLOUD_DIRECT_LIGHT_LOW_HEIGHT ? 0u : 1u;
-  if (!cloudLayerEnabled(args, layer))
-  {
-    return 0;
-  }
-  const uint cascade = layer == 1 ? (index.y - CLOUD_DIRECT_LIGHT_LOW_HEIGHT) / CLOUD_DIRECT_LIGHT_HIGH_SAMPLES
-    : index.y < cloudDirectLightHeightOffset(0, 1) ? 0 : index.y < cloudDirectLightHeightOffset(0, 2) ? 1 : 2;
-  const uint sampleIndex = index.y - cloudDirectLightHeightOffset(layer, cascade);
-  const float fraction = (float(sampleIndex) + 0.5f) / float(cloudDirectLightHeightSamples(layer, cascade));
-  const float altitude = lerp(cloudLayerBase(args, layer), cloudLayerTop(args, layer), fraction);
-  const CloudDirectLightGrid grid = cloudDirectLightGrid(args, cascade);
-  const float3 position = cloudLightPositionAtAltitude(args, grid.position(index.xz), altitude);
-  const float aboveDepth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0).x;
-  const float extinction = cloudExtinction(args, position, weather, base, detail);
-  const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
-  float4 beam = 0;
-  [unroll]
-  for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
-  {
-    const CloudLight light = args.lights[lightIndex];
-    if (cloudLightHasEnergy(light))
-    {
-      const float cosine = dot(light.directionToLight, radialUp);
-      const float localBeamDepth = cosine > 0 && args.groundAlbedo > 0 ? aboveDepth / cosine : 0;
-      const float segment = cloudDirectSegment(args, altitude, layer, cosine);
-      const float2 transmitted = traceCloudDirectLight(args, position + segment * light.directionToLight,
-        lightIndex, localBeamDepth - segment * extinction,
-        weather, base, detail, cache);
-      beam[2 * lightIndex] = transmitted.x;
-      beam[2 * lightIndex + 1] = transmitted.y;
-    }
-  }
-  return beam;
 }

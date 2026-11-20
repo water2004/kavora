@@ -1,72 +1,51 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 Kavora contributors
 # SPDX-License-Identifier: MIT
-"""Read back direct-light cascade, slice, and channel selection on Vulkan."""
-from pathlib import Path
-
+"""Verify the shared quadratic cloud-light integral and finite visibility rays."""
 import numpy as np
 import slangpy as spy
 
-from test_cloud_transport import SHADERS, cloud_parameters
+from test_cloud_transport import OPTIONS, Probe, cloud_parameters, uniform_cloud_textures
+
+
+def low_tau(thickness, start, length, steps, extinction):
+    centers = (np.arange(steps) + 0.5) / steps
+    altitude = (start + length * centers**2) / thickness
+    t = np.clip((altitude - 0.1) / 0.4, 0, 1)
+    density = 0.1 + 0.9 * t * t * (3 - 2 * t)
+    return length * extinction * np.dot(density, 2 * centers / steps)
 
 
 def main():
-    here = Path(__file__).resolve().parent
-    device = spy.Device(type=spy.DeviceType.vulkan, compiler_options={
-        'include_paths': [str(here), str(SHADERS)], 'defines': {'__SLANG__': '1'}})
-    sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
-        mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.point,
-        address_u=spy.TextureAddressingMode.clamp_to_edge,
-        address_v=spy.TextureAddressingMode.clamp_to_edge,
-        address_w=spy.TextureAddressingMode.clamp_to_edge)
-    args = cloud_parameters(baseHeight=800, thickness=1500, shapeScale=1024,
-        windOffset=[17, 0, -31], highBaseHeight=6400, highThickness=50,
-        maxDistance=24000, highMaxDistance=24000)
-    # Distinct channels at every layer and cascade edge expose filtering into adjacent slices.
-    values = np.array([[.25, .375, .5, .625], [.5, .625, .75, .875], [.625, .75, .875, 1],
-                       [.375, .5, .625, .75], [.125, .25, .375, .5], [.25, .5, .75, .875]], dtype=np.float16)
-    slices = np.repeat(values, (16, 12, 8, 4, 4, 4), axis=0)
-    samples = np.broadcast_to(slices[None, :, None, :], (64, len(slices), 64, 4)).copy()
-    field = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba16_float,
-        width=64, height=len(slices), depth=64, usage=spy.TextureUsage.shader_resource)
-    field.copy_from_numpy(samples)
-    view = field.create_view(sampler=sampler)
+    device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
+    probe = Probe(device)
+    textures = uniform_cloud_textures(device)
+    args = cloud_parameters(baseHeight=400, thickness=1500, extinction=0.002,
+                            highBaseHeight=2600, highThickness=150, highExtinction=0.004, wetness=1)
+    rays = [[0, 0, 0, limit] for limit in (390, 550, 1900, 2680, 4000)]
+    rays.extend([[0, 1600, 0, 180], [0, 2670, 0, 20], [0, 2850, 0, 2000]])
+    directions = [[0, 1, 0, 0]] * len(rays)
+    cases = [(0, 0, 0), (0, 150, 0), (0, 1500, 0), (0, 1500, 80),
+             (0, 1500, 150), (1200, 180, 0), (0, 0, 20), (0, 0, 0)]
+    for budget in (1, 3, 6, 16):
+        args["lightSteps"] = budget
+        expected = np.array([[low_tau(1500, start, low, min(budget, 6), .002), high * .004]
+                             for start, low, high in cases])
+        actual = probe.run("shortLightDepth", rays, directions, args, textures)
+        np.testing.assert_allclose(actual[:, :2], expected, atol=2e-4, rtol=0)
+        visibility = probe.run("visibility", rays, directions, args, textures)[:, 0]
+        np.testing.assert_allclose(visibility, np.exp(-expected.sum(axis=1)), atol=2e-4, rtol=0)
 
-    origins, requests, expected = [], [], []
-    clear = np.zeros(4)
-    for layer, altitudes in enumerate(((800, 2300), (6400, 6450))):
-        near, middle, far = values[3 * layer:3 * layer + 3]
-        for altitude in altitudes:
-            for x, distance, channels, weight in (
-                    (0, 9000, near, 1), (1792, 9000, (near + middle) / 2, 1), (4096, 9000, middle, 1),
-                    (7168, 9000, (middle + far) / 2, 1), (12000, 12000, far, 1), (15750, 15750, far, .5),
-                    (18000, 18000, clear, 0), (0, 100, clear, 0)):
-                for channel, transmitted in enumerate(channels):
-                    origins.append([17 + x, altitude, -31, distance])
-                    requests.append([altitude, layer, channel, 0])
-                    expected.append([transmitted, weight])
-
-    args['lights'][0]['directionToLight'] = [0, 1, 0]
-    args['lights'][1]['directionToLight'] = [0, -1, 0]
-    for altitude in (805, 1500, 2295):
-        # Both beams traverse at most one body texel before the shared field.
-        # Outside-column transmission is already complete at the sample.
-        for channel, depth in enumerate((min(32, 2300 - altitude), 0, min(32, altitude - 800), 0)):
-            origins.append([0, altitude, 0, 9000])
-            requests.append([altitude, 0, channel, 0.04])
-            expected.append([values[0, channel] * np.exp(-0.04 * depth), 1])
-
-    program = device.load_program('cloud_direct_light_contracts.comp.slang', ['directLight'])
-    kernel = device.create_compute_kernel(program)
-    output = device.create_buffer(element_count=len(origins), struct_size=16,
-        usage=spy.BufferUsage.unordered_access)
-    kernel.dispatch(thread_count=[len(origins), 1, 1], vars={
-        'Origins': device.create_buffer(data=np.array(origins, dtype=np.float32), usage=spy.BufferUsage.shader_resource),
-        'Directions': device.create_buffer(data=np.array(requests, dtype=np.float32), usage=spy.BufferUsage.shader_resource),
-        'Results': output, 'Count': len(origins), 'Clouds': args, 'Direct': view.descriptor_handle_combined})
-    actual = output.to_numpy().view(np.float32).reshape(-1, 4)
-    np.testing.assert_allclose(actual[:, :2], expected, rtol=0, atol=2e-6)
-    print(f'PASS {len(actual)} direct-light cases')
+    # A finite grazing ray clips the homogeneous upper shell; an unbounded
+    # ray covers only two deck thicknesses at Revelation's grazing-angle cap.
+    args["extinction"] = 0
+    grazing = [[0, 2670, 0, distance] for distance in (0, 17, 299, 300, 1e6)]
+    actual = probe.run("shortLightDepth", grazing, [[1, 0, 0, 0]] * len(grazing), args, textures)
+    np.testing.assert_array_equal(actual[:, 0], 0)
+    np.testing.assert_allclose(actual[:, 1], np.array([0, 17, 299, 300, 300]) * .004, atol=2e-5)
+    disabled = probe.run("visibility", rays, directions, args | {"enable": 0}, textures)
+    np.testing.assert_array_equal(disabled[:, 0], 1)
+    print("PASS short cloud-light integration: layer depth, finite visibility, budgets and grazing cap")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

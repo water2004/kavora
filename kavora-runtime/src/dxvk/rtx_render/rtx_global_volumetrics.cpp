@@ -43,9 +43,6 @@
 #include <rtx_shaders/volume_integrate_rayquery_raygen.h>
 #include <rtx_shaders/air_shadow.h>
 #include <rtx_shaders/generate_cloud_ambient.h>
-#include <rtx_shaders/generate_cloud_direct_light.h>
-#include <rtx_shaders/generate_cloud_light_sun.h>
-#include <rtx_shaders/generate_cloud_light_moon.h>
 #include <rtx_shaders/generate_cloud_local_light.h>
 #include <rtx_shaders/generate_cloud_neural_light.h>
 #include <rtx_shaders/generate_cloud_neural_light_tensor.h>
@@ -64,28 +61,6 @@ namespace dxvk {
 
   // Defined within an unnamed namespace to ensure unique definition across binary
   namespace {
-    class GenerateCloudSunShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudSunShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_light_sun)
-      BINDLESS_ENABLED()
-      BEGIN_PARAMETER()
-        COMMON_RAYTRACING_BINDINGS
-        RW_TEXTURE3D(CLOUD_LIGHTING_BINDING_OUTPUT)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudSunShader);
-
-    class GenerateCloudMoonShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudMoonShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_light_moon)
-      BINDLESS_ENABLED()
-      BEGIN_PARAMETER()
-        COMMON_RAYTRACING_BINDINGS
-        RW_TEXTURE3D(CLOUD_LIGHTING_BINDING_OUTPUT)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudMoonShader);
-
     class GenerateCloudLocalLightShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudLocalLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_local_light)
       BINDLESS_ENABLED()
@@ -96,17 +71,6 @@ namespace dxvk {
     };
 
     PREWARM_SHADER_PIPELINE(GenerateCloudLocalLightShader);
-
-    class GenerateCloudDirectLightShader : public ManagedShader {
-      SHADER_SOURCE(GenerateCloudDirectLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_direct_light)
-      BINDLESS_ENABLED()
-      BEGIN_PARAMETER()
-        COMMON_RAYTRACING_BINDINGS
-        RW_TEXTURE3D(CLOUD_LIGHTING_BINDING_OUTPUT)
-      END_PARAMETER()
-    };
-
-    PREWARM_SHADER_PIPELINE(GenerateCloudDirectLightShader);
 
     class GenerateCloudNeuralLightShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudNeuralLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_neural_light)
@@ -775,9 +739,8 @@ namespace dxvk {
     clouds.highExtinction = CloudOptions::highExtinctionPerMeter() / cloudWorldScale;
     clouds.highCoverage = CloudOptions::highCoverage();
     clouds.highMaxDistance = CloudOptions::highMaxDistanceMeters() * cloudWorldScale;
-    // Preserve the celestial light path when the camera's cloud range is shortened.
+    // Keep the diffuse-light atlas wider than the detailed view integration.
     clouds.lightMaxDistance = 60000.0f * cloudWorldScale;
-    clouds.lightingNearDistance = 24000.0f * cloudWorldScale;
     // Water droplets have negligible absorption in the visible spectrum.
     clouds.albedo = 1.0f;
     clouds.steps = CloudOptions::steps();
@@ -905,10 +868,7 @@ namespace dxvk {
     const bool lowClouds = clouds.extinction > 0 && clouds.thickness > 0;
     const bool highClouds = clouds.highExtinction > 0 && clouds.highThickness > 0 && clouds.highCoverage > 0;
     if (!clouds.enable || (!lowClouds && !highClouds)) {
-      m_cloudLightOpticalDepth[0].reset();
-      m_cloudLightOpticalDepth[1].reset();
       m_cloudLocalLight.reset();
-      m_cloudDirectLight.reset();
       m_cloudNeuralLight.reset();
       m_cloudLightingArgsValid = false;
       return;
@@ -925,50 +885,16 @@ namespace dxvk {
     lightingKey.highSteps = 0;
     // A byte-exact comparison is conservative for the remaining inputs: any
     // changed density, light direction, or cache extent still triggers a rebuild.
-    const bool activeBeam[2] = {
-      lowClouds && (clouds.activeCloudLights & 1u),
-      lowClouds && (clouds.activeCloudLights & 2u)
-    };
     const bool useTensor = clouds.multipleScattering > 0 && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
-    const bool cacheResourcesReady =
-      (!activeBeam[0] || m_cloudLightOpticalDepth[0].isValid())
-      && (!activeBeam[1] || m_cloudLightOpticalDepth[1].isValid())
-      && m_cloudLocalLight.isValid()
-      && m_cloudDirectLight.isValid()
-      && m_cloudNeuralLight.isValid();
+    const bool cacheResourcesReady = m_cloudLocalLight.isValid() && m_cloudNeuralLight.isValid();
     if (m_cloudLightingArgsValid && cacheResourcesReady && m_cloudLightingUsesTensor == useTensor
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
       return;
     }
-    const uint32_t resolution = CLOUD_LIGHTING_RESOLUTION_PER_STEP
-      * std::clamp(clouds.lightSteps, uint32_t(CLOUD_LIGHTING_MIN_QUALITY), uint32_t(CLOUD_LIGHTING_MAX_QUALITY));
-    const bool farCascade = clouds.lightingNearDistance > 0 && clouds.lightMaxDistance > clouds.lightingNearDistance;
-    const uint32_t depth = resolution + (farCascade ? resolution / 2 : 0);
-    const VkExtent3D lightExtent { resolution, resolution / CLOUD_LIGHTING_LIGHT_HEIGHT_DIVISOR, depth };
     Rc<DxvkContext> resourceContext = ctx;
     ctx->bindCommonRayTracingResources();
-    ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, nullptr, nullptr);
-    ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, nullptr, nullptr);
     ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, nullptr, nullptr);
     ctx->bindResourceView(BINDING_CLOUD_NEURAL_LIGHT_INPUT, nullptr, nullptr);
-    ctx->bindResourceView(BINDING_CLOUD_DIRECT_LIGHT_INPUT, nullptr, nullptr);
-    for (uint32_t lightIndex = 0; lightIndex < 2; lightIndex++) {
-      auto& opticalDepth = m_cloudLightOpticalDepth[lightIndex];
-      if (!activeBeam[lightIndex]) {
-        opticalDepth.reset();
-        continue;
-      }
-      if (!opticalDepth.isValid() || opticalDepth.image->info().extent != lightExtent) {
-        opticalDepth = Resources::createImageResource(resourceContext,
-          lightIndex == 0 ? "cloud sun optical depth" : "cloud moon optical depth", lightExtent,
-          VK_FORMAT_R32_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
-      }
-      ScopedGpuProfileZone(ctx, "Cloud Directional Optical Depth");
-      ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, opticalDepth.view, nullptr);
-      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT,
-        lightIndex == 0 ? GenerateCloudSunShader::getShader() : GenerateCloudMoonShader::getShader());
-      ctx->dispatch((lightExtent.width + 7) / 8, (lightExtent.height + 7) / 8, 1);
-    }
     {
       ScopedGpuProfileZone(ctx, "Cloud Local Lighting");
       constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_PACKED_HEIGHT,
@@ -981,21 +907,7 @@ namespace dxvk {
       ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudLocalLightShader::getShader());
       ctx->dispatch(localExtent.width / 8, localExtent.depth / 8, highClouds ? 2 : 1);
     }
-    {
-      ctx->bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, getCloudLightOpticalDepth(0), nullptr);
-      ctx->bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, getCloudLightOpticalDepth(1), nullptr);
-      constexpr VkExtent3D extent { CLOUD_DIRECT_LIGHT_RESOLUTION, CLOUD_DIRECT_LIGHT_PACKED_HEIGHT,
-        CLOUD_DIRECT_LIGHT_RESOLUTION };
-      if (!m_cloudDirectLight.isValid()) {
-        m_cloudDirectLight = Resources::createImageResource(resourceContext, "cloud direct light", extent,
-          VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
-      }
-      ScopedGpuProfileZone(ctx, "Cloud Direct Lighting");
-      ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, m_cloudLocalLight.view, nullptr);
-      ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, m_cloudDirectLight.view, nullptr);
-      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudDirectLightShader::getShader());
-      ctx->dispatch(extent.width / 8, extent.height / 4, extent.depth / 2);
-    }
+    ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, m_cloudLocalLight.view, nullptr);
     {
       constexpr uint32_t lightingRows = (CLOUD_NEURAL_SKY_CHANNEL + 1) * CLOUD_NEURAL_COLUMN_HEIGHT;
       constexpr VkExtent3D extent { CLOUD_NEURAL_ATLAS_WIDTH, CLOUD_NEURAL_TOTAL_BANDS * CLOUD_NEURAL_COLUMN_HEIGHT, CLOUD_NEURAL_ATLAS_DEPTH };
@@ -1003,7 +915,6 @@ namespace dxvk {
         m_cloudNeuralLight = Resources::createImageResource(resourceContext, "cloud neural scattering", extent,
           VK_FORMAT_R16G16B16A16_SFLOAT, 1, VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
       }
-      ctx->bindResourceView(BINDING_CLOUD_DIRECT_LIGHT_INPUT, m_cloudDirectLight.view, nullptr);
       ctx->bindResourceView(CLOUD_NEURAL_OUTPUT_BINDING, m_cloudNeuralLight.view, nullptr);
       ctx->bindResourceBuffer(CLOUD_NEURAL_WEIGHTS_BINDING, DxvkBufferSlice(m_cloudNeuralModel.weights(*ctx, useTensor)));
       ScopedGpuProfileZone(ctx, useTensor ? "Cloud Neural Tensor" : "Cloud Neural Scalar");

@@ -80,7 +80,6 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   const VolumeArgs volume = cb.volumeArgs;
   AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
     volumeHint, mediumExtinction, cloudAngularFootprint);
-  ray.eye = cameraGetWorldPosition(cb.camera);
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   float cachedBegin;
   float2 cachedUV;

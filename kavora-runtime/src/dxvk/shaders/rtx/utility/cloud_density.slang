@@ -106,7 +106,7 @@ public float2 cloudThresholdMoments(float mean, float secondMoment, float thresh
 
 [ForceInline]
 public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray<float4> weatherSampler,
-  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, uint layer)
+  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, uint layer, bool useCurl = true)
 {
   const float altitude = cloudAltitude(args, position);
   const RevelationField field = { weatherSampler, baseSampler, detailSampler };
@@ -132,5 +132,6 @@ public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray
   // The source's Cartesian Y is planet-relative. Reduce its constant origin
   // (6,371,000 m + 256 m) modulo the 2,000 m alligator volume.
   const float3 rayPos = local + float3(0, 1256.0, 0);
-  return revelationLowDensity(field, rayPos, heightFraction, args.thickness * inverseScale, args.coverage, args.wetness);
+  return revelationLowDensity(field, rayPos, heightFraction, args.thickness * inverseScale,
+    args.coverage, args.wetness, useCurl);
 }

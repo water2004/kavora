@@ -5,16 +5,8 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/pass/cloud_parameters.slang";
 ConstantBuffer<CloudArgs> Clouds;
-Sampler3D<float>.Handle Sun;
-Sampler3D<float2>.Handle VerticalDepth;
 Sampler3D<float4>.Handle UnusedLighting;
 
-CloudLightingCache directionalCache()
-{
-  const Sampler3D<float> depth = Sampler3D<float>(Sun);
-  const Sampler3D<float4> unused = Sampler3D<float4>(UnusedLighting);
-  return { depth, depth, Sampler3D<float2>(VerticalDepth), unused, unused };
-}
 StructuredBuffer<float4> Origins;
 StructuredBuffer<float4> Directions;
 RWStructuredBuffer<float4> Results;
@@ -61,41 +53,6 @@ void neuralNodes(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void depths(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const CloudLightingCache cache = directionalCache();
-  const float3 origin = Origins[index].xyz;
-  const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
-  float depth;
-  const bool found = cloudCachedLightDepth(Clouds, cache, 0, origin, endpoint, depth);
-  Results[index] = float4(depth, found ? 1.0f : 0.0f, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void cascadeDepths(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const CloudLightingCache cache = directionalCache();
-  const uint cascade = uint(Directions[index].w);
-  const float3 origin = Origins[index].xyz;
-  const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
-  float depth;
-  const bool found = cloudCachedLightDepth(Clouds, cache, 0, origin, endpoint, depth, cascade);
-  const bool contained = cloudLightCascadeContains(Clouds, 0, cascade, origin, endpoint);
-  Results[index] = float4(depth, found ? 1.0f : 0.0f, cloudLightingFarWeight(Clouds, origin),
-    contained ? 1.0f : 0.0f);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
 void grids(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
@@ -133,64 +90,6 @@ void viewGrids(uint index : SV_DispatchThreadID)
   const CloudRayGrid grid = createCloudViewGrid(Clouds, interval.xy, view.xyz, interval.z, uint(view.w));
   Results[index] = float4(grid.cells, grid.boundary(grid.cells - 1), grid.boundary(grid.cells),
     grid.sampleAt(uint(interval.w)));
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void lightIndices(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  Results[index] = float4(cloudCachedLightIndex(Clouds, Origins[index].xyz), 0, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void energyParts(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const CloudLightingCache cache = directionalCache();
-  const float3 origin = Origins[index].xyz;
-  const float3 middle = origin + Directions[index].xyz * (Origins[index].w * Directions[index].w);
-  const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
-  float local;
-  float external;
-  float total;
-  const bool a = cloudCachedLightDepth(Clouds, cache, 0, origin, middle, local);
-  const bool b = cloudCachedLightDepth(Clouds, cache, 0, middle, endpoint, external);
-  const bool c = cloudCachedLightDepth(Clouds, cache, 0, origin, endpoint, total);
-  Results[index] = float4(local, external, total, (a && b && c) ? 1.0f : 0.0f);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void reusedGrid(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const CloudLightingCache cache = directionalCache();
-  const uint cascade = uint(Directions[index].w);
-  const float3 origin = Origins[index].xyz;
-  const float3 endpoint = origin + Directions[index].xyz * Origins[index].w;
-  const CloudLightGrid grid = cloudLightGrid(Clouds, 0, cascade);
-  float referenceDepth;
-  float reusedDepth;
-  const bool referenceFound = cloudCachedLightDepth(Clouds, cache, 0, origin, endpoint,
-    referenceDepth, cascade);
-  const bool reusedFound = cloudCachedLightDepthInGrid(Clouds, cache, 0, grid, origin, endpoint,
-    reusedDepth, cascade);
-  const bool referenceContains = cloudLightCascadeContains(Clouds, 0, cascade, origin, endpoint);
-  const bool reusedContains = cloudLightCascadeContainsInGrid(grid, origin, endpoint);
-  Results[index] = float4(abs(referenceDepth - reusedDepth),
-    referenceFound ? 1.0f : 0.0f, reusedFound ? 1.0f : 0.0f,
-    referenceContains == reusedContains ? 1.0f : 0.0f);
 }
 
 float testCloudPhase(float cosine, float g)

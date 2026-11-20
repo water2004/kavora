@@ -15,8 +15,6 @@ RWStructuredBuffer<float4> Results;
 Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
-Sampler3D<float>.Handle CloudSunDepth;
-Sampler3D<float>.Handle CloudMoonDepth;
 Sampler3D<float2>.Handle VerticalDepth;
 uint Count;
 
@@ -127,12 +125,6 @@ void sourceDensities(uint index : SV_DispatchThreadID)
   Results[index] = float4(low, high, 0, 0);
 }
 
-CloudLightingCache lightingCache()
-{
-  const Sampler3D<float4> unused = Sampler3D<float4>(Base);
-  return { Sampler3D<float>(CloudSunDepth), Sampler3D<float>(CloudMoonDepth), Sampler3D<float2>(VerticalDepth), unused, unused };
-}
-
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void homogeneous(uint index : SV_DispatchThreadID)
@@ -217,13 +209,13 @@ void visibility(uint index : SV_DispatchThreadID)
   }
   const float4 origin = Inputs[index];
   const float transmission = cloudVisibilityTransmittance(Clouds, origin.xyz, Directions[index].xyz, origin.w,
-    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache());
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
   Results[index] = float4(transmission, 0, 0, 0);
 }
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void lightDepthParts(uint index : SV_DispatchThreadID)
+void shortLightDepth(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
   {
@@ -231,9 +223,9 @@ void lightDepthParts(uint index : SV_DispatchThreadID)
   }
   const float4 ray = Inputs[index];
   const float4 direction = Directions[index];
-  const CloudOpticalDepth depth = cloudLightOpticalDepth(Clouds, ray.xyz, direction.xyz, ray.w,
-    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), lightingCache(), direction.w);
-  Results[index] = float4(depth.local, depth.external, depth.total, max(4u, 2u * Clouds.lightSteps));
+  const float2 depth = cloudLightOpticalDepth(Clouds, ray.xyz, direction.xyz, ray.w,
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
+  Results[index] = float4(depth, exp(-(depth.x + depth.y)), 0);
 }
 
 [shader("compute")]
@@ -251,8 +243,6 @@ void viewTransmission(uint index : SV_DispatchThreadID)
   Results[index] = float4(transmission, 0, 0, 0);
 }
 
-// Independent fine-step reference: it reads the production field directly and
-// does not use the cached transport implementation or its quality parameter.
 [shader("compute")]
 [numthreads(64, 1, 1)]
 void visibilityReference(uint index : SV_DispatchThreadID)

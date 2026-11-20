@@ -96,7 +96,6 @@ class Probe:
                          "TableSampler": sampler.descriptor_handle,
                          "Weather": weather.descriptor_handle_combined,
                          "Volume": volume.descriptor_handle_combined,
-                         "CloudDepth": volume.descriptor_handle_combined,
                          "Chroma": chroma.descriptor_handle_combined}
 
     def bake_transmission(self, args, width=512, height=256):

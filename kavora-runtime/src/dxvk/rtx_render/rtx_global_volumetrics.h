@@ -84,7 +84,7 @@ namespace dxvk {
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, primaryPixelStride, 6u,
       "Maximum spacing between primary cloud integration columns, in render pixels.",
       args.minValue = 2u, args.maxValue = 16u);
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud self-shadow quality. Controls shared optical-depth volume resolution and bounded local integration.",
+    RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud lighting quality. Controls vertical diffuse samples and up to six direct low-cloud samples.",
       args.minValue = 1u, args.maxValue = 16u);
   };
 
@@ -344,9 +344,7 @@ namespace dxvk {
     void dispatch(class RtxContext* ctx, uint32_t numActiveFroxelVolumes);
     // Prepares shared cloud lighting and publishes sky radiance, transmittance and opacity moments.
     void dispatchCloudSky(class RtxContext* ctx, const VolumeArgs& volume);
-    Rc<DxvkImageView> getCloudLightOpticalDepth(uint32_t light) const { return m_cloudLightOpticalDepth[light].view; }
     Rc<DxvkImageView> getCloudLocalLight() const { return m_cloudLocalLight.view; }
-    Rc<DxvkImageView> getCloudDirectLight() const { return m_cloudDirectLight.view; }
     Rc<DxvkImageView> getCloudNeuralLight() const { return m_cloudNeuralLight.view; }
     Rc<DxvkImageView> getCloudAmbient() const { return m_cloudAmbient.view; }
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
@@ -379,9 +377,7 @@ namespace dxvk {
     void dispatchCloudLighting(class RtxContext* ctx, const CloudArgs& clouds);
     void dispatchAirShadows(class RtxContext* ctx, const AirArgs& air);
 
-    Resources::Resource m_cloudLightOpticalDepth[2];
     Resources::Resource m_cloudLocalLight;
-    Resources::Resource m_cloudDirectLight;
     Resources::Resource m_cloudNeuralLight;
     CloudNeuralModel m_cloudNeuralModel;
     Resources::Resource m_cloudAmbient;

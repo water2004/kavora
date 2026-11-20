@@ -115,7 +115,6 @@ public struct AtmosphereRay
 {
   public float3 origin;
   public float3 direction;
-  public float3 eye;
   public FogRayProjection fogProjection;
   public float2 fogInterval;
   public float2 froxelInterval;
@@ -154,7 +153,6 @@ public AtmosphereRay createAtmosphereRay<Fog : IAtmosphereFog>(VolumeArgs args,
   AtmosphereRay ray;
   ray.origin = origin;
   ray.direction = direction;
-  ray.eye = origin;
   ray.mediumExtinction = mediumExtinction;
   ray.cloudAngularFootprint = max(args.clouds.viewAngularFootprint, cloudAngularFootprint);
   float2 fog;
@@ -438,7 +436,7 @@ public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze, His
       const float end = min(rangeEnd, interval.y);
       nextCloudStart = end;
       const uint layer = nearest / 2;
-      CloudViewTransfer cloud = CloudViewTransfer(ray.eye, layer, cloudAmbient,
+      CloudViewTransfer cloud = CloudViewTransfer(layer, cloudAmbient,
         cloudLighting, ray.cloudPhase, weather, base, detail);
       marchCloudView(args.clouds, ray.origin, ray.direction, layer, interval, float2(nearestStart, end),
         ray.cloudAngularFootprint, weather, base, detail, cloud, history.sampleOffset(ray.direction));

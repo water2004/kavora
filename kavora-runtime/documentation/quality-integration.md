@@ -65,24 +65,13 @@ projected cirrus texel and pixel footprint.
 
 The [asset workflow](../tools/clouds/README.md) records the source and packing
 process. View ranges bound detailed sampling, with coarse coverage beyond them.
-The low-cloud shadow integrates the first body tile from the cloud entry with
-a widening cone fitted to the available taps.
-The shared directional prefix covers the remaining optical path.
-High clouds use uniform sunlight segments within a 3 km interval from shell entry.
+Revelation's quadratic light-ray integration samples up to six taps in the
+low deck and three in the high deck. It is shared by camera and secondary
+cloud shading, sky generation, neural feature preparation and surface or fog
+light visibility. Surface and fog queries apply it after geometry visibility.
 Direct single scattering uses normalized forward and backward lobes. High-cloud
-directional light includes HanPi's powder response. Diffuse boundary illumination
-uses the sky and ground responses described below.
-
-The shared direct-light field bakes incoming solar and lunar transmission one
-body texel toward the light, clipped at the cloud boundary. Each shading sample
-applies Beer attenuation for that short segment using its own extinction.
-The ground-bounce channel already includes the complete exterior transmission.
-Its three wind-aligned grids blend across their edges and use resolved transport
-close to the camera and beyond the field. The far grid grows with the view
-range while the near and middle grids retain their spatial resolution.
-Primary rays, PSR and sky generation sample the same field. A PSR
-continuation uses camera-to-sample distance for the resolved region. View
-extinction is integrated along each ray.
+directional light includes HanPi's powder response. View extinction is
+integrated separately along the camera or secondary ray.
 
 ### Cloud multiple scattering
 

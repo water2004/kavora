@@ -427,7 +427,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
       {
         result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
           visibilityRay.direction, rayQuery.CommittedRayT(), CloudWeatherSampler, CloudBaseSampler,
-          CloudDetailSampler, sceneCloudLightingCache());
+          CloudDetailSampler);
       }
 
       // If we already went through a portal, add the path segment before the portal
@@ -441,7 +441,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
     {
       result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
         visibilityRay.direction, visibilityRay.tMax, CloudWeatherSampler, CloudBaseSampler,
-        CloudDetailSampler, sceneCloudLightingCache());
+        CloudDetailSampler);
     }
 
     if (expectedRayPortalIndex != invalidRayPortalIndex)

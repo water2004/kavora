@@ -20,7 +20,6 @@ SamplerState.Handle TableSampler;
 Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Volume;
 Sampler3D<float2>.Handle Chroma;
-Sampler3D<float>.Handle CloudDepth;
 float3 MediumExtinction;
 float3 DiffuseBoundary;
 uint Count;
@@ -104,8 +103,7 @@ void probeTransport<Visibility : IAirLightVisibility>(uint index)
   const AtmosphereRay ray = createAtmosphereRay<NoFog>(volume, Origins[index].xyz, Directions[index].xyz, 0, MediumExtinction);
   const float end = Origins[index].w;
   const float split = end * Directions[index].w;
-  const CloudLightingCache noCloudLighting = { Sampler3D<float>(CloudDepth), Sampler3D<float>(CloudDepth),
-    Sampler3D<float2>(Chroma), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume) };
+  const CloudLightingCache noCloudLighting = { Sampler3D<float2>(Chroma), Sampler3D<float4>(Volume) };
   const AtmosphereSegment full = integrateAtmosphereRange<NoFog, Visibility>(volume, Sampler3D<float4>(Volume),
     Sampler3D<float2>(Chroma), Sampler2DArray<float4>(Weather), Sampler3D<float4>(Volume), Sampler3D<float4>(Volume),
     noCloudLighting, ray, 0, end, 0, tables);

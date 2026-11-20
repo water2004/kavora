@@ -1501,16 +1501,10 @@ namespace dxvk {
     const auto cloudDepthSampler = getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     const auto& cloudVolumes = m_common->metaGlobalVolumetrics();
-    bindResourceView(BINDING_CLOUD_SUN_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(0), nullptr);
-    bindResourceSampler(BINDING_CLOUD_SUN_DEPTH_INPUT, cloudDepthSampler);
-    bindResourceView(BINDING_CLOUD_MOON_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(1), nullptr);
-    bindResourceSampler(BINDING_CLOUD_MOON_DEPTH_INPUT, cloudDepthSampler);
     bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
     bindResourceSampler(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudSampler);
     bindResourceView(BINDING_CLOUD_NEURAL_LIGHT_INPUT, cloudVolumes.getCloudNeuralLight(), nullptr);
     bindResourceSampler(BINDING_CLOUD_NEURAL_LIGHT_INPUT, cloudDepthSampler);
-    bindResourceView(BINDING_CLOUD_DIRECT_LIGHT_INPUT, cloudVolumes.getCloudDirectLight(), nullptr);
-    bindResourceSampler(BINDING_CLOUD_DIRECT_LIGHT_INPUT, cloudDepthSampler);
     bindResourceBuffer(BINDING_SAMPLER_READBACK_BUFFER, DxvkBufferSlice(samplerFeedbackBuffer, 0, samplerFeedbackBuffer.ptr() ? samplerFeedbackBuffer->info().size : 0));
   }
 

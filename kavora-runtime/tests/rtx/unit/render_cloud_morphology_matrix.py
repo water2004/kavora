@@ -106,9 +106,9 @@ def plan(args):
             raise ValueError("reference shader root needs its matching checkout/test support; pass --reference-repo")
         variants.insert(0, ("reference", args.reference_shader_root, reference_repo))
     cache = args.cache_dir or args.output / "texture-cache"
-    preview = Path(__file__).with_name("render_cloud_preview.py")
     cases = []
     for variant, shader_root, repo in variants:
+        preview = repo / "kavora-runtime/tests/rtx/unit/render_cloud_preview.py"
         for location in locations:
             for light_name, elevation, azimuth in lighting:
                 for name, coverage, weather, thunder in SCENARIOS:

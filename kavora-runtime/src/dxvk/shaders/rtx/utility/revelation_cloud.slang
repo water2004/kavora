@@ -29,7 +29,7 @@ public float2 revelationRotate(float2 position)
 }
 
 public float revelationLowDensity(RevelationField field, float3 rayPos, float heightFraction,
-  float thickness, float coverage, float wetness)
+  float thickness, float coverage, float wetness, bool useCurl = true)
 {
   const float2 cloudMap = field.map.SampleLevel(float3(rayPos.xz / 64000.0, 0), 0).rg;
   const float2 stepEdge = lerp(float2(0.7, 1.0) - coverage * 0.5,
@@ -56,8 +56,11 @@ public float revelationLowDensity(RevelationField field, float3 rayPos, float he
   float3 noisePos = rayPos - windDir * heightFraction * thickness * 0.3;
   noisePos.y += dot(noisePos.xz, float2(0.2, 0.3));
   noisePos *= 1.0 / 2000.0;
-  const float3 curlNoise = field.curlNoise.SampleLevel(noisePos * 2.0, 0).xyz;
-  noisePos += curlNoise * gradient * (1.0 - coverage) * 0.3;
+  if (useCurl)
+  {
+    const float3 curlNoise = field.curlNoise.SampleLevel(noisePos * 2.0, 0).xyz;
+    noisePos += curlNoise * gradient * (1.0 - coverage) * 0.3;
+  }
 
   const float noise = field.baseNoise.SampleLevel(noisePos, 0).x;
   const float erosion = (1.0 - noise * gradient) * 0.75;

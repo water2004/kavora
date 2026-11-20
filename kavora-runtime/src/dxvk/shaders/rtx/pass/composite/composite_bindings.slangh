@@ -128,16 +128,10 @@ Texture2D<float4> AirScatteringInput;
 layout(binding = COMPOSITE_AIR_LINEAR_SAMPLER)
 SamplerState AirLinearSampler;
 
-layout(binding = COMPOSITE_CLOUD_SUN_DEPTH_INPUT)
-Sampler3D<float> CloudSunDepthSampler;
-layout(binding = COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
-Sampler3D<float> CloudMoonDepthSampler;
 layout(binding = COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
 Sampler3D<float2> CloudLocalLightSampler;
 layout(binding = COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT)
 Sampler3D<float4> CloudNeuralLightSampler;
-layout(binding = COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT)
-Sampler3D<float4> CloudDirectLightSampler;
 
 // Inputs/Outputs
 layout(binding = COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)

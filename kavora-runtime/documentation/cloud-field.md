@@ -280,139 +280,23 @@ Density filtering uses the actual cell span and pixel cone, including the last
 partial cell. A curved shell can produce two intervals, and there are two
 layers; the configured budget is per interval, not for the sum of all four.
 
-### Shared low-cloud lighting
+### Shared cloud-light integration
 
-`RtxGlobalVolumetrics` builds low-cloud optical-depth data before primary
-traversal, alongside the existing cloud-sky preparation. The shader calculation
-lives in `cloud_lighting_cache.slang`; its entry point owns descriptor bindings
-and output writes. The common bindings and the composite adapter publish the
-same images to camera, PSR, reflection, transmission and visibility consumers.
-There is no second cloud density model or screen-space shadow history.
+`cloudLightOpticalDepth` clips the ray to its reachable shell intervals. Each
+layer uses Revelation's quadratic sampling pattern over at most one layer
+thickness divided by `max(dot(lightDirection, radialUp), 0.5)`. The lower
+deck uses up to six taps and curl detail on the first three. The upper deck
+uses three taps through its horizontal density field. One budget covers both
+pieces of a grazing shell intersection, skipping clear space between them.
 
-Each active celestial light has a light-aligned R32F prefix volume. A thread
-integrates one entire light column and writes cumulative optical depth at its
-nodes. The grid encloses the current view's low shell and surface-shadow origins,
-with the configured light range beyond them. Its extent follows the light
-orientation, while its allocation depends on quality and whether the far
-cascade is needed. R32F retains the
-precision needed to subtract finite intervals from long, opaque prefixes.
-Cells wholly outside the low shell are skipped conservatively. Within occupied
-cells, bounded two-point Gaussian quadrature resolves density along the ray;
-its footprint does not gather an entire transverse cache cell of off-ray cloud.
-
-Up to 24 kilometres of low-cloud visibility, one grid serves each light. Longer
-view ranges retain this full-resolution near field and add a second grid at
-half the resolution on every axis. The near grid still includes the complete
-60-kilometre light path; increasing view distance therefore does not coarsen
-nearby self-shadowing. The two logical grids share one 3D image, stacked in
-depth. Half-resolution columns occupy only their valid U/V region. Queries
-stay between each grid's own endpoint texel centres and cannot filter across
-the packed boundary. Between 18 and 24 kilometres from the camera anchor, a
-smooth weight blends transmitted energy. A near-field query participates only
-when its complete finite interval fits within the near grid. The 24-kilometre
-near radius is explicitly converted from metres by the host, independent of
-the artistic shape scale.
-
-A lookup subtracts the two endpoints separately in each of four neighbouring
-light columns, then interpolates **transmittance** between those columns.
-Interpolating optical depth before exponentiation would incorrectly darken
-unresolved clear paths. The returned effective depth is converted back with a
-stable shifted logarithm. Filtering transmitted energy makes these effective
-depths non-additive: `CloudOpticalDepth` keeps `local`, `external` and `total`
-separate, and single scattering and visibility use `total` directly.
-
-The near beam retains a bounded fine integration in the original density
-field. Its range is the larger of one quarter of the shape scale and the
-widest cache cell in world units, so a coarse table cannot replace local
-cloud detail inside its own footprint. It replaces that interval in the
-cache query; the remaining interval is queried directly, without subtracting
-two already-filtered effective depths. The finite-side multiple-scattering
-closure can request the same bounded correction in the reverse direction.
-Light quality bounds the local sample count. The shared field amortizes
-long-distance density integration across views.
-
-Surface light sampling retains the sampled direction of the solar or lunar
-disk for this local correction. A small celestial disk, up to 0.02 radians in
-angular radius, shares its central-axis far shadow. Larger source cones and
-rays outside the cache domain use a bounded, filtered fallback. Volume
-illumination retains its existing central-direction celestial approximation.
-This finite angular/spatial filtering is an approximation, particularly around
-thin distant occluders; it does not replace surface path tracing or geometry
-visibility.
-
-Diffuse illumination keeps the original bounded, local radial-column
-integration. Its samples share the prepared weather/phase column and preserve
-small concavities and attached billows in the two-stream closure. A coarse
-view-wide column texture was rejected because its transverse footprint flattened
-those features. Only directional shadow prefixes are cached. They are rebuilt
-from the current density and light state each frame, so camera cuts, wind and
-sunset do not depend on stale light history.
-
-The high shell retains its bounded exponential light cells and two-point
-quadrature for wide cells. Its morphology and density field are independent of
-the low-cloud cache. Both layers still participate in the shared extinction and
-in-scattering calculation. Real low-sun shadow motion remains in the geometry.
-
-Single scattering uses a normalized dual-lobe Henyey-Greenstein phase function
-and the measured optical depth toward each light. Diffuse illumination uses a
-local plane-parallel column aligned with the shell's radial direction. The
-column fixes its weather sample and uses the shared density evaluator for its
-three-dimensional shape and erosion. Its support includes both the cumulus
-and rain profiles at that same weather-filter footprint. The resulting optical
-depths above and below the scattering point are reused for sky and celestial
-illumination.
-
-`cloud_scattering.slang` solves a two-stream boundary-lit slab with ordinate
-cosine `1 / sqrt(3)`. Its upper boundary is the sampled sky radiance. The
-lower boundary is a local Lambertian terrain approximation with mean reflectance
-`rtx.clouds.groundAlbedo` (default 0.18). Terrain receives the sky and celestial
-flux transmitted through the cloud, including the downward diffuse beam flux.
-The closure sums repeated reflections between the conservative column and the
-terrain: `L_ground = rho * (T * L_sky + E_beam / pi) / (1 - rho * R)`, where
-`T + R = 1`. Reflected flux returns only through the lower boundary; it is not
-also added directly to the cloud source. A black terrain recovers the previous
-boundary, while a uniformly lit conservative white cavity preserves radiance.
-
-The boundary solution uses transport optical depth
-`(1 - meanCosine) * opticalDepth`. This is an average local terrain boundary,
-not a readback of actual terrain materials or full three-dimensional indirect
-lighting. Surface path tracing continues to use the scene's materials. Cloud
-irradiance profiles describe the cloud-altitude light; the separate light
-irradiance member supplies the host's actual observer-height irradiance for
-the terrain approximation, avoiding use of the brighter high-cloud profile
-as a ground source at sunset.
-
-The collimated-light solution generates a separate diffuse source from the
-incident beam. Its two vertical streams use unit cosine, a conservative escape
-approximation for the independently resolved single-scattering phase. It
-vanishes continuously at zero thickness and grazing incidence.
-The illuminated boundary follows the sign of the radial light cosine. Cloud
-optical depth beyond that local column attenuates its incident beam. The direct
-source retains the full three-dimensional light ray. This closure approximates
-horizontal diffusion and multiple scattering in an irregular cloud. It does
-not replace their transport with a second density field or a color ramp.
-
-For finite cumulus, the same directional shadow trace separates optical depth
-inside one shape-period neighborhood from optical depth outside it. The fixed
-sample supports are weighted on both sides of this boundary, rather than
-assigning a Gaussian node discontinuously to a side. A second ray measures only the
-opposite half of that local neighborhood when a side-light contribution is
-needed. The existing vertical samples also define a continuous piecewise-linear
-profile; integrating it along each light ray predicts the optical depth of a
-plane-parallel column over the **same local range**, without additional density
-lookups. The difference between that prediction and the measured local depth
-controls a convex blend with a beam-axis two-stream slab. Exterior blockers
-attenuate the side slab's incident beam exponentially and cannot change the
-geometric blend weight. A homogeneous column recovers the vertical model; a
-horizontal beam can illuminate a finite cloud through its side. No tint or
-ambient brightness floor is added.
-
-This finite neighborhood is not a connected-cloud detector: it can include
-several nearby billows or truncate a larger cloud. The method also omits diffuse
-exchange between separate neighborhoods and does not solve a full 3D radiance
-field. [Hogan et al., 2016](https://www.met.reading.ac.uk/~swrhgnrj/publications/spartacus_part2.pdf)
-explains the physical role of lateral cloud transport; this local rendering
-closure is independently derived and does not implement the SPARTACUS solver.
+Camera and PSR cloud single scattering and the sky atlas use the sum of both
+layers' optical depths for direct transmission. The neural bake uses that
+same short integral to generate its transmission and optical-depth inputs.
+Diffuse lighting still uses vertical optical depths and neural multiple
+scattering. Surface and fog light visibility first trace scene geometry with
+a hardware ray query, then integrate the remaining light ray through the
+cloud shells. The finite integration length approximates shadows from
+distant cloud banks along grazing light rays.
 
 Fog subdivisions reuse a cloud cell's extinction and incident source. A prefix
 checkpoint recomputes the same fixed cell sample, so splitting a ray preserves
@@ -441,78 +325,14 @@ See the [settings guide](../../docs/SETTINGS.md#quality-profiles) for profile
 values and [Quality integration](quality-integration.md) for
 the current view and lighting contracts.
 
-The old nested loop could issue 1875 forward density queries per occupied
-view sample at the default 60-kilometre light range, plus a vertical column and
-reverse local beam. Its early-out included a plane-parallel depth divided by
-the solar elevation cosine; near sunset this could retain the entire long
-trace even through occupied clouds. The previous view-quality setting also
-controlled spacing rather than a total cell count. Splitting command submission
-cannot reduce that repeated shader work. The shared prefixes remove this long
-per-sample loop from camera and PSR paths alike.
+Each light ray takes at most six low-cloud and three high-cloud density
+samples, independently of the ray's total distance. Empty shell intersections
+use no density samples. The same budget applies to secondary view rays.
 
-Let `N = 16 * clamp(lightSteps, 4, 16)`. Each directional image contains
-`N * (N / 2) * N` R32F values at view ranges up to 24 kilometres. With the far
-cascade, physical depth becomes `N + N / 2`; only the valid half-resolution
-columns of the extra region are generated. The owner reuses matching allocations
-and releases inactive light images. One active light costs 32 / 48 MiB at Ultra
-(single / two cascades); two lights cost 64 / 96 MiB, before driver overhead.
-The corresponding two-light totals for High, Medium and Low are 27 / 40.5,
-8 / 12 and 1 / 1.5 MiB. This is new storage in exchange for sharing long-path
-work across all viewing and visibility rays.
-
-Prefix construction has a finite budget independent of output resolution.
-Each directional grid has `N * (N / 2) * (N - 1)` segments, each with at most
-`max(1, lightSteps / 2)` Gaussian pairs before shell skipping. At Ultra this is
-at most 133,693,440 density queries for the near grid of each active light. The
-half-resolution far grid adds at most 16,646,144 queries, making 150,339,584
-per active light when both grids are needed, a 12.45% increase. This work is
-shared by the whole frame. These are worst-case bounds: off-shell segments skip density and empty weather
-can skip the base/detail lookups. Cache generation must be included when
-comparing performance, rather than timing only the subsequent ray dispatch.
-
-At an occupied low-cloud view sample, an in-domain celestial beam uses at most
-`max(2, lightSteps)` local density queries, or 16 at Ultra. The finite-side
-solve may add 16 in the reverse direction. The 18–24 kilometre transition
-region can evaluate both cascades, doubling these bounded local beam queries.
-The radial column is still shared. Each cached interval uses at most sixteen
-integer texel loads (four U/V columns, two endpoints, two depth nodes) and
-interpolates transmitted energy. Explicit depth interpolation avoids touching
-uninitialized packed padding even through a hardware filter's zero-weight tap. A visibility or unsplit
-query needs one interval; a beam split between local and external blockers
-needs up to three intervals, including the independent complete beam. The
-local radial column retains `max(2, lightSteps)` density samples, or 16 at
-Ultra, shared by both celestial lights and the sky. An uncached low-light ray is
-limited to `max(4, 2 * lightSteps)` density queries, or 32 at Ultra, with explicit
-filtering for its wider supports. The fallback loses fine distant shadow
-detail; it never restarts the old 1875-query path.
-
-The upper layer uses half the light-quality value, with a minimum of four
-cells and up to two queries per cell or clipped part. Its local vertical
-profile uses two density samples. The environment integral remains one
-256-thread workgroup with 8192 environment reads per frame, shared across all
-quality levels. Its output is one RGBA32F texel. No per-pixel sky-hemisphere
-integration is added.
-
-The three source noise textures and their mip chains still occupy about
-20.0 MiB before driver allocation overhead. The morphology change adds no
-texture allocation or density sampler. `Resources::prepareCloudNoise` returns
-when the base LUT is already valid; its three generators and 22 mip dispatches
-run once per resource lifetime, not once per frame or camera movement. A low
-cloud density query still performs at most one weather, one base and one
-detail lookup. An empty column can skip both 3D reads. Noise octave and Worley
-neighbourhood loops stay in the bake, outside the ray integrators. They are independent of output resolution. Motion
-guides add one word per primary atmosphere record and one per checkpoint. At
-1920 by 1080 internal resolution with the Ultra checkpoint layout this adds
-about 19.8 MiB to path storage. These are storage calculations, not measured
-GPU performance. The shared prefix construction, local corrections and view budgets require
-hardware profiling before assigning a frame-time cost.
-High-density evaluation needs one weather-texture lookup. Placement and atlas
-sampling are confined to the once-per-device generator, which visits at most
-24 packets rather than the former 36. The pinned atlas reference is released
-after the bake. The finite 32768-meter high-cloud period remains a memory/detail
-tradeoff. Diagonal regions can reuse a variant, and the complete field repeats;
-it is not an infinite nonrepeating distribution. Finite-air resource costs are
-recorded separately in [air-transport.md](air-transport.md).
+The vertical optical-depth atlas uses `lightSteps` up to 16 for the lower
+clouds and two samples for the upper clouds. Vertical and neural atlases
+amortize diffuse illumination across rays. The directional sky atlas
+continues to cache distant view-ray transport.
 
 ## Numerical validation
 
@@ -538,13 +358,9 @@ game presentation, temporal reconstruction quality or GPU frame time.
 Low-cloud checks exercise the shared 64-scale-unit wind wrap, negative
 coordinates, phase bounds, continuity and derivative bounds at the phase
 lattice boundaries, and independence from coverage and weather controls.
-Lighting-cache tests exercise prefix differences against constant-density
-analytic intervals, forward/reverse rays, out-of-domain
-fallbacks, finite celestial disks and a fine independent density integration.
-They test the actual production cache builders, not a substitute Python density
-model. Filtered effective depths are not assumed to be additive. View-grid
-checks enforce the configured interval budget and verify prefix/inverse
-consistency across long grazing rays.
+Short-light tests verify the quadratic integral for homogeneous fields,
+finite ray lengths, both layer budgets and the grazing-angle cap. View-grid
+checks cover bounded intervals and consistent continuation samples.
 The scattering test checks sky quadrature normalization and angular moments
 in several up frames. It compares the production boundary and beam solutions
 with independent integrals, exercises reflective-terrain, finite-domain,
@@ -572,14 +388,15 @@ column optical-depth map and perspective views at several elevations and
 headings, along with linear numerical output and a parameter/source manifest.
 The default map is 32 kilometers wide. `--origin`, `--wind`, `--coverage`,
 `--weather` and `--layers` vary the test conditions. `--shader-root` selects a
-different revision's shader directory for a matched comparison. Generated
+shader directory for a matched comparison. Use the preview script from each
+revision's own checkout so its lighting resources match its shaders. Generated
 textures are cached by their shader and atlas-byte fingerprint. A test-only `--noise-seed`
 override exercises other realizations of the same generator.
 `--max-distance` and `--high-max-distance` independently fix the two view ranges;
 pass both when comparing a 24-kilometre scene. `--warmup --repeat 3` excludes
 the first dispatch from repeated timing and records the shared lighting build
-separately from ray dispatch/readback. The preview executes the production
-prefix builders and retains their source hashes. Software-Vulkan timings
+separately from ray dispatch/readback. The preview executes the production vertical-depth and neural builders and
+retains their source hashes. Software-Vulkan timings
 characterize this diagnostic workload, not hardware GPU frame time.
 `--sun-elevation` and `--sun-azimuth` select diagnostic light direction;
 `--sun-irradiance-rgb` and `--ambient-rgb` select diagnostic illumination.

@@ -375,11 +375,6 @@ def main():
     has_local_light = (cloud_passes / 'generate_cloud_local_light.comp.slang').is_file()
     if has_local_light:
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LOCAL_LIGHT'] = '1'
-    if (cloud_passes / 'cloud_lighting_bake.slang').is_file():
-        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_LIGHTING_BAKE'] = '1'
-    direct_shader = cloud_passes / 'generate_cloud_direct_light.comp.slang'
-    if direct_shader.is_file():
-        support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_DIRECT_LIGHT'] = '1'
     if 'uint layer, float sigma, float3 ambientRadiance' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_SAMPLE_EXTINCTION'] = '1'
     if 'CloudNeuralAngle neuralAngles' in (shaders / 'rtx/algorithm/clouds.slang').read_text():
@@ -468,8 +463,6 @@ def main():
             any(row[:3]) for row in light.get('radianceProfile', [])))
     if 'groundAlbedo' not in cloud_layout:
         clouds.pop('groundAlbedo', None)
-    if 'lightingNearDistance' not in cloud_layout:
-        clouds.pop('lightingNearDistance', None)
     if 'highSteps' not in cloud_layout:
         clouds.pop('highSteps', None)
     if 'angularRadius' not in cloud_layout:
@@ -495,7 +488,7 @@ def main():
         from cloud_lighting_preview import build_lighting_cache
         lighting_bindings, lighting_resources, lighting_metadata = build_lighting_cache(
             device, clouds, textures, shaders, args.radiance and any(view != 'top' for view in views),
-            args.warmup, args.repeat, include_local=has_local_light,
+            args.warmup, args.repeat,
             include_neural='CLOUD_PREVIEW_HAS_NEURAL_SKY' in support.OPTIONS['defines'])
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {'label': args.label, 'shaderRoot': str(shaders), 'textureCache': cache,
@@ -523,13 +516,11 @@ def main():
     if has_lighting_cache:
         manifest['cloudLightingCache'] = lighting_metadata
         for relative in ('rtx/pass/clouds/cloud_lighting_cache.h',
-                         'rtx/pass/clouds/generate_cloud_lighting.comp.slang'):
+                         'rtx/pass/clouds/generate_cloud_local_light.comp.slang'):
             manifest['sourceHashes'][relative] = hashlib.sha256((shaders / relative).read_bytes()).hexdigest()
-        if direct_shader.is_file():
-            manifest['sourceHashes'][direct_shader.relative_to(shaders).as_posix()] = hashlib.sha256(direct_shader.read_bytes()).hexdigest()
         manifest['lightingHarnessHashes'] = {
             name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
-            for name in ('cloud_lighting_preview.py', 'cloud_lighting_preview.comp.slang')}
+            for name in ('cloud_lighting_preview.py', 'cloud_lighting_preview.comp.slang', 'cloud_neural_preview.comp.slang')}
     manifest['finiteDistanceAir'] = bool(args.air)
     if args.air:
         manifest['air'] = air

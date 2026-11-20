@@ -141,11 +141,8 @@ namespace dxvk {
         TEXTURE2D(COMPOSITE_AIR_SCATTERING_INPUT)
         SAMPLER(COMPOSITE_AIR_LINEAR_SAMPLER)
         TEXTURE2DARRAY(AIR_SHADOW_DEPTH_BINDING)
-        SAMPLER3D(COMPOSITE_CLOUD_SUN_DEPTH_INPUT)
-        SAMPLER3D(COMPOSITE_CLOUD_MOON_DEPTH_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT)
         SAMPLER3D(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT)
-        SAMPLER3D(COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT)
 
         RW_TEXTURE2D(COMPOSITE_PRIMARY_ALBEDO_INPUT_OUTPUT)
         RW_TEXTURE2D(COMPOSITE_ACCUMULATED_FINAL_OUTPUT_INPUT_OUTPUT)
@@ -427,16 +424,10 @@ namespace dxvk {
     const auto cloudDepthSampler = ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     const auto& cloudVolumes = ctx->getCommonObjects()->metaGlobalVolumetrics();
-    ctx->bindResourceView(COMPOSITE_CLOUD_SUN_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(0), nullptr);
-    ctx->bindResourceSampler(COMPOSITE_CLOUD_SUN_DEPTH_INPUT, cloudDepthSampler);
-    ctx->bindResourceView(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudVolumes.getCloudLightOpticalDepth(1), nullptr);
-    ctx->bindResourceSampler(COMPOSITE_CLOUD_MOON_DEPTH_INPUT, cloudDepthSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_LOCAL_LIGHT_INPUT, valueNoiseSampler);
     ctx->bindResourceView(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudVolumes.getCloudNeuralLight(), nullptr);
     ctx->bindResourceSampler(COMPOSITE_CLOUD_NEURAL_LIGHT_INPUT, cloudDepthSampler);
-    ctx->bindResourceView(COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT, cloudVolumes.getCloudDirectLight(), nullptr);
-    ctx->bindResourceSampler(COMPOSITE_CLOUD_DIRECT_LIGHT_INPUT, cloudDepthSampler);
 
     compositeArgs.camera = sceneManager.getCamera().getShaderConstants();
     compositeArgs.frameIdx = frameIdx;

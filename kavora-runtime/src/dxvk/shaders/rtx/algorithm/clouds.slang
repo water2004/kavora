@@ -6,7 +6,6 @@ import "rtx/utility/cloud_density.slang";
 import "rtx/utility/hanpi_cloud.slang";
 import "rtx/algorithm/cloud_scattering.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
-import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/algorithm/cloud_source_interpolation.slang";
 #include "rtx/pass/cloud_noise.h"
@@ -97,8 +96,7 @@ public float cloudHemisphereEnd(CloudArgs args, float3 origin, float3 direction)
 }
 
 // A grazing ray can cross a shell twice with clear air between the two intervals.
-public float2 cloudLayerInterval(CloudArgs args, float3 origin, float3 direction, float distance,
-  uint layer, uint segment = 0)
+float4 cloudLayerIntervals(CloudArgs args, float3 origin, float3 direction, float distance, uint layer)
 {
   if (!cloudLayerEnabled(args, layer))
   {
@@ -114,15 +112,22 @@ public float2 cloudLayerInterval(CloudArgs args, float3 origin, float3 direction
   const float2 inner = cloudSphereRoots(args, origin, direction, cloudLayerBase(args, layer));
   if (inner.y <= begin || inner.x >= end)
   {
-    return segment == 0 ? float2(begin, end) : float2(0);
+    return float4(begin, end, 0, 0);
   }
   if (inner.x <= begin)
   {
     const float entry = max(begin, inner.y);
-    return segment == 0 && end > entry ? float2(entry, end) : float2(0);
+    return end > entry ? float4(entry, end, 0, 0) : float4(0);
   }
-  const float2 interval = segment == 0 ? float2(begin, inner.x) : float2(inner.y, end);
-  return interval.y > interval.x ? interval : float2(0);
+  const float2 second = end > inner.y ? float2(inner.y, end) : float2(0);
+  return float4(begin, inner.x, second);
+}
+
+public float2 cloudLayerInterval(CloudArgs args, float3 origin, float3 direction, float distance,
+  uint layer, uint segment = 0)
+{
+  const float4 intervals = cloudLayerIntervals(args, origin, direction, distance, layer);
+  return segment == 0 ? intervals.xy : intervals.zw;
 }
 
 [ForceInline]
@@ -345,236 +350,58 @@ public float cloudTransmittance(CloudArgs args, float3 origin, float3 direction,
   return integral.value;
 }
 
-// Filtering transmitted energy makes effective optical depths non-additive.
-// Keep the complete beam separate from the finite-neighborhood MS inputs.
-public struct CloudOpticalDepth
-{
-  public float local;
-  public float external;
-  public float total;
-};
-
-// EvaluateSunLuminance's geometric cone is shared by the shadow correction
-// and the direct-light bake. The directional prefix owns the far segment.
-float2 integrateLowCloudShadow(CloudArgs args, float3 origin, float3 direction, float2 interval,
-  float localRange, float opticalDepthLimit, uint steps,
+// Each component is the optical depth of one deck. Both pieces of a
+// grazing intersection share one budget and skip the gap in the inner shell.
+public float2 cloudLightOpticalDepth(CloudArgs args, float3 origin, float3 direction, float distance,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
 {
-  const float length = interval.y - interval.x;
-  // Fit the widening local cone to the fixed budget. The arithmetic series
-  // spans the exact interval and cannot exhaust it after only a few taps.
-  // Long uncached paths approach uniform spacing across the whole ray.
-  const float tileSize = args.shapeScale * float(kCloudBasePeriod);
-  const float meanStep = length / float(steps);
-  float width = lerp(meanStep, min(meanStep, hanPiConeFirstStep(length, steps, args.meterToWorld)),
-    min(1.0f, tileSize / length));
-  const float growth = 2.0f * (meanStep - width) / float(max(1u, steps - 1u));
-  float begin = interval.x;
+  if (!args.enable)
+  {
+    return 0;
+  }
+  const float3 radialUp = normalize(origin - args.groundReference + args.planetRadius * args.up);
+  const float inverseCosine = rcp(max(dot(direction, radialUp), 0.5f));
+  const float rayEnd = min(distance, cloudHemisphereEnd(args, origin, direction));
+  const CloudDensityArgs density = cloudDensityParameters(args);
   float2 depth = 0;
-  for (uint sample = 0; sample < steps && begin < interval.y; sample++)
+  [unroll]
+  for (uint layer = 0; layer < 2; ++layer)
   {
-    const float end = sample + 1u == steps ? interval.y : min(interval.y, begin + width);
-    const float span = end - begin;
-    const float3 position = origin + direction * (begin + 0.5f * span);
-    const float extinction = cloudLayerExtinction(args, position, 0, weather, base, detail);
-    const float local = clamp(localRange - begin, 0.0f, span);
-    depth += extinction * float2(local, span - local);
-    if (depth.x + depth.y >= opticalDepthLimit)
-    {
-      break;
-    }
-    begin = end;
-    width += growth;
-  }
-  return depth;
-}
-
-CloudOpticalDepth cloudLowLightFallback(CloudArgs args, float3 origin, float3 direction, float2 interval,
-  float localRange, float opticalDepthLimit, Sampler2DArray<float4> weather,
-  Sampler3D<float4> base, Sampler3D<float4> detail)
-{
-  const float2 depth = integrateLowCloudShadow(args, origin, direction, interval, localRange, opticalDepthLimit,
-    max(4u, 2u * args.lightSteps), weather, base, detail);
-  return { depth.x, depth.y, depth.x + depth.y };
-}
-
-CloudOpticalDepth cloudLowLightCascadeDepth(CloudArgs args, float3 origin, float3 direction, float3 cacheDirection,
-  float2 interval, float localRange, float opticalDepthLimit, Sampler2DArray<float4> weather,
-  Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache, int cacheLight,
-  uint cascade, CloudLightGrid grid)
-{
-  if (cacheLight < 0)
-  {
-    return cloudLowLightFallback(args, origin, direction, interval, localRange, opticalDepthLimit,
-      weather, base, detail);
-  }
-  const float3 cacheCell = grid.cellSize(cloudLightingCascadeResolution(args, cascade));
-  // Resolve the first body tile at the cloud entry. Camera-to-cloud empty space
-  // consumes none of the local budget. The cache takes over beyond this tile.
-  const float nearSpan = max(args.shapeScale * float(kCloudBasePeriod), max(cacheCell.x, max(cacheCell.y, cacheCell.z)));
-  const float correctionEnd = min(interval.x + nearSpan, interval.y);
-  const float split = clamp(localRange, correctionEnd, interval.y);
-  CloudOpticalDepth depth = {};
-  bool cached = cloudCachedLightDepthInGrid(args, cache, uint(cacheLight), grid, origin + cacheDirection * correctionEnd,
-    origin + cacheDirection * interval.y, depth.total, cascade);
-  if (split <= correctionEnd)
-  {
-    depth.external = depth.total;
-  }
-  else if (split >= interval.y)
-  {
-    depth.local = depth.total;
-  }
-  else
-  {
-    cached = cached && cloudCachedLightDepthInGrid(args, cache, uint(cacheLight), grid, origin + cacheDirection * correctionEnd,
-      origin + cacheDirection * split, depth.local, cascade)
-      && cloudCachedLightDepthInGrid(args, cache, uint(cacheLight), grid, origin + cacheDirection * split,
-        origin + cacheDirection * interval.y, depth.external, cascade);
-  }
-  if (!cached)
-  {
-    return cloudLowLightFallback(args, origin, direction, interval, localRange, opticalDepthLimit,
-      weather, base, detail);
-  }
-  if (correctionEnd > interval.x)
-  {
-    const float2 fine = integrateLowCloudShadow(args, origin, direction, float2(interval.x, correctionEnd),
-      localRange, kFloatMax, max(2u, args.lightSteps), weather, base, detail);
-    depth.local += fine.x;
-    depth.external += fine.y;
-    depth.total += fine.x + fine.y;
-  }
-  return depth;
-}
-
-float cloudBlendOpticalDepth(float nearDepth, float farDepth, float weight)
-{
-  const float minimum = min(nearDepth, farDepth);
-  return max(0.0f, minimum - log(lerp(exp(minimum - nearDepth), exp(minimum - farDepth), weight)));
-}
-
-CloudOpticalDepth cloudLowLightOpticalDepth(CloudArgs args, float3 origin, float3 direction, float3 cacheDirection,
-  float2 interval, float localRange, float opticalDepthLimit, Sampler2DArray<float4> weather,
-  Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache, int cacheLight)
-{
-  if (cacheLight < 0)
-  {
-    return cloudLowLightCascadeDepth(args, origin, direction, cacheDirection, interval, localRange,
-      opticalDepthLimit, weather, base, detail, cache, cacheLight, 0, {});
-  }
-
-  // The near grid is needed for cascade containment and for near-cache sampling.
-  // Share it instead of rebuilding the same light basis in both operations.
-  const CloudLightGrid nearGrid = cloudLightGrid(args, uint(cacheLight), 0);
-  if (!cloudLightingHasFarCascade(args))
-  {
-    return cloudLowLightCascadeDepth(args, origin, direction, cacheDirection, interval, localRange,
-      opticalDepthLimit, weather, base, detail, cache, cacheLight, 0, nearGrid);
-  }
-
-  float weight = cloudLightingFarWeight(args, origin);
-  if (!cloudLightCascadeContainsInGrid(nearGrid, origin + cacheDirection * interval.x,
-      origin + cacheDirection * interval.y))
-  {
-    weight = 1;
-  }
-  if (weight >= 1)
-  {
-    const CloudLightGrid farGrid = cloudLightGrid(args, uint(cacheLight), 1);
-    return cloudLowLightCascadeDepth(args, origin, direction, cacheDirection, interval, localRange,
-      opticalDepthLimit, weather, base, detail, cache, cacheLight, 1, farGrid);
-  }
-  const CloudOpticalDepth nearDepth = cloudLowLightCascadeDepth(args, origin, direction, cacheDirection,
-    interval, localRange, opticalDepthLimit, weather, base, detail, cache, cacheLight, 0, nearGrid);
-  if (weight <= 0)
-  {
-    return nearDepth;
-  }
-  const CloudLightGrid farGrid = cloudLightGrid(args, uint(cacheLight), 1);
-  const CloudOpticalDepth farDepth = cloudLowLightCascadeDepth(args, origin, direction, cacheDirection,
-    interval, localRange, opticalDepthLimit, weather, base, detail, cache, cacheLight, 1, farGrid);
-  return { cloudBlendOpticalDepth(nearDepth.local, farDepth.local, weight),
-    cloudBlendOpticalDepth(nearDepth.external, farDepth.external, weight),
-    cloudBlendOpticalDepth(nearDepth.total, farDepth.total, weight) };
-}
-
-// Components contain optical depth inside and outside the finite local domain.
-public CloudOpticalDepth cloudLightOpticalDepth(CloudArgs args, float3 origin, float3 direction, float distance,
-  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
-  CloudLightingCache cache, float localRange = 0, float opticalDepthLimit = kFloatMax, int cacheLight = -1)
-{
-  CloudOpticalDepth opticalDepth = {};
-  const int light = cacheLight >= 0 ? cacheLight : cloudCachedLightIndex(args, direction);
-  const float3 cacheDirection = light >= 0
-    ? args.lights[light].directionToLight * (dot(direction, args.lights[light].directionToLight) >= 0 ? 1.0f : -1.0f)
-    : direction;
-  const float altitude = cloudAltitude(cloudDensityParameters(args), origin);
-  for (uint layer = 0; layer < 2; layer++)
-  {
-    if (!cloudLayerEnabled(args, layer))
+    const float4 intervals = cloudLayerIntervals(args, origin, direction, rayEnd, layer);
+    if (intervals.y <= intervals.x)
     {
       continue;
     }
-    const float top = cloudLayerTop(args, layer);
-    const float3 intervalDirection = layer == 0 ? cacheDirection : direction;
-    const float2 outer = cloudSphereRoots(args, origin, intervalDirection, top);
-    float begin = max(0.0f, outer.x);
-    if (altitude < cloudLayerBase(args, layer))
+    const float thickness = layer == 0 ? args.thickness : args.highThickness;
+    const float maxLength = thickness * inverseCosine;
+    const float firstLength = min(intervals.y - intervals.x, maxLength);
+    const float length = min(firstLength + (intervals.w - intervals.z), maxLength);
+    const uint steps = layer == 0 ? clamp(args.lightSteps, 1u, 6u) : 3u;
+    const float stepLength = length / float(steps * steps);
+    const float extinction = layer == 0 ? args.extinction : args.highExtinction;
+    for (uint tap = 0; tap < steps; ++tap)
     {
-      begin = max(begin, cloudSphereRoots(args, origin, intervalDirection, cloudLayerBase(args, layer)).y);
-    }
-    const float limit = layer == 0 ? min(distance, args.lightMaxDistance)
-      : min(distance, begin + kHanPiHighLightRangeMeters * args.meterToWorld);
-    const float end = min(limit, outer.y);
-    if (end <= begin)
-    {
-      continue;
-    }
-    if (layer == 0)
-    {
-      const CloudOpticalDepth low = cloudLowLightOpticalDepth(args, origin, direction, cacheDirection,
-        float2(begin, end), localRange, opticalDepthLimit - opticalDepth.total,
-        weatherSampler, baseSampler, detailSampler, cache, light);
-      opticalDepth.local += low.local;
-      opticalDepth.external += low.external;
-      opticalDepth.total += low.total;
-      if (opticalDepth.total >= opticalDepthLimit)
+      // Revelation's (i + noise)^2 location with the quadratic cell width.
+      const float index = float(tap) + 0.5f;
+      const float center = index * index * stepLength;
+      const float rayT = center < firstLength ? intervals.x + center : intervals.z + center - firstLength;
+      const float3 position = origin + direction * rayT;
+      const float value = cloudDensity(density, position, weather, base, detail, layer, tap < 3);
+      depth[layer] += extinction * (2.0f * stepLength * index) * value;
+      if (depth[layer] >= 24.0f)
       {
-        return opticalDepth;
-      }
-      continue;
-    }
-    // EvaluateSunLuminanceHighCloud integrates equal segments within 3 km.
-    const uint steps = max(1u, args.lightSteps);
-    const float step = (end - begin) / float(steps);
-    const CloudDensityArgs densityArgs = cloudDensityParameters(args);
-    for (uint i = 0; i < steps; i++)
-    {
-      const float cellStart = begin + float(i) * step;
-      const float3 position = origin + direction * (cellStart + 0.5f * step);
-      const float sigma = args.highExtinction * cloudDensity(densityArgs, position, weatherSampler,
-        baseSampler, detailSampler, layer);
-      const float local = clamp(localRange - cellStart, 0.0f, step);
-      opticalDepth.local += sigma * local;
-      opticalDepth.external += sigma * (step - local);
-      opticalDepth.total += sigma * step;
-      if (opticalDepth.total >= opticalDepthLimit)
-      {
-        return opticalDepth;
+        break;
       }
     }
   }
-  return opticalDepth;
+  return depth;
 }
 
 public float cloudVisibilityTransmittance(CloudArgs args, float3 origin, float3 direction, float distance,
-  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
-  CloudLightingCache cache)
+  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
 {
-  const CloudOpticalDepth opticalDepth = cloudLightOpticalDepth(args, origin, direction, distance,
-    weatherSampler, baseSampler, detailSampler, cache, 0, -log(kOpaqueCloudTransmittance));
-  return exp(-opticalDepth.total);
+  const float2 depth = cloudLightOpticalDepth(args, origin, direction, distance, weather, base, detail);
+  return exp(-(depth.x + depth.y));
 }
 
 public float cloudPhase(float cosine, float g)
@@ -668,15 +495,7 @@ public float3 cloudDiffuseAirIllumination(CloudArgs args, Sampler3D<float2> loca
   return cloudDiffuseBoundaryRadiance(upper, lower, depths, cosine);
 }
 
-public float2 traceCloudDirectLight(CloudArgs args, float3 position, uint lightIndex, float localBeamDepth,
-  Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cache)
-{
-  const float opticalDepth = cloudLightOpticalDepth(args, position, args.lights[lightIndex].directionToLight, kFloatMax,
-    weather, base, detail, cache, 0, max(localBeamDepth, 0.0f) - log(kOpaqueCloudTransmittance), int(lightIndex)).total;
-  return exp(-float2(opticalDepth, max(opticalDepth - localBeamDepth, 0.0f)));
-}
-
-public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, float3 position, float distance,
+public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, float3 position,
   uint layer, float sigma, float3 ambientRadiance,
   Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
   CloudLightingCache cache, CloudRayPhase rayPhase)
@@ -691,12 +510,6 @@ public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, f
   const float powder = layer == 1 ? hanPiHighPowder(sigma / args.highExtinction) : 1.0f;
   float3 groundBeamIrradianceOverPi = 0;
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
-  float cacheWeight = 0;
-  CloudDirectLight cachedBeam = CloudDirectLight(0);
-  if (!Column)
-  {
-    cachedBeam = sampleCloudDirectLight(args, cache.direct, position, altitude, distance, layer, cacheWeight);
-  }
   for (uint lightIndex = 0; lightIndex < 2; lightIndex++)
   {
     const CloudLight light = args.lights[lightIndex];
@@ -707,31 +520,17 @@ public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, f
     }
     const float lightCosine = dot(light.directionToLight, radialUp);
     const bool groundReceivesBeam = lightCosine > 0 && args.groundAlbedo > 0;
-    float2 beam;
-    if (Column)
-    {
-      const float vertical = lightCosine >= 0 ? verticalDepth.x : verticalDepth.y;
-      beam = float2(exp(-vertical / max(abs(lightCosine), 1e-5f)), 1);
-    }
-    else
-    {
-      beam = cachedBeam.at(args, altitude, layer, lightIndex, lightCosine, sigma);
-      if (cacheWeight < 1)
-      {
-        const float localBeamDepth = groundReceivesBeam ? verticalDepth.x / lightCosine : 0.0f;
-        const float2 resolved = traceCloudDirectLight(args, position, lightIndex, localBeamDepth,
-          weatherSampler, baseSampler, detailSampler, cache);
-        beam = lerp(resolved, beam, cacheWeight);
-      }
-    }
-    const float singleScattering = rayPhase.phase[lightIndex] * beam.x
+    const float2 depth = cloudLightOpticalDepth(args, position, light.directionToLight, kFloatMax,
+      weatherSampler, baseSampler, detailSampler);
+    const float beam = exp(-(depth.x + depth.y));
+    const float singleScattering = rayPhase.phase[lightIndex] * beam
       * lerp(1.0f, powder, rayPhase.highPowderWeight[lightIndex]);
     float diffuse = 0;
     if (args.multipleScattering > 0 && (args.activeCloudLights & (1u << lightIndex)) != 0)
     {
       const float residual = cloudNeuralDiffuse(args, cache.neural, neuralPosition, altitude, rayPhase.neuralAngles[lightIndex], layer, lightIndex);
       const float density = sigma / (layer == 0 ? args.extinction : args.highExtinction);
-      diffuse = max(0.0f, residual + cloudSourceVariation(layer, density, beam.x, rayPhase.viewLightCosine[lightIndex]));
+      diffuse = max(0.0f, residual + cloudSourceVariation(layer, density, beam, rayPhase.viewLightCosine[lightIndex]));
     }
     source += irradiance * (singleScattering + args.multipleScattering * diffuse);
     if (groundReceivesBeam)
@@ -741,7 +540,7 @@ public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, f
       // 4*pi*J (beam ordinates have cosine one). It includes beam collisions
       // already, so only the reflected flux returns as a boundary condition.
       const float diffuse = 4.0f * cloudDiffuseBeamRadiance(float2(totalVerticalDepth, 0), lightCosine);
-      groundBeamIrradianceOverPi += light.irradiance * beam.y * (direct + diffuse);
+      groundBeamIrradianceOverPi += light.irradiance * exp(-depth[1u - layer]) * (direct + diffuse);
     }
   }
   // The supplied upper-hemisphere integral is normalized by 4 pi.

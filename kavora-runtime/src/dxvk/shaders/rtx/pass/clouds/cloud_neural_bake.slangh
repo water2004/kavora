@@ -3,7 +3,6 @@
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/algorithm/cloud_source_interpolation.slang";
-import "rtx/algorithm/cloud_direct_light.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 #include "rtx/pass/clouds/cloud_neural_model.h"
@@ -74,19 +73,10 @@ void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint ligh
   const float3 light = args.lights[lightIndex].directionToLight;
   if (lane == 4)
   {
-    const CloudLightingCache cache = sceneCloudLightingCache();
-    float weight;
-    const float sigma = densityFeature(density, position, layer) * (layer == 0 ? args.extinction : args.highExtinction);
-    const CloudDirectLight beam = sampleCloudDirectLight(args, cache.direct, position, altitude, 3.402823466e+38f, layer, weight);
-    const float3 up = normalize(position - args.groundReference + args.planetRadius * args.up);
-    float transmission = beam.at(args, altitude, layer, lightIndex, dot(up, light), sigma).x;
-    if (weight < 1)
-    {
-      const float depth = cloudLightOpticalDepth(args, position, light, 3.402823466e+38f,
-        CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, cache, 0, 24.0f, int(lightIndex)).total;
-      transmission = lerp(exp(-depth), transmission, weight);
-    }
-    const float tau = -log(max(transmission, 3.7751345e-11f));
+    const float2 depth = cloudLightOpticalDepth(args, position, light, 3.402823466e+38f,
+      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler);
+    const float tau = min(depth.x + depth.y, 24.0f);
+    const float transmission = exp(-tau);
     Cells[slot].features[4] = transmission;
     Cells[slot].features[5] = tau / (1.0f + tau);
     Cells[slot].features[6] = height;

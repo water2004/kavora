@@ -5,8 +5,9 @@ Licensed under the Apache License, Version 2.0.
 Source: https://github.com/HaringPro/Revelation
 Revision: d5911393856d9dd97375b46a1a088e6b8fddd755
 
-Kavora ports shaders/lib/atmosphere/clouds/Shape.glsl to Slang, using
-Kavora's world origin, texture bindings and Vulkan volumetric integrator.
+Kavora ports the cloud density from shaders/lib/atmosphere/clouds/Shape.glsl
+and adapts the short light-ray integration from shaders/lib/atmosphere/clouds/Render.glsl
+to its world origin, texture bindings and Vulkan volumetric integrator.
 The source texture channels are stored at their original resolutions and
 are repacked for Vulkan:
 
