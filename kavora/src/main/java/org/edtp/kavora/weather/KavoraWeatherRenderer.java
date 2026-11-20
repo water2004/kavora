@@ -6,6 +6,7 @@ package org.edtp.kavora.weather;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
+import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.api.pipeline.*;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
@@ -29,9 +30,10 @@ public final class KavoraWeatherRenderer {
     private static final Identifier SNOW = Identifier.withDefaultNamespace("textures/environment/snow.png");
     private final Matrix4f projection = new Matrix4f();
     private final Matrix4f modelView = new Matrix4f();
-    private final ByteBuffer matrices = BufferUtils.createByteBuffer(128);
+    private final ByteBuffer matrices = BufferUtils.createByteBuffer(144);
     private CompiledRenderPipeline rainPipeline;
     private CompiledRenderPipeline snowPipeline;
+    private GpuFormat pipelineFormat;
     private int lastDrawCount;
     private int lastQuadCount;
 
@@ -50,17 +52,20 @@ public final class KavoraWeatherRenderer {
         GpuTextureView finalColor = interop.colorTexture();
         GpuTextureView depth = interop.depthTexture();
         if (finalColor == null || depth == null) throw new IllegalStateException("Remix precipitation requires color and depth textures");
-        ensurePipelines();
+        var target = client.gameRenderer.mainRenderTarget().getColorTextureView();
+        ensurePipelines(target.texture().getFormat());
         modelView.get(0, matrices);
         projection.get(64, matrices);
+        matrices.putFloat(128, 1.0f / target.texture().getWidth(0));
+        matrices.putFloat(132, 1.0f / target.texture().getHeight(0));
         var encoder = RenderSystem.getDevice().createCommandEncoder();
         var uniform = encoder.transientMemory().uploadGpu(matrices, 16, GpuBuffer.USAGE_UNIFORM);
-        draw(weather.rainColumns, true, weather.radius, weather.intensity, finalColor, depth, uniform);
-        draw(weather.snowColumns, false, weather.radius, weather.intensity, finalColor, depth, uniform);
+        draw(weather.rainColumns, true, weather.radius, weather.intensity, target, finalColor, depth, uniform);
+        draw(weather.snowColumns, false, weather.radius, weather.intensity, target, finalColor, depth, uniform);
     }
 
     private void draw(List<WeatherEffectRenderer.ColumnInstance> columns, boolean rain, int radius,
-            float intensity, GpuTextureView finalColor, GpuTextureView depth,
+            float intensity, GpuTextureView target, GpuTextureView finalColor, GpuTextureView depth,
             com.mojang.renderpearl.api.buffers.GpuBufferSlice uniform) {
         if (columns.isEmpty()) return;
         var client = Minecraft.getInstance();
@@ -76,8 +81,7 @@ public final class KavoraWeatherRenderer {
                 var indices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
                 var indexBuffer = indices.getBuffer(mesh.drawState().indexCount());
                 var texture = client.getTextureManager().getTexture(rain ? RAIN : SNOW);
-                try (var pass = encoder.createRenderPass(() -> "Remix precipitation",
-                        client.gameRenderer.mainRenderTarget().getColorTextureView(), Optional.empty())) {
+                try (var pass = encoder.createRenderPass(() -> "Remix precipitation", target, Optional.empty())) {
                     pass.setPipeline(rain ? rainPipeline : snowPipeline);
                     pass.setUniform("WeatherMatrices", uniform);
                     pass.setUniform("Sampler0", texture.getTextureView(), texture.getSampler());
@@ -94,23 +98,27 @@ public final class KavoraWeatherRenderer {
         }
     }
 
-    private void ensurePipelines() {
-        if (rainPipeline != null) return;
-        rainPipeline = compile(true);
-        snowPipeline = compile(false);
+    private void ensurePipelines(GpuFormat format) {
+        if (pipelineFormat == format) return;
+        closePipelines();
+        rainPipeline = compile(true, format);
+        snowPipeline = compile(false, format);
+        pipelineFormat = format;
     }
 
-    private static CompiledRenderPipeline compile(boolean rain) {
+    private static CompiledRenderPipeline compile(boolean rain, GpuFormat format) {
         Identifier location = Identifier.fromNamespaceAndPath("kavora", rain ? "rain_refraction" : "snow_composite");
         var layout = BindGroupLayout.builder().withUniform("WeatherMatrices", UniformType.UNIFORM_BUFFER)
                 .withUniform("Sampler0", UniformType.COMBINED_IMAGE_SAMPLER)
                 .withUniform("Sampler1", UniformType.COMBINED_IMAGE_SAMPLER)
                 .withUniform("RemixDepth", UniformType.COMBINED_IMAGE_SAMPLER)
                 .withUniform("Lightmap", UniformType.COMBINED_IMAGE_SAMPLER).build();
+        var blend = rain ? Optional.<BlendFunction>empty() : Optional.of(BlendFunction.TRANSLUCENT);
+        var colorTarget = new ColorTargetState(blend, format, ColorTargetState.DEFAULT.writeMask());
         var pipeline = RenderPipeline.builder().withLocation(location).withVertexShader(location).withFragmentShader(location)
                 .withBindGroupLayout(layout).withVertexBinding(0, DefaultVertexFormat.PARTICLE)
                 .withPrimitiveTopology(PrimitiveTopology.QUADS).withCull(false)
-                .withColorTargetState(rain ? ColorTargetState.DEFAULT : new ColorTargetState(BlendFunction.TRANSLUCENT))
+                .withColorTargetState(colorTarget)
                 .withDepthStencilState(Optional.empty()).build();
         try (var source = new WeatherShaderSource(rain)) {
             return RenderSystem.getDevice().compilePipeline(pipeline, source, Runnable::run).join().finishCompile();
@@ -124,14 +132,18 @@ public final class KavoraWeatherRenderer {
     public int getLastQuadCount() { return lastQuadCount; }
 
     public void cleanup() {
-        if (rainPipeline != null) { rainPipeline.close(); rainPipeline = null; }
-        if (snowPipeline != null) { snowPipeline.close(); snowPipeline = null; }
+        closePipelines();
         lastDrawCount = 0;
         lastQuadCount = 0;
     }
 
+    private void closePipelines() {
+        if (rainPipeline != null) { rainPipeline.close(); rainPipeline = null; }
+        if (snowPipeline != null) { snowPipeline.close(); snowPipeline = null; }
+        pipelineFormat = null;
+    }
+
     private static final class WeatherShaderSource implements ShaderSource {
-        private static final String BLOCK = "layout(std140) uniform WeatherMatrices { mat4 ModelViewMat; mat4 ProjMat; };\n";
         private final boolean rain;
         WeatherShaderSource(boolean rain) { this.rain = rain; }
         @Override public String getShader(Identifier id, ShaderType type) {
@@ -142,7 +154,7 @@ public final class KavoraWeatherRenderer {
                     layout(location=1) in vec2 UV0;
                     layout(location=2) in vec4 Color;
                     layout(location=3) in ivec2 UV2;
-                    layout(std140) uniform WeatherMatrices { mat4 ModelViewMat; mat4 ProjMat; };
+                    layout(std140) uniform WeatherMatrices { mat4 ModelViewMat; mat4 ProjMat; vec2 InverseViewportSize; };
                     uniform sampler2D Lightmap;
                     layout(location=0) out vec2 texCoord;
                     layout(location=1) out vec4 vertexColor;
@@ -160,29 +172,21 @@ public final class KavoraWeatherRenderer {
                     #extension GL_ARB_separate_shader_objects : require
                     uniform sampler2D Sampler0;
                     uniform sampler2D RemixDepth;
+                    layout(std140) uniform WeatherMatrices { mat4 ModelViewMat; mat4 ProjMat; vec2 InverseViewportSize; };
                     layout(location=0) in vec2 texCoord;
                     layout(location=1) in vec4 vertexColor;
                     layout(location=2) in vec3 viewPosition;
                     layout(location=0) out vec4 fragColor;
                     void main() {
-                        vec2 screenUv=gl_FragCoord.xy/vec2(textureSize(RemixDepth,0));
-                        if (gl_FragCoord.z>texture(RemixDepth,screenUv).r) discard;
+                        vec2 screenUv=gl_FragCoord.xy*InverseViewportSize;
+                        ivec2 depthSize=textureSize(RemixDepth,0);
+                        ivec2 depthPixel=clamp(ivec2(screenUv*vec2(depthSize)),ivec2(0),depthSize-1);
+                        if (gl_FragCoord.z>texelFetch(RemixDepth,depthPixel,0).r) discard;
                         fragColor=texture(Sampler0,texCoord)*vertexColor;
                         if (fragColor.a<0.1) discard;
                     }
                     """;
-            String source = resource("/assets/kavora/shaders/core/rain_refraction.fsh")
-                    .replace("#version 150", "#version 330\n#extension GL_ARB_separate_shader_objects : require")
-                    .replace("uniform mat4 ProjMat;", BLOCK + "uniform sampler2D RemixDepth;")
-                    .replace("in vec2 texCoord;", "layout(location=0) in vec2 texCoord;")
-                    .replace("in vec4 vertexColor;", "layout(location=1) in vec4 vertexColor;")
-                    .replace("in vec3 viewPosition;", "layout(location=2) in vec3 viewPosition;")
-                    .replace("out vec4 fragColor;", "layout(location=0) out vec4 fragColor;")
-                    .replace("void main() {", "void main() {\nvec2 depthUv=gl_FragCoord.xy/vec2(textureSize(RemixDepth,0));\nif(gl_FragCoord.z>texture(RemixDepth,depthUv).r) discard;")
-                    .replace("1.0 - gl_FragCoord.y / framebufferSize.y", "gl_FragCoord.y / framebufferSize.y")
-                    .replace("angularOffset.y = -angularOffset.y;", "")
-                    .replace("reflectedUv.y = 1.0 - reflectedUv.y;", "");
-            return source;
+            return resource("/assets/kavora/shaders/core/rain_refraction.fsh");
         }
         @Override public CachedIncludeSource getInclude(Identifier id) {
             throw new IllegalArgumentException("Unexpected weather shader include " + id);

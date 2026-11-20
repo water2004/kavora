@@ -40,6 +40,13 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
             context.waitFor(client -> client.getWindow().getWidth() == width && client.getWindow().getHeight() == height, 200);
         }
         try (TestSingleplayerContext world = context.worldBuilder().create()) {
+            if (Boolean.getBoolean("kavora.gametest.weatherOnly")) {
+                world.getServer().runOnServer(KavoraSceneFixtures::buildGallery);
+                pose(world, 0, -60, -12, 0, 12);
+                KavoraWorldGameTest.assertWorldRenders(context, world, "materials-weather-clear");
+                checkRain(context, world);
+                return;
+            }
             if (Boolean.getBoolean("kavora.gametest.retainedOnly")) {
                 KavoraWorldGameTest.assertWorldRenders(context, world, "retained-fixture");
                 if (System.getProperty("kavora.gametest.textureMipFixtures") != null) {
@@ -135,23 +142,21 @@ public final class KavoraMaterialSceneGameTest implements FabricClientGameTest {
                     KavoraMod.renderer.getInteropCopiedSnapshotBytes() == 0,
                     "Dry world copied unused interop snapshots"));
 
-            world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server,
-                    "weather rain"));
             pose(world, 0, -60, -12, 0, 12);
-            context.waitTicks(120);
-            capture(context, world, "materials-rain");
-            context.runOnClient(client -> {
-                var renderer = KavoraMod.renderer;
-                KavoraWorldGameTest.require(renderer.getWeatherRenderer().getLastDrawCount() > 0,
-                        "Rain fixture did not draw precipitation");
-                KavoraWorldGameTest.require(renderer.getInteropCopiedSnapshotBytes() > 0,
-                        "Refractive precipitation did not acquire its sampled color and depth");
-            });
+            checkRain(context, world);
         } finally {
             context.runOnClient(client -> {
                 if (client.gui.hud.isHidden() != hudWasHidden) client.gui.hud.toggle();
             });
         }
+    }
+
+    private static void checkRain(ClientGameTestContext context, TestSingleplayerContext world) {
+        world.getServer().runOnServer(server -> KavoraSceneFixtures.commands(server, "weather rain"));
+        context.waitFor(client -> KavoraMod.renderer.getWeatherRenderer().getLastDrawCount() > 0, 200);
+        capture(context, world, "materials-rain");
+        context.runOnClient(client -> KavoraWorldGameTest.require(KavoraMod.renderer.getInteropCopiedSnapshotBytes() > 0,
+                "Refractive precipitation did not acquire its sampled color and depth"));
     }
 
     private static void checkStainedGlass(ClientGameTestContext context, TestSingleplayerContext world) {

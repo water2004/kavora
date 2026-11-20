@@ -13,6 +13,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(value = KavoraRenderer.class, remap = false)
 public abstract class KavoraFrameProbeMixin {
+    @Inject(method = "renderWeather", at = @At("HEAD"))
+    private void readBeforePrecipitation(CallbackInfo ci) {
+        Runnable capture = KavoraFrameProbe.beforePrecipitation;
+        if (capture != null) {
+            KavoraFrameProbe.beforePrecipitation = null;
+            capture.run();
+        }
+    }
+
     @Inject(method = "compositeRemixMenus", at = @At("RETURN"))
     private void kavora$readMenuFrame(CallbackInfo ci) {
         Runnable capture = KavoraFrameProbe.afterNativeMenus;

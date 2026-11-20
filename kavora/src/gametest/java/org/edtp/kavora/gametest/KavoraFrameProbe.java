@@ -13,6 +13,7 @@ public final class KavoraFrameProbe {
     public static long playerTextureBuilds;
     public static java.util.function.LongConsumer frameAction;
     public static Runnable afterNativeMenus;
+    public static Runnable beforePrecipitation;
 
     private KavoraFrameProbe() {}
 }

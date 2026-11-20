@@ -45,6 +45,7 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         if (Boolean.getBoolean("kavora.gametest.beaconOnly") || Boolean.getBoolean("kavora.gametest.particleOnly")
                 || Boolean.getBoolean("kavora.gametest.endPortalsOnly")
                 || Boolean.getBoolean("kavora.gametest.stainedGlassOnly")
+                || Boolean.getBoolean("kavora.gametest.weatherOnly")
                 || Boolean.getBoolean("kavora.gametest.lightingOnly")
                 || Boolean.getBoolean("kavora.gametest.retainedOnly")) return;
         context.runOnClient(client -> {
@@ -541,7 +542,7 @@ public final class KavoraWorldGameTest implements FabricClientGameTest {
         }
     }
 
-    private static CompletableFuture<Path> captureTarget(RenderTarget target, Path destination) {
+    static CompletableFuture<Path> captureTarget(RenderTarget target, Path destination) {
         CompletableFuture<Path> captured = new CompletableFuture<>();
         Screenshot.takeScreenshot(target, image -> {
             try (image) {
