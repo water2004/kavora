@@ -1497,9 +1497,11 @@ namespace dxvk {
     bindResourceSampler(BINDING_CLOUD_WEATHER_SAMPLER, cloudSampler);
     bindResourceView(BINDING_CLOUD_SKY_SAMPLER, m_common->metaGlobalVolumetrics().getCloudSky(), nullptr);
     bindResourceSampler(BINDING_CLOUD_SKY_SAMPLER, linearSampler);
+    bindResourceView(BINDING_CLOUD_SHADOW_SAMPLER, m_common->metaGlobalVolumetrics().getCloudShadow(), nullptr);
     bindResourceView(BINDING_CLOUD_AMBIENT_INPUT, m_common->metaGlobalVolumetrics().getCloudAmbient(), nullptr);
     const auto cloudDepthSampler = getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    bindResourceSampler(BINDING_CLOUD_SHADOW_SAMPLER, cloudDepthSampler);
     const auto& cloudVolumes = m_common->metaGlobalVolumetrics();
     bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudVolumes.getCloudLocalLight(), nullptr);
     bindResourceSampler(BINDING_CLOUD_LOCAL_LIGHT_INPUT, cloudSampler);

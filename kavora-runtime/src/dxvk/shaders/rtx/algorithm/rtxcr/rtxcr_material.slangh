@@ -242,7 +242,7 @@ SssDiffusionProfileResult evalSssDiffusionProfile(
       minimalRayInteraction.coneRadius, viewRay.spreadAngle, 1.0, geometryFlags.isViewModel, false,
       primarySurfaceIndex, asfloat(SharedTextureCoord[compactedCoordinate]),
       false,
-      opaqueSurfaceMaterialInteraction.shadingNormal);
+      opaqueSurfaceMaterialInteraction.shadingNormal, true, lightCloudShadowSlot(sssLightSample));
 
     // Current sample is not visible by the sample light, continue on the next sample
     if (visibility.hasOpaqueHit)
@@ -399,7 +399,7 @@ float3 evalSingleScatteringTransmission(
           minimalRayInteraction.coneRadius, viewRay.spreadAngle, 1.0, geometryFlags.isViewModel, false,
           primarySurfaceIndex, asfloat(SharedTextureCoord[compactedCoordinate]),
           false,
-          opaqueSurfaceMaterialInteraction.shadingNormal);
+          opaqueSurfaceMaterialInteraction.shadingNormal, true, lightCloudShadowSlot(transmissionLightSample));
 
         if (!visibility.hasOpaqueHit)
         {
@@ -499,7 +499,7 @@ float3 evalSingleScatteringTransmission(
         minimalRayInteraction.coneRadius, viewRay.spreadAngle, 1.0, geometryFlags.isViewModel, false,
         primarySurfaceIndex, asfloat(SharedTextureCoord[compactedCoordinate]),
         false,
-        opaqueSurfaceMaterialInteraction.shadingNormal);
+        opaqueSurfaceMaterialInteraction.shadingNormal, true, lightCloudShadowSlot(singleScatteringLightSample));
 
       // Current sample is not visible by the sample light, continue on the next sample
       if (singleScatteringVisibility.hasOpaqueHit)

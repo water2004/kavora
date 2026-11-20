@@ -170,6 +170,7 @@ LightSample sphereLightSampleArea(SphereLight sphereLight, vec2 sampleCoordinate
   // Create the light sample
 
   LightSample lightSample;
+  lightSample.isDistant = false;
 
   lightSample.position = spherePositionSample;
   lightSample.normal = sphereNormalSample;

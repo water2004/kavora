@@ -201,7 +201,7 @@ void evalNEEPrimary(
       minimalRayInteraction.coneRadius, viewRay.spreadAngle, 1.0, geometryFlags.isViewModel, false,
       sharedSurfaceIndex, textureCoordinates,
       isThinOpaqueSubsurface,
-      opaqueSurfaceMaterialInteraction.shadingNormal);
+      opaqueSurfaceMaterialInteraction.shadingNormal, true, lightCloudShadowSlot(lightSample));
   }
 
   const bool hasNonSssOpaqueHit = visibility.hasOpaqueHit;

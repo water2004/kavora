@@ -204,6 +204,7 @@ LightSample rectLightSampleArea(RectLight rectLight, vec2 sampleCoordinates, vec
   // Create the light sample
 
   LightSample lightSample;
+  lightSample.isDistant = false;
 
   lightSample.position = rectanglePositionSample;
   lightSample.normal = rectLight.normal;

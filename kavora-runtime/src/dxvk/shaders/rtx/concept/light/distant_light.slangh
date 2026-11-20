@@ -81,6 +81,7 @@ LightSample distantLightSampleArea(DistantLight distantLight, vec2 sampleCoordin
   // Create the light sample
 
   LightSample lightSample;
+  lightSample.isDistant = true;
 
   lightSample.position = distantPositionSample;
   lightSample.normal = distantNormalSample;

@@ -8,7 +8,7 @@
 // Note: Test light sample visibility from a specified volume interaction. Split out into this function to be consistent among volumetric code.
 VisibilityResult evalVolumeNEEVisibility(
   inout RayQuery<0> rayQuery,
-  uint8_t sampledTransportPortalIndex, Ray visibilityRay, bool includeCloudExtinction)
+  uint8_t sampledTransportPortalIndex, Ray visibilityRay, bool includeCloudExtinction, uint cloudShadowSlot)
 {
   // Associate the volume grid with the main space to minimize occlusion by geometry with per portal space visibility
   // in different portal spaces. Optimally we should skip objects with per-portal space visibility altogether since 
@@ -31,16 +31,16 @@ VisibilityResult evalVolumeNEEVisibility(
   if (enableTranslucentShadows)
   {
     return traceVisibilityRay<visibilityModeDisableCulling | visibilityModeEnableTranslucentMaterials>(
-      rayQuery, visibilityRay, rayMask, sampledTransportPortalIndex, portalSpace, false, false, true, includeCloudExtinction);
+      rayQuery, visibilityRay, rayMask, sampledTransportPortalIndex, portalSpace, false, false, true, includeCloudExtinction, cloudShadowSlot);
   }
 
   return traceVisibilityRay<visibilityModeDisableCulling>(
-    rayQuery, visibilityRay, rayMask, sampledTransportPortalIndex, portalSpace, false, false, true, includeCloudExtinction);
+    rayQuery, visibilityRay, rayMask, sampledTransportPortalIndex, portalSpace, false, false, true, includeCloudExtinction, cloudShadowSlot);
 }
 
 VisibilityResult evalVolumeNEEVisibility(
-  uint8_t sampledTransportPortalIndex, Ray visibilityRay)
+  uint8_t sampledTransportPortalIndex, Ray visibilityRay, uint cloudShadowSlot)
 {
   RayQuery<0> rayQuery = RayQuery<0>();
-  return evalVolumeNEEVisibility(rayQuery, sampledTransportPortalIndex, visibilityRay, true);
+  return evalVolumeNEEVisibility(rayQuery, sampledTransportPortalIndex, visibilityRay, true, cloudShadowSlot);
 }

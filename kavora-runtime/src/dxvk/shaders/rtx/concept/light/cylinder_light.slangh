@@ -149,6 +149,7 @@ LightSample cylinderLightSampleArea(CylinderLight cylinderLight, vec2 sampleCoor
   // Create the light sample
 
   LightSample lightSample;
+  lightSample.isDistant = false;
 
   lightSample.position = cylinderPositionSample;
   lightSample.normal = cylinderNormalSample;

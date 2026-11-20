@@ -35,6 +35,7 @@
 #include "rtx/pass/clouds/cloud_lighting_binding_indices.h"
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 #include "rtx/pass/clouds/cloud_neural_model.h"
+#include "rtx/pass/clouds/cloud_shadow.h"
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_integrate_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_filter_binding_indices.h"
@@ -46,6 +47,7 @@
 #include <rtx_shaders/generate_cloud_local_light.h>
 #include <rtx_shaders/generate_cloud_neural_light.h>
 #include <rtx_shaders/generate_cloud_neural_light_tensor.h>
+#include <rtx_shaders/generate_cloud_shadow.h>
 #include <rtx_shaders/generate_cloud_sky.h>
 #include <rtx_shaders/volume_filter.h>
 #include <rtx_shaders/volume_restir_initial.h>
@@ -61,6 +63,17 @@ namespace dxvk {
 
   // Defined within an unnamed namespace to ensure unique definition across binary
   namespace {
+    class GenerateCloudShadowShader : public ManagedShader {
+      SHADER_SOURCE(GenerateCloudShadowShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_shadow)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        RW_TEXTURE2DARRAY(CLOUD_LIGHTING_BINDING_OUTPUT)
+      END_PARAMETER()
+    };
+
+    PREWARM_SHADER_PIPELINE(GenerateCloudShadowShader);
+
     class GenerateCloudLocalLightShader : public ManagedShader {
       SHADER_SOURCE(GenerateCloudLocalLightShader, VK_SHADER_STAGE_COMPUTE_BIT, generate_cloud_local_light)
       BINDLESS_ENABLED()
@@ -868,6 +881,7 @@ namespace dxvk {
     const bool lowClouds = clouds.extinction > 0 && clouds.thickness > 0;
     const bool highClouds = clouds.highExtinction > 0 && clouds.highThickness > 0 && clouds.highCoverage > 0;
     if (!clouds.enable || (!lowClouds && !highClouds)) {
+      m_cloudShadow.reset();
       m_cloudLocalLight.reset();
       m_cloudNeuralLight.reset();
       m_cloudLightingArgsValid = false;
@@ -886,7 +900,9 @@ namespace dxvk {
     // A byte-exact comparison is conservative for the remaining inputs: any
     // changed density, light direction, or cache extent still triggers a rebuild.
     const bool useTensor = clouds.multipleScattering > 0 && CloudOptions::neuralTensorCores() && m_cloudNeuralModel.prepareTensorWeights(*ctx);
-    const bool cacheResourcesReady = m_cloudLocalLight.isValid() && m_cloudNeuralLight.isValid();
+    const bool needsCloudShadow = clouds.activeCloudLights != 0;
+    const bool cacheResourcesReady = m_cloudLocalLight.isValid() && m_cloudNeuralLight.isValid()
+      && (!needsCloudShadow || m_cloudShadow.isValid());
     if (m_cloudLightingArgsValid && cacheResourcesReady && m_cloudLightingUsesTensor == useTensor
       && std::memcmp(&lightingKey, &m_previousCloudLightingArgs, sizeof(CloudArgs)) == 0) {
       return;
@@ -895,6 +911,20 @@ namespace dxvk {
     ctx->bindCommonRayTracingResources();
     ctx->bindResourceView(BINDING_CLOUD_LOCAL_LIGHT_INPUT, nullptr, nullptr);
     ctx->bindResourceView(BINDING_CLOUD_NEURAL_LIGHT_INPUT, nullptr, nullptr);
+    ctx->bindResourceView(BINDING_CLOUD_SHADOW_SAMPLER, nullptr, nullptr);
+    if (needsCloudShadow) {
+      ScopedGpuProfileZone(ctx, "Cloud Shadow Map");
+      constexpr VkExtent3D extent { CLOUD_SHADOW_RESOLUTION, CLOUD_SHADOW_RESOLUTION, 1 };
+      if (!m_cloudShadow.isValid()) {
+        m_cloudShadow = Resources::createImageResource(resourceContext, "Cloud shadow transmittance", extent,
+          VK_FORMAT_R32_SFLOAT, 2, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY);
+      }
+      ctx->bindResourceView(CLOUD_LIGHTING_BINDING_OUTPUT, m_cloudShadow.view, nullptr);
+      ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, GenerateCloudShadowShader::getShader());
+      ctx->dispatch(extent.width / 8, extent.height / 8, 2);
+    } else {
+      m_cloudShadow.reset();
+    }
     {
       ScopedGpuProfileZone(ctx, "Cloud Local Lighting");
       constexpr VkExtent3D localExtent { CLOUD_LOCAL_LIGHT_RESOLUTION, CLOUD_LOCAL_LIGHT_PACKED_HEIGHT,

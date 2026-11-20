@@ -67,8 +67,9 @@ The [asset workflow](../tools/clouds/README.md) records the source and packing
 process. View ranges bound detailed sampling, with coarse coverage beyond them.
 Revelation's quadratic light-ray integration samples up to six taps in the
 low deck and three in the high deck. It is shared by camera and secondary
-cloud shading, sky generation, neural feature preparation and surface or fog
-light visibility. Surface and fog queries apply it after geometry visibility.
+cloud shading, sky generation and neural feature preparation. Surface and fog
+visibility first trace geometry, then use the [projected cloud shadow](cloud-field.md#projected-cloud-shadows)
+for complete celestial columns and the short integral for other segments.
 Direct single scattering uses normalized forward and backward lobes. High-cloud
 directional light includes HanPi's powder response. View extinction is
 integrated separately along the camera or secondary ray.

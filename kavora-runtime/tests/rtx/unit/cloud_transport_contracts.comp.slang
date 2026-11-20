@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 GBwater
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_shadow.slang";
 import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
@@ -226,6 +227,36 @@ void shortLightDepth(uint index : SV_DispatchThreadID)
   const float2 depth = cloudLightOpticalDepth(Clouds, ray.xyz, direction.xyz, ray.w,
     Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
   Results[index] = float4(depth, exp(-(depth.x + depth.y)), 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void shadowCoordinates(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+  {
+    return;
+  }
+  const float4 ray = Inputs[index];
+  const float4 direction = Directions[index];
+  const uint slot = cloudShadowLight(Clouds, Clouds.lights[uint(direction.w)].directionToLight);
+  float3 uvw;
+  const float weight = cloudShadowCoordinates(Clouds, ray.xyz, direction.xyz, ray.w, slot, uvw);
+  Results[index] = float4(uvw, weight);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void shadowTexels(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+  {
+    return;
+  }
+  const float4 request = Inputs[index];
+  const float transmission = bakeCloudShadow(Clouds, uint2(request.xy), uint(request.z),
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
+  Results[index] = float4(transmission, 0, 0, 0);
 }
 
 [shader("compute")]

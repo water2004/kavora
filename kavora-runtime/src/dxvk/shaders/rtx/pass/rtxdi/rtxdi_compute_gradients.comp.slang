@@ -43,7 +43,8 @@ float getSurfaceIlluminance(
     lightSample.position, rayMask,
     sampledTransportPortalIndex, portalSpace, false,
     coneRadiusAtSurface, cb.screenSpacePixelSpreadHalfAngle, 
-    1.0, isViewModel, usePreviousTLAS);
+    1.0, isViewModel, usePreviousTLAS, SURFACE_INDEX_INVALID, float4(0), false,
+    float3(0), true, lightCloudShadowSlot(lightSample));
 
   if (visibility.hasOpaqueHit)
     return 0;

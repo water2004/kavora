@@ -262,6 +262,7 @@ dxvk_src = files([
   'shaders/rtx/pass/air_args.h',
   'shaders/rtx/concept/camera/volume_camera.h',
   'shaders/rtx/pass/cloud_noise.h',
+  'shaders/rtx/pass/clouds/cloud_shadow.h',
   'shaders/rtx/pass/clouds/cloud_sky_binding_indices.h',
   'rtx_render/rtx_gpu_crash_recorder.cpp',
   'rtx_render/rtx_gpu_crash_recorder.h',

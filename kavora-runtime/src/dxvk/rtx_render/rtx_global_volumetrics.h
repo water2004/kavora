@@ -348,6 +348,7 @@ namespace dxvk {
     Rc<DxvkImageView> getCloudNeuralLight() const { return m_cloudNeuralLight.view; }
     Rc<DxvkImageView> getCloudAmbient() const { return m_cloudAmbient.view; }
     Rc<DxvkImageView> getCloudSky() const { return m_cloudSky.view; }
+    Rc<DxvkImageView> getCloudShadow() const { return m_cloudShadow.view; }
     Rc<DxvkImageView> getAirShadowDepth() const { return m_airShadowDepth.view; }
     
     const Resources::Resource& getCurrentVolumeReservoirs() const { return m_volumeReservoirs[0]; }
@@ -382,6 +383,7 @@ namespace dxvk {
     CloudNeuralModel m_cloudNeuralModel;
     Resources::Resource m_cloudAmbient;
     Resources::Resource m_cloudSky;
+    Resources::Resource m_cloudShadow;
     Resources::Resource m_airShadowDepth;
     CloudArgs m_previousCloudLightingArgs{};
     bool m_cloudLightingArgsValid = false;

@@ -152,6 +152,7 @@ LightSample diskLightSampleArea(DiskLight diskLight, vec2 sampleCoordinates, vec
   // Create the light sample
 
   LightSample lightSample;
+  lightSample.isDistant = false;
 
   lightSample.position = diskPositionSample;
   lightSample.normal = diskNormalSample;

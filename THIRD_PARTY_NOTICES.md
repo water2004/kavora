@@ -9,8 +9,8 @@ locations given.
 ### Revelation Shaders
 
 - Copyright (c) 2026 HaringPro. The native runtime ports the low and high
-  cloud density functions, adapts short light-ray integration and packs the
-  original weather, curl and profile textures for Vulkan.
+  cloud density functions, adapts short light-ray integration and projected
+  cloud shadows, and packs the original weather, curl and profile textures.
 - [Revelation source and license](https://github.com/HaringPro/Revelation/tree/d5911393856d9dd97375b46a1a088e6b8fddd755).
   [Apache-2.0](LICENSES/Apache-2.0.txt).
 - [Integration notice and asset paths](kavora/packaging/licenses/Revelation-Clouds.txt).

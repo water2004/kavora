@@ -21,6 +21,9 @@
 */
 #pragma once
 import "rtx/algorithm/clouds.slang";
+import "rtx/algorithm/cloud_shadow.slang";
+
+#include "rtx/concept/light/light_helper.slangh"
 
 #include "rtx/concept/ray/ray.slangh"
 #include "rtx/concept/surface/surface.slangh"
@@ -313,6 +316,25 @@ struct VisibilityResult {
   bool hasPOMHit;
 };
 
+uint lightCloudShadowSlot(LightSample sample)
+{
+  return sample.isDistant ? cloudShadowLight(cb.volumeArgs.clouds, -sample.normal) : 0;
+}
+
+float visibilityCloudTransmittance(Ray ray, float distance, uint cloudShadowSlot)
+{
+  const CloudArgs clouds = cb.volumeArgs.clouds;
+  float3 uvw;
+  const float shadowWeight = cloudShadowCoordinates(clouds, ray.origin, ray.direction, distance, cloudShadowSlot, uvw);
+  if (shadowWeight >= 1.0f)
+  {
+    return CloudShadowSampler.SampleLevel(uvw, 0);
+  }
+  const float integrated = cloudVisibilityTransmittance(clouds, ray.origin, ray.direction, distance,
+    CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler);
+  return shadowWeight > 0 ? lerp(integrated, CloudShadowSampler.SampleLevel(uvw, 0), shadowWeight) : integrated;
+}
+
 VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   inout RayQuery<0> rayQuery,
   Ray visibilityRay,
@@ -321,7 +343,8 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   bool hasRayOriginatedFromViewModel = false,
   bool usePreviousTLAS = false,
   bool clearOpaqueHitAttenuation = true,
-  bool includeCloudExtinction = true)
+  bool includeCloudExtinction = true,
+  uint cloudShadowSlot = 0)
 {
   // Exclude the portals from the ray mask because we have special handling for them.
   rayMask &= ~OBJECT_MASK_PORTAL;
@@ -332,6 +355,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   result.rayDirection = visibilityRay.direction;
 
   const float originalTMax = visibilityRay.tMax;
+  const uint shadowSlot = expectedRayPortalIndex == invalidRayPortalIndex ? cloudShadowSlot : 0;
 
   // If we're expecting to cross a particular portal, test whether the ray intersects that portal first.
   // If it doesn't, there's no need to trace any rays as the result is always "invisible".
@@ -425,9 +449,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
       result.hasOpaqueHit = true;
       if (!clearOpaqueHitAttenuation && includeCloudExtinction)
       {
-        result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
-          visibilityRay.direction, rayQuery.CommittedRayT(), CloudWeatherSampler, CloudBaseSampler,
-          CloudDetailSampler);
+        result.attenuation *= visibilityCloudTransmittance(visibilityRay, rayQuery.CommittedRayT(), shadowSlot);
       }
 
       // If we already went through a portal, add the path segment before the portal
@@ -439,9 +461,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
 
     if (includeCloudExtinction)
     {
-      result.attenuation *= cloudVisibilityTransmittance(cb.volumeArgs.clouds, visibilityRay.origin,
-        visibilityRay.direction, visibilityRay.tMax, CloudWeatherSampler, CloudBaseSampler,
-        CloudDetailSampler);
+      result.attenuation *= visibilityCloudTransmittance(visibilityRay, visibilityRay.tMax, shadowSlot);
     }
 
     if (expectedRayPortalIndex != invalidRayPortalIndex)
@@ -479,11 +499,11 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   uint8_t rayMask, uint8_t expectedRayPortalIndex, PortalSpace2BitsType rayOriginPortalSpace,
   bool hasRayOriginatedFromViewModel = false,
   bool usePreviousTLAS = false,
-  bool clearOpaqueHitAttenuation = true)
+  bool clearOpaqueHitAttenuation = true, uint cloudShadowSlot = 0)
 {
   RayQuery<0> rayQuery = RayQuery<0>();
   return traceVisibilityRay<VisibilityMode>(rayQuery, visibilityRay, rayMask, expectedRayPortalIndex,
-    rayOriginPortalSpace, hasRayOriginatedFromViewModel, usePreviousTLAS, clearOpaqueHitAttenuation);
+    rayOriginPortalSpace, hasRayOriginatedFromViewModel, usePreviousTLAS, clearOpaqueHitAttenuation, true, cloudShadowSlot);
 }
 
 Ray createVisibilityRay(
@@ -514,7 +534,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   bool usePreviousTLAS = false,
   uint primarySurfaceIndex = SURFACE_INDEX_INVALID, float4 texCoords = 0..xxxx,
   bool isThinOpaqueSubsurface = false,
-  vec3 shadingNormal = vec3(0.0f), bool clearOpaqueHitAttenuation = true)
+  vec3 shadingNormal = vec3(0.0f), bool clearOpaqueHitAttenuation = true, uint cloudShadowSlot = 0)
 {
   Ray visibilityRay = createVisibilityRay(
     minimalSurfaceInteraction, targetPosition, coneRadius, spreadAngle, isThinOpaqueSubsurface, shadingNormal);
@@ -582,7 +602,7 @@ VisibilityResult traceVisibilityRay<let VisibilityMode : uint>(
   }
 #endif
 
-  VisibilityResult result = traceVisibilityRay<VisibilityMode>(visibilityRay, rayMask, expectedRayPortalIndex, rayOriginPortalSpace, hasRayOriginatedFromViewModel, usePreviousTLAS, clearOpaqueHitAttenuation);
+  VisibilityResult result = traceVisibilityRay<VisibilityMode>(visibilityRay, rayMask, expectedRayPortalIndex, rayOriginPortalSpace, hasRayOriginatedFromViewModel, usePreviousTLAS, clearOpaqueHitAttenuation, cloudShadowSlot);
 
   // We want to calculate the attenuation from the light to the surface - which is why we use targetPosition (light) and neg-direction (light to surface)
   result.attenuation *= calcVolumetricAttenuation(cb.volumeArgs, none, false, result.hitDistance, targetPosition, -visibilityRay.direction);

@@ -136,7 +136,8 @@ SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 
     }
 
     // Sky radiance already includes cloud scattering and extinction. Geometry still occludes it.
-    VisibilityResult visibility = evalVolumeNEEVisibility(rayQuery, invalidRayPortalIndex, shadowRay, !isSky);
+    const uint cloudShadowSlot = isSky ? 0 : lightCloudShadowSlot(sample);
+    VisibilityResult visibility = evalVolumeNEEVisibility(rayQuery, invalidRayPortalIndex, shadowRay, !isSky, cloudShadowSlot);
     if (visibility.hasOpaqueHit)
     {
       continue;

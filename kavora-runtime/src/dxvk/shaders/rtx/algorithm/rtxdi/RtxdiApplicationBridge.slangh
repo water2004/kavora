@@ -966,7 +966,7 @@ bool RAB_TraceLightSampleVisibility(RAB_Surface surface, RAB_LightSample lightSa
     cb.enablePreviousTLAS && usePreviousTLAS,
     BINDING_INDEX_INVALID, vec4(0.0f),
     isThinOpaqueSubsurface,
-    surface.opaqueSurfaceMaterialInteraction.shadingNormal);
+    surface.opaqueSurfaceMaterialInteraction.shadingNormal, true, lightCloudShadowSlot(lightSample));
 
   attenuation = visibility.attenuation;
 
@@ -1009,7 +1009,7 @@ bool RAB_VolumeReSTIR_TraceNEEVisibility(
   
   const VisibilityResult visibility = evalVolumeNEEVisibility(
     sampledTransportPortalIndex,
-    visibilityRay);
+    visibilityRay, lightCloudShadowSlot(lightSample));
 
   attenuation = visibility.attenuation;
 

@@ -34,7 +34,7 @@ public CloudDensityArgs cloudDensityParameters(CloudArgs args)
   return density;
 }
 
-float2 cloudSphereRoots(CloudArgs args, float3 origin, float3 direction, float altitude)
+public float2 cloudSphereRoots(CloudArgs args, float3 origin, float3 direction, float altitude)
 {
   const float3 p = origin - args.groundReference;
   const float h = dot(p, args.up);

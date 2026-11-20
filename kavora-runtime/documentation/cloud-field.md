@@ -293,10 +293,25 @@ Camera and PSR cloud single scattering and the sky atlas use the sum of both
 layers' optical depths for direct transmission. The neural bake uses that
 same short integral to generate its transmission and optical-depth inputs.
 Diffuse lighting still uses vertical optical depths and neural multiple
-scattering. Surface and fog light visibility first trace scene geometry with
-a hardware ray query, then integrate the remaining light ray through the
-cloud shells. The finite integration length approximates shadows from
-distant cloud banks along grazing light rays.
+scattering. The finite integration length approximates shadows from distant
+cloud banks along grazing light rays.
+
+### Projected cloud shadows
+
+After hardware geometry visibility, direct surface and fog lighting can
+sample the cloud-shadow map. It stores transmittance through both enabled
+shells in a light-aligned plane. Each layer of the 256×256 R32F array covers
+8,192 metres on a side, with the centre anchored near the observer. This
+shares the same column between points along a parallel ray, including
+surfaces reached through a reflection or refraction. The map is regenerated
+when the cloud lighting inputs change.
+
+Narrow celestial disks share the central-axis column. A query requires a
+receiver below all enabled shells and an actual light segment that reaches
+past them. Near the map and shell boundaries, transmittance blends into the
+short integral. In-cloud, finite partial and local-light segments use the
+same short integral as before. Sky radiance with embedded cloud transport
+bypasses this visibility attenuation.
 
 Fog subdivisions reuse a cloud cell's extinction and incident source. A prefix
 checkpoint recomputes the same fixed cell sample, so splitting a ray preserves

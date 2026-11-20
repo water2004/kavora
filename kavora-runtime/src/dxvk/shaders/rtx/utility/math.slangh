@@ -22,6 +22,7 @@
 #pragma once
 
 import "rtx/utility/math_constants.slang";
+import "rtx/utility/orthonormal_basis.slang";
 
 static const float goldenRatio = 1.61803398875f;
 static const float silverRatio = 0.61803398875f;
@@ -227,13 +228,7 @@ void calcOrthonormalBasis(f16vec3 normal, out f16vec3 tangent, out f16vec3 bitan
 
 void calcOrthonormalBasis(vec3 normal, out vec3 tangent, out vec3 bitangent)
 {
-  const float sign = signNotZero(normal.z);
-
-  const float a = -1.0f / (sign + normal.z);
-  const float b = normal.x * normal.y * a;
-
-  tangent = vec3(1.0f + sign * normal.x * normal.x * a, sign * b, -sign * normal.x);
-  bitangent = vec3(b, sign + normal.y * normal.y * a, -normal.y);
+  orthonormalBasis(normal, tangent, bitangent);
 }
 
 // Calculates spherical coordinates to cartesian coordinates given either the standard or a custom basis.
