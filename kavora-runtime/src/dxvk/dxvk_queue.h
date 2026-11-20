@@ -85,6 +85,7 @@ namespace dxvk {
     uint32_t          interpolatedFrameCount = 0;
     Rc<DxvkImageView> foregroundGuide;
     Rc<DxvkImageView> hudless;
+    Rc<DxvkImageView> uiAlpha;
     DxvkDisplayPresent display;
     
     bool valid() const {
@@ -98,6 +99,7 @@ namespace dxvk {
       depth = nullptr;
       foregroundGuide = nullptr;
       hudless = nullptr;
+      uiAlpha = nullptr;
       display = {};
       resetHistory = false;
       interpolatedFrameCount = 0;

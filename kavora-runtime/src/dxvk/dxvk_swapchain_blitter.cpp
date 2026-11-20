@@ -29,7 +29,8 @@ namespace dxvk {
     const Rc<DxvkImageView>&  srcView,
           VkRect2D            srcRect,
           bool                bottomUp,
-    const DxvkDisplayPresent& display) {
+    const DxvkDisplayPresent& display,
+    const Rc<DxvkImageView>& uiAlpha) {
     ScopedGpuProfileZone(ctx, "Blitter presentImage");
     if (m_gammaDirty)
       this->updateGammaTexture(ctx);
@@ -54,7 +55,7 @@ namespace dxvk {
 
     if (srcView->imageInfo().sampleCount == VK_SAMPLE_COUNT_1_BIT) {
       this->draw(ctx, sameSize ? m_fsCopy : m_fsBlit,
-        dstView, dstRect, srcView, srcRect, bottomUp, display);
+        dstView, dstRect, srcView, srcRect, bottomUp, display, uiAlpha);
     } else if (sameSize) {
       this->draw(ctx, m_fsResolve,
         dstView, dstRect, srcView, srcRect, bottomUp, display);
@@ -118,7 +119,8 @@ namespace dxvk {
     const Rc<DxvkImageView>&  srcView,
           VkRect2D            srcRect,
           bool                bottomUp,
-    const DxvkDisplayPresent& display) {
+    const DxvkDisplayPresent& display,
+    const Rc<DxvkImageView>& uiAlpha) {
   // NV-DXVK end
     DxvkInputAssemblyState iaState;
     iaState.primitiveTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
@@ -190,6 +192,12 @@ namespace dxvk {
     DxvkRenderTargets renderTargets;
     renderTargets.color[0].view   = dstView;
     renderTargets.color[0].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    if (uiAlpha != nullptr) {
+      renderTargets.color[1].view = uiAlpha;
+      renderTargets.color[1].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      ctx->setBlendMode(1, blendMode);
+      ctx->discardImageView(uiAlpha, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
 
     ctx->bindRenderTargets(renderTargets);
 
@@ -229,7 +237,9 @@ namespace dxvk {
     ctx->pushConstants(0, sizeof(args), &args);
 
     ctx->setSpecConstant(VK_PIPELINE_BIND_POINT_GRAPHICS, 0, srcView->imageInfo().sampleCount);
+    ctx->setSpecConstant(VK_PIPELINE_BIND_POINT_GRAPHICS, 1, uiAlpha != nullptr);
     ctx->draw(3, 1, 0, 0);
+    ctx->setSpecConstant(VK_PIPELINE_BIND_POINT_GRAPHICS, 1, 0);
     ctx->setSpecConstant(VK_PIPELINE_BIND_POINT_GRAPHICS, 0, 0);
     // NV-DXVK start: Borrowed host views must not remain bound after presentation.
     ctx->bindResourceView(BindingIds::Image, nullptr, nullptr);
@@ -355,14 +365,14 @@ namespace dxvk {
       VK_SHADER_STAGE_FRAGMENT_BIT,
       fsResourceSlots.size(),
       fsResourceSlots.data(),
-      { 1u, 1u, 0u, sizeof(PresenterArgs) },
+      { 1u, 3u, 0u, sizeof(PresenterArgs) },
       fsCodeBlit);
     
     m_fsCopy = m_device->createShader(
       VK_SHADER_STAGE_FRAGMENT_BIT,
       fsResourceSlots.size(),
       fsResourceSlots.data(),
-      { 0u, 1u, 0u, sizeof(PresenterArgs) },
+      { 0u, 3u, 0u, sizeof(PresenterArgs) },
       fsCodeCopy);
     
     m_fsResolve = m_device->createShader(

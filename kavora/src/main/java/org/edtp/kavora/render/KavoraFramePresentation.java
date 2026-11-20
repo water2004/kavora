@@ -5,7 +5,7 @@
 package org.edtp.kavora.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.textures.GpuTexture;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.sdk.PresentInfo;
 import org.edtp.kavora.sdk.RemixAPI;
@@ -78,7 +78,7 @@ public final class KavoraFramePresentation implements AutoCloseable {
         renderingWindowFrame = false;
     }
 
-    public void captureHudless(GpuTexture color) {
+    public void captureHudless(GpuTextureView color) {
         if (renderingWindowFrame && submitted) NativeVulkanSurface.captureHudless(color);
     }
 

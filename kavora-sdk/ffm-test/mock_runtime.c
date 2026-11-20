@@ -132,8 +132,13 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_Present(const remixapi_PresentInfo*
     CHECK(frame->sourceReadySemaphore == 0x12345 && frame->sourceReadyValue == 0x200000002ULL);
     if (frame->pNext) {
       remixapi_VulkanClientHudlessInfoEXT* hudless = frame->pNext;
-      CHECK(hudless->sType == REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_HUDLESS_INFO_EXT && !hudless->pNext);
-      CHECK(hudless->hudlessImage == 0x11223344ULL);
+      CHECK(hudless->sType == REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_HUDLESS_INFO_EXT);
+      remixapi_VulkanClientUiCoverageEXT* coverage = hudless->pNext;
+      if (hudless->hudlessImage == 0x11223345ULL) {
+        CHECK(coverage && coverage->sType == REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_UI_COVERAGE_EXT && !coverage->pNext);
+      } else {
+        CHECK(hudless->hudlessImage == 0x11223344ULL && !coverage);
+      }
       hudless->frameGenerationEnabled = 1;
     }
     frame->sourceConsumedSemaphore = 0xf000;

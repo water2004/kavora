@@ -401,7 +401,10 @@ public final class RemixBridge {
             if (frame != null) {
                 String type = "VulkanClientFrameInfoEXT";
                 if (frame.provideHudlessColor) {
-                    hudless = info(arena, "VulkanClientHudlessInfoEXT", StructType.VULKAN_CLIENT_HUDLESS_INFO_EXT, 0);
+                    long next = frame.image != 0 && frame.hudlessImage != 0 && frame.uiCoverageInAlpha
+                            ? info(arena, "VulkanClientUiCoverageEXT", StructType.VULKAN_CLIENT_UI_COVERAGE_EXT, 0).address()
+                            : 0;
+                    hudless = info(arena, "VulkanClientHudlessInfoEXT", StructType.VULKAN_CLIENT_HUDLESS_INFO_EXT, next);
                     put(hudless, "VulkanClientHudlessInfoEXT", "hudlessImage", frame.hudlessImage);
                 }
                 client = info(arena, type, StructType.VULKAN_CLIENT_FRAME_INFO_EXT, hudless.address());

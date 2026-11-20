@@ -241,6 +241,7 @@ namespace dxvk {
       VkSemaphore consumedSemaphore;
       uint64_t consumedValue;
       bool bottomUp;
+      bool uiCoverage;
       DxvkFrameInterpolationInfo interpolation;
       DxvkDisplayFrame display;
     };
@@ -248,6 +249,7 @@ namespace dxvk {
       Rc<DxvkImageView> motionVectors;
       Rc<DxvkImageView> depth;
       Rc<DxvkImageView> hudless;
+      Rc<DxvkImageView> uiAlpha;
     };
     std::vector<ClientInterpolationSlot> m_clientInterpolationSlots;
     bool m_clientInterpolationHistory = false;
@@ -403,7 +405,7 @@ namespace dxvk {
     bool hasPendingInteropFrame() const { return m_interopSubmitted; }
     HRESULT completeInterop(uint64_t clientDoneValue);
     HRESULT presentClientFrame(::remixapi_VulkanClientFrameInfoEXT& frame, ::remixapi_VulkanClientHudlessInfoEXT* hudless,
-                               bool rtxFramePrepared);
+                               bool rtxFramePrepared, bool uiCoverage);
     void getInteropInfo(::remixapi_dxvk_InteropInfo& info) const;
     void getVulkanInteropInfo(::remixapi_VulkanInteropInfo& info) const;
     // NV-DXVK end

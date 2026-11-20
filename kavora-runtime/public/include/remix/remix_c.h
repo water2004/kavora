@@ -177,6 +177,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_HUDLESS_INFO_EXT         = 58,
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_CLOUD_RADIANCE_PROFILE_EXT = 59,
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_ATMOSPHERE_EXT             = 60,
+    REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_UI_COVERAGE_EXT         = 61,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -1542,6 +1543,13 @@ extern "C" {
     // Output. Whether the presenter requests pre-UI color for the next frame.
     uint32_t frameGenerationEnabled;
   } remixapi_VulkanClientHudlessInfoEXT;
+
+  // Per-frame opt-in alongside a nonzero hudlessImage. The composited client image's
+  // alpha contains UI coverage (0 for untouched scene, 1 for opaque UI).
+  typedef struct remixapi_VulkanClientUiCoverageEXT {
+    remixapi_StructType sType;
+    void* pNext;
+  } remixapi_VulkanClientUiCoverageEXT;
 
   typedef struct remixapi_VulkanInteropInfo {
     remixapi_StructType sType;

@@ -5,6 +5,10 @@
 package org.edtp.kavora.vulkan;
 
 import com.mojang.renderpearl.api.device.GpuSurface;
+import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.ColorTargetState;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -17,8 +21,10 @@ import org.edtp.kavora.sdk.PresentInfo;
 import org.edtp.kavora.sdk.VulkanClientFrameInfo;
 import org.edtp.kavora.NativeRuntime;
 import org.edtp.kavora.KavoraMod;
+import net.minecraft.resources.Identifier;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 import static org.lwjgl.vulkan.VK12.*;
@@ -26,6 +32,13 @@ import static org.edtp.kavora.vulkan.VulkanCommands.check;
 
 /** The sole window surface delegates Vulkan WSI and presentation pacing to the runtime. */
 public final class NativeVulkanSurface implements GpuSurfaceBackend {
+    private static final RenderPipeline CLEAR_UI_COVERAGE = RenderPipeline.builder()
+            .withLocation(Identifier.fromNamespaceAndPath("kavora", "clear_ui_coverage")).withVertexShader("core/screenquad")
+            .withFragmentShader(Identifier.fromNamespaceAndPath("kavora", "core/clear_ui_coverage"))
+            .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
+            .withCull(false).withDepthStencilState(Optional.empty())
+            .withColorTargetState(new ColorTargetState(Optional.empty(), GpuFormat.RGBA8_UNORM, ColorTargetState.WRITE_ALPHA))
+            .build();
     private static NativeVulkanSurface active;
     private final VulkanDevice backend;
     private final VkDevice device;
@@ -57,6 +70,7 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
         frame.sourceReadySemaphore = readySemaphore;
         frame.bottomUp = true;
         frame.provideHudlessColor = true;
+        frame.uiCoverageInAlpha = true;
         present.hwndOverride = NativeRuntime.windowHandle();
         present.vulkanFrame = frame;
         active = this;
@@ -96,8 +110,10 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
 
     private static boolean allowFrameGeneration() {
         var client = net.minecraft.client.Minecraft.getInstance();
+        var screen = client.gui.screen();
         return client.level != null && !client.isPaused()
-                && client.gui.screen() == null && client.gui.overlay() == null && KavoraMod.isRtxEnabled();
+                && (screen == null || (screen.isInGameUi() && !screen.isPauseScreen()))
+                && client.gui.overlay() == null && KavoraMod.isRtxEnabled();
     }
 
     public static boolean needsHudlessColor() {
@@ -106,11 +122,17 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
     }
 
     /** Captures the scene and its camera overlays before drawing the HUD. */
-    public static void captureHudless(GpuTexture color) {
+    public static boolean recordsUiCoverage(GpuTexture color) {
+        return active != null && active.hudlessSource == color;
+    }
+
+    public static void captureHudless(GpuTextureView color) {
         if (needsHudlessColor()) active.recordHudless(color);
     }
 
-    private void recordHudless(GpuTexture color) {
+    private void recordHudless(GpuTextureView view) {
+        GpuTexture color = view.texture();
+        if (hudlessSource == color) return;
         int width = color.getWidth(0);
         int height = color.getHeight(0);
         var gpu = RenderSystem.getDevice();
@@ -121,7 +143,13 @@ public final class NativeVulkanSurface implements GpuSurfaceBackend {
                     GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_TEXTURE_BINDING,
                     color.getFormat(), width, height, 1, 1);
         }
-        gpu.createCommandEncoder().copyTextureToTexture(color, hudless, 0, 0, 0, 0, 0, width, height);
+        var encoder = gpu.createCommandEncoder();
+        encoder.copyTextureToTexture(color, hudless, 0, 0, 0, 0, 0, width, height);
+        // Camera overlays are already in both scene colors. Only subsequent UI draws own alpha.
+        try (var pass = encoder.createRenderPass(() -> "Begin DLSS-G UI coverage", view, Optional.empty())) {
+            pass.setPipeline(RenderSystem.getCompiledPipeline(CLEAR_UI_COVERAGE));
+            pass.draw(3, 1, 0, 0);
+        }
         hudlessSource = color;
     }
 

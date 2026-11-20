@@ -11,7 +11,8 @@ import com.mojang.renderpearl.frontend.FrontendRenderPass;
 import com.mojang.renderpearl.frontend.FrontendRenderPipeline;
 import java.util.List;
 import java.util.Optional;
-import org.edtp.kavora.vulkan.FloatCompositionPipeline;
+import org.edtp.kavora.vulkan.CompositionPipeline;
+import org.edtp.kavora.vulkan.NativeVulkanSurface;
 import org.joml.Vector4fc;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -28,9 +29,14 @@ abstract class FrontendRenderPassMixin {
         if (colorAttachments.size() != 1 || !(compiled instanceof FrontendRenderPipeline pipeline)) return compiled;
         var attachment = colorAttachments.getFirst();
         var targets = pipeline.colorTargetStates();
-        if (attachment != null && attachment.textureView().texture().getFormat() == GpuFormat.RGBA16_FLOAT
-                && targets.size() == 1 && targets.getFirst() != null && targets.getFirst().format() == GpuFormat.RGBA8_UNORM) {
-            return ((FloatCompositionPipeline.Access) compiled).kavora$floatCompositionVariant();
+        if (attachment == null || targets.size() != 1 || targets.getFirst() == null) return compiled;
+        var texture = attachment.textureView().texture();
+        var target = targets.getFirst();
+        var format = texture.getFormat();
+        boolean retarget = format == GpuFormat.RGBA16_FLOAT && target.format() == GpuFormat.RGBA8_UNORM;
+        boolean coverage = NativeVulkanSurface.recordsUiCoverage(texture) && CompositionPipeline.needsCoverageBlend(target);
+        if (retarget || coverage) {
+            return ((CompositionPipeline.Access) compiled).kavora$compositionVariant(format, coverage);
         }
         return compiled;
     }

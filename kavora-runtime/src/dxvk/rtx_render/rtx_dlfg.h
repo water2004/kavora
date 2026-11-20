@@ -297,6 +297,7 @@ namespace dxvk {
                   Rc<DxvkImageView> outputImage,                       // VK_IMAGE_LAYOUT_GENERAL
                   Rc<DxvkImageView> colorBuffer,
                   Rc<DxvkImageView> hudlessColor,                       // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                  Rc<DxvkImageView> uiAlpha,
                   Rc<DxvkImageView> primaryScreenSpaceMotionVector,    // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                   Rc<DxvkImageView> primaryDepth,                      // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                   uint32_t interpolatedFrameIndex,                     // starts at 0
@@ -353,6 +354,7 @@ namespace dxvk {
     uint32_t m_currentDisplaySize[2] = { 0,0 };
     VkFormat m_currentDisplayFormat = VK_FORMAT_UNDEFINED;
     bool m_currentDisplayHdr = false;
+    bool m_uiRecomposition = false;
     bool m_contextDirty = true;
     
     DxvkDLFGCommandListArray m_dlfgEvalCommandLists;

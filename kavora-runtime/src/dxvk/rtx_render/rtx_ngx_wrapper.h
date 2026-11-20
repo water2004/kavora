@@ -354,7 +354,7 @@ namespace dxvk {
       VkCommandBuffer commandList,
       uint32_t displayOutSize[2],
       VkFormat outputFormat,
-      bool litePreset
+      bool litePreset, bool uiRecomposition
       );
 
     // interpolates one frame
@@ -366,6 +366,7 @@ namespace dxvk {
       Rc<DxvkImageView> interpolatedOutput,
       Rc<DxvkImageView> compositedColorBuffer,
       Rc<DxvkImageView> hudlessColorBuffer,
+      Rc<DxvkImageView> uiAlpha,
       Rc<DxvkImageView> motionVectors,
       Rc<DxvkImageView> depth,
       const RtxFrameGenerationCamera& camera,

@@ -5,6 +5,7 @@
 package org.edtp.kavora.vulkan;
 
 import com.mojang.renderpearl.api.GpuFormat;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import java.io.InputStream;
@@ -19,9 +20,41 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Pins the narrow format/readback interception to the actual Minecraft binary. */
 class HdrMixinTargetTest {
     @Test
+    void hudCoverageKeepsTheCrosshairsDestinationColorBlend() {
+        RenderPipeline crosshair = RenderPipelines.CROSSHAIR;
+        assertTrue(CompositionPipeline.needsCoverageBlend(crosshair.getColorTargetStates().getFirst()));
+        var target = new CompositionPipeline(crosshair, GpuFormat.RGBA8_UNORM, true).getColorTargetStates().getFirst();
+        var blend = target.blendFunction().orElseThrow();
+        assertEquals(BlendFunction.INVERT.color(), blend.color());
+        assertEquals(BlendFunction.TRANSLUCENT.alpha(), blend.alpha());
+        assertTrue(target.writeAlpha());
+        assertFalse(CompositionPipeline.needsCoverageBlend(RenderPipelines.GUI_TEXTURED.getColorTargetStates().getFirst()));
+    }
+
+    @Test
+    void hotbarItemsAndDecorationsAreDrawnAfterCameraOverlays() throws Exception {
+        String owner = "net/minecraft/client/gui/Hud";
+        String signature = "(Lnet/minecraft/client/gui/GuiGraphicsExtractor;Lnet/minecraft/client/DeltaTracker;)V";
+        MethodNode extract = method(owner, "extractRenderState", signature);
+        boolean afterCamera = false;
+        boolean foundHotbar = false;
+        for (var instruction : extract.instructions) {
+            if (instruction instanceof MethodInsnNode call && call.owner.equals(owner)) {
+                if (call.name.equals("extractCameraOverlays")) afterCamera = true;
+                if (call.name.equals("extractHotbarAndDecorations")) {
+                    assertTrue(afterCamera);
+                    foundHotbar = true;
+                }
+            }
+        }
+        assertTrue(foundHotbar);
+        assertEquals(1, calls(method(owner, "extractHotbarAndDecorations", signature), owner, "extractItemHotbar", signature));
+    }
+
+    @Test
     void hostPipelineRetargetingPreservesShadersAndBlendState() {
         RenderPipeline original = RenderPipelines.GUI_TEXTURED;
-        var variant = new FloatCompositionPipeline(original);
+        var variant = new CompositionPipeline(original, GpuFormat.RGBA16_FLOAT, false);
         var color = original.getColorTargetStates().getFirst();
         assertEquals(GpuFormat.RGBA8_UNORM, color.format());
         assertEquals(new ColorTargetState(color.blendFunction(), GpuFormat.RGBA16_FLOAT, color.writeMask()),

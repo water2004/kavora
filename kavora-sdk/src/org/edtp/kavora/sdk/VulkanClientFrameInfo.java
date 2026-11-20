@@ -37,6 +37,8 @@ public final class VulkanClientFrameInfo {
     public boolean provideHudlessColor;
     /** Optional borrowed pre-UI color with the same format, extent and lifetime as image. */
     public long hudlessImage;
+    /** With a pre-UI image, the composited image alpha records this frame's UI coverage. */
+    public boolean uiCoverageInAlpha;
     /** Set by the presenter when the next frame can benefit from a pre-UI image. */
     public boolean frameGenerationEnabled;
 }

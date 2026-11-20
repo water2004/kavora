@@ -66,6 +66,6 @@ public abstract class GuiRendererMixin {
     @Unique
     private static void kavora$captureHudless(RenderTarget target) {
         var renderer = KavoraMod.renderer;
-        if (renderer != null && renderer.isInitialized()) renderer.captureHudless(target.getColorTexture());
+        if (renderer != null && renderer.isInitialized()) renderer.captureHudless(target.getColorTextureView());
     }
 }

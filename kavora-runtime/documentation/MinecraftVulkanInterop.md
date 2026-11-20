@@ -43,6 +43,9 @@ queue-family releases and acquires. This is not Minecraft's shared-device path.
    ready timeline. The runtime waits, converts the image in the existing present
    pass, and signals `sourceConsumedValue`. Host writes must wait for that value.
    An optional HUDless image has the same format, extent, orientation, and lifetime.
+   With `VulkanClientUiCoverageEXT`, the final source alpha contains HUD coverage.
+   The host clears alpha at the pre-UI capture boundary. HUD draws accumulate
+   coverage there while retaining their original RGB blend, including inversion.
 
 An `image` value of zero synchronously releases borrowed presentation views
 before the host destroys or replaces its target. Presentation counters restart
@@ -115,7 +118,10 @@ brightness reversal and black halos without adding a pass or history image.
 
 Composed and HUDless images use the same source snapshot, output transfer,
 calibration, orientation, and dither coordinates. NGX receives the actual
-negotiated encoding. Its context identity includes extent, format, and HDR mode;
+negotiated encoding. The presentation draw writes coverage to an R8 attachment
+in the same virtual backbuffer slot. NGX UI recomposition consumes that mask and
+HUDless color for each generated frame. Its context identity includes extent,
+format, HDR mode and UI recomposition;
 source and output generations reset interpolation history. Swapchain changes
 synchronize the command stream, presenter, and outstanding GPU use before
 retiring resources.

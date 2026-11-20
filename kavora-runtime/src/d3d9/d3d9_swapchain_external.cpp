@@ -193,7 +193,7 @@ namespace dxvk {
   }
 
   HRESULT D3D9SwapchainExternal::presentClientFrame(remixapi_VulkanClientFrameInfoEXT& frame,
-      remixapi_VulkanClientHudlessInfoEXT* hudless, bool rtxFramePrepared) {
+      remixapi_VulkanClientHudlessInfoEXT* hudless, bool rtxFramePrepared, bool uiCoverage) {
     if (frame.device != reinterpret_cast<uint64_t>(m_device->handle())) {
       return D3DERR_INVALIDCALL;
     }
@@ -295,7 +295,7 @@ namespace dxvk {
     const uint64_t consumedValue = ++m_clientFrameConsumedValue;
     ClientPresentImage image {
       m_clientFrameView, {}, reinterpret_cast<VkSemaphore>(frame.sourceReadySemaphore), frame.sourceReadyValue,
-      m_clientFrameConsumed->handle(), consumedValue, frame.bottomUp != 0, {}, sourceDisplay
+      m_clientFrameConsumed->handle(), consumedValue, frame.bottomUp != 0, uiCoverage, {}, sourceDisplay
     };
     const bool frameGenerationEnabled = m_dlfgPresenter != nullptr;
     if (hudless) hudless->frameGenerationEnabled = frameGenerationEnabled;

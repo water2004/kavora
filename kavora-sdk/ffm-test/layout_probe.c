@@ -683,6 +683,10 @@ printf("VulkanClientHudlessInfoEXT sType %zu\n", offsetof(remixapi_VulkanClientH
 printf("VulkanClientHudlessInfoEXT pNext %zu\n", offsetof(remixapi_VulkanClientHudlessInfoEXT, pNext));
 printf("VulkanClientHudlessInfoEXT hudlessImage %zu\n", offsetof(remixapi_VulkanClientHudlessInfoEXT, hudlessImage));
 printf("VulkanClientHudlessInfoEXT frameGenerationEnabled %zu\n", offsetof(remixapi_VulkanClientHudlessInfoEXT, frameGenerationEnabled));
+printf("VulkanClientUiCoverageEXT sizeof %zu\n", sizeof(remixapi_VulkanClientUiCoverageEXT));
+printf("VulkanClientUiCoverageEXT alignof %zu\n", __alignof(remixapi_VulkanClientUiCoverageEXT));
+printf("VulkanClientUiCoverageEXT sType %zu\n", offsetof(remixapi_VulkanClientUiCoverageEXT, sType));
+printf("VulkanClientUiCoverageEXT pNext %zu\n", offsetof(remixapi_VulkanClientUiCoverageEXT, pNext));
 printf("VulkanInteropInfo sizeof %zu\n", sizeof(remixapi_VulkanInteropInfo));
 printf("VulkanInteropInfo alignof %zu\n", __alignof(remixapi_VulkanInteropInfo));
 printf("VulkanInteropInfo sType %zu\n", offsetof(remixapi_VulkanInteropInfo, sType));

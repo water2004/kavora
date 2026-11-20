@@ -922,7 +922,7 @@ namespace dxvk
                                   VkCommandBuffer commandList,
                                   uint32_t displayOutSize[2],
                                   VkFormat outputFormat,
-                                  bool litePreset) {
+                                  bool litePreset, bool uiRecomposition) {
     if (m_parameters == nullptr || commandList == VK_NULL_HANDLE) {
       Logger::err("Cannot create DLFG without NGX parameters and a command buffer.");
       return false;
@@ -936,6 +936,7 @@ namespace dxvk
     NVSDK_NGX_Result result = ngxCall([&] {
       // The bundled FG headers predate this NGX parameter.
       m_parameters->Set("DLSSG.LiteCandidateBlendingEnabled", static_cast<unsigned int>(litePreset));
+      m_parameters->Set(NVSDK_NGX_DLSSG_Parameter_UserInterfaceRecompositionEnabled, static_cast<unsigned int>(uiRecomposition));
       return NGX_VK_CREATE_DLSSG(commandList,
         1, // InCreationNodeMask
         1, // InVisibilityNodeMask
@@ -1013,6 +1014,7 @@ namespace dxvk
                                                           Rc<DxvkImageView> interpolatedOutput,
                                                           Rc<DxvkImageView> compositedColorBuffer,
                                                           Rc<DxvkImageView> hudlessColorBuffer,
+                                                          Rc<DxvkImageView> uiAlpha,
                                                           Rc<DxvkImageView> motionVectors,
                                                           Rc<DxvkImageView> depth,
                                                           const RtxFrameGenerationCamera& camera,
@@ -1030,6 +1032,7 @@ namespace dxvk
 
     auto ngxColorBuffer = ViewToResourceVK(compositedColorBuffer, true);
     NVSDK_NGX_Resource_VK ngxHudless {};
+    NVSDK_NGX_Resource_VK ngxUiAlpha {};
     auto ngxMVec = ViewToResourceVK(motionVectors, false);
     auto ngxDepth = ViewToResourceVK(depth, false);
     auto ngxOutput = ViewToResourceVK(interpolatedOutput, true);
@@ -1039,6 +1042,10 @@ namespace dxvk
     if (hudlessColorBuffer != nullptr) {
       ngxHudless = ViewToResourceVK(hudlessColorBuffer, false);
       evalParams.pHudless = &ngxHudless;
+    }
+    if (uiAlpha != nullptr) {
+      ngxUiAlpha = ViewToResourceVK(uiAlpha, false);
+      evalParams.pUIAlpha = &ngxUiAlpha;
     }
     evalParams.pMVecs = &ngxMVec;
     evalParams.pDepth = &ngxDepth;

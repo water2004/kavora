@@ -11,6 +11,8 @@ layout(binding = 1) uniform sampler1D s_gamma;
 
 layout(location = 0) in  vec2 i_coord;
 layout(location = 0) out vec4 o_color;
+layout(location = 1) out float o_ui_alpha;
+layout(constant_id = 1226) const bool s_ui_coverage = false; // FirstPipelineConstant + 1
 
 layout(push_constant)
 uniform present_info_t {
@@ -41,6 +43,8 @@ void main() {
   vec2 coord = vec2(src_offset) + vec2(src_extent) * uv;
   // NV-DXVK end
   o_color = textureLod(s_image, coord, 0.0f);
+  o_ui_alpha = o_color.a;
+  if (s_ui_coverage) o_color.a = 1.0;
   
   // NV-DXVK start: Legacy gamma ramps do not apply to explicit display encoding.
   if ((display_transfer & 255u) != 0u) {

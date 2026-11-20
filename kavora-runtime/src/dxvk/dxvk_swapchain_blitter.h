@@ -49,7 +49,8 @@ namespace dxvk {
       const Rc<DxvkImageView>&  srcView,
             VkRect2D            srcRect,
             bool                bottomUp = false,
-      const DxvkDisplayPresent& display = {});
+      const DxvkDisplayPresent& display = {},
+      const Rc<DxvkImageView>&  uiAlpha = nullptr);
     // NV-DXVK end
 
     /**
@@ -119,7 +120,8 @@ namespace dxvk {
       const Rc<DxvkImageView>&  srcView,
             VkRect2D            srcRect,
             bool                bottomUp,
-      const DxvkDisplayPresent& display);
+      const DxvkDisplayPresent& display,
+      const Rc<DxvkImageView>&  uiAlpha = nullptr);
     // NV-DXVK end
 
     void resolve(

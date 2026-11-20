@@ -619,6 +619,9 @@ final class RemixLayouts {
                 ADDRESS.withName("pNext"),
                 JAVA_LONG.withName("hudlessImage"),
                 JAVA_INT.withName("frameGenerationEnabled"));
+        define("VulkanClientUiCoverageEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"));
         define("VulkanInteropInfo",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

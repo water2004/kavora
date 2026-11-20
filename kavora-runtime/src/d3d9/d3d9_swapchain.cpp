@@ -1273,10 +1273,18 @@ namespace dxvk {
       }
       // NV-DXVK end
 
+      DxvkFrameInterpolationInfo clientInterpolation {};
+      if (clientImage) {
+        if (m_dlfgPresenter != nullptr && clientImage->interpolation.valid()) {
+          clientInterpolation = PrepareClientInterpolation(imageIndex, *clientImage, srcRect, dstRect, display);
+        } else {
+          m_clientInterpolationHistory = false;
+        }
+      }
       m_blitter->presentImage(m_context.ptr(),
         m_imageViews.at(imageIndex), dstRect,
         // NV-DXVK start: Encode the actual WSI color space exactly once.
-        swapImageView, srcRect, clientImage && clientImage->bottomUp, display);
+        swapImageView, srcRect, clientImage && clientImage->bottomUp, display, clientInterpolation.uiAlpha);
         // NV-DXVK end
 
       // NV-DXVK start: The host already composited both GUI layers and advanced the scene.
@@ -1293,14 +1301,6 @@ namespace dxvk {
         m_context->signal(m_frameLatencySignal, m_frameId);
 
       // NV-DXVK start: Each virtual backbuffer owns the FG inputs consumed alongside its color.
-      DxvkFrameInterpolationInfo clientInterpolation {};
-      if (clientImage) {
-        if (m_dlfgPresenter != nullptr && clientImage->interpolation.valid()) {
-          clientInterpolation = PrepareClientInterpolation(imageIndex, *clientImage, srcRect, dstRect, display);
-        } else {
-          m_clientInterpolationHistory = false;
-        }
-      }
       SubmitPresent(sync, i, imageIndex, clientImage ? &clientInterpolation : nullptr);
       // NV-DXVK end
     }
@@ -1445,6 +1445,11 @@ namespace dxvk {
         slot.hudless, "ClientFrame::hudless");
       m_blitter->presentImage(m_context.ptr(), slot.hudless, dstRect, clientImage.hudless, srcRect, clientImage.bottomUp, display);
       info.hudless = slot.hudless;
+      if (clientImage.uiCoverage) {
+        prepareInput(displayImageInfo.extent, VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+          slot.uiAlpha, "ClientFrame::uiAlpha");
+        info.uiAlpha = slot.uiAlpha;
+      }
     }
 
     // The same virtual backbuffer acquire protects both the transfer and compute writes.

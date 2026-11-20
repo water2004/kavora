@@ -489,6 +489,7 @@ namespace dxvk {
                                             m_swapchainImageViews[swapchainImage.index],
                                             m_backbufferViews[present.acquiredImageIndex],
                                             present.frameInterpolation.hudless,
+                                            present.frameInterpolation.uiAlpha,
                                             present.frameInterpolation.motionVectors,
                                             present.frameInterpolation.depth,
                                             interpolatedFrameIndex,
@@ -711,7 +712,7 @@ namespace dxvk {
       }
 
       DxvkDLFGCommandList* commandList = m_dlfgCommandLists.nextCmdList();
-      DxvkDLFGImageBarrierSet<4> barriers;
+      DxvkDLFGImageBarrierSet<5> barriers;
 
       VkSemaphore backbufferWaitSemaphore = m_backbufferPresentSemaphores[present.acquiredImageIndex]->handle();
       VkSemaphore backbufferSignalSemaphore = m_backbufferAcquireSemaphores[present.acquiredImageIndex]->handle();
@@ -782,8 +783,9 @@ namespace dxvk {
                               present.frameInterpolation.depthLayout,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-          if (present.frameInterpolation.hudless != nullptr) {
-            barriers.addBarrier(present.frameInterpolation.hudless->image()->handle(),
+          for (const auto* input : { present.frameInterpolation.hudless.ptr(), present.frameInterpolation.uiAlpha.ptr() }) {
+            if (input == nullptr) continue;
+            barriers.addBarrier(input->image()->handle(),
                                 VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_NONE, VK_ACCESS_SHADER_READ_BIT,
                                 VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
           }
@@ -843,8 +845,9 @@ namespace dxvk {
                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                 present.frameInterpolation.depthLayout);
 
-            if (present.frameInterpolation.hudless != nullptr) {
-              barriers.addBarrier(present.frameInterpolation.hudless->image()->handle(),
+            for (const auto* input : { present.frameInterpolation.hudless.ptr(), present.frameInterpolation.uiAlpha.ptr() }) {
+              if (input == nullptr) continue;
+              barriers.addBarrier(input->image()->handle(),
                                   VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_NONE,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
             }
@@ -1452,6 +1455,7 @@ namespace dxvk {
                           Rc<DxvkImageView> outputImage,                       // VK_IMAGE_LAYOUT_GENERAL
                           Rc<DxvkImageView> colorBuffer,                       // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                           Rc<DxvkImageView> hudlessColor,                      // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                          Rc<DxvkImageView> uiAlpha,
                           Rc<DxvkImageView> primaryScreenSpaceMotionVector,    // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                           Rc<DxvkImageView> primaryDepth,                      // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
                           uint32_t interpolatedFrameIndex,                     // starts at 0
@@ -1503,9 +1507,12 @@ namespace dxvk {
       m_contextDirty = true;
     }
 
-    if (outputImage->info().format != m_currentDisplayFormat || hdr10 != m_currentDisplayHdr) {
+    const bool uiRecomposition = uiAlpha != nullptr && hudlessColor != nullptr;
+    if (outputImage->info().format != m_currentDisplayFormat || hdr10 != m_currentDisplayHdr ||
+        uiRecomposition != m_uiRecomposition) {
       m_currentDisplayFormat = outputImage->info().format;
       m_currentDisplayHdr = hdr10;
+      m_uiRecomposition = uiRecomposition;
       m_contextDirty = true;
     }
 
@@ -1523,7 +1530,7 @@ namespace dxvk {
                                 commandList->getCmdBuffer(),
                                 m_currentDisplaySize,
                                 outputImage->info().format,
-                                s_dlfgPreset.load() == kLitePreset)) {
+                                s_dlfgPreset.load() == kLitePreset, uiRecomposition)) {
         m_failure = hdr10 ? Failure::HdrInitialization : Failure::Initialization;
         return false;
       }
@@ -1536,6 +1543,7 @@ namespace dxvk {
     commandList->trackResource<DxvkAccess::Write>(outputImage);
     commandList->trackResource<DxvkAccess::Read>(colorBuffer);
     if (hudlessColor != nullptr) commandList->trackResource<DxvkAccess::Read>(hudlessColor);
+    if (uiAlpha != nullptr) commandList->trackResource<DxvkAccess::Read>(uiAlpha);
 
     {
       ScopedGpuProfileZone_Present(m_device, commandList->getCmdBuffer(), "DLFG evaluate");
@@ -1547,6 +1555,7 @@ namespace dxvk {
                                                     outputImage,
                                                     colorBuffer,
                                                     hudlessColor,
+                                                    uiAlpha,
                                                     primaryScreenSpaceMotionVector,
                                                     primaryDepth,
                                                     camera,
