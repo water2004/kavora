@@ -58,6 +58,7 @@ void storePSRState(uint pixel, GeometryPSRResolverState state, uint seed)
   PathStorage[b + 15] = f32tof16(state.attenuation.z) | (uint(state._compactedCoordinate.x) << 16);
   PathStorage[b + 16] = uint(state._compactedCoordinate.y) | (f32tof16(state.refractionScale) << 16);
   PathStorage[b + 17] = seed;
+  PathStorage[b + 18] = asuint(state.coneSpreadAngle);
 }
 
 GeometryPSRResolverState loadPSRState(uint pixel)
@@ -66,6 +67,7 @@ GeometryPSRResolverState loadPSRState(uint pixel)
   GeometryPSRResolverState state;
   state._origin = asfloat(uint3(PathStorage[b], PathStorage[b + 1], PathStorage[b + 2]));
   state._coneRadius = float16_t(f16tof32(PathStorage[b + 3] & 0xffff));
+  state.coneSpreadAngle = asfloat(PathStorage[b + 18]);
   state._encodedFlags = uint16_t(PathStorage[b + 3] >> 16);
   state.radiance = asfloat(uint3(PathStorage[b + 4], PathStorage[b + 5], PathStorage[b + 6]));
   state._segmentHitDistance = 0.0f;

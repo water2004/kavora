@@ -250,6 +250,7 @@ struct GeometryPSRResolverState : IBasePayloadState
   // (if applicable) as an output.
   vec3 _origin;
   float16_t _coneRadius;
+  float coneSpreadAngle;
   uint16_t _encodedFlags;
 
   // Note: Radiance, throughput and hit distances are passed in and then written back out

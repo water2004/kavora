@@ -3,6 +3,34 @@
 
 #include "rtx/concept/light/light_helper.slangh"
 import "rtx/pass/cloud_parameters.slang";
+import "rtx/algorithm/cloud_sky.slang";
+
+// The clear background and the cloud tail represent the same reflected cone.
+// Integrate both with the same four directions and transition to the native texel.
+struct EnvironmentFootprint
+{
+  float3 tangent;
+  float3 bitangent;
+
+  __init(float3 direction, float radius)
+  {
+    calcOrthonormalBasis(direction, tangent, bitangent);
+    tangent *= radius;
+    bitangent *= radius;
+  }
+
+  float3 directionAt(float3 center, uint tap)
+  {
+    const float3 axis = tap < 2 ? tangent : bitangent;
+    return normalize(center + ((tap & 1) ? -axis : axis));
+  }
+
+  static float filterWeight(float angle)
+  {
+    const float nativeAngle = max(kCloudSkyTexelAngle, cb.screenSpacePixelSpreadHalfAngle);
+    return saturate((angle - nativeAngle) / nativeAngle);
+  }
+};
 
 float3 sampleEnvironmentRadiance(DomeLightArgs dome, float brightness, SamplerCube<float3> probe,
   SamplerState sampler, float3 direction)
@@ -37,8 +65,22 @@ float3 sampleIndirectEnvironmentRadiance(float3 direction, SamplerCube<float3> p
 
 // Analytic emitters already participate in direct-light sampling. Their visible disks
 // belong to the camera and specular-continuation background, not the indirect environment.
-float3 sampleClearBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler) {
+float3 sampleClearBackgroundRadiance(float3 direction, SamplerCube<float3> probe, SamplerState sampler,
+  float angularFootprint = 0) {
   DomeLightArgs dome = cb.domeLightArgs;
   dome.textureIndex = cb.volumeArgs.air.enable ? dome.backgroundBoundaryTextureIndex : dome.backgroundTextureIndex;
-  return sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction);
+  const float3 center = sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, direction);
+  const float weight = EnvironmentFootprint.filterWeight(angularFootprint);
+  if (weight == 0)
+  {
+    return center;
+  }
+  const EnvironmentFootprint footprint = EnvironmentFootprint(direction, angularFootprint);
+  float3 filtered = 0;
+  [unroll]
+  for (uint tap = 0; tap < 4; tap++)
+  {
+    filtered += sampleEnvironmentRadiance(dome, cb.skyBrightness, probe, sampler, footprint.directionAt(direction, tap));
+  }
+  return lerp(center, 0.25f * filtered, weight);
 }

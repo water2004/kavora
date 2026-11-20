@@ -573,7 +573,7 @@ namespace dxvk {
     static_assert(GBUFFER_PRIMARY_INTERSECTION_WORDS == 5);
     static_assert(GBUFFER_PRIMARY_ATMOSPHERE_WORDS == 7);
     static_assert(GBUFFER_PRIMARY_TAIL_WORDS == 7);
-    static_assert(GBUFFER_PSR_STATE_WORDS == 18);
+    static_assert(GBUFFER_PSR_STATE_WORDS == 19);
     static_assert(GBUFFER_PSR_QUEUE_ROW_WIDTH % 128 == 0);
     const VkDeviceSize pixels = VkDeviceSize(rayDims.width) * rayDims.height;
     const auto& limits = device()->properties().core.properties.limits;

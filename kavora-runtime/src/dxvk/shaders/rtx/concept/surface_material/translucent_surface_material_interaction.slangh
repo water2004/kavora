@@ -24,6 +24,7 @@
 import "rtx/concept/surface_material/translucent_medium.slang";
 import "rtx/concept/surface_material/translucent_medium_state.slang";
 import "rtx/concept/surface_material/water_normal_coordinates.slang";
+import "rtx/concept/surface_material/water_slope_variance.slang";
 #ifdef WATER_SIM_SAMPLE
 import "rtx/concept/surface_material/water_surface.slang";
 #endif
@@ -72,9 +73,10 @@ vec3 sampleOceanWaveBand(TranslucentSurfaceMaterial material, SurfaceInteraction
 }
 
 bool sampleTranslucentTangentNormal(TranslucentSurfaceMaterial translucentSurfaceMaterial, Surface surface,
-  inout SurfaceInteraction surfaceInteraction, out vec3 tangentNormal)
+  inout SurfaceInteraction surfaceInteraction, out vec3 tangentNormal, out float waterReflectionFootprint)
 {
   tangentNormal = vec3(0, 0, 1);
+  waterReflectionFootprint = 0;
   if (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER)
   {
     if (translucentSurfaceMaterial.normalTextureIndex == BINDING_INDEX_INVALID)
@@ -84,6 +86,19 @@ bool sampleTranslucentTangentNormal(TranslucentSurfaceMaterial translucentSurfac
     float2 frameSize, frameOrigin;
     calcSpritesheetValues(cb.timeSinceStartSeconds, rows, cols, surface.spriteSheetFPS, frameSize, frameOrigin);
     const float2 gradientToTile = surface.spriteSheetFPS ? float2(cols, rows) : float2(1.f);
+    uint width;
+    uint height;
+    textures[nonuniformEXT(uint(translucentSurfaceMaterial.normalTextureIndex))].GetDimensions(width, height);
+    const float2 framePixels = float2(width, height) * frameSize;
+    const float2 dx = surfaceInteraction.textureGradientX * gradientToTile;
+    const float2 dy = surfaceInteraction.textureGradientY * gradientToTile;
+    const float swellVariance = waterSlopeVariance(framePixels * waveCoordinates(dx, swellLattice),
+      framePixels * waveCoordinates(dy, swellLattice)) * dot(swellLattice, swellLattice);
+    const float rippleVariance = waterSlopeVariance(framePixels * waveCoordinates(dx, rippleLattice),
+      framePixels * waveCoordinates(dy, rippleLattice)) * dot(rippleLattice, rippleLattice);
+    // The hemisphere decoder rotates and scales the encoded XY by 1/sqrt(2).
+    waterReflectionFootprint = 1.41421356237f * abs(cb.translucentMaterialArgs.normalIntensity) *
+      sqrt(max(0.0f, swellVariance + 0.18f * 0.18f * rippleVariance));
     const vec3 swell = sampleOceanWaveBand(translucentSurfaceMaterial, surfaceInteraction, swellLattice, frameSize, frameOrigin, gradientToTile);
     const vec3 ripple = sampleOceanWaveBand(translucentSurfaceMaterial, surfaceInteraction, rippleLattice, frameSize, frameOrigin, gradientToTile);
     tangentNormal = oceanWaveNormal(swell, ripple);
@@ -143,7 +158,8 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction;
   vec3 normal = surfaceInteraction.geometryNormal;
   vec3 tangentNormal;
-  if (sampleTranslucentTangentNormal(translucentSurfaceMaterial, surface, surfaceInteraction, tangentNormal))
+  float waterReflectionFootprint;
+  if (sampleTranslucentTangentNormal(translucentSurfaceMaterial, surface, surfaceInteraction, tangentNormal, waterReflectionFootprint))
   {
     const f16mat3 tangentToWorld = transpose(f16mat3(surfaceInteraction.geometryTangent, surfaceInteraction.geometryBitangent, surfaceInteraction.geometryNormal));
     normal = normalize(mul(tangentToWorld, tangentNormal));
@@ -211,6 +227,7 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   // Transform to desired Translucent Material Interaction values
 
   translucentSurfaceMaterialInteraction.isAnimatedWater = surface.isAnimatedWater || simulatedWater;
+  translucentSurfaceMaterialInteraction.waterReflectionFootprint = waterReflectionFootprint;
   translucentSurfaceMaterialInteraction.shadingNormal = getBentNormal(surfaceInteraction.geometryNormal, normal, -minimalRayInteraction.viewDirection);
   translucentSurfaceMaterialInteraction.normalDetail = float(1.0 - dot(float3(translucentSurfaceMaterialInteraction.shadingNormal), float3(surfaceInteraction.geometryNormal)));
   translucentSurfaceMaterialInteraction.baseReflectivity = translucentSurfaceMaterial.baseReflectivity;
@@ -257,6 +274,7 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
   TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteraction;
   
   translucentSurfaceMaterialInteraction.isAnimatedWater = polymorphicSurfaceMaterialInteraction.isAnimatedWater;
+  translucentSurfaceMaterialInteraction.waterReflectionFootprint = polymorphicSurfaceMaterialInteraction.fdata5;
   translucentSurfaceMaterialInteraction.shadingNormal = polymorphicSurfaceMaterialInteraction.shadingNormal;
   translucentSurfaceMaterialInteraction.emissiveRadiance = polymorphicSurfaceMaterialInteraction.emissiveRadiance;
   translucentSurfaceMaterialInteraction.transmittanceColor = polymorphicSurfaceMaterialInteraction.vdata0;
@@ -314,6 +332,9 @@ TranslucentSurfaceMaterialInteraction translucentSurfaceMaterialInteractionCreat
 
   const bool useDiffuseLayer = (data0 & (1 << 29)) != 0;
   const float diffuseOpacity = unorm8ToF16(uint8_t(data0 >> SURFACE_INDEX_BIT_COUNT));
+  const bool simulatedWater = (translucentSurfaceMaterial.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER) != 0;
+  translucentSurfaceMaterialInteraction.waterReflectionFootprint = simulatedWater && !useDiffuseLayer
+    ? diffuseOpacity * diffuseOpacity : 0.0f;
   const vec3 gammaVariableColor = r5g6b5ToColor(uint16_t(data1 >> 0));
   const vec3 gammaEmissiveColor = r5g6b5ToColor(uint16_t(data1 >> 16));
   const vec3 variableColor = gammaToLinearFast(gammaVariableColor);

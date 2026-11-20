@@ -14,11 +14,12 @@ import "rtx/algorithm/cloud_sky.slang";
 // direction through the nearest remaining cloud shell, and bound the error
 // at the ends of the cached cloud range by the bilinear sampling footprint.
 bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distance, uint volumeHint,
-  out float begin, out float2 uv, out float2 depthProjection)
+  out float begin, out float2 uv, out float2 depthProjection, out float3 cacheDirection)
 {
   begin = 0;
   uv = 0;
   depthProjection = 0;
+  cacheDirection = 0;
   if (distance != floatMax || volumeHint != 0
       || !ray.hasCloud || any(ray.mediumExtinction > 0))
   {
@@ -67,25 +68,26 @@ bool findSharedAtmosphereTail(VolumeArgs volume, AtmosphereRay ray, float distan
   {
     return false;
   }
-  const float3 cacheDirection = normalize(lateral + (focus + along) * ray.direction);
+  cacheDirection = normalize(lateral + (focus + along) * ray.direction);
   uv = cloudSkyUv(volume.clouds, cacheDirection);
   depthProjection = float2(dot(cacheDirection, ray.direction), along / cloudMaxViewDistance(volume.clouds));
   return true;
 }
 
 AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
-  float3 mediumExtinction, bool allowFarTail)
+  float3 mediumExtinction, bool allowFarTail, float cloudAngularFootprint = 0)
 {
   const VolumeArgs volume = cb.volumeArgs;
   AtmosphereRay ray = createAtmosphereRay<SceneAtmosphereFog>(volume, origin, direction,
-    volumeHint, mediumExtinction);
+    volumeHint, mediumExtinction, cloudAngularFootprint);
   ray.eye = cameraGetWorldPosition(cb.camera);
   const float3 ambient = ray.hasCloud ? sampleCloudAmbientRadiance(volume.clouds) : float3(0);
   float cachedBegin;
   float2 cachedUV;
   float2 cachedDepthProjection;
+  float3 cachedDirection;
   const bool useTail = allowFarTail && findSharedAtmosphereTail(volume, ray, distance, volumeHint,
-    cachedBegin, cachedUV, cachedDepthProjection);
+    cachedBegin, cachedUV, cachedDepthProjection, cachedDirection);
   AtmosphereSegment transfer = integrateAtmosphereRange<SceneAtmosphereFog, SceneAirVisibility>(volume, VolumeFilteredRadianceY,
     VolumeFilteredRadianceCoCg, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
     sceneCloudLightingCache(), ray, 0, useTail ? cachedBegin : distance, ambient, sceneAirTables(volume.air, LinearWrapSampler));
@@ -93,8 +95,24 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
   // cached cloud moments here could attribute motion to a cloud behind it.
   if (useTail && any(transfer.transmittance >= kOpaqueCloudTransmittance))
   {
-    const float4 radiance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailRadianceLayer), 0);
-    const float4 transmittance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailTransmittanceLayer), 0);
+    float4 radiance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailRadianceLayer), 0);
+    float4 transmittance = CloudSkySampler.SampleLevel(float3(cachedUV, kCloudSkyTailTransmittanceLayer), 0);
+    const float blend = EnvironmentFootprint.filterWeight(cloudAngularFootprint);
+    if (blend > 0)
+    {
+      const EnvironmentFootprint footprint = EnvironmentFootprint(cachedDirection, cloudAngularFootprint);
+      float4 filteredRadiance = 0;
+      float4 filteredTransmittance = 0;
+      [unroll]
+      for (uint tap = 0; tap < 4; tap++)
+      {
+        const float2 uv = cloudSkyUv(volume.clouds, footprint.directionAt(cachedDirection, tap));
+        filteredRadiance += CloudSkySampler.SampleLevel(float3(uv, kCloudSkyTailRadianceLayer), 0);
+        filteredTransmittance += CloudSkySampler.SampleLevel(float3(uv, kCloudSkyTailTransmittanceLayer), 0);
+      }
+      radiance = lerp(radiance, 0.25f * filteredRadiance, blend);
+      transmittance = lerp(transmittance, 0.25f * filteredTransmittance, blend);
+    }
     const float firstMoment = max(0.0f, transmittance.w * cachedDepthProjection.x - radiance.w * cachedDepthProjection.y);
     AtmosphereSegment tail = { radiance.xyz, transmittance.xyz, float2(firstMoment, radiance.w) };
     transfer = composeAtmosphereSegments(transfer, tail);

@@ -106,7 +106,11 @@ GBufferMemoryPolymorphicSurfaceMaterialInteraction gBufferMemoryPolymorphicSurfa
 
   // Note: Encoding done in approximate gamma space to better quantize with human perception.
   const uint16_t encodedGammaVariableColor = colorToR5G6B5(linearToGammaFast(variableColor));
-  const uint8_t encodedDiffuseOpacity = f32ToUnorm8(translucentSurfaceMaterialInteraction.diffuseOpacity);
+  const bool simulatedWater = (translucentSurfaceMaterialInteraction.flags & TRANSLUCENT_SURFACE_MATERIAL_FLAG_SIMULATED_WATER) != 0;
+  const float encodedOpacityValue = simulatedWater && !useDiffuseLayer
+    ? sqrt(saturate(translucentSurfaceMaterialInteraction.waterReflectionFootprint))
+    : translucentSurfaceMaterialInteraction.diffuseOpacity;
+  const uint8_t encodedDiffuseOpacity = f32ToUnorm8(encodedOpacityValue);
 
   gBufferMemoryPolymorphicSurfaceMaterialInteraction.data0 =
     // bits 0-20: Source material-table index (SURFACE_INDEX_BIT_COUNT bits)

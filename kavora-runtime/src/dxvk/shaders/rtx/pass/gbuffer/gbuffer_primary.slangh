@@ -181,7 +181,7 @@ void geometryResolverVertex(
   const float opacityTransmittance = resolveGBufferSegment<
     GeometryResolverState, PrimaryMaterialContext, PrimaryUnorderedResolve, true>(
     rayHitInfo, geometryResolverState, materialContext, geometryResolverState.mediumState,
-    cb.forceFirstHitInGBufferPass, extraArgs.firstSegment, false,
+    cb.screenSpacePixelSpreadHalfAngle, cb.forceFirstHitInGBufferPass, extraArgs.firstSegment, false,
     geometryResolverState.pomOpaqueSurfaceEncountered, segment,
     ray, interaction, surface, surfaceInteraction, material, stochasticAlpha, raytracedRenderTarget);
   geometryResolverState.insideMedium = geometryResolverState.mediumState != SURFACE_INDEX_INVALID;

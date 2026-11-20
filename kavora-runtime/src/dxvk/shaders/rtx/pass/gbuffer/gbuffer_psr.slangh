@@ -169,6 +169,7 @@ void continuePsrPath(__ref GeometryPSRResolverState state, bool hitViewModel, Ra
   state.viewModelOpticalPath = state.viewModelOpticalPath && hitViewModel;
   state.origin = ray.origin;
   state.coneRadius = ray.coneRadius;
+  state.coneSpreadAngle = ray.spreadAngle;
   state.direction = ray.direction;
   state.attenuation *= sample.attenuation;
   state.continuePSRResolving = true;
@@ -201,7 +202,8 @@ void geometryPSRResolverVertex(
   bool raytracedRenderTarget;
   resolveGBufferSegment<GeometryPSRResolverState, VertexMaterialContext, PsrUnorderedResolve, false>(
     rayHitInfo, geometryPSRResolverState, materialContext, geometryPSRResolverState.mediumState,
-    false, false, evaluatePomSilhouette, geometryPSRResolverState.pomOpaqueSurfaceEncountered, segment,
+    geometryPSRResolverState.coneSpreadAngle, false, false, evaluatePomSilhouette,
+    geometryPSRResolverState.pomOpaqueSurfaceEncountered, segment,
     ray, interaction, surface, surfaceInteraction, material, stochasticAlpha, raytracedRenderTarget);
 
 
@@ -258,7 +260,7 @@ void geometryPSRResolverVertex(
   }
   else
   {
-    segment.emission += sampleClearBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler) * segment.attenuation;
+    segment.emission += sampleClearBackgroundRadiance(ray.direction, SkyProbe, LinearWrapSampler, ray.spreadAngle) * segment.attenuation;
   }
 
   accumulateGBufferSegment(segment, geometryPSRResolverState.radiance, geometryPSRResolverState.attenuation);
@@ -538,6 +540,13 @@ GeometryPSRResolverState geometryPSRResolverBegin(ivec2 pixelCoordinate, bool is
   geometryPSRResolverState.compactedCoordinate = u16vec2(loadGBufferStoreCoordinate(uvec2(pixelCoordinate)));
   geometryPSRResolverState.bounceIteration = 0;
   geometryPSRResolverState.coneRadius = geometryResolverLoadPSRConeRadius(uvec2(pixelCoordinate));
+  float refractionScale;
+  bool viewModel;
+  float storedFootprint;
+  geometryResolverLoadPSRProjectionSeed(uvec2(pixelCoordinate), refractionScale, viewModel, storedFootprint);
+  const float waterFootprint = isTransmissionPSR ? 0.0f : storedFootprint;
+  geometryPSRResolverState.coneSpreadAngle = sqrt(cb.screenSpacePixelSpreadHalfAngle * cb.screenSpacePixelSpreadHalfAngle +
+    waterFootprint * waterFootprint);
   geometryPSRResolverState.segmentHitDistance = 0.0f;
   geometryPSRResolverState.continueResolving = true;
   geometryPSRResolverState.continuePSRResolving = true;
@@ -550,9 +559,8 @@ GeometryPSRResolverState geometryPSRResolverBegin(ivec2 pixelCoordinate, bool is
   geometryPSRResolverState.accumulatedHitDistance = geometryResolverLoadPSRHitDistance(
     uvec2(pixelCoordinate), !geometryPSRResolverState.primarySurface);
   geometryPSRResolverState.apparentHitDistance = geometryPSRResolverState.accumulatedHitDistance;
-  const vec2 projectionSeed = PrimaryScreenSpaceMotionVector[pixelCoordinate];
-  geometryPSRResolverState.refractionScale = isTransmissionPSR ? projectionSeed.x : 1.0f;
-  geometryPSRResolverState.viewModelOpticalPath = projectionSeed.y != 0.0f;
+  geometryPSRResolverState.refractionScale = isTransmissionPSR ? refractionScale : 1.0f;
+  geometryPSRResolverState.viewModelOpticalPath = viewModel;
   geometryPSRResolverState.renderTargetScreenDistance = geometryPSRResolverState.accumulatedHitDistance;
 
   if (geometryPSRResolverState.primarySurface)

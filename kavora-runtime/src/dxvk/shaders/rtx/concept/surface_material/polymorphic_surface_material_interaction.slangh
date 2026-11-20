@@ -74,6 +74,7 @@ PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteractionCreat
   polymorphicSurfaceMaterialInteraction.fdata2 = translucentSurfaceMaterialInteraction.thicknessOrMeasurementDistance;
   polymorphicSurfaceMaterialInteraction.fdata3 = translucentSurfaceMaterialInteraction.diffuseOpacity;
   polymorphicSurfaceMaterialInteraction.fdata4 = translucentSurfaceMaterialInteraction.normalDetail;
+  polymorphicSurfaceMaterialInteraction.fdata5 = translucentSurfaceMaterialInteraction.waterReflectionFootprint;
   polymorphicSurfaceMaterialInteraction.idata0 = translucentSurfaceMaterialInteraction.sourceSurfaceMaterialIndex;
   polymorphicSurfaceMaterialInteraction.idata1 = translucentSurfaceMaterialInteraction.sourcePackedGammaEmissiveColor;
   polymorphicSurfaceMaterialInteraction.dlssControlMask = float4x32ToUnorm4x8(1.0f.rrrr);

@@ -27,7 +27,7 @@ import "rtx/algorithm/atmosphere.slang";
 void main(inout AtmosphereCallData data)
 {
   const AtmosphereSegment segment = resolveSceneAtmosphere(data.origin, data.direction, data.distance,
-    data.volumeHint, data.mediumExtinction, data.allowFarTail);
+    data.volumeHint, data.mediumExtinction, data.allowFarTail, data.cloudAngularFootprint);
   data.radiance = segment.radiance;
   data.transmittance = segment.transmittance;
   data.cloudMoments = segment.cloudMoments;

@@ -133,6 +133,43 @@ def slopes(ocean: Ocean, frame: int) -> np.ndarray:
     return np.stack([s.real, s.imag], -1)
 
 
+def footprint_slope_variance(params: WaterParams, widths: np.ndarray | None = None) -> np.ndarray:
+    """Expected unresolved slope energy for rectangular box footprints in texels.
+
+    Row and column zero are point samples. Subsequent entries double in width,
+    beginning at one texel. The frequency-domain box response is squared to
+    measure the variance of the filtered mean over the animation loop.
+    """
+    ocean = build_ocean(params)
+    power = np.abs(ocean.h0) ** 2 + np.abs(ocean.h0_conj_neg) ** 2
+    energy = power * (ocean.kx**2 + ocean.ky**2) / params.frame_size**4
+    if widths is None:
+        widths = np.array([0.0] + [float(2**level) for level in range(params.frame_size.bit_length())])
+    scale = params.tile_metres / (2 * np.pi * params.frame_size)
+    sx = np.sinc(np.outer(widths, ocean.kx[0]) * scale) ** 2
+    sy = np.sinc(np.outer(widths, ocean.ky[:, 0]) * scale) ** 2
+    total = energy.sum()
+    return np.maximum(0.0, total - sy @ energy @ sx.T)
+
+
+FOOTPRINT_SPECTRUM_BANDS = (
+    (2.17631448e-7, 0.01164756),
+    (2.10271264e-5, 0.40454206),
+    (2.92164538e-4, 0.21706755),
+    (1.70971373e-3, 0.21346971),
+    (1.34330695e-2, 0.15327312),
+)
+
+
+def fit_footprint_slope_variance(widths: np.ndarray) -> np.ndarray:
+    """Evaluate the five non-negative bands fitted to the default spectrum."""
+    major, minor = np.meshgrid(widths, widths)
+    result = np.zeros_like(major)
+    for scale, weight in FOOTPRINT_SPECTRUM_BANDS:
+        result += weight * (1 - 1 / np.sqrt((1 + scale * major**2) * (1 + scale * minor**2)))
+    return result * (2 * WaterParams().slope_rms ** 2)
+
+
 def octahedral(slope: np.ndarray) -> np.ndarray:
     """The octahedral encoding, in [-1, 1], of the surface normal (-dh/dx, -dh/dy, 1) with +Y down the image."""
     return -slope / (np.sum(np.abs(slope), -1, keepdims=True) + 1.0)

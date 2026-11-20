@@ -62,5 +62,6 @@ void storeGBufferOpticalSeeds(uvec2 pixel, uint packedFlags, bool viewModel, boo
   }
 
   geometryResolverStorePSRProjectionSeed(pixel,
-    hasTransmission ? transmission.relativeRefractiveIndex : 1.0f, viewModel);
+    hasTransmission ? transmission.relativeRefractiveIndex : 1.0f, viewModel,
+    hasReflection && material.type == surfaceMaterialTypeTranslucent ? material.fdata5 : 0.0f);
 }

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 import struct
 from pathlib import Path
 
@@ -42,6 +43,47 @@ def test_the_slope_has_the_requested_strength():
     mean_square = np.mean([np.mean(wn.slopes(ocean, frame) ** 2) for frame in range(SMALL.frames)])
 
     assert abs(np.sqrt(mean_square) / SMALL.slope_rms - 1) < 0.1
+
+
+def test_footprint_slope_variance_tracks_both_axes():
+    variance = wn.footprint_slope_variance(SMALL)
+    assert variance[0, 0] == 0
+    assert np.all(np.diff(variance, axis=0) >= -1e-12)
+    assert np.all(np.diff(variance, axis=1) >= -1e-12)
+    assert variance[-1, -1] > variance[-1, 0] > variance[1, 0] > 0
+    assert np.isclose(variance[-1, -1], 2 * SMALL.slope_rms**2)
+
+
+def test_shader_footprint_variance_matches_the_default_spectrum():
+    shader = Path(__file__).resolve().parents[3] / (
+        "kavora-runtime/src/dxvk/shaders/rtx/concept/surface_material/water_slope_variance.slang"
+    )
+    bands = re.findall(r"unresolvedBand\(trace, determinant, ([\d.eE+-]+)f, ([\d.eE+-]+)f\)", shader.read_text())
+    assert np.allclose(np.array(bands, dtype=float), np.array(wn.FOOTPRINT_SPECTRUM_BANDS), rtol=0, atol=0)
+    widths = np.r_[0.0, 2.0 ** np.arange(-4, 10.01, 0.25)]
+    reference = wn.footprint_slope_variance(wn.WaterParams(), widths)
+    error = np.abs(wn.fit_footprint_slope_variance(widths) - reference) / (2 * wn.WaterParams().slope_rms ** 2)
+    major, minor = np.meshgrid(widths, widths)
+    anisotropic = (major > 0) & (minor > 0) & (np.maximum(major, minor) >= 8 * np.minimum(major, minor))
+    near_zero = (major <= 1) | (minor <= 1)
+    assert error.max() < 0.031
+    assert error.mean() < 0.005
+    assert error[anisotropic].max() < 0.031
+    assert error[near_zero].max() < 0.031
+
+
+def test_footprint_band_formula_retains_subtexel_variance():
+    widths = np.array([1e-4, 1e-3, 1e-2, 0.1, 1.0], dtype=np.float32)
+    trace = widths**2
+    result = np.zeros_like(widths)
+    for scale, weight in wn.FOOTPRINT_SPECTRUM_BANDS:
+        x = np.float32(scale) * trace
+        root = np.sqrt(np.float32(1) + x)
+        result += np.float32(weight) * x / (root * (root + np.float32(1)))
+    expected = np.array([wn.fit_footprint_slope_variance(np.array([0, width]))[0, 1] for width in widths])
+    result *= np.float32(2 * wn.WaterParams().slope_rms ** 2)
+    assert np.all(result > 0)
+    assert np.allclose(result, expected, rtol=2e-4, atol=0)
 
 
 def test_octahedral_encoding_points_y_down_the_image():

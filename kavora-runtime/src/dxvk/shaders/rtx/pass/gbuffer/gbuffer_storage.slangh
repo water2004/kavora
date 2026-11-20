@@ -107,9 +107,17 @@ void geometryResolverStorePSRContinuation(
 }
 
 // The primary PSR lobe replaces this seed with the resolved screen-space guide.
-void geometryResolverStorePSRProjectionSeed(uvec2 pixel, float refractionScale, bool viewModel)
+void geometryResolverStorePSRProjectionSeed(uvec2 pixel, float refractionScale, bool viewModel, float reflectionFootprint = 0)
 {
-  PrimaryScreenSpaceMotionVector[pixel] = vec2(refractionScale, float(viewModel));
+  PrimaryScreenSpaceMotionVector[pixel] = vec2(refractionScale, viewModel ? -(1.0f + reflectionFootprint) : reflectionFootprint);
+}
+
+void geometryResolverLoadPSRProjectionSeed(uvec2 pixel, out float refractionScale, out bool viewModel, out float reflectionFootprint)
+{
+  const float2 seed = PrimaryScreenSpaceMotionVector[pixel];
+  refractionScale = seed.x;
+  viewModel = seed.y < 0.0f;
+  reflectionFootprint = viewModel ? -seed.y - 1.0f : seed.y;
 }
 
 float geometryResolverLoadPSRConeRadius(uvec2 pixelCoordinate)

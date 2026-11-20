@@ -90,7 +90,7 @@ RayHitInfo traceQueuedPSRState(GeometryPSRResolverState state)
   ray.TMin = 0;
   ray.TMax = floatMax;
   const uint flags = RAY_FLAG_FORCE_OPAQUE | (state.insideMedium ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES);
-  return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask), state.coneRadius, cb.screenSpacePixelSpreadHalfAngle);
+  return traceQueuedPSRIntersection(ray, flags, uint(state.rayMask), state.coneRadius, state.coneSpreadAngle);
 }
 
 [shader("raygeneration")]
@@ -116,7 +116,7 @@ void main()
   }
   RayHitInfo firstHit;
   {
-    const GeometryPSRResolverState rayState = decodeInitialPSRState(initial, transmission);
+    const GeometryPSRResolverState rayState = geometryPSRResolverBegin(ivec2(invocation), transmission, initial);
     firstHit = traceQueuedPSRState(rayState);
   }
   GeometryPSRResolverState state = geometryPSRResolverBegin(ivec2(invocation), transmission, initial);
@@ -146,6 +146,7 @@ void main()
   Ray ray;
   ray.origin = state.origin;
   ray.coneRadius = state.coneRadius;
+  ray.spreadAngle = state.coneSpreadAngle;
   ray.direction = state.direction;
   ray.tMax = floatMax;
   const uint flags = RAY_FLAG_FORCE_OPAQUE | (state.insideMedium ? 0 : RAY_FLAG_CULL_BACK_FACING_TRIANGLES);

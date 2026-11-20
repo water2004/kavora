@@ -237,7 +237,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   {
     cloudMoments = resolveAtmosphere(ray.origin, ray.direction, hasSurface ? rayHitInfo.hitDistance : floatMax,
       portalSpaceToVolumeHint(resolveVertexState.portalSpace),
-      radianceAttenuation, emissiveRadiance, mediumState);
+      radianceAttenuation, emissiveRadiance, mediumState, ray.spreadAngle);
   }
 #else
   radianceAttenuation *= volumeTransmittance(translucentMediumExtinction(mediumState, surfaceMaterials),

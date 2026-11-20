@@ -248,6 +248,7 @@ public struct TranslucentSurfaceMaterialInteraction
 {
   public vec3 shadingNormal;
   public float normalDetail; // 1.0 - dot(shadingNormal, interpolatedNormal)
+  public float waterReflectionFootprint;
 
   public float baseReflectivity;
   public float refractiveIndex;

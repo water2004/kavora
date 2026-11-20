@@ -27,7 +27,7 @@ interface IGBufferUnorderedResolve<State : IBasePayloadState, MaterialContext : 
 float resolveGBufferSegment<State : IBasePayloadState, MaterialContext : IVertexMaterialContext,
   Unordered : IGBufferUnorderedResolve<State, MaterialContext>, let StochasticAlpha : bool>(
   RayHitInfo candidate, __ref State state, __ref MaterialContext materialContext,
-  inout uint medium, bool forceFirstHit, bool firstPrimarySegment, bool evaluatePomSilhouette,
+  inout uint medium, float spreadAngle, bool forceFirstHit, bool firstPrimarySegment, bool evaluatePomSilhouette,
   inout bool pomOpaqueSurfaceEncountered, __ref GBufferSegment segment,
   __ref Ray ray, __ref RayInteraction interaction, __ref Surface surface, __ref SurfaceInteraction surfaceInteraction,
   __ref PolymorphicSurfaceMaterialInteraction material, __ref bool stochasticAlpha, __ref bool raytracedRenderTarget)
@@ -35,7 +35,6 @@ float resolveGBufferSegment<State : IBasePayloadState, MaterialContext : IVertex
   const uint8_t mode = resolveModeAlteredDirectionNotify |
     resolveModeEmissiveOpacityTransmissionApprox | resolveModeDecalMaterialBlending |
     (cb.enableSeparateUnorderedApproximations ? resolveModeSeparateUnorderedApproximations : 0);
-  const float spreadAngle = cb.screenSpacePixelSpreadHalfAngle;
   Ray unorderedRay;
   unorderedRay.origin = state.origin;
   unorderedRay.coneRadius = state.coneRadius;
