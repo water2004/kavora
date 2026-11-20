@@ -72,13 +72,15 @@ public uint cloudLocalLightHeightOffset(uint layer)
 
 public float cloudLocalLightRadius(CloudArgs args, uint layer)
 {
-  return max(layer == 0 ? args.maxDistance : args.highMaxDistance, 4.0f * args.shapeScale);
+  return max(layer == 0 ? args.maxDistance : args.highMaxDistance, cloudLightingRadius(args));
 }
 
 public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float altitude, uint layer)
 {
-  const float period = args.shapeScale * float(kCloudWeatherPeriod);
-  const float2 uv = frac(cloudLightHorizontal(args, position - args.windOffset) / period + 0.5f);
+  const float diameter = 2.0f * cloudLocalLightRadius(args, layer);
+  const float edge = 0.5f / float(CLOUD_LOCAL_LIGHT_RESOLUTION);
+  const float2 uv = clamp(cloudLightHorizontal(args, position - args.groundReference) / diameter + 0.5f,
+    edge, 1.0f - edge);
   const float layerBase = layer == 0 ? args.baseHeight : args.highBaseHeight;
   const float thickness = layer == 0 ? args.thickness : args.highThickness;
   const float samples = float(cloudLocalLightHeightSamples(layer));
@@ -87,12 +89,9 @@ public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float 
   return float3(uv.x, (cloudLocalLightHeightOffset(layer) + slice) / CLOUD_LOCAL_LIGHT_PACKED_HEIGHT, uv.y);
 }
 
-public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude)
+public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude, uint layer)
 {
-  // Bake one wind-aligned weather period using the nearest copy of each column.
-  const float period = args.shapeScale * float(kCloudWeatherPeriod);
-  const float2 center = cloudLightHorizontal(args, args.groundReference - args.windOffset) / period;
-  const float2 horizontal = (frac(uv - center) - 0.5f) * period;
+  const float2 horizontal = (uv - 0.5f) * (2.0f * cloudLocalLightRadius(args, layer));
   return cloudLightPositionAtAltitude(args, horizontal, altitude);
 }
 
@@ -314,10 +313,10 @@ public int cloudCachedLightIndex(CloudArgs args, float3 direction)
 }
 
 float cloudCacheExtinction(CloudArgs args, CloudDensityArgs density, float3 position,
-  float footprint, float heightFootprint, Sampler2DArray<float4> weather, Sampler3D<float4> base,
+  Sampler2DArray<float4> weather, Sampler3D<float4> base,
   Sampler3D<float4> detail)
 {
-  return args.extinction * cloudDensity(density, position, weather, base, detail, footprint, 0, heightFootprint);
+  return args.extinction * cloudDensity(density, position, weather, base, detail, 0);
 }
 
 void buildCloudLightCascade(CloudArgs args, CloudDensityArgs density, uint2 column, uint light, uint cascade,
@@ -340,7 +339,6 @@ void buildCloudLightCascade(CloudArgs args, CloudDensityArgs density, uint2 colu
   const uint subcells = min(max(1u, args.lightSteps / 2), max(1u, uint(ceil(span / (2.0f * nominalSupport)))));
   const float subspan = span / float(subcells);
   const float support = 0.5f * subspan;
-  const float footprint = min(support, args.shapeScale / 128.0f);
   float depth = 0;
   output[uint3(column, offset + resolution - 1)] = 0;
   for (uint node = resolution - 1; node > 0; node--)
@@ -360,14 +358,8 @@ void buildCloudLightCascade(CloudArgs args, CloudDensityArgs density, uint2 colu
         const float bNode = lower + (float(subcell) + 0.78867513459f) / float(subcells);
         const float3 a = grid.position(float3(horizontal, aNode / float(resolution - 1)));
         const float3 b = grid.position(float3(horizontal, bNode / float(resolution - 1)));
-        const float3 radialA = normalize(a - args.groundReference + args.up * args.planetRadius);
-        const float3 radialB = normalize(b - args.groundReference + args.up * args.planetRadius);
-        const float extinctionA = cloudCacheExtinction(args, density, a, footprint,
-          abs(dot(grid.direction, radialA)) * support + support * support / args.planetRadius,
-          weather, base, detail);
-        const float extinctionB = cloudCacheExtinction(args, density, b, footprint,
-          abs(dot(grid.direction, radialB)) * support + support * support / args.planetRadius,
-          weather, base, detail);
+        const float extinctionA = cloudCacheExtinction(args, density, a, weather, base, detail);
+        const float extinctionB = cloudCacheExtinction(args, density, b, weather, base, detail);
         depth += support * (extinctionA + extinctionB);
       }
     }

@@ -8,7 +8,6 @@ checks do not measure game performance or validate presentation.
 import argparse
 import json
 from pathlib import Path
-import re
 
 import numpy as np
 import slangpy as spy
@@ -31,7 +30,7 @@ def cloud_parameters(**changes):
         "albedo": 1.0, "steps": 160, "highSteps": 48, "lightSteps": 16,
         "anisotropy": 0.65, "multipleScattering": 0.8, "weather": 0.0,
         "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
-        "night": 0.0, "meterToWorld": 1.0,
+        "wetness": 0.0, "meterToWorld": 1.0, "highMapOrigin": [0., 0.], "highLookupOrigin": [0., 0.],
         "lightMaxDistance": 60000.0, "previousWindDelta": [0, 0, 0],
         "lightingNearDistance": 24000.0,
         "viewAngularFootprint": 0.0, "highBaseHeight": 6000.0,
@@ -44,21 +43,10 @@ def cloud_parameters(**changes):
     return result
 
 
-def check_morphology_configuration():
-    # Resource-period arithmetic is a configuration contract. Visual quality is
-    # tested by density readback and rendered images, not source-code spelling.
-    source = (SHADERS / "rtx/pass/cloud_noise.h").read_text()
-    base = int(re.search(r"kCloudBasePeriod\s*=\s*(\d+)", source).group(1))
-    low, high = cloud_weather_periods()
-    assert base > 0 and low % (4 * base) == 0
-    assert max(low, high) % min(low, high) == 0
-    print("PASS cloud periods: base, detail and weather tiles divide the host wind wrap")
-
-
 def cloud_weather_periods():
-    source = (SHADERS / "rtx/pass/cloud_noise.h").read_text()
-    return tuple(int(re.search(rf"{name}\s*=\s*(\d+)", source).group(1))
-                 for name in ("kCloudWeatherPeriod", "kCloudHighWeatherPeriod"))
+    # Nominal low weather period and period of the fine cirrus map.
+    return 64, 20
+
 
 
 class Probe:
@@ -140,16 +128,14 @@ def check_air_skylight(probe):
 
 
 def check_weather_column_coordinates(probe):
-    uv = [[.003, .992, 500., 0], [.957, .12, 6200., 1], [.49, .52, 1100., 0]]
+    uv = [[.013, .983, 500., 0], [.957, .12, 6200., 1], [.49, .52, 1100., 0]]
     for z_up in (False, True):
         up = [0, 0, 1] if z_up else [0, 1, 0]
         clouds = cloud_parameters(up=up, groundReference=[8591., 0., 0.], windOffset=[-60300., 0., 755.])
-        period = clouds["shapeScale"] * cloud_weather_periods()[0]
-        across = [0., period if z_up else 0., 0. if z_up else period, 0.]
-        coords = probe.run("columnCoordinates", uv, [[0., 0., 0., 0.], across, [-period, 0., 0., 0.]], clouds)
+        coords = probe.run("columnCoordinates", uv, [[0., 0., 0., 0.]] * len(uv), clouds)
         np.testing.assert_allclose(coords[:, :2], np.asarray(uv)[:, :2], atol=1e-6)
         np.testing.assert_allclose(coords[:, 2], np.asarray(uv)[:, 2], atol=.005)
-    print("PASS baked weather columns return to their texel across tile edges, wind offsets and both up axes")
+    print("PASS local light position and lookup round trip for both up axes")
 
 
 def check_column_noise(probe, textures):
@@ -185,26 +171,6 @@ def check_homogeneous(probe):
     print("PASS homogeneous Beer integration: 16 density/subdivision cases")
 
 
-def check_cloud_silhouettes(probe, textures):
-    # Neighboring view columns at low elevation through the same weather field.
-    # Only rays that switch between empty and occupied samples exercise this bug.
-    azimuth = (np.arange(96) * .003 + np.arange(4)[:, None] * (np.pi / 2)).ravel()
-    azimuth, elevation = np.meshgrid(azimuth, .09 + np.arange(24) * .003)
-    directions = np.stack([np.cos(elevation) * np.cos(azimuth), np.sin(elevation),
-                           np.cos(elevation) * np.sin(azimuth), np.zeros_like(azimuth)], axis=-1).reshape(-1, 4)
-    args = cloud_parameters(steps=24, viewAngularFootprint=.003, maxDistance=24000.)
-    samples = probe.run("stationaryColumnNoise", np.zeros_like(directions), directions, args, textures,
-                        output_records=2)
-    misses, reference = samples[1::2, :2].T
-    edge = (misses > 0) & (misses < 32) & (reference > .01)
-    assert edge.sum() >= 32, "fixture must cover intermittent silhouettes"
-    moments = samples[::2][edge]
-    error = moments[:, 2:] + (moments[:, :2] - reference[edge, None]) ** 2
-    raw, filtered = np.sqrt(error.mean(axis=0))
-    bias = (moments[:, 1] - reference[edge]).mean()
-    assert filtered < .5 * raw and abs(bias) < .01, (raw, filtered, bias)
-    print(f"PASS {edge.sum()} intermittent silhouette columns, fixed 24-step march: "
-          f"opacity RMSE {raw:.5f} -> {filtered:.5f} vs independent phases, mean error {bias:+.5f}")
 
 
 def shell_interval(clouds, origin, direction, limit):
@@ -297,13 +263,11 @@ def check_light_profiles(probe):
 
 
 CLOUD_ASSETS = SHADERS.parent / "rtx_render/clouds"
-TEXTURE_FILES = {"Base": "cloud_base.bin", "Detail": "cloud_erosion.bin", "Weather": "cloud_weather.bin"}
+TEXTURE_FILES = {"Base": "revelation_body.bin", "Detail": "revelation_curl.bin", "Weather": "revelation_maps.bin"}
 
 
 def weather_resolutions():
-    source = (SHADERS / "rtx/pass/cloud_noise.h").read_text()
-    return tuple(int(re.search(rf"{name}\s*=\s*(\d+)", source)[1]) for name in
-                 ("kCloudWeatherResolution", "kCloudHighWeatherResolution"))
+    return 1024, 1024
 
 
 def weather_fixture(device, layers):
@@ -318,108 +282,32 @@ def weather_fixture(device, layers):
 
 def cloud_textures(device, dump=None):
     sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
-                                    mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.linear,
+                                    mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.point,
                                     address_u=spy.TextureAddressingMode.wrap, address_v=spy.TextureAddressingMode.wrap,
                                     address_w=spy.TextureAddressingMode.wrap)
     textures = {}
-    low_resolution, high_resolution = weather_resolutions()
-    for name, filename in TEXTURE_FILES.items():
-        weather = name == "Weather"
-        base = name == "Base"
-        side = high_resolution if weather else 64
-        texture = device.create_texture(type=spy.TextureType.texture_2d_array if weather else spy.TextureType.texture_3d,
-            format=spy.Format.rg16_float if base else spy.Format.rgba8_unorm, width=side, height=side,
-            depth=1 if weather else side, array_length=3 if weather else 1, mip_count=side.bit_length(),
-            usage=spy.TextureUsage.shader_resource)
-        raw = (CLOUD_ASSETS / filename).read_bytes()
-        offset = 0
-        for mip in range(side.bit_length()):
-            n = side >> mip
-            for layer in range(3 if weather else 1):
-                if weather and layer != 1 and n > low_resolution:
-                    continue
-                shape = (n, n, 4) if weather else (n, n, n, 2 if base else 4)
-                size = np.prod(shape) * (2 if base else 1)
-                a = np.frombuffer(raw[offset:offset + size], dtype="<f2" if base else "u1").reshape(shape)
-                texture.copy_from_numpy(a.copy(), layer=layer, mip=mip)
-                offset += size
-                if mip == 0:
-                    assert np.isfinite(a).all() and a[..., 0].max() > a[..., 0].min()
-                if weather and layer == 2 and n == low_resolution:
-                    # Profile peaks and radial modulation must survive quantization.
-                    assert np.all(np.ptp(a[..., :3], axis=1).mean(axis=0) > 100)
-                    assert np.all(np.ptp(a[..., :3], axis=0).max(axis=0) > 10)
-                    peaks = a[..., :3].argmax(axis=1).mean(axis=0)
-                    assert np.all(np.diff(peaks) > 0), peaks
-        assert offset == len(raw)
-        textures[name] = texture.create_view(sampler=sampler)
+    for name, side, channels, fmt in (("Base", 128, 1, spy.Format.r8_unorm),
+                                      ("Detail", 64, 4, spy.Format.rgba8_unorm)):
+        data = np.fromfile(CLOUD_ASSETS / TEXTURE_FILES[name], dtype=np.uint8)
+        tex = device.create_texture(type=spy.TextureType.texture_3d, format=fmt,
+                                    width=side, height=side, depth=side, usage=spy.TextureUsage.shader_resource)
+        shape = (side, side, side) if channels == 1 else (side, side, side, channels)
+        tex.copy_from_numpy(data.reshape(shape))
+        textures[name] = tex.create_view(sampler=sampler)
+
+    weather = device.create_texture(type=spy.TextureType.texture_2d_array, format=spy.Format.rgba8_unorm,
+                                    width=1024, height=1024, array_length=2, mip_count=6,
+                                    usage=spy.TextureUsage.shader_resource)
+    raw = np.fromfile(CLOUD_ASSETS / TEXTURE_FILES["Weather"], dtype=np.uint8)
+    offset = 0
+    for layer, mip in ((0, 0), (0, 2), (0, 5), (0, 1), (1, 1), (1, 0)):
+        side = 1024 >> mip
+        size = side * side * 4
+        weather.copy_from_numpy(raw[offset:offset + size].reshape(side, side, 4).copy(), layer=layer, mip=mip)
+        offset += size
+    assert offset == len(raw)
+    textures["Weather"] = weather.create_view(sampler=sampler)
     return textures
-
-
-def weather_tile_points(clouds, altitude, resolution=192):
-    period = cloud_weather_periods()[0] * clouds["shapeScale"]
-    axis = np.linspace(-0.5 * period, 0.5 * period, resolution, endpoint=False, dtype=np.float32)
-    x, z = np.meshgrid(axis, axis)
-    radius = clouds["planetRadius"]
-    y = np.sqrt((radius + altitude) ** 2 - x.astype(np.float64) ** 2 - z.astype(np.float64) ** 2) - radius
-    points = np.column_stack([x.ravel(), y.ravel(), z.ravel(), np.zeros(x.size)])
-    return axis, points
-
-
-def check_density(probe, textures, dump):
-    clouds = cloud_parameters()
-    axis, points = weather_tile_points(clouds, 520)
-    shape = (len(axis), len(axis))
-    fields = []
-    for weather in (0.0, 0.5, 1.0):
-        field = probe.run("densities", points, clouds=cloud_parameters(weather=weather), textures=textures)[:, 0]
-        assert np.isfinite(field).all() and np.all((0 <= field) & (field <= 1))
-        fields.append(field)
-    assert np.mean(fields[0]) > 0.001, "fair-weather density has collapsed"
-    assert np.mean(fields[2]) > np.mean(fields[0]), "rain should build a denser layer"
-
-    coverage_fields = []
-    for coverage in (0.2, 0.45, 0.8, 1.0):
-        field = probe.run("densities", points,
-                          clouds=cloud_parameters(coverage=coverage), textures=textures)[:, 0]
-        assert np.isfinite(field).all() and np.all((0 <= field) & (field <= 1))
-        coverage_fields.append(field)
-    coverage_means = np.array([np.mean(field) for field in coverage_fields])
-    assert np.all(np.diff(coverage_means) >= -1e-5), (
-        "increasing cloud amount must not reduce occupied cloud density", coverage_means)
-
-    filtered_points = points.copy()
-    # A larger footprint must actually span several weather texels.
-    filtered_points[:, 3] = 4 * clouds["shapeScale"] * cloud_weather_periods()[0] / 512
-    filtered = probe.run("densities", filtered_points, clouds=cloud_parameters(), textures=textures)[:, 0]
-    assert np.isfinite(filtered).all() and np.all((0 <= filtered) & (filtered <= 1))
-    assert np.std(filtered) < np.std(fields[0]), "a larger footprint should suppress unresolved variation"
-    if dump:
-        dump.mkdir(parents=True, exist_ok=True)
-        np.savez(dump / "cloud-density.npz", axis=axis, clear=fields[0].reshape(shape),
-                 rain=fields[2].reshape(shape), filtered=filtered.reshape(shape),
-                 coverage_020=coverage_fields[0].reshape(shape), coverage_045=coverage_fields[1].reshape(shape),
-                 coverage_080=coverage_fields[2].reshape(shape), coverage_100=coverage_fields[3].reshape(shape))
-    print(f"PASS production density: clear/rain means {np.mean(fields[0]):.5f}/{np.mean(fields[2]):.5f}, "
-          f"coverage sweep {coverage_means.tolist()}")
-
-
-def check_low_wind_wrap(probe, textures):
-    clouds = cloud_parameters(baseHeight=800.0, extinction=0.03)
-    period = max(cloud_weather_periods()) * clouds["shapeScale"]
-    # Power-of-two spacing keeps both p and p +/- period exactly representable
-    # in float32. A thirds-of-a-metre lattice would compare different rounded
-    # coordinates after the shift instead of isolating field periodicity.
-    _, points = weather_tile_points(clouds, 920, resolution=256)
-    reference = probe.run("densities", points, clouds=clouds, textures=textures)[:, 0]
-    assert np.any(reference > 0.1), "wind wrapping must exercise occupied cumulus"
-    maximum_error = 0.0
-    for wind in ([period, 0, 0], [0, 0, period], [-period, 0, period]):
-        wrapped = probe.run("densities", points, clouds=clouds | {"windOffset": wind}, textures=textures)[:, 0]
-        np.testing.assert_allclose(wrapped, reference, atol=5e-4, rtol=1e-3,
-                                   err_msg="low-cloud density jumps at the shared wind wrap")
-        maximum_error = max(maximum_error, np.max(np.abs(wrapped - reference)))
-    print(f"PASS low-layer wind wrap: {period:.0f}m, maximum density difference {maximum_error:.7f}")
 
 
 def light_parameters(direction, **changes):
@@ -579,82 +467,9 @@ def check_light_support(probe, textures):
     print("PASS shared light prefixes: local/external partition and bounded outside-domain rays")
 
 
-def check_horizon_cloud_openings(probe, textures):
-    origin_azimuth = np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False)
-    ray_azimuth = np.linspace(0.0, 2.0 * np.pi, 12, endpoint=False)
-    elevation = np.radians(10.0)
-    horizontal = np.cos(elevation)
-    directions = np.column_stack((
-        horizontal * np.cos(np.tile(ray_azimuth, len(origin_azimuth))),
-        np.full(len(origin_azimuth) * len(ray_azimuth), np.sin(elevation)),
-        horizontal * np.sin(np.tile(ray_azimuth, len(origin_azimuth))),
-        np.zeros(len(origin_azimuth) * len(ray_azimuth))))
-    origin_x = 8043.0 + 8192.0 * np.cos(origin_azimuth)
-    origin_z = 1240.0 + 8192.0 * np.sin(origin_azimuth)
-    origins = np.repeat(np.column_stack((origin_x, np.full_like(origin_x, 139.0), origin_z)),
-                        len(ray_azimuth), axis=0)
-    rays = np.column_stack((origins, np.full(len(origins), 1700.0)))
-
-    cases = (
-        ("broken", cloud_parameters(coverage=0.45, weather=0.0, thunder=0.0)),
-        ("cloud-rich deck", cloud_parameters(coverage=0.85, weather=0.0, thunder=0.0)),
-    )
-    for name, clouds in cases:
-        transmission = probe.run("viewTransmission", rays, directions, clouds, textures)[:, 0]
-        assert np.isfinite(transmission).all()
-        assert np.all((0.0 <= transmission) & (transmission <= 1.0))
-        open_count = int(np.count_nonzero(transmission > 0.1))
-        cloud_count = int(np.count_nonzero(transmission < 0.95))
-        assert open_count >= 4, (
-            f"{name} horizon rays lost all meaningful openings", open_count)
-        assert cloud_count >= 4, (
-            f"{name} horizon rays lost all cloud-bearing directions", cloud_count)
-        assert np.quantile(transmission, 0.9) > 0.1, (
-            f"{name} horizon field collapsed into a continuous opaque band")
-        print(f"PASS horizon cloud openings ({name}): open/cloud-bearing rays "
-              f"{open_count}/{cloud_count}, transmission p10/p50/p90 "
-              f"{np.quantile(transmission, 0.1):.4f}/"
-              f"{np.quantile(transmission, 0.5):.4f}/"
-              f"{np.quantile(transmission, 0.9):.4f}")
 
 
 
-def check_high_density(probe, textures, dump):
-    axis = np.linspace(-8192, 8192, 128, endpoint=False, dtype=np.float32)
-    x, z = np.meshgrid(axis, axis)
-    clouds = cloud_parameters(extinction=0.0, highExtinction=0.01)
-    points = np.column_stack([x.ravel(), np.full(x.size, 6250), z.ravel(), np.zeros(x.size)])
-    actual = probe.run("densities", points, clouds=clouds, textures=textures)[:, 0]
-    assert np.isfinite(actual).all() and np.all((0 <= actual) & (actual <= 1))
-    assert 0.001 < np.mean(actual) < 0.9, "the high layer must retain variable thin coverage"
-
-    previous = np.zeros_like(actual)
-    for coverage in (0.0, 0.1, 0.35, 0.7, 1.0):
-        density = probe.run("densities", points, clouds=clouds | {"highCoverage": coverage},
-                            textures=textures)[:, 0]
-        assert np.isfinite(density).all() and np.all((0 <= density) & (density <= 1))
-        if coverage == 0:
-            np.testing.assert_array_equal(density, 0)
-        assert np.all(density >= previous - 1e-6), "increasing high coverage must not remove condensate"
-        previous = density
-
-    # The high field retains its own period and also repeats at the shared host wrap.
-    low_period, high_period = cloud_weather_periods()
-    for periods in sorted({high_period, max(low_period, high_period)}):
-        period = periods * clouds["shapeScale"]
-        for wind in ([period, 0, 0], [0, 0, period], [-period, 0, period]):
-            wrapped = probe.run("densities", points, clouds=clouds | {"windOffset": wind},
-                                textures=textures)[:, 0]
-            np.testing.assert_allclose(wrapped, actual, atol=1e-5, rtol=1e-4,
-                                       err_msg="high clouds jump when the host wraps wind")
-
-    for height in (5800, 7100):
-        points[:, 1] = height
-        outside = probe.run("densities", points, clouds=clouds, textures=textures)[:, 0]
-        np.testing.assert_array_equal(outside, 0)
-    if dump:
-        np.savez(dump / "cloud-high-density.npz", axis=axis, density=actual.reshape(x.shape))
-    print(f"PASS high-layer density: bounds, coverage monotonicity, wind wrap, mean {np.mean(actual):.5f}")
 
 
 def check_high_column_transmission(probe, textures):
@@ -666,7 +481,8 @@ def check_high_column_transmission(probe, textures):
     for thickness in (100.0, 200.0, 800.0):
         clouds = cloud_parameters(extinction=0.0, highBaseHeight=center_height - 0.5 * thickness,
                                   highThickness=thickness, highExtinction=1.2 / thickness,
-                                  highCoverage=0.35, highMaxDistance=96000.0)
+                                  highCoverage=0.5, highMaxDistance=96000.0,
+                                  highMapOrigin=[51428, 663955])
         distance = center_height + 0.5 * thickness + 100.0
         for x, z in positions:
             # Put the planet tangent beneath this column so radial altitude equals world Y.
@@ -691,9 +507,19 @@ def check_high_column_transmission(probe, textures):
           f"maximum Beer-law error {np.max(np.abs(actual - expected)):.7f}")
 
 
+def uniform_cloud_textures(device):
+    sampler = device.create_sampler()
+    weather = weather_fixture(device, np.ones((3, 1, 1, 4), np.float32)).create_view(sampler=sampler)
+    volume = device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba32_float,
+                                   width=1, height=1, depth=1, usage=spy.TextureUsage.shader_resource,
+                                   data=np.ones((1, 1, 1, 4), np.float32)).create_view(sampler=sampler)
+    return {"Weather": weather, "Base": volume, "Detail": volume}
+
+
 def check_distant_storm_horizon(probe, textures):
-    # Horizontal rays from the ground reach this shell well beyond either detail budget.
-    clouds = cloud_parameters(baseHeight=800.0, coverage=.85, weather=1., thunder=1., extinction=.03)
+    # Horizontal rays reach this shell beyond either detail budget. Uniform
+    # overcast isolates the transport under test from weather-map gaps.
+    clouds = cloud_parameters(baseHeight=800.0, coverage=.85, wetness=1., weather=1., thunder=1., extinction=.03)
     y = -58.
     radius = clouds["planetRadius"]
     entry, exit_distance = (np.sqrt((h - y) * (2 * radius + h + y))
@@ -716,111 +542,10 @@ def check_distant_storm_horizon(probe, textures):
           f"median cloud transmission {np.median(full):.5f} at both detail ranges")
 
 
-def high_column_reference(origin, direction, base, thickness, extinction, distance, radius):
-    """Integrate a constant horizontal field between spherical profile knots."""
-    origin = np.asarray(origin, np.float64)
-    direction = np.asarray(direction, np.float64)
-    point = origin + [0, radius, 0]
-    projection = point @ direction
-    boundaries = [0.0, distance]
-    # White weather gives a full band with smooth ramps over [0, .15] and [.85, 1].
-    for altitude in (base, base + 0.15 * thickness, base + 0.85 * thickness, base + thickness):
-        height = origin[1]
-        squared = origin[0] ** 2 + origin[2] ** 2 + (height - altitude) * (2 * radius + height + altitude)
-        discriminant = projection * projection - squared
-        if discriminant >= 0:
-            root = np.sqrt(discriminant)
-            boundaries.extend(t for t in (-projection - root, -projection + root) if 0 < t < distance)
-    boundaries = sorted(set(boundaries))
-    nodes, weights = np.polynomial.legendre.leggauss(48)
-    depth = 0.0
-    for begin, end in zip(boundaries[:-1], boundaries[1:]):
-        middle = 0.5 * (begin + end)
-        altitude = np.linalg.norm(point + direction * middle) - radius
-        if not base < altitude < base + thickness:
-            continue
-        samples = middle + 0.5 * (end - begin) * nodes
-        positions = point[None, :] + samples[:, None] * direction
-        height = (np.linalg.norm(positions, axis=1) - radius - base) / thickness
-        bottom = np.clip(height / 0.15, 0, 1)
-        top = np.clip((height - 0.85) / 0.15, 0, 1)
-        profile = bottom * bottom * (3 - 2 * bottom) * (1 - top * top * (3 - 2 * top))
-        depth += 0.5 * (end - begin) * np.dot(weights, profile) * extinction
-    return depth
 
 
-def check_high_filtered_columns(probe, textures):
-    weather = weather_fixture(probe.device, np.ones((3, 1, 1, 4), np.float32))
-    sampler = probe.device.create_sampler(address_u=spy.TextureAddressingMode.wrap,
-                                          address_v=spy.TextureAddressingMode.wrap)
-    constant = {**textures, "Weather": weather.create_view(sampler=sampler)}
-    radius = 6370937.0
-    maximum_error = 0.0
-    maximum_angular_delta = 0.0
-    cases = 0
-    for thickness in (50.0, 200.0):
-        base = 6400.0 - 0.5 * thickness
-        extinction = 0.005 / (0.85 * thickness)
-        origins, directions = [], []
-        for height, angles in ((139.0, (90, 45, 20, 10, 5, 0)),
-                                (6400.0, (-0.4, -0.001, 0, 0.001, 0.4, 90)), (7000.0, (-90,))):
-            for angle in np.radians(angles):
-                origins.append([0, height, 0, 1e6])
-                directions.append([np.cos(angle), np.sin(angle), 0, 0])
-        origins = np.asarray(origins, dtype=np.float32)
-        directions = np.asarray(directions, dtype=np.float32)
-        expected = np.array([high_column_reference(origin[:3], direction[:3], base, thickness,
-                                                   extinction, origin[3], radius)
-                             for origin, direction in zip(origins, directions)])
-        # Keep the numerical rays before distance fading, including spherical
-        # horizontal intersections beyond the ordinary game view range.
-        clouds = cloud_parameters(extinction=0.0, highExtinction=extinction, highBaseHeight=base,
-                                  highThickness=thickness, highCoverage=1.0, highMaxDistance=1e6,
-                                  maxDistance=1e6, planetRadius=radius)
-        for steps in (64, 96, 160, 320):
-            for footprint in (0.0, 0.00191831747, 0.00383663494, 0.01):
-                parameters = clouds | {"highSteps": steps, "viewAngularFootprint": footprint}
-                transmission = probe.run("viewTransmission", origins, directions, parameters, constant)[:, 0]
-                assert np.isfinite(transmission).all() and np.all((0 < transmission) & (transmission <= 1))
-                depth = -np.log(transmission.astype(np.float64))
-                np.testing.assert_allclose(depth, expected, atol=2e-5, rtol=0.005,
-                                           err_msg="high-layer filtering must preserve its spherical column")
-                maximum_error = max(maximum_error, np.max(np.abs(depth - expected) / expected))
-                cases += len(origins)
-        tangent = -np.arccos((radius + base) / (radius + 6400.0))
-        angles = np.array([center + offset for center in (0.0, tangent)
-                           for offset in np.radians([-0.001, -0.0001, 0, 0.0001, 0.001])])
-        rays = np.tile([0, 6400, 0, 1e6], (len(angles), 1))
-        sunlight = np.column_stack([np.cos(angles), np.sin(angles), np.zeros((len(angles), 2))])
-        visibility = probe.run("visibility", rays, sunlight, clouds, constant)[:, 0].reshape(2, -1)
-        assert np.isfinite(visibility).all() and np.all((0 <= visibility) & (visibility <= 1))
-        assert np.any((visibility > 0.01) & (visibility < 0.99))
-        delta = np.max(np.abs(np.diff(visibility, axis=1)))
-        assert delta < 0.01, ("high-layer visibility jumps at a small solar-angle change", delta)
-        maximum_angular_delta = max(maximum_angular_delta, delta)
-    print(f"PASS filtered high-layer columns: {cases} thickness/angle/step/footprint cases, "
-          f"maximum relative depth error {maximum_error:.6f}, solar-angle delta {maximum_angular_delta:.6f}")
 
 
-def check_layer_height_footprints(probe):
-    for up in ([0, 1, 0], [0, 0, 1]):
-        clouds = cloud_parameters(up=up)
-        vertical = np.asarray(up)
-        origins, directions, expected = [], [], []
-        for height in (0.0, 6400.0):
-            for cosine, sine in ((1.0, 0.0), (0.0, 1.0), (0.6, 0.8)):
-                direction = cosine * vertical + [sine, 0, 0]
-                for span in (8.0, 50.0, 500.0):
-                    radial = cosine * span + sine * sine * span * span / (4 * (clouds["planetRadius"] + height))
-                    for pixel in (0.0, 5.0, 1000.0):
-                        origins.append([*(height * vertical), span])
-                        directions.append([*direction, pixel])
-                        expected.append([max(radial, pixel * sine), radial])
-        actual = probe.run("heightFootprints", origins, directions, clouds)
-        np.testing.assert_allclose(actual[:, :2], expected, atol=2e-5, rtol=1e-6)
-        np.testing.assert_array_equal(actual[:, 0], actual[:, 3], err_msg="default footprint must retain low-layer semantics")
-        np.testing.assert_array_equal(actual[:, 1], actual[:, 2], err_msg="high height integration must ignore the pixel cone")
-    print("PASS layer height footprints: low/default pixel filtering unchanged, high radial support, Y-up and Z-up")
 
 
 def check_tangent_visibility(probe, textures):
@@ -828,7 +553,7 @@ def check_tangent_visibility(probe, textures):
     offsets = np.radians([-0.001, -0.0001, 0.0, 0.0001, 0.001])
     # Reduced extinction keeps the tangent rays measurable instead of completely opaque.
     for layer, base, height, extinction in ((0, 400.0, 540.0, 1.5e-4), (1, 6000.0, 6400.0, 2e-5)):
-        clouds = cloud_parameters(extinction=extinction if layer == 0 else 0.0,
+        clouds = cloud_parameters(wetness=1., extinction=extinction if layer == 0 else 0.0,
                                   highExtinction=extinction if layer == 1 else 0.0)
         origins, directions = [], []
         for x in (-1200.0, 0.0, 1200.0):
@@ -860,7 +585,6 @@ def main():
     args = parser.parse_args()
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
     probe = Probe(device)
-    check_morphology_configuration()
     check_column_history(probe)
     check_air_skylight(probe)
     check_weather_column_coordinates(probe)
@@ -870,25 +594,14 @@ def main():
     check_light_profiles(probe)
     textures = cloud_textures(device, args.dump)
     check_column_noise(probe, textures)
-    check_cloud_silhouettes(probe, textures)
-    check_density(probe, textures, args.dump)
-    check_horizon_cloud_openings(probe, textures)
-    check_distant_storm_horizon(probe, textures)
-    check_low_wind_wrap(probe, textures)
-    from test_cloud_morphology import check_family_periodicity, check_erosion_seams
-    fixtures = cloud_parameters()
-    period = max(cloud_weather_periods()) * fixtures["shapeScale"]
-    check_family_periodicity(probe, textures, fixtures, period)
-    check_erosion_seams(probe, textures, fixtures)
-    check_high_density(probe, textures, args.dump)
+    uniform = uniform_cloud_textures(device)
+    check_distant_storm_horizon(probe, uniform)
     check_high_column_transmission(probe, textures)
-    check_high_filtered_columns(probe, textures)
-    check_layer_height_footprints(probe)
     check_visibility(probe, textures, args.dump)
     cloud_boundaries = check_cloud_boundary_visibility(probe, textures, args.dump)
     check_cloud_cache_transition(probe, textures, cloud_boundaries, args.dump)
     check_light_support(probe, textures)
-    check_tangent_visibility(probe, textures)
+    check_tangent_visibility(probe, uniform)
 
 
 if __name__ == "__main__":

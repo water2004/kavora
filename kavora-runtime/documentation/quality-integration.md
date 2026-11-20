@@ -56,24 +56,17 @@ Both cloud layers integrate over grids anchored to their unclipped shell interva
 The view budgets cap the number of cells independently of the light direction.
 Cumulus widens cells continuously on long paths to cover the whole interval.
 Clipped ranges start at their first covered cell and reuse the full grid's sample
-positions and density footprints. A cell samples the HanPi density field once,
-including billow and wisp erosion where the body can contribute.
-A high cloud's coverage sets its vertical band. Altocumulus cells thin that band
-and reduce density at the edges. Altostratus uses the same band with a weaker
-cell effect. High-cloud spacing follows the projected weather texel and pixel
-footprint. Each cell integrates the band's smooth edges in height, and a vertical
-ray can cover the high shell with one cell.
+positions. Each cell evaluates Revelation's density at the source texture
+resolutions. The low shell uses the original low weather map, regional noise,
+vertical profile, 3D curl and alligator noise. The high shell uses the sum of
+Revelation's cirrus, cirrostratus and cirrocumulus fields. The high density is
+horizontal and uniform through the shell thickness. Its spacing follows the
+projected cirrus texel and pixel footprint.
 
-The shared density field samples separate satellite-derived low and elevated
-weather maps, a radial RGB profile LUT and four erosion bands. The offline
-[asset workflow](../tools/clouds/README.md) documents the observations,
-reconstructed inputs, channel layouts and generation commands.
-The body texture stores the mean and central variance in RG16F. Each mip
-merges its eight child distributions in float32 before quantization.
-The low and high layers have separate view ranges with a short terminal fade.
+The [asset workflow](../tools/clouds/README.md) records the source and packing
+process. View ranges bound detailed sampling, with coarse coverage beyond them.
 The low-cloud shadow integrates the first body tile from the cloud entry with
-a widening cone fitted to the available taps. The body mip advances along the
-ray and each tap resolves the edge erosion at its native resolution.
+a widening cone fitted to the available taps.
 The shared directional prefix covers the remaining optical path.
 High clouds use uniform sunlight segments within a 3 km interval from shell entry.
 Direct single scattering uses normalized forward and backward lobes. High-cloud
@@ -94,9 +87,10 @@ extinction is integrated along each ray.
 ### Cloud multiple scattering
 
 The local atlas stores optical depth toward the top and bottom of each cloud
-layer in RG16F. The solar network trained on the production density fields with
-the renderer's dual-lobe phase supplies multiple scattering for the two cloud layers
-and the active directional beams. Each wind-aligned node stores the network response
+layer in RG16F. The existing neural network uses features sampled from the
+Revelation field and supplies multiple scattering for both layers and the active
+directional beams. Its weights come from the HanPi training field. Each
+wind-aligned node stores the network response
 at six light-relative polar knots. The knots are closer together in the forward lobe.
 Each knot spans the two reachable view elevations, which coincide at the poles.
 The ten distinct predictions occupy three RGBA16F texels. A 30×20 horizontal

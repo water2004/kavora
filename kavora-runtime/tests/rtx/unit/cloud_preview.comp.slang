@@ -266,6 +266,9 @@ void main(uint2 pixel : SV_DispatchThreadID)
       const float distance = grid.sampleAt(cell);
 #endif
       const float3 position = origin + direction * distance;
+#if defined(CLOUD_PREVIEW_REVELATION_FIELD)
+      const float extinction = cloudLayerExtinction(Clouds, position, nearest / 2, weather, base, detail);
+#else
       const float pixelFootprint = Projection == 1 ? TopSpan / float(Size.x) : Clouds.viewAngularFootprint * distance;
 #if defined(CLOUD_PREVIEW_HAS_CELL_SPAN)
       const float cellSpan = grid.spanAt(cell);
@@ -292,6 +295,7 @@ void main(uint2 pixel : SV_DispatchThreadID)
             nearest / 2,
 #endif
             weather, base, detail, footprint, heightFootprint);
+#endif
 #endif
       opticalDepth += extinction * (next - previous);
       if (Radiance != 0 && extinction > 0)

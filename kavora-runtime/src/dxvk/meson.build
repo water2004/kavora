@@ -556,9 +556,9 @@ dxvk_embedded_data_files = files([
   '../../external/fonts/NVIDIASans/NVIDIASansBd.ttf',
   '../../external/fonts/RobotoMono/RobotoMonoRg.ttf',
   'rtx_render/clouds/cloud_neural_lighting.bin',
-  'rtx_render/clouds/cloud_weather.bin',
-  'rtx_render/clouds/cloud_base.bin',
-  'rtx_render/clouds/cloud_erosion.bin'
+  'rtx_render/clouds/revelation_maps.bin',
+  'rtx_render/clouds/revelation_body.bin',
+  'rtx_render/clouds/revelation_curl.bin'
 ])
 
 dxvk_generated_embedded_files = embedding_compiler.process(dxvk_embedded_data_files)

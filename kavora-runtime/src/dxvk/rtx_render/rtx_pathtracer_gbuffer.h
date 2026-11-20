@@ -127,7 +127,7 @@ namespace dxvk {
     VkExtent2D m_cloudHistoryResolution = {};
     uint32_t m_cloudHistoryStride = 0;
     uint32_t m_cloudHistoryFrame = 0;
-    float m_previousCloudNight = 0;
+    float m_previousCloudWetness = 0;
     float m_previousCloudWeather = 0;
     float m_previousCloudThunder = 0;
     size_t m_loggedDispatchHash[2] = {};

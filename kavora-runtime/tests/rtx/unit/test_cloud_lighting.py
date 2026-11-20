@@ -110,7 +110,8 @@ def main():
     nodes = run('neuralNodes', cells, np.zeros_like(cells), args)
     for (x, z, _, _), node in zip(cells, nodes):
         if x < 20:
-            expected_xz = (np.array([x, z]) - 9.5) * 2400
+            radius = max(args["maxDistance"], args["lightMaxDistance"], 4.0 * args["shapeScale"])
+            expected_xz = (np.array([x, z]) - 9.5) * (2.0 * radius / 20.0)
         else:
             expected_xz = (np.array([x - 20, z % 10]) - 4.5) * (128 if z < 10 else 512)
         np.testing.assert_allclose(node[[0, 2]], expected_xz, atol=1e-3, rtol=0)

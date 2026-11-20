@@ -957,7 +957,7 @@ namespace dxvk {
       const bool consecutive = m_cloudHistoryFrame + 1 == frameId
         && m_cloudHistoryResolution.width == rayDims.width && m_cloudHistoryResolution.height == rayDims.height
         && m_cloudHistoryStride == atmosphereStride && !volume.resetHistory
-        && std::abs(m_previousCloudNight - volume.clouds.night) < 0.1f
+        && std::abs(m_previousCloudWetness - volume.clouds.wetness) < 0.1f
         && std::abs(m_previousCloudWeather - volume.clouds.weather) < 0.1f
         && std::abs(m_previousCloudThunder - volume.clouds.thunder) < 0.1f;
       pushArgs.cloudHistoryCount = consecutive ? std::min(m_cloudHistoryCount + 1, 2u) : 0u;
@@ -972,7 +972,7 @@ namespace dxvk {
       m_cloudHistoryFrame = frameId;
       m_cloudHistoryResolution = { rayDims.width, rayDims.height };
       m_cloudHistoryStride = atmosphereStride;
-      m_previousCloudNight = volume.clouds.night;
+      m_previousCloudWetness = volume.clouds.wetness;
       m_previousCloudWeather = volume.clouds.weather;
       m_previousCloudThunder = volume.clouds.thunder;
     } else {

@@ -48,9 +48,9 @@
 
 #include "rtx/pass/cloud_noise.h"
 #include <bit>
-#include <cloud_base.bin.h>
-#include <cloud_erosion.bin.h>
-#include <cloud_weather.bin.h>
+#include <revelation_maps.bin.h>
+#include <revelation_body.bin.h>
+#include <revelation_curl.bin.h>
 
 namespace dxvk {
 
@@ -1051,36 +1051,35 @@ namespace dxvk {
     }
 
     ScopedGpuProfileZone(ctx, "Cloud field upload");
-    // All three assets are filtered offline and stored mip-major, four bytes per texel.
-    const auto upload = [&](const char* name, uint32_t side, uint32_t layers, VkFormat format,
-                            const auto& bytes, uint32_t fullLayerSize) {
-      const bool volume = layers == 1;
-      const VkExtent3D extent { side, side, volume ? side : 1u };
-      auto resource = createImageResource(ctx, name, extent, format, layers,
-        volume ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
-        volume ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, 0, {}, std::bit_width(side));
-      const unsigned char* data = bytes;
-      for (uint32_t mip = 0; side; ++mip, side >>= 1) {
-        const uint32_t sliceBytes = side * side * 4;
-        const uint32_t depth = volume ? side : 1u;
-        const uint32_t firstLayer = side > fullLayerSize ? 1u : 0u;
-        const uint32_t layerCount = firstLayer ? 1u : layers;
-        ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, firstLayer, layerCount },
-          { 0, 0, 0 }, { side, side, depth }, data, side * 4, sliceBytes);
-        data += sliceBytes * depth * layerCount;
-      }
-      assert(data == bytes + sizeof(bytes));
+    const auto upload = [&](const char* name, uint32_t side, uint32_t texelBytes, VkFormat format,
+                            const auto& bytes) {
+      const VkExtent3D extent { side, side, side };
+      auto resource = createImageResource(ctx, name, extent, format, 1,
+        VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
+      assert(sizeof(bytes) == size_t(side) * side * side * texelBytes);
+      ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 },
+        extent, bytes, side * texelBytes, side * side * texelBytes);
       return resource;
     };
-    constexpr auto volumeBytes = [](uint32_t n) { return 4 * ((8 * n * n * n - 1) / 7); };
-    static_assert(sizeof(___cloud_base) == volumeBytes(kCloudBaseResolution));
-    static_assert(sizeof(___cloud_erosion) == volumeBytes(kCloudDetailResolution));
-    constexpr auto planeBytes = [](uint32_t n) { return 4 * ((4 * n * n - 1) / 3); };
-    static_assert(sizeof(___cloud_weather) == 2 * planeBytes(kCloudWeatherResolution) + planeBytes(kCloudHighWeatherResolution));
-    m_cloudBaseLut = upload("cloud base shape", kCloudBaseResolution, 1, VK_FORMAT_R16G16_SFLOAT, ___cloud_base, kCloudBaseResolution);
-    m_cloudDetailLut = upload("cloud erosion", kCloudDetailResolution, 1, VK_FORMAT_R8G8B8A8_UNORM, ___cloud_erosion, kCloudDetailResolution);
-    m_cloudWeatherLut = upload("cloud weather and profiles", kCloudHighWeatherResolution, 3,
-      VK_FORMAT_R8G8B8A8_UNORM, ___cloud_weather, kCloudWeatherResolution);
+    m_cloudBaseLut = upload("Revelation alligator FBM", kCloudBaseResolution, 1, VK_FORMAT_R8_UNORM, ___revelation_body);
+    m_cloudDetailLut = upload("Revelation 3D curl", kCloudDetailResolution, 4, VK_FORMAT_R8G8B8A8_UNORM, ___revelation_curl);
+
+    // Each lookup selects the mip containing its source image at native resolution.
+    constexpr uint32_t sides[] = { 1024, 256, 32, 512, 512, 1024 };
+    constexpr uint32_t layers[] = { 0, 0, 0, 0, 1, 1 };
+    constexpr uint32_t side = 1024;
+    m_cloudWeatherLut = createImageResource(ctx, "Revelation weather and profiles", { side, side, 1 },
+      VK_FORMAT_R8G8B8A8_UNORM, 2, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+      0, 0, {}, 6);
+    auto data = ___revelation_maps;
+    for (uint32_t index = 0; index < std::size(sides); ++index) {
+      const uint32_t size = sides[index];
+      const uint32_t mip = std::countr_zero(side / size);
+      ctx->updateImage(m_cloudWeatherLut.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, layers[index], 1 },
+        { 0, 0, 0 }, { size, size, 1 }, data, size * 4, size * size * 4);
+      data += size * size * 4;
+    }
+    assert(data == ___revelation_maps + sizeof(___revelation_maps));
   }
 
   Resources::Resource Resources::getSkyMatte(Rc<DxvkContext> ctx, VkFormat format) {

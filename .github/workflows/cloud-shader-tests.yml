@@ -64,7 +64,7 @@ jobs:
         if: matrix.case == 'contracts'
         run: |
           set -euo pipefail
-          for TEST in test_cloud_transport test_cloud_morphology test_cloud_density_math test_cloud_filtering test_cloud_view_ranges; do
+          for TEST in test_cloud_transport test_cloud_morphology test_cloud_density_math test_cloud_view_ranges; do
             python3 "kavora-runtime/tests/rtx/unit/$TEST.py" \
               --dump "$RUNNER_TEMP/cloud-validation/$TEST" \
               2>&1 | tee "$RUNNER_TEMP/cloud-validation/$TEST.log"

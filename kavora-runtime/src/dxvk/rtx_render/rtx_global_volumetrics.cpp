@@ -58,7 +58,6 @@
 
 #include "dxvk_scoped_annotation.h"
 #include "rtx_context.h"
-#include "rtx_night_sky.h"
 #include "rtx_imgui.h"
 
 namespace dxvk {
@@ -710,12 +709,19 @@ namespace dxvk {
     const auto renderExtent = m_device->getCommon()->getResources().getDownscaleDimensions();
     clouds.viewAngularFootprint = 2.0f * std::tan(mainCamera.getFov() * 0.5f) / float(std::max(renderExtent.height, 1u));
     clouds.up = RtxOptions::zUp() ? Vector3(0, 0, 1) : Vector3(0, 1, 0);
-    const float cloudTime = CloudOptions::worldTimeSeconds() * CloudOptions::windSpeed();
-    const Vector3 windOffset = RtxOptions::zUp()
-      ? Vector3(4.8f * cloudTime, 1.4f * cloudTime, 0) * cloudWorldScale
-      : Vector3(4.8f * cloudTime, 0, 1.4f * cloudTime) * cloudWorldScale;
+    const double time = double(CloudOptions::worldTimeSeconds()) * CloudOptions::windSpeed();
+    constexpr double radiansPerDegree = 3.14159265358979323846 / 180.0;
+    const double windX = std::cos(20.0 * radiansPerDegree) * 10.0 * time;
+    const double windZ = std::sin(20.0 * radiansPerDegree) * 10.0 * time;
+    const double windY = 5.0 * time;
+    clouds.shapeScale = CloudOptions::shapeScaleMeters() * cloudWorldScale;
+    const double metresToWorld = clouds.shapeScale / 1000.0;
+    const Vector3 lowWind(float(windX * metresToWorld), float(windY * metresToWorld), float(windZ * metresToWorld));
+    const Vector3 windOffset = RtxOptions::zUp() ? Vector3(lowWind.x, lowWind.z, lowWind.y) : lowWind;
 
     const uint32_t frame = m_device->getCurrentFrameId();
+    const auto now = std::chrono::steady_clock::now();
+    const bool continuous = m_cloudHistoryValid && m_previousCloudFrame + 1 == frame;
     clouds.previousWindDelta = m_cloudHistoryValid && m_previousCloudFrame + 1 == frame && !mainCamera.isCameraCut()
       ? m_previousCloudWindOffset - windOffset : Vector3(0.f);
     m_previousCloudWindOffset = windOffset;
@@ -723,19 +729,37 @@ namespace dxvk {
     m_cloudHistoryValid = clouds.enable;
     clouds.baseHeight = (CloudOptions::worldBaseHeightMeters() + CloudOptions::altitudeOffsetMeters()) * cloudWorldScale;
     clouds.thickness = CloudOptions::thicknessMeters() * cloudWorldScale;
-    clouds.shapeScale = CloudOptions::shapeScaleMeters() * cloudWorldScale;
-    // Both weather periods, shape and erosion divide this shared wind wrap.
     const auto sceneOrigin = m_device->getCommon()->getSceneManager().getSceneOrigin();
-    const double period = double(std::max(kCloudWeatherPeriod, kCloudHighWeatherPeriod)) * clouds.shapeScale;
-    const float windX = float(std::remainder(double(windOffset.x) - sceneOrigin.x, period));
-    const float windHorizontal = float(std::remainder(double(RtxOptions::zUp() ? windOffset.y : windOffset.z)
-      - sceneOrigin.y, period));
-    clouds.windOffset = RtxOptions::zUp() ? Vector3(windX, windHorizontal, 0) : Vector3(windX, 0, windHorizontal);
+    const double originX = sceneOrigin.x / metresToWorld;
+    const double originZ = sceneOrigin.y / metresToWorld;
+    // The 512 km weather modulation and the sheared 2 km noise share this repeat.
+    constexpr double lowPeriod = 2560000.0;
+    const float offsetX = float(std::remainder(windX - originX, lowPeriod) * metresToWorld);
+    const float offsetZ = float(std::remainder(windZ - originZ, lowPeriod) * metresToWorld);
+    const float offsetY = float(std::remainder(windY, 2000.0) * metresToWorld);
+    clouds.windOffset = RtxOptions::zUp() ? Vector3(offsetX, offsetZ, offsetY) : Vector3(offsetX, offsetY, offsetZ);
+
+    const double highWindX = std::cos(70.0 * radiansPerDegree) * 30.0 * time;
+    const double highWindZ = std::sin(70.0 * radiansPerDegree) * 30.0 * time;
+    constexpr double highPeriod = 3144000.0; // Common period of the 786 km map and 24 km curl.
+    clouds.highMapOrigin = Vector2(float(std::remainder(originX - highWindX, highPeriod)),
+      float(std::remainder(originZ - highWindZ, highPeriod)));
+    constexpr double goldenAngle = 2.39996322973;
+    const double lookupX = (originX - 1.5 * highWindX) / 20000.0;
+    const double lookupZ = (originZ - 1.5 * highWindZ) / 20000.0;
+    const double c = std::cos(goldenAngle);
+    const double s = std::sin(goldenAngle);
+    clouds.highLookupOrigin = Vector2(float(std::remainder(c * lookupX - s * lookupZ, 1.0)),
+      float(std::remainder(s * lookupX + c * lookupZ, 1.0)));
     clouds.extinction = CloudOptions::extinctionPerMeter() / cloudWorldScale;
     clouds.weather = std::clamp(CloudOptions::weather(), 0.0f, 1.0f);
     clouds.thunder = std::clamp(CloudOptions::thunder(), 0.0f, 1.0f);
     clouds.coverage = CloudOptions::coverage();
-    clouds.night = std::clamp(NightSky::visibility() * 2.0f, 0.0f, 1.0f);
+    const float elapsed = std::chrono::duration<float>(now - m_previousCloudTime).count();
+    // Revelation declares a wetness and dryness half-life of 16 deciseconds.
+    m_cloudWetness = continuous ? std::lerp(clouds.weather, m_cloudWetness, std::exp2(-elapsed / 1.6f)) : clouds.weather;
+    m_previousCloudTime = now;
+    clouds.wetness = m_cloudWetness;
     const Vector3 cameraPosition = mainCamera.getPosition();
     clouds.groundReference = RtxOptions::zUp()
       ? Vector3(cameraPosition.x, cameraPosition.y, 0)

@@ -94,11 +94,11 @@ continue to use the full lighting environment.
 
 Clouds use the shared world-space integrator at every quality level. The view
 distance controls detailed sampling in each shell. The remaining arc uses one
-footprint-filtered weather sample, clipped to the visible atmosphere. A surface
+density sample, clipped to the visible atmosphere. A surface
 hit truncates its optical path while retaining the same sample as the full ray.
 The distant cell uses the weather column for beam attenuation and the existing
 neural field for multiple scattering. The vertical optical-depth atlas covers
-one wind-aligned weather period, so air on either side of the detail range
+the view and shadow ranges, so air on either side of the detail range
 receives skylight from the same field. The directional sky atlas shares distant
 transport for eligible rays and the fog-lighting cache.
 

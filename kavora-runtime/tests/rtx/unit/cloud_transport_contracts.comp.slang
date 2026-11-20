@@ -6,6 +6,7 @@ import "rtx/algorithm/cloud_lighting_cache.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "cloud_preview_integral.slang";
 import "rtx/utility/cloud_density.slang";
+import "rtx/utility/revelation_cloud.slang";
 
 ConstantBuffer<CloudArgs> Clouds;
 StructuredBuffer<float4> Inputs;
@@ -34,7 +35,7 @@ void columnCoordinates(uint index : SV_DispatchThreadID)
 {
   if (index >= Count) return;
   const float4 entry = Inputs[index];
-  const float3 position = cloudLocalLightPosition(Clouds, entry.xy, entry.z);
+  const float3 position = cloudLocalLightPosition(Clouds, entry.xy, entry.z, uint(entry.w));
   const float3 coordinates = cloudLocalLightCoordinates(Clouds, position + Directions[index].xyz, entry.z, uint(entry.w));
   Results[index] = float4(coordinates.xz, cloudAltitude(cloudDensityParameters(Clouds), position), 0);
 }
@@ -115,20 +116,15 @@ void stationaryColumnNoise(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void neuralDensities(uint index : SV_DispatchThreadID)
+void sourceDensities(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
     return;
   const float4 point = Inputs[index];
-  float4 features;
-  [unroll]
-  for (uint level = 0; level < 4; level++)
-  {
-    const float footprint = level == 0 ? 0.0f : float(1 << level) * 62.5f;
-    features[level] = cloudDensity(cloudDensityParameters(Clouds), point.xyz, Sampler2DArray<float4>(Weather),
-      Sampler3D<float4>(Base), Sampler3D<float4>(Detail), footprint, uint(point.w), 0.5f * footprint);
-  }
-  Results[index] = features;
+  const RevelationField field = {Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail)};
+  const float low = revelationLowDensity(field, point.xyz, point.w, Clouds.thickness, Clouds.coverage, Clouds.wetness);
+  const float high = revelationHighDensity(field, point.xz, Clouds.highMapOrigin, Clouds.highLookupOrigin, Clouds.highCoverage);
+  Results[index] = float4(low, high, 0, 0);
 }
 
 CloudLightingCache lightingCache()
@@ -206,7 +202,7 @@ void densities(uint index : SV_DispatchThreadID)
   }
   const float4 sample = Inputs[index];
   const float density = cloudExtinction(Clouds, sample.xyz, Sampler2DArray<float4>(Weather),
-    Sampler3D<float4>(Base), Sampler3D<float4>(Detail), sample.w)
+    Sampler3D<float4>(Base), Sampler3D<float4>(Detail))
     / max(max(Clouds.extinction, Clouds.highExtinction), 1e-20f);
   Results[index] = float4(density, 0, 0, 0);
 }
@@ -279,8 +275,7 @@ void visibilityReference(uint index : SV_DispatchThreadID)
       const float distance = interval.x + (float(cell) + 0.5f) * span;
       const float3 position = ray.xyz + direction * distance;
       opticalDepth += span * cloudExtinction(Clouds, position, Sampler2DArray<float4>(Weather),
-        Sampler3D<float4>(Base), Sampler3D<float4>(Detail), span,
-        cloudHeightFootprint(Clouds, position, direction, span));
+        Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
       if (opticalDepth > 20)
       {
         Results[index] = float4(exp(-opticalDepth), 0, 0, 0);
@@ -289,21 +284,4 @@ void visibilityReference(uint index : SV_DispatchThreadID)
     }
   }
   Results[index] = float4(exp(-opticalDepth), 0, 0, 0);
-}
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void heightFootprints(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count)
-  {
-    return;
-  }
-  const float4 input = Inputs[index];
-  const float4 direction = Directions[index];
-  Results[index] = float4(
-    cloudHeightFootprint(Clouds, input.xyz, direction.xyz, input.w, direction.w, 0u),
-    cloudHeightFootprint(Clouds, input.xyz, direction.xyz, input.w, direction.w, 1u),
-    cloudHeightFootprint(Clouds, input.xyz, direction.xyz, input.w, 0, 1u),
-    cloudHeightFootprint(Clouds, input.xyz, direction.xyz, input.w, direction.w));
 }

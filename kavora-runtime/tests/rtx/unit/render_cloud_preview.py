@@ -62,7 +62,8 @@ def texture_cache(device, support, cache_dir):
         levels = {}
         for name, view in textures.items():
             for mip in range(view.texture.mip_count):
-                levels[f'{name}_{mip}'] = (np.stack([view.texture.to_numpy(layer, mip) for layer in range(3)])
+                layer_count = 2 if support.TEXTURE_FILES["Weather"] == "revelation_maps.bin" else 3
+                levels[f'{name}_{mip}'] = (np.stack([view.texture.to_numpy(layer, mip) for layer in range(layer_count)])
                                            if name == 'Weather' else view.texture.to_numpy(mip=mip))
         np.savez(cache, **levels)
     return textures, str(cache), {'fingerprint': fingerprint, 'sourceHashes': hashes}
@@ -349,6 +350,8 @@ def main():
     spec.loader.exec_module(support)
     support.SHADERS = shaders
     support.OPTIONS = {'include_paths': [str(shaders), str(HERE)], 'defines': {'__SLANG__': '1'}}
+    if (shaders / 'rtx/utility/revelation_cloud.slang').is_file():
+        support.OPTIONS['defines']['CLOUD_PREVIEW_REVELATION_FIELD'] = '1'
     if re.search(r'\bpublic\s+float\s+spanAt\s*\(', (shaders / 'rtx/algorithm/clouds.slang').read_text()):
         support.OPTIONS['defines']['CLOUD_PREVIEW_HAS_CELL_SPAN'] = '1'
     if re.search(r'cloudHeightFootprint\([^)]*\buint\s+layer', (shaders / 'rtx/algorithm/clouds.slang').read_text(), re.S):

@@ -21,6 +21,8 @@
 */
 #pragma once
 
+#include <chrono>
+
 #include "rtx_types.h"
 #include "rtx/pass/volume_args.h"
 #include "rtx/utility/shader_types.h"
@@ -42,7 +44,7 @@ namespace dxvk {
       "World rain strength supplied by the host.");
     RTX_OPTION_FLAG("rtx.clouds", float, thunder, 0.0f, RtxOptionFlags::NoSave,
       "World thunderstorm strength supplied by the host.");
-    RTX_OPTION_ARGS("rtx.clouds", float, coverage, 0.45f, "Coverage of fair-weather cumulus formations. Rain increases coverage.",
+    RTX_OPTION_ARGS("rtx.clouds", float, coverage, 0.5f, "Coverage of fair-weather cumulus formations. Wetness increases coverage.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, windSpeed, 1.0f, "Multiplier on world-synchronized cloud advection.",
       args.minValue = 0.0f);
@@ -55,23 +57,23 @@ namespace dxvk {
     RTX_OPTION_ARGS("rtx.clouds", float, groundAlbedo, 0.18f,
       "Mean Lambertian terrain reflectance used by the local cloud illumination approximation. Surface path tracing still uses each material's actual albedo.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, altitudeOffsetMeters, 608.0f, "Cumulus condensation height relative to the host cloud height.",
+    RTX_OPTION_ARGS("rtx.clouds", float, altitudeOffsetMeters, 1052.0f, "Cumulus condensation height relative to the host cloud height.",
       args.minValue = 0.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, thicknessMeters, 1500.0f, "Maximum cumulus thickness. Local weather determines the height of each formation.",
+    RTX_OPTION_ARGS("rtx.clouds", float, thicknessMeters, 2000.0f, "Maximum cumulus thickness. Local weather determines the height of each formation.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, shapeScaleMeters, 1024.0f, "Cloud field scale in meters. The base volume spans 2 scale units, both weather maps 64, and erosion detail one eighth.",
+    RTX_OPTION_ARGS("rtx.clouds", float, shapeScaleMeters, 1000.0f, "Metres per unit of the Revelation density field.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, extinctionPerMeter, 0.03f, "Cloud extinction at unit density, per meter.",
+    RTX_OPTION_ARGS("rtx.clouds", float, extinctionPerMeter, 0.06f, "Cloud extinction at unit density, per meter.",
       args.minValue = 0.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, maxDistanceMeters, 24000.0f, "Cloud visibility distance, including the fade to the background sky.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, highAltitudeMeters, 6375.0f, "Thin high-cloud base height. Kept at least 1000 meters above the cumulus top.",
+    RTX_OPTION_ARGS("rtx.clouds", float, highAltitudeMeters, 7744.0f, "High-cloud base height. Kept at least 1000 meters above the cumulus top.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, highThicknessMeters, 50.0f, "Thickness of the high-cloud layer.",
+    RTX_OPTION_ARGS("rtx.clouds", float, highThicknessMeters, 1000.0f, "Thickness of the high-cloud layer.",
       args.minValue = 1.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, highExtinctionPerMeter, 0.024f, "High-cloud extinction at unit density, per meter.",
+    RTX_OPTION_ARGS("rtx.clouds", float, highExtinctionPerMeter, 0.02f, "High-cloud extinction at unit density, per meter.",
       args.minValue = 0.0f);
-    RTX_OPTION_ARGS("rtx.clouds", float, highCoverage, 0.35f, "Regional amount of optically thin high clouds. Zero disables this layer.",
+    RTX_OPTION_ARGS("rtx.clouds", float, highCoverage, 0.5f, "Coverage of cirrus, cirrostratus and cirrocumulus. Zero disables this layer.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, highMaxDistanceMeters, 24000.0f, "High-cloud visibility distance, including its fade to the background sky.",
       args.minValue = 1.0f);
@@ -390,6 +392,8 @@ namespace dxvk {
     bool m_cloudLightingUsesTensor = false;
     Vector3 m_previousCloudWindOffset = Vector3(0.f);
     uint32_t m_previousCloudFrame = 0;
+    std::chrono::steady_clock::time_point m_previousCloudTime;
+    float m_cloudWetness = 0;
     bool m_cloudHistoryValid = false;
     VkExtent3D m_froxelVolumeExtent;
     VkExtent3D m_restirFroxelVolumeExtent;

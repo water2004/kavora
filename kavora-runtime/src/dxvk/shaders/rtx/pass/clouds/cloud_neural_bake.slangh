@@ -28,10 +28,9 @@ groupshared NeuralCell Cells[1];
 groupshared float Activations[2][kDirections][kWidth];
 #endif
 
-float densityFeature(CloudDensityArgs density, float3 position, uint layer, float footprint = 0, float heightFootprint = 0)
+float densityFeature(CloudDensityArgs density, float3 position, uint layer)
 {
-  return cloudDensity(density, position, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler,
-    footprint, layer, heightFootprint);
+  return cloudDensity(density, position, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, layer);
 }
 
 void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint lightIndex, float height, float altitude, uint lane, uint slot)
@@ -41,8 +40,21 @@ void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint ligh
   if (lane < 4)
   {
     // The trained pyramid averages a 128 x 64 x 128 grid over an 8 x 2 x 8 km box.
-    const float footprint = lane == 0 ? 0.0f : float(1 << lane) * (62.5f * args.meterToWorld);
-    Cells[slot].features[lane] = densityFeature(density, position, layer, footprint, footprint * 0.5f);
+    float sample = densityFeature(density, position, layer);
+    if (lane > 0)
+    {
+      const float radius = float(1 << lane) * (62.5f * args.meterToWorld) * 0.25f;
+      const float3 offsets[4] = {
+        float3(1, 1, 1), float3(1, -1, -1), float3(-1, 1, -1), float3(-1, -1, 1)
+      };
+      sample = 0;
+      [unroll]
+      for (uint tap = 0; tap < 4; ++tap)
+      {
+        sample += 0.25f * densityFeature(density, position + radius * offsets[tap], layer);
+      }
+    }
+    Cells[slot].features[lane] = sample;
     return;
   }
   if (sky)

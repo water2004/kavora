@@ -26,9 +26,9 @@ public CloudDensityArgs cloudDensityParameters(CloudArgs args)
   density.baseHeight = args.baseHeight;
   density.thickness = args.thickness;
   density.coverage = args.coverage;
-  density.weather = args.weather;
-  density.thunder = args.thunder;
-  density.night = args.night;
+  density.wetness = args.wetness;
+  density.highMapOrigin = args.highMapOrigin;
+  density.highLookupOrigin = args.highLookupOrigin;
   density.highBaseHeight = args.highBaseHeight;
   density.highThickness = args.highThickness;
   density.highCoverage = args.highCoverage;
@@ -133,46 +133,21 @@ uint cloudLayerAt(CloudArgs args, float3 position)
 }
 
 public float cloudExtinction(CloudArgs args, float3 position, Sampler2DArray<float4> weatherSampler,
-  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, float footprint = 0, float heightFootprint = 0)
+  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
 {
   const uint layer = cloudLayerAt(args, position);
   const float extinction = layer == 0 ? args.extinction : args.highExtinction;
   return extinction * cloudDensity(cloudDensityParameters(args), position, weatherSampler,
-    baseSampler, detailSampler, footprint, layer, heightFootprint);
-}
-
-[ForceInline]
-public float cloudHeightFootprint(CloudArgs args, float3 position, float3 direction, float span,
-  float pixelFootprint = 0, uint layer = 0)
-{
-  const float3 radial = position - args.groundReference + args.planetRadius * args.up;
-  const float radialLength = length(radial);
-  const float cosine = dot(direction, radial) / radialLength;
-  const float sineSquared = saturate(1.0f - cosine * cosine);
-  const float rayFootprint = abs(cosine) * span + sineSquared * span * span / (4.0f * radialLength);
-  // The high layer is a finite horizontal sheet. Its shell already clips the
-  // central ray. Radial pixel-cone filtering would spill mass outside that
-  // interval. Keep pixel filtering in XZ and integrate only the cell in height.
-  return layer == 1 ? rayFootprint : max(rayFootprint, pixelFootprint * sqrt(sineSquared));
-}
-
-[ForceInline]
-public float cloudDensityFootprint(CloudArgs args, float3 direction, float span, float pixelFootprint, uint layer)
-{
-  // The high field is a horizontal map. A vertical ray changes height but
-  // traverses no map texels; its horizontal footprint is only the pixel cone.
-  const float3 horizontal = direction - args.up * dot(direction, args.up);
-  return max(layer == 0 ? span : span * length(horizontal), pixelFootprint);
+    baseSampler, detailSampler, layer);
 }
 
 [ForceInline]
 public float cloudLayerExtinction(CloudArgs args, float3 position, uint layer,
-  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler,
-  float footprint, float heightFootprint)
+  Sampler2DArray<float4> weatherSampler, Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler)
 {
   const float extinction = layer == 0 ? args.extinction : args.highExtinction;
   return extinction * cloudDensity(cloudDensityParameters(args), position, weatherSampler,
-    baseSampler, detailSampler, footprint, layer, heightFootprint);
+    baseSampler, detailSampler, layer);
 }
 
 public static const float kOpaqueCloudTransmittance = 1e-8f;
@@ -249,11 +224,10 @@ public CloudRayGrid createCloudViewGrid(CloudArgs args, float2 interval, float3 
     return createCloudRayGrid(interval, spacing, angularFootprint, budget);
   }
 
-  // The high layer has a 2D density map and an integrated height profile.
-  // One cell suffices when the projected path fits one filtered texel.
+  // The high layer has horizontal density and constant vertical support.
   const float horizontal = sqrt(max(0.0f, 1.0f - up * up));
   const float toRayDistance = rcp(max(horizontal, 1e-6f));
-  const float texel = args.shapeScale * float(kCloudHighWeatherPeriod) / float(kCloudHighWeatherResolution);
+  const float texel = args.shapeScale * float(kCloudCirrusPeriod) / float(kCloudCirrusResolution);
   return createCloudRayGrid(interval, texel * toRayDistance, angularFootprint * toRayDistance, float(args.highSteps));
 }
 
@@ -302,11 +276,7 @@ public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3
     }
     const float distance = lerp(bounds.x, bounds.y, sampleOffset);
     const float3 position = origin + direction * distance;
-    const float span = bounds.y - bounds.x;
-    const float cone = angularFootprint * distance;
-    const float footprint = cloudDensityFootprint(args, direction, span, cone, layer);
-    const float heightFootprint = cloudHeightFootprint(args, position, direction, span, cone, layer);
-    const float extinction = cloudLayerExtinction(args, position, layer, weather, base, detail, footprint, heightFootprint);
+    const float extinction = cloudLayerExtinction(args, position, layer, weather, base, detail);
     if (extinction > 0)
     {
       integral.add<false>(args, position, extinction, begin, end);
@@ -316,7 +286,7 @@ public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3
       }
     }
   }
-  // One filtered weather cell closes the shell beyond its resolved part. Anchor it
+  // One density sample closes the shell beyond its resolved part. Anchor it
   // to the shell rather than the surface hit so prefixes use the same coefficient.
   const float farBegin = max(interval.x, detailEnd);
   const float begin = max(range.x, farBegin);
@@ -325,10 +295,7 @@ public void marchCloudView<Integral : ICloudViewIntegral>(CloudArgs args, float3
     const float span = interval.y - farBegin;
     const float distance = farBegin + 0.5f * span;
     const float3 position = origin + direction * distance;
-    const float cone = angularFootprint * distance;
-    const float sigma = cloudLayerExtinction(args, position, layer, weather, base, detail,
-      cloudDensityFootprint(args, direction, span, cone, layer),
-      cloudHeightFootprint(args, position, direction, span, cone, layer));
+    const float sigma = cloudLayerExtinction(args, position, layer, weather, base, detail);
     if (sigma > 0)
     {
       integral.add<true>(args, position, sigma, begin, range.y);
@@ -394,7 +361,6 @@ float2 integrateLowCloudShadow(CloudArgs args, float3 origin, float3 direction, 
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail)
 {
   const float length = interval.y - interval.x;
-  const float baseTexel = args.shapeScale * float(kCloudBasePeriod) / float(kCloudBaseResolution);
   // Fit the widening local cone to the fixed budget. The arithmetic series
   // spans the exact interval and cannot exhaust it after only a few taps.
   // Long uncached paths approach uniform spacing across the whole ray.
@@ -410,13 +376,7 @@ float2 integrateLowCloudShadow(CloudArgs args, float3 origin, float3 direction, 
     const float end = sample + 1u == steps ? interval.y : min(interval.y, begin + width);
     const float span = end - begin;
     const float3 position = origin + direction * (begin + 0.5f * span);
-    const float progression = 3.0f * float(sample) / float(max(steps - 1u, 1u));
-    // HanPi widens the body filter along the light ray but resolves erosion
-    // at the quadrature point. Step length is not a footprint on the erosion map.
-    const float bodyMip = min(progression, log2(max(1.0f, 0.5f * span / baseTexel)));
-    const float radialSpan = cloudHeightFootprint(args, position, direction, span);
-    const float extinction = args.extinction * cloudDensity(cloudDensityParameters(args), position, weather, base,
-      detail, 0, 0, radialSpan, bodyMip);
+    const float extinction = cloudLayerExtinction(args, position, 0, weather, base, detail);
     const float local = clamp(localRange - begin, 0.0f, span);
     depth += extinction * float2(local, span - local);
     if (depth.x + depth.y >= opticalDepthLimit)
@@ -588,15 +548,13 @@ public CloudOpticalDepth cloudLightOpticalDepth(CloudArgs args, float3 origin, f
     // EvaluateSunLuminanceHighCloud integrates equal segments within 3 km.
     const uint steps = max(1u, args.lightSteps);
     const float step = (end - begin) / float(steps);
-    const float footprint = cloudDensityFootprint(args, direction, step, 0, layer);
     const CloudDensityArgs densityArgs = cloudDensityParameters(args);
     for (uint i = 0; i < steps; i++)
     {
       const float cellStart = begin + float(i) * step;
       const float3 position = origin + direction * (cellStart + 0.5f * step);
-      const float radialFootprint = cloudHeightFootprint(args, position, direction, step, 0, layer);
       const float sigma = args.highExtinction * cloudDensity(densityArgs, position, weatherSampler,
-        baseSampler, detailSampler, footprint, layer, radialFootprint);
+        baseSampler, detailSampler, layer);
       const float local = clamp(localRange - cellStart, 0.0f, step);
       opticalDepth.local += sigma * local;
       opticalDepth.external += sigma * (step - local);
@@ -727,7 +685,7 @@ public float3 cloudIncidentRadiance<let Column : bool = false>(CloudArgs args, f
   const float altitude = cloudAltitude(cloudDensityParameters(args), position);
   const float3 uv = cloudLocalLightCoordinates(args, position, altitude, layer);
   const float2 verticalDepth = cache.local.SampleLevel(uv, 0);
-  const float3 neuralPosition = Column ? cloudLocalLightPosition(args, uv.xz, altitude) : position;
+  const float3 neuralPosition = Column ? cloudLocalLightPosition(args, uv.xz, altitude, layer) : position;
   const float meanCosine = cloudMeanCosine(args);
   const float totalVerticalDepth = verticalDepth.x + verticalDepth.y;
   const float powder = layer == 1 ? hanPiHighPowder(sigma / args.highExtinction) : 1.0f;

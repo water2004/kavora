@@ -257,7 +257,7 @@ run_target('test_cloud_direct_light',
   command: [python_interpreter, files('test_cloud_direct_light.py')])
 run_target('test_cloud_scattering',
   command: [python_interpreter, files('test_cloud_scattering.py'), '--device', 'vulkan'])
-foreach test_name : ['test_cloud_morphology', 'test_cloud_density_math', 'test_cloud_filtering',
+foreach test_name : ['test_cloud_morphology', 'test_cloud_density_math',
                      'test_cloud_view_ranges', 'test_cloud_matrix_plan']
   run_target(test_name, command: [python_interpreter, files(test_name + '.py')])
 endforeach

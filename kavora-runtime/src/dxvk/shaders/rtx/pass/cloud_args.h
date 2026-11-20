@@ -39,7 +39,7 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float thunder;
   CLOUD_PARAMETER vec3 groundReference;
   CLOUD_PARAMETER float planetRadius;
-  CLOUD_PARAMETER float night;
+  CLOUD_PARAMETER float wetness;
   CLOUD_PARAMETER float lightMaxDistance;
   CLOUD_PARAMETER vec3 previousWindDelta;
   CLOUD_PARAMETER float viewAngularFootprint;
@@ -54,11 +54,13 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER uint activeCloudLights; // A bit for each populated directional light slot.
   CLOUD_PARAMETER float meterToWorld;
   CLOUD_PARAMETER uint highSteps;
+  CLOUD_PARAMETER vec2 highMapOrigin;
+  CLOUD_PARAMETER vec2 highLookupOrigin;
 };
 
 #undef CLOUD_PARAMETER
 
 #ifdef __cplusplus
 static_assert(sizeof(CloudLight) == 96);
-static_assert(sizeof(CloudArgs) == 352);
+static_assert(sizeof(CloudArgs) == 368);
 #endif

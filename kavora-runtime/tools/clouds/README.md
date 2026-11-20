@@ -1,9 +1,13 @@
 # Cloud field assets
 
-The Vulkan runtime uploads three baked assets at first use. All views, shadows
-and the neural scattering cache use the same density function and textures.
+The Vulkan runtime uses Revelation's cloud density textures from revision
+`d5911393856d9dd97375b46a1a088e6b8fddd755`. Given a checkout of that revision,
+run `python kavora-runtime/tools/clouds/import_revelation.py <checkout>` with
+Pillow installed. The importer preserves the source texels and resolutions.
+Vulkan packs the six 2D images in two array layers and selects each image's
+native mip level. The two 3D volumes supply the alligator FBM and curl field.
 
-## Rebuild
+## Rebuild the HanPi training assets
 
 Run these commands from the repository root in a Python environment with NumPy,
 Pillow, SciPy and SlangPy. The noise baker uses Vulkan. Store the observation
@@ -14,9 +18,9 @@ python kavora-runtime/tools/clouds/bake_noise.py --cache .local/cloud-observatio
 python kavora-runtime/tools/clouds/bake_weather.py --cache .local/cloud-observations
 ```
 
-The outputs live in `src/dxvk/rtx_render/clouds`. Mips are contiguous from
-largest to smallest. Every texel occupies four bytes. The runtime checks the
-packed lengths at compile time.
+The HanPi outputs live in `src/dxvk/rtx_render/clouds`. Mips are contiguous
+from largest to smallest. Every texel occupies four bytes. These files
+reproduce the input field from the HanPi experiments.
 
 ## Weather and profiles
 

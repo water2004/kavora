@@ -25,15 +25,7 @@ CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 posi
   const float altitude = cloudAltitude(densityArgs, position);
   const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
   const uint steps = layer == 0 ? clamp(args.lightSteps, 2u, uint(CLOUD_LIGHTING_MAX_QUALITY)) : 2u;
-  const float3 coordinates = cloudCoordinates(densityArgs, position);
-  CloudColumn column = {};
-  float thickness = args.highThickness;
-  if (layer == 0)
-  {
-    // Keep weather and its support fixed across the local plane-parallel column.
-    column = cloudColumn(densityArgs, coordinates.xz, weatherSampler, args.thickness / float(steps));
-    thickness = cloudColumnThickness(densityArgs, column, weatherSampler);
-  }
+  const float thickness = cloudLayerTop(args, layer) - cloudLayerBase(args, layer);
   CloudLocalColumn result;
   result.bottom = cloudLayerBase(args, layer);
   result.span = thickness / float(steps);
@@ -44,10 +36,7 @@ CloudLocalColumn prepareCloudLocalColumn(CloudArgs args, uint layer, float3 posi
   {
     const float height = result.bottom + (float(cell) + 0.5f) * result.span;
     const float3 samplePosition = position + radialUp * (height - altitude);
-    const float extinction = layer == 0
-      ? args.extinction * cloudDensityInColumn(densityArgs, cloudCoordinates(densityArgs, samplePosition), column,
-          weatherSampler, baseSampler, detailSampler, result.span, result.span)
-      : cloudExtinction(args, samplePosition, weatherSampler, baseSampler, detailSampler, 0, result.span);
+    const float extinction = cloudLayerExtinction(args, samplePosition, layer, weatherSampler, baseSampler, detailSampler);
     depth += 0.5f * result.span * (previous + extinction);
     result.extinction[cell] = extinction;
     result.depthAtCenter[cell] = depth;
@@ -88,7 +77,7 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   const float bottom = cloudLayerBase(args, layer);
   const float thickness = cloudLayerTop(args, layer) - bottom;
   const float2 uv = (float2(index) + 0.5f) / float(CLOUD_LOCAL_LIGHT_RESOLUTION);
-  const float3 center = cloudLocalLightPosition(args, uv, bottom + 0.5f * thickness);
+  const float3 center = cloudLocalLightPosition(args, uv, bottom + 0.5f * thickness, layer);
   const CloudLocalColumn column = prepareCloudLocalColumn(args, layer, center, weather, base, detail);
   for (uint y = 0; y < samples; y++)
   {

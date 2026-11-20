@@ -75,10 +75,5 @@ void columnSupport(uint index : SV_DispatchThreadID)
     return;
   }
   const float4 sample = Inputs[index];
-  CloudDensityArgs args = {};
-  args.thickness = sample.x;
-  CloudColumn column = {};
-  column.type = sample.y;
-  column.topScale = sample.z;
-  Results[index] = float4(hanPiColumnSupport(args.thickness, column.topScale, sample.w), 0, 0, 0);
+  Results[index] = float4(hanPiColumnSupport(sample.x, sample.z, sample.w), 0, 0, 0);
 }

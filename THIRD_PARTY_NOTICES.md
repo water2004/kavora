@@ -6,6 +6,15 @@ locations given.
 
 ## Vendored source code
 
+### Revelation Shaders
+
+- Copyright (c) 2026 HaringPro. The native runtime ports the low and high
+  cloud density functions and packs the original weather, curl and profile
+  textures for Vulkan.
+- [Revelation source and license](https://github.com/HaringPro/Revelation/tree/d5911393856d9dd97375b46a1a088e6b8fddd755).
+  [Apache-2.0](LICENSES/Apache-2.0.txt).
+- [Integration notice and asset paths](kavora/packaging/licenses/Revelation-Clouds.txt).
+
 ### HanPi Volume Cloud
 
 - Copyright (c) 2026 AshenOneArt. The adapted Slang module preserves HanPi's
