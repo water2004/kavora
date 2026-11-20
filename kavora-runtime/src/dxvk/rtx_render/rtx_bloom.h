@@ -54,7 +54,7 @@ namespace dxvk {
       const Rc<DxvkSampler>& linearSampler,
       const Resources::Resource& inputBuffer,
       const Resources::Resource& outputBuffer,
-      bool initial);
+      float threshold, float levelWeight);
 
     void dispatchUpsampleStep(
       Rc<DxvkContext> ctx,
@@ -66,8 +66,7 @@ namespace dxvk {
       Rc<DxvkContext> ctx,
       const Rc<DxvkSampler> &linearSampler,
       const Resources::Resource& inOutColorBuffer,
-      const Resources::Resource& bloomBuffer,
-      int bloomDepth);
+      const Resources::Resource& bloomBuffer);
 
     virtual void createTargetResource(Rc<DxvkContext>& ctx, const VkExtent3D& targetExtent) override;
     virtual void releaseTargetResource() override;

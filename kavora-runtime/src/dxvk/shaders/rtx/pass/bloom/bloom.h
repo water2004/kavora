@@ -41,6 +41,7 @@ struct BloomDownsampleArgs {
   uint2  downsampledOutputSize;
   float2 downsampledOutputSizeInverse;
   float  threshold;
+  float  levelWeight;
 };
 
 struct BloomUpsampleArgs {
@@ -53,9 +54,7 @@ struct BloomCompositeArgs {
   uint2  imageSize;
   float2 imageSizeInverse;
   float  scatterFraction;
-  float  scatterPerLevel;
   float  threshold;
-  float  padding;
 };
 
 #endif  // BLOOM_H

@@ -119,16 +119,18 @@ namespace dxvk {
     static_assert(MaxBloomSteps == std::size(res) - 1);
 
     const int bloomDepth = std::clamp(steps(), 1, MaxBloomSteps);
+    const float threshold = std::max(0.01f, luminanceThreshold());
+    const float levelWeight = 1.0f / float(bloomDepth);
 
     for (int i = 0; i < bloomDepth; i++) {
-      dispatchDownsampleStep(ctx, linearSampler, *res[i], *res[i + 1], i == 0);
+      dispatchDownsampleStep(ctx, linearSampler, *res[i], *res[i + 1], i == 0 ? threshold : -1.0f, levelWeight);
     }
 
     for (int i = bloomDepth; i > 1; i--) {
       dispatchUpsampleStep(ctx, linearSampler, *res[i], *res[i - 1]);
     }
 
-    dispatchComposite(ctx, linearSampler, inOutColorBuffer, m_bloomBuffer[0], bloomDepth);
+    dispatchComposite(ctx, linearSampler, inOutColorBuffer, m_bloomBuffer[0]);
   }
 
   void DxvkBloom::dispatchDownsampleStep(
@@ -136,7 +138,7 @@ namespace dxvk {
     const Rc<DxvkSampler>& linearSampler,
     const Resources::Resource& inputBuffer,
     const Resources::Resource& outputBuffer,
-    bool initial) {
+    float threshold, float levelWeight) {
     ScopedGpuProfileZone(ctx, "Bloom Downsample");
 
     const VkExtent3D inputSize = inputBuffer.image->info().extent;
@@ -147,7 +149,8 @@ namespace dxvk {
     pushArgs.inputSizeInverse = { 1.0f / float(inputSize.width), 1.0f / float(inputSize.height) };
     pushArgs.downsampledOutputSize = { outputSize.width, outputSize.height };
     pushArgs.downsampledOutputSizeInverse = { 1.0f / float(outputSize.width), 1.0f / float(outputSize.height) };
-    pushArgs.threshold = initial ? std::max(0.01f, luminanceThreshold()) : -1;
+    pushArgs.threshold = threshold;
+    pushArgs.levelWeight = levelWeight;
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
 
     const VkExtent3D workgroups = util::computeBlockCount(outputSize, VkExtent3D{ 16, 16, 1 });
@@ -190,8 +193,7 @@ namespace dxvk {
     Rc<DxvkContext> ctx,
     const Rc<DxvkSampler> &linearSampler,
     const Resources::Resource& inOutColorBuffer,
-    const Resources::Resource& bloomBuffer,
-    int bloomDepth)
+    const Resources::Resource& bloomBuffer)
   {
     ScopedGpuProfileZone(ctx, "Composite");
 
@@ -202,8 +204,6 @@ namespace dxvk {
     pushArgs.imageSize = { outputSize.width, outputSize.height };
     pushArgs.imageSizeInverse = { 1.f / float(outputSize.width), 1.f / float(outputSize.height) };
     pushArgs.scatterFraction = std::clamp(0.025f * burnIntensity(), 0.0f, 1.0f);
-    // The upsample pass sums one normalized blur per level.
-    pushArgs.scatterPerLevel = pushArgs.scatterFraction / float(bloomDepth);
     pushArgs.threshold = std::max(0.01f, luminanceThreshold());
     ctx->pushConstants(0, sizeof(pushArgs), &pushArgs);
 

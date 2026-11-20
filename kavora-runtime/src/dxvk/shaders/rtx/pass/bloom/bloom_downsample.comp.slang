@@ -84,8 +84,9 @@ void main(uint2 ipos : SV_DispatchThreadID)
 
   if (cb.threshold > 0)
   {
-    // smoothly suppress values under threshold
-    result *= bloomSourceWeight(result, cb.threshold);
+    // Scale once at extraction. The FP16 pyramid then accumulates a mean,
+    // even for a disc whose radiance already approaches the FP16 maximum.
+    result *= bloomSourceWeight(result, cb.threshold) * cb.levelWeight;
   }
 
   OutColorBuffer[ipos] = float4(result, 0);

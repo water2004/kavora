@@ -51,5 +51,5 @@ void main(uint2 ipos : SV_DispatchThreadID)
   }
 
   const float retained = 1.0f - cb.scatterFraction * bloomSourceWeight(dst.rgb, cb.threshold);
-  InOutColorBuffer[ipos] = float4(dst.rgb * retained + src.rgb * cb.scatterPerLevel, dst.a);
+  InOutColorBuffer[ipos] = float4(dst.rgb * retained + src.rgb * cb.scatterFraction, dst.a);
 }

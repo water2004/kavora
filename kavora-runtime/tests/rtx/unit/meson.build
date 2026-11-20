@@ -247,6 +247,8 @@ run_target('test_dome_atmosphere',
   command: [python_interpreter, files('test_dome_atmosphere.py')])
 run_target('test_air_transport',
   command: [python_interpreter, files('test_air_transport.py')])
+run_target('test_bloom_transport',
+  command: [python_interpreter, files('test_bloom_transport.py')])
 run_target('test_cloud_transport',
   command: [python_interpreter, files('test_cloud_transport.py')])
 run_target('test_cloud_lighting',
