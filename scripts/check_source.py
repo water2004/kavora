@@ -39,16 +39,21 @@ def check() -> None:
 
     defaults = json.loads((ROOT / 'kavora/packaging/launcher-defaults.json').read_text())
     assert '--enable-native-access=ALL-UNNAMED' in defaults['RECOMMENDED_JVM_ARGS']
+    index_output = subprocess.check_output(['git', 'ls-files', '--stage', '-z'], cwd=ROOT).decode()
+    index = [entry.split('\t', 1) for entry in index_output.split('\0') if entry]
+    pinned = {name for entry, name in index if entry.startswith('160000 ')}
     config = configparser.ConfigParser()
     config.read(ROOT / '.gitmodules')
-    assert len(config.sections()) == 10, 'Expected ten pinned top-level runtime dependencies'
+    declared = {config[section]['path'] for section in config.sections()}
+    assert declared and pinned == declared and len(declared) == len(config.sections()), (
+        'Submodule declarations and pinned Git entries differ'
+    )
     for section in config.sections():
         assert config[section]['path'].startswith('kavora-runtime/'), f'Misplaced dependency: {section}'
         assert config[section]['url'].startswith('https://github.com/'), f'Non-public dependency: {section}'
 
-    tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     forbidden = ('.codex/', '.local/', 'dist/', 'kavora/runtime/', 'kavora-runtime/external/')
-    for name in filter(None, tracked):
+    for _, name in index:
         assert not name.startswith(forbidden), f'Local artifact tracked: {name}'
         assert '/build/' not in name and not name.startswith('build/'), f'Build output tracked: {name}'
     print(f'Source layout, matching C API headers and {len(required)} required source/license files verified.')
