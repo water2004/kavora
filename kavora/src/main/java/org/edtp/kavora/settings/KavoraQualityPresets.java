@@ -37,7 +37,7 @@ public final class KavoraQualityPresets {
     private static Map<String, Object> build(QualityPreset preset) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("clouds.samples", tier(preset, 64, 40, 28, 16));
-        values.put("clouds.primaryPixelStride", tier(preset, 2, 4, 6, 8));
+        values.put("clouds.primaryPixelStride", tier(preset, 2, 3, 5, 8));
         values.put("clouds.distance", (double) tier(preset, 24000, 24000, 18000, 12000));
         values.put("clouds.highSamples", tier(preset, 20, 12, 8, 4));
         values.put("clouds.highDistance", (double) tier(preset, 24000, 24000, 20000, 16000));

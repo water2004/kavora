@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.LinkedHashMap;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,6 +110,13 @@ public final class KavoraSettingsStore {
             if (root.has("quality")) {
                 JsonObject selection = root.getAsJsonObject("quality");
                 base = QualityPreset.byId(selection.get("base").getAsString()).orElse(base);
+                // Older saves serialized every value of a stock preset, including its column width.
+                stockPreset(selection).ifPresent(preset -> {
+                    switch (preset) {
+                        case HIGH -> dropStockValue(values, "clouds.primaryPixelStride", 4);
+                        case MEDIUM -> dropStockValue(values, "clouds.primaryPixelStride", 6);
+                    }
+                });
             }
         } catch (Exception e) {
             preserveFile = true;
@@ -186,11 +194,7 @@ public final class KavoraSettingsStore {
         values.remove("clouds.skyResolution");
         values.remove("clouds.anisotropy");
         values.remove("cache.combine");
-        if (selection == null || !selection.has("base")) return;
-        JsonElement custom = selection.get("custom");
-        if (custom == null || !custom.isJsonPrimitive() || !custom.getAsJsonPrimitive().isBoolean()
-                || custom.getAsBoolean()) return;
-        var base = QualityPreset.byId(selection.get("base").getAsString());
+        var base = stockPreset(selection);
         if (base.isEmpty()) return;
         int previousViewSamples = switch (base.get()) {
             case ULTRA -> 160;
@@ -207,6 +211,14 @@ public final class KavoraSettingsStore {
         // independent edit in schema 5 and stays explicit in schema 6.
         dropStockValue(values, "clouds.samples", previousViewSamples);
         dropStockValue(values, "clouds.shadowSamples", previousShadowSamples);
+    }
+
+    private static Optional<QualityPreset> stockPreset(JsonObject selection) {
+        if (selection == null || !selection.has("base")) return Optional.empty();
+        JsonElement custom = selection.get("custom");
+        if (custom == null || !custom.isJsonPrimitive() || !custom.getAsJsonPrimitive().isBoolean()
+                || custom.getAsBoolean()) return Optional.empty();
+        return QualityPreset.byId(selection.get("base").getAsString());
     }
 
     private static void dropStockValue(JsonObject values, String id, int previousDefault) {

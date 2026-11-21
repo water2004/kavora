@@ -351,6 +351,37 @@ class KavoraSettingsStoreTest {
     }
 
     @Test
+    void stockProfilesInheritCloudColumnSpacingWhileEditedWidthsRoundTrip(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("settings.json");
+        for (var preset : List.of(QualityPreset.HIGH, QualityPreset.MEDIUM)) {
+            int former = preset == QualityPreset.HIGH ? 4 : 6;
+            int inherited = (int) KavoraQualityPresets.values(preset).get("clouds.primaryPixelStride");
+            for (boolean custom : List.of(false, true)) {
+                for (int saved : new int[]{former, 9}) {
+                    Files.writeString(file, """
+                            {"version":6,"quality":{"base":"%s","custom":%s},
+                             "settings":{"clouds.primaryPixelStride":%d,"f":2.5}}
+                            """.formatted(preset.id(), custom, saved));
+                    double[] artistic = {1};
+                    int[] width = {2};
+                    var controls = new ArrayList<>(registryWith(artistic, new int[]{0}, new boolean[]{true}).all());
+                    controls.add(KavoraSetting.ofInt("clouds.primaryPixelStride", SettingGroup.CLOUD_QUALITY,
+                            "l", "t", 2, 16, 2, () -> width[0], next -> width[0] = next));
+                    var settings = new KavoraSettings(controls);
+                    var store = new KavoraSettingsStore(file);
+                    store.load(settings);
+                    store.save(settings);
+                    width[0] = 2;
+                    store.load(settings);
+                    assertEquals(custom || saved != former ? saved : inherited, width[0]);
+                    assertEquals(custom || saved != former, settings.quality().customized());
+                    assertEquals(2.5, artistic[0]);
+                }
+            }
+        }
+    }
+
+    @Test
     void updatesStockCloudBudgetsWithoutOverwritingCustomValues(@TempDir Path dir) throws Exception {
         Map<QualityPreset, Integer> previous = Map.of(QualityPreset.ULTRA, 160, QualityPreset.HIGH, 128,
                 QualityPreset.MEDIUM, 96, QualityPreset.LOW, 64);
