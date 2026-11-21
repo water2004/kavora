@@ -39,6 +39,7 @@
 #include "rtx/pass/clouds/cloud_sky_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_integrate_binding_indices.h"
 #include "rtx/pass/volumetrics/volume_filter_binding_indices.h"
+#include "rtx/pass/volumetrics/volume_sky_sampling.h"
 #include "rtx/pass/volumetrics/air_shadow.h"
 
 #include <rtx_shaders/volume_integrate_rayquery_raygen.h>
@@ -53,6 +54,8 @@
 #include <rtx_shaders/volume_restir_visibility.h>
 #include <rtx_shaders/volume_restir_temporal.h>
 #include <rtx_shaders/volume_restir_spatial_resampling.h>
+#include <rtx_shaders/volume_sky_cdf.h>
+#include <rtx_shaders/volume_sky_samples.h>
 
 #include "dxvk_scoped_annotation.h"
 #include "rtx_context.h"
@@ -131,6 +134,33 @@ namespace dxvk {
 
     PREWARM_SHADER_PIPELINE(GenerateCloudSkyShader);
 
+    class VolumeSkyCdfShader : public ManagedShader {
+      SHADER_SOURCE(VolumeSkyCdfShader, VK_SHADER_STAGE_COMPUTE_BIT, volume_sky_cdf)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        SAMPLERCUBE(VOLUME_SKY_PROBE_BINDING)
+        SAMPLER(VOLUME_SKY_PROBE_SAMPLER_BINDING)
+        RW_TEXTURE2D(VOLUME_SKY_CDF_BINDING)
+      END_PARAMETER()
+    };
+
+    PREWARM_SHADER_PIPELINE(VolumeSkyCdfShader);
+
+    class VolumeSkySamplesShader : public ManagedShader {
+      SHADER_SOURCE(VolumeSkySamplesShader, VK_SHADER_STAGE_COMPUTE_BIT, volume_sky_samples)
+      BINDLESS_ENABLED()
+      BEGIN_PARAMETER()
+        COMMON_RAYTRACING_BINDINGS
+        SAMPLERCUBE(VOLUME_SKY_PROBE_BINDING)
+        SAMPLER(VOLUME_SKY_PROBE_SAMPLER_BINDING)
+        TEXTURE2D(VOLUME_SKY_CDF_BINDING)
+        RW_TEXTURE2D(VOLUME_SKY_SAMPLES_BINDING)
+      END_PARAMETER()
+    };
+
+    PREWARM_SHADER_PIPELINE(VolumeSkySamplesShader);
+
     class VolumeRestirShaderInitial : public ManagedShader {
       SHADER_SOURCE(VolumeRestirShaderInitial, VK_SHADER_STAGE_COMPUTE_BIT, volume_restir_initial)
 
@@ -205,8 +235,7 @@ namespace dxvk {
         SAMPLER3D(VOLUME_INTEGRATE_BINDING_PREV_ACCUMULATED_RADIANCE_INPUT_CO_CG)
         SAMPLER3D(VOLUME_INTEGRATE_BINDING_PREV_ACCUMULATED_RADIANCE_INPUT_AGE)
         TEXTURE3D(VOLUME_INTEGRATE_BINDING_VOLUME_RESERVOIRS_OUTPUT)
-        SAMPLERCUBE(VOLUME_INTEGRATE_BINDING_SKY_PROBE)
-        SAMPLER(VOLUME_INTEGRATE_BINDING_SKY_SAMPLER)
+        TEXTURE2D(VOLUME_INTEGRATE_BINDING_SKY_SAMPLES)
 
         RW_TEXTURE3D(VOLUME_INTEGRATE_BINDING_ACCUMULATED_RADIANCE_OUTPUT_Y)
         RW_TEXTURE3D(VOLUME_INTEGRATE_BINDING_ACCUMULATED_RADIANCE_OUTPUT_CO_CG)
@@ -1017,9 +1046,37 @@ namespace dxvk {
     ctx->dispatch((extent.width + 7) / 8, (extent.height + 7) / 8, 1);
   }
 
-  void RtxGlobalVolumetrics::dispatch(RtxContext* ctx, uint32_t numActiveFroxelVolumes) {
-    // Bind resources
+  void RtxGlobalVolumetrics::dispatchVolumeSkySamples(RtxContext* ctx) {
+    ScopedGpuProfileZone(ctx, "Volume Sky Importance Sampling");
+    if (!m_volumeSkyCdf.isValid()) {
+      Rc<DxvkContext> resourceContext = ctx;
+      m_volumeSkyCdf = Resources::createImageResource(resourceContext, "Volume sky luminance CDF",
+        { CLOUD_SKY_RESOLUTION * 2, CLOUD_SKY_RESOLUTION, 1 }, VK_FORMAT_R32_SFLOAT,
+        1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
+      m_volumeSkySamples = Resources::createImageResource(resourceContext, "Weighted volume sky samples",
+        { VOLUME_SKY_SAMPLE_COUNT, 2, 1 }, VK_FORMAT_R32G32B32A32_SFLOAT,
+        1, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D);
+    }
+    auto& resources = ctx->getResourceManager();
+    const auto linearSampler = resources.getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    const auto wrapSampler = resources.getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
+      VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    ctx->bindCommonRayTracingResources();
+    ctx->bindResourceView(VOLUME_SKY_PROBE_BINDING, resources.getSkyProbe(ctx).view, nullptr);
+    ctx->bindResourceSampler(VOLUME_SKY_PROBE_BINDING, linearSampler);
+    ctx->bindResourceSampler(VOLUME_SKY_PROBE_SAMPLER_BINDING, wrapSampler);
+    ctx->bindResourceView(VOLUME_SKY_CDF_BINDING, m_volumeSkyCdf.view, nullptr);
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, VolumeSkyCdfShader::getShader());
+    ctx->dispatch(CLOUD_SKY_RESOLUTION, 1, 1);
 
+    ctx->bindResourceView(VOLUME_SKY_SAMPLES_BINDING, m_volumeSkySamples.view, nullptr);
+    ctx->bindShader(VK_SHADER_STAGE_COMPUTE_BIT, VolumeSkySamplesShader::getShader());
+    ctx->dispatch(VOLUME_SKY_SAMPLE_COUNT / VOLUME_SKY_GROUP_SIZE, 1, 1);
+  }
+
+  void RtxGlobalVolumetrics::dispatch(RtxContext* ctx, uint32_t numActiveFroxelVolumes) {
+    dispatchVolumeSkySamples(ctx);
     ctx->bindCommonRayTracingResources();
 
     // Note: Clamp to edge used to avoid interpolation to black on the edges of the view. Note this is fine here as the temporal reprojection lookups will ensure
@@ -1032,11 +1089,7 @@ namespace dxvk {
     ctx->bindResourceSampler(VOLUME_INTEGRATE_BINDING_PREV_ACCUMULATED_RADIANCE_INPUT_CO_CG, linearSampler);
     ctx->bindResourceView(VOLUME_INTEGRATE_BINDING_PREV_ACCUMULATED_RADIANCE_INPUT_AGE, getPreviousVolumeAccumulatedRadianceAge().view, nullptr);
     ctx->bindResourceSampler(VOLUME_INTEGRATE_BINDING_PREV_ACCUMULATED_RADIANCE_INPUT_AGE, linearSampler);
-    ctx->bindResourceView(VOLUME_INTEGRATE_BINDING_SKY_PROBE, ctx->getResourceManager().getSkyProbe(ctx).view, nullptr);
-    ctx->bindResourceSampler(VOLUME_INTEGRATE_BINDING_SKY_PROBE, linearSampler);
-    ctx->bindResourceSampler(VOLUME_INTEGRATE_BINDING_SKY_SAMPLER,
-      ctx->getResourceManager().getSampler(VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST,
-        VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE));
+    ctx->bindResourceView(VOLUME_INTEGRATE_BINDING_SKY_SAMPLES, m_volumeSkySamples.view, nullptr);
 
     ctx->bindResourceView(VOLUME_INTEGRATE_BINDING_ACCUMULATED_RADIANCE_OUTPUT_Y, getCurrentVolumeAccumulatedRadianceY().view, nullptr);
     ctx->bindResourceView(VOLUME_INTEGRATE_BINDING_ACCUMULATED_RADIANCE_OUTPUT_CO_CG, getCurrentVolumeAccumulatedRadianceCoCg().view, nullptr);

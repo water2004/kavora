@@ -1,0 +1,47 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#include "rtx/pass/volumetrics/volume_sky_sampling.h"
+#include "rtx/pass/common_bindings.slangh"
+#include "rtx/algorithm/environment_radiance.slangh"
+import "rtx/algorithm/cloud_sky.slang";
+import "rtx/utility/color_transfer.slang";
+
+layout(binding = VOLUME_SKY_PROBE_BINDING)
+SamplerCube<float3> VolumeSkyProbe;
+layout(binding = VOLUME_SKY_PROBE_SAMPLER_BINDING)
+SamplerState VolumeSkySampler;
+
+static const uint kVolumeSkyWidth = CLOUD_SKY_RESOLUTION * 2;
+static const uint kVolumeSkyHeight = CLOUD_SKY_RESOLUTION;
+static const float kVolumeSkyAngle = 3.141592653589793f / kVolumeSkyHeight;
+
+float3 volumeSkyTexel(uint2 texel)
+{
+  const float2 uv = (float2(texel) + 0.5f) / float2(kVolumeSkyWidth, kVolumeSkyHeight);
+  if (cb.volumeArgs.clouds.enable)
+  {
+    return max(CloudSkySampler.SampleLevel(float3(uv, kCloudSkyIrradianceLayer), 0).rgb, float3(0));
+  }
+  const float3 direction = cloudSkyDirection(uv, cb.volumeArgs.clouds.up);
+  return max(sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, VolumeSkyProbe, VolumeSkySampler, direction), float3(0));
+}
+
+// One scan per latitude in the distribution pass. The sample-bank pass scans
+// the same latitude totals once per group to keep the marginal CDF local.
+groupshared float VolumeSkyPrefix[VOLUME_SKY_GROUP_SIZE];
+
+float volumeSkyInclusiveScan(uint lane, float value)
+{
+  VolumeSkyPrefix[lane] = value;
+  GroupMemoryBarrierWithGroupSync();
+  [unroll]
+  for (uint offset = 1; offset < VOLUME_SKY_GROUP_SIZE; offset *= 2)
+  {
+    const float addend = lane >= offset ? VolumeSkyPrefix[lane - offset] : 0.0f;
+    GroupMemoryBarrierWithGroupSync();
+    VolumeSkyPrefix[lane] += addend;
+    GroupMemoryBarrierWithGroupSync();
+  }
+  return VolumeSkyPrefix[lane];
+}

@@ -368,12 +368,15 @@ namespace dxvk {
   private:
     void dispatchCloudLighting(class RtxContext* ctx, const CloudArgs& clouds);
     void dispatchAirShadows(class RtxContext* ctx, const AirArgs& air);
+    void dispatchVolumeSkySamples(class RtxContext* ctx);
 
     Resources::Resource m_cloudLocalLight;
     Resources::Resource m_cloudNeuralLight;
     CloudNeuralModel m_cloudNeuralModel;
     Resources::Resource m_cloudAmbient;
     Resources::Resource m_cloudSky;
+    Resources::Resource m_volumeSkyCdf;
+    Resources::Resource m_volumeSkySamples;
     Resources::Resource m_cloudShadow;
     Resources::Resource m_airShadowDepth;
     CloudArgs m_previousCloudLightingArgs{};

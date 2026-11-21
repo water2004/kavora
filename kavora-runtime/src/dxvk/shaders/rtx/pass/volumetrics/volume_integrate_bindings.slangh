@@ -35,10 +35,8 @@ Sampler3D<float> PrevAccumulatedRadianceAge;
 layout(rgba32ui, binding = VOLUME_INTEGRATE_BINDING_VOLUME_RESERVOIRS_OUTPUT)
 Texture3D<uint4> VolumeReservoirs;
 
-layout(binding = VOLUME_INTEGRATE_BINDING_SKY_PROBE)
-SamplerCube<float3> VolumeSkyProbe;
-layout(binding = VOLUME_INTEGRATE_BINDING_SKY_SAMPLER)
-SamplerState VolumeSkySampler;
+layout(binding = VOLUME_INTEGRATE_BINDING_SKY_SAMPLES)
+Texture2D<float4> VolumeSkySamples;
 
 // Outputs
 

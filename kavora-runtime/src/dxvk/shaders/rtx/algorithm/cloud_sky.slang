@@ -70,8 +70,3 @@ public float cloudSkyTailStart(VolumeArgs volume)
   // Leave room for paths which enter the fog interval from a secondary origin.
   return fogDistance + volume.clouds.shapeScale;
 }
-
-public float3 sampleCloudSkyIncidentRadiance(CloudArgs args, Sampler2DArray<float4> sky, float3 direction)
-{
-  return sky.SampleLevel(float3(cloudSkyUv(args, direction), kCloudSkyIrradianceLayer), 0).rgb;
-}

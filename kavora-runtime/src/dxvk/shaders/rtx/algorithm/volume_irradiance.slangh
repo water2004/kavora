@@ -5,8 +5,9 @@
 #include "rtx/algorithm/lighting.slangh"
 #include "rtx/algorithm/rtxdi/rtxdi.slangh"
 #include "rtx/algorithm/resolve_medium.slangh"
+#include "rtx/utility/noise.slangh"
+#include "rtx/pass/volumetrics/volume_sky_sampling.h"
 import "rtx/algorithm/clouds.slang";
-import "rtx/algorithm/cloud_sky.slang";
 
 float3 volumeLightAttenuation(Ray ray)
 {
@@ -14,29 +15,13 @@ float3 volumeLightAttenuation(Ray ray)
   return calcVolumetricAttenuation(cb.volumeArgs, none, false, ray.tMax, ray.origin, ray.direction);
 }
 
-float volumeSkyRadicalInverse(uint index, uint base)
+uint volumeSkySampleIndex(uint3 cell)
 {
-  float digitWeight = 1.0f / float(base);
-  float value = 0;
-  while (index > 0)
-  {
-    value += float(index % base) * digitWeight;
-    index /= base;
-    digitWeight /= float(base);
-  }
-  return value;
-}
-
-float3 sampleVolumeSkyDirection(uint3 cell, out float pdf)
-{
-  pdf = getUniformSphereSolidAnglePdf();
-  // The [1, 2, 1] reconstruction gives every 2x2x2 cell phase equal weight.
-  // Quarter-turn strata and antipodal pairs preserve a constant sky's SH moments.
-  uint sampleIndex = cb.frameIdx + 1;
-  float2 sample = float2(volumeSkyRadicalInverse(sampleIndex, 2), volumeSkyRadicalInverse(sampleIndex, 3));
-  sample.x = frac(sample.x + float((cell.x & 1) + 2 * (cell.z & 1)) * 0.25f);
-  sample.y = lerp(sample.y, 1.0f - sample.y, float(cell.y & 1));
-  return calcUniformSphereDirectionSample(sample, pdf);
+  // The froxel reconstruction gives the eight phases equal weight. Spread
+  // them across the ordered sample bank and offset each 2x2x2 block independently.
+  const uint phase = (cell.x & 1u) + 2u * (cell.y & 1u) + 4u * (cell.z & 1u);
+  const uint start = uintHash(cell >> 1) + cb.frameIdx * 1597u;
+  return (start + phase * (VOLUME_SKY_SAMPLE_COUNT / 8)) & (VOLUME_SKY_SAMPLE_COUNT - 1);
 }
 
 bool sampleVolumeReservoir(inout RAB_RandomSamplerState random, uint volumeIndex,
@@ -84,12 +69,9 @@ SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 
     if (isSky)
     {
       phase = completePhase;
-      direction = sampleVolumeSkyDirection(cell, sample.solidAnglePdf);
-      sample.position = volume.position + direction;
-      sample.normal = -direction;
-      sample.radiance = cb.volumeArgs.enable && cb.volumeArgs.clouds.enable
-        ? sampleCloudSkyIncidentRadiance(cb.volumeArgs.clouds, CloudSkySampler, direction)
-        : sampleEnvironmentRadiance(cb.domeLightArgs, cb.skyBrightness, VolumeSkyProbe, VolumeSkySampler, direction);
+      const uint skyIndex = volumeSkySampleIndex(cell);
+      direction = VolumeSkySamples[uint2(skyIndex, 0)].xyz;
+      sample.radiance = VolumeSkySamples[uint2(skyIndex, 1)].rgb;
       if (!any(sample.radiance > 0))
       {
         continue;
@@ -148,7 +130,7 @@ SphericalHarmonic sampleVolumeLights(inout RAB_RandomSamplerState random, uint3 
         shadowRay.origin, direction, false, 0);
       float3 mean, directional;
       fogSkyBandTransmittance(opticalDepth, cb.volumeArgs.volumetricFogAnisotropy, mean, directional);
-      const float3 sky = sanitize(sample.radiance * visibility.attenuation / sample.solidAnglePdf, float3(0));
+      const float3 sky = sanitize(sample.radiance * visibility.attenuation, float3(0));
       irradiance.addRadiance(sky * directional, direction);
       irradiance.addRadiance(sky * (mean - directional), float3(0));
     }
