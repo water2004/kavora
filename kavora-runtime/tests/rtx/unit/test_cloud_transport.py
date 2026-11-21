@@ -94,6 +94,47 @@ def check_pixel_samples(probe):
     print("PASS pixel samples cover every quadrature stratum with distinct pixel scrambles")
 
 
+def check_neural_angle_grid(probe):
+    light_up = 0.45
+    slots = [(slot, light_up, 0, 0) for slot in range(12)]
+    nodes = probe.run("neuralAngleKnot", slots)
+    np.testing.assert_allclose(nodes[:, 2], np.repeat(np.arange(6), 2), atol=2e-4)
+    np.testing.assert_allclose(nodes[2:-2, 3], np.tile([0, 1], 4), atol=2e-4)
+    degrees = np.degrees(np.arccos(nodes[::2, 0]))
+    assert np.all(np.diff(degrees) > 0)
+    np.testing.assert_allclose(degrees[[0, -1]], [0, 180], atol=0.03)
+    assert 1 < degrees[1] < 3 and 5 < degrees[2] < 8, degrees
+    print("PASS cloud neural angular grid resolves the forward peak and round-trips each knot")
+
+
+def check_neural_beam_curve(probe):
+    # Pack a steep forward lobe in the actual six-band beam layout.
+    values = np.array([[14, 12], [10, 8], [2, 3], [1, 1.2], [.8, .9], [.7, .75]], np.float32)
+    delta = np.diff(values, axis=0)
+    tangent = np.vstack((delta[0], 2 * delta[:-1] * delta[1:] / (delta[:-1] + delta[1:]), delta[-1]))
+    packed = np.concatenate((values, tangent), axis=1)
+    size = 14 * 16
+    data = np.zeros((1, size, 1, 4), np.float32)
+    data[0, :6 * 16, 0] = np.repeat(packed, 16, axis=0)
+    texture = probe.device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba32_float,
+        width=1, height=size, depth=1, data=data, usage=spy.TextureUsage.shader_resource)
+    sampler = probe.device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
+        mag_filter=spy.TextureFilteringMode.linear, address_u=spy.TextureAddressingMode.clamp_to_edge,
+        address_v=spy.TextureAddressingMode.clamp_to_edge, address_w=spy.TextureAddressingMode.clamp_to_edge)
+    tex = {"Neural": texture.create_view(sampler=sampler)}
+    knots = np.arange(1, 5)
+    samples = knots[:, None] + np.array([-.002, 0, .002])
+    elevation = .25
+    result = probe.run("neuralBeamCurve", [(t, elevation, 0, 0) for t in samples.flat],
+        textures=tex)[:, 0].reshape(-1, 3)
+    expected = values[knots] @ [1 - elevation, elevation]
+    expected_tangent = tangent[knots] @ [1 - elevation, elevation]
+    np.testing.assert_allclose(result[:, 1], expected, atol=2e-5)
+    np.testing.assert_allclose(np.diff(result, axis=1) / .002,
+        np.repeat(expected_tangent[:, None], 2, axis=1), atol=.05)
+    print("PASS cloud beam lookup shares the radiance and slope at angular boundaries")
+
+
 def check_air_skylight(probe):
     column = probe.device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rg32_float,
         width=1, height=1, depth=1, usage=spy.TextureUsage.shader_resource,
@@ -436,6 +477,8 @@ def main():
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
     probe = Probe(device)
     check_pixel_samples(probe)
+    check_neural_angle_grid(probe)
+    check_neural_beam_curve(probe)
     check_air_skylight(probe)
     check_weather_column_coordinates(probe)
     check_homogeneous(probe)

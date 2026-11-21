@@ -48,7 +48,7 @@ uint3 cloudNeuralTexel(uint3 cell, uint band)
 {
   const uint light = cell.y / CLOUD_NEURAL_COLUMN_HEIGHT;
   const uint row = cell.y % CLOUD_NEURAL_COLUMN_HEIGHT;
-  return uint3(cell.x, (light * CLOUD_NEURAL_BANDS + band) * CLOUD_NEURAL_COLUMN_HEIGHT + row, cell.z);
+  return uint3(cell.x, (light * CLOUD_NEURAL_POLAR_KNOTS + band) * CLOUD_NEURAL_COLUMN_HEIGHT + row, cell.z);
 }
 
 bool prepareNeuralCell(CloudArgs args, uint3 cell, uint lane, out uint lightIndex, uint slot = 0, uint stride = 10)
@@ -105,6 +105,13 @@ float neuralFeature(uint index, float3 angular, float meanCosine, bool sky, uint
   return index < 4 ? Cells[slot].features[index] : index < 7 ? angular[index - 4] : index == 7 ? meanCosine : 0;
 }
 
+float2 neuralKnotRadiance(uint knot, uint slot)
+{
+  // The two elevation extrema coincide at each pole and share one prediction.
+  const uint2 index = clamp(2 * int(knot) + int2(-1, 0), 0, int(kDirections) - 1);
+  return float2(Cells[slot].prediction[index.x], Cells[slot].prediction[index.y]);
+}
+
 void storeCloudLighting(uint3 cell, uint lane, uint channel, float strength, uint slot = 0)
 {
   GroupMemoryBarrierWithGroupSync();
@@ -121,13 +128,16 @@ void storeCloudLighting(uint3 cell, uint lane, uint channel, float strength, uin
     }
     return;
   }
-  if (lane < CLOUD_NEURAL_BANDS)
+  if (lane < CLOUD_NEURAL_POLAR_KNOTS)
   {
-    float4 endpoints;
-    [unroll]
-    for (int i = 0; i < 4; i++)
-      endpoints[i] = Cells[slot].prediction[clamp(int(lane) * 4 + i - 1, 0, int(kDirections) - 1)];
-    NeuralCloudOutput[cloudNeuralTexel(cell, lane)] = endpoints;
+    const uint last = CLOUD_NEURAL_POLAR_KNOTS - 1;
+    const float2 radiance = neuralKnotRadiance(lane, slot);
+    const float2 previous = neuralKnotRadiance(uint(max(int(lane) - 1, 0)), slot);
+    const float2 next = neuralKnotRadiance(min(lane + 1, last), slot);
+    const float2 before = radiance - previous;
+    const float2 after = next - radiance;
+    const float2 tangent = lane == 0 ? after : lane == last ? before : cloudNeuralKnotTangent(before, after);
+    NeuralCloudOutput[cloudNeuralTexel(cell, lane)] = float4(radiance, tangent);
   }
 }
 

@@ -4,6 +4,7 @@ import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_shadow.slang";
 import "rtx/algorithm/cloud_view_transport.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_neural_scattering.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "cloud_preview_integral.slang";
 import "rtx/utility/cloud_density.slang";
@@ -88,6 +89,28 @@ void pixelSample(uint index : SV_DispatchThreadID)
   if (index >= Count) return;
   const uint3 sample = uint3(Inputs[index].xyz);
   Results[index] = cloudPixelSampleOffset(sample.xy, sample.z).xxxx;
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void neuralAngleKnot(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float2 input = Inputs[index].xy;
+  const float2 knot = cloudNeuralKnot(uint(input.x), input.y);
+  const CloudNeuralAngle angle = cloudNeuralAngle(knot.x, knot.y, input.y);
+  Results[index] = float4(knot, float(angle.interval) + angle.polarBlend, angle.elevationBlend);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void neuralBeamCurve(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float polar = Inputs[index].x;
+  const uint interval = min(uint(polar), 4u);
+  const CloudNeuralAngle angle = { interval, polar - float(interval), Inputs[index].y };
+  Results[index] = cloudNeuralDiffuse(Sampler3D<float4>(Neural), float3(1, 3, 8), angle, 0, 0).xxxx;
 }
 
 struct CloudOpacityProbe : ICloudViewIntegral

@@ -48,13 +48,17 @@ public float3 cloudNeuralPosition(CloudArgs args, uint2 index, uint layer, float
   return cloudLightPositionAtAltitude(args, horizontal, altitude);
 }
 
-// For a fixed light the checkpoint sees only view.light and view.up.
-// At each polar knot only the extrema of the reachable elevations are needed
-// for linear interpolation. Sample more densely around the forward lobe.
+// Space knots logarithmically in the chord distance. The first two intervals
+// resolve the forward peak of the liquid and ice phase inputs.
+static const float kNeuralAngleOctaves = 6.5f;
+static const float kNeuralAngleRange = exp2(kNeuralAngleOctaves) - 1.0f;
+
+// At each polar knot the checkpoint samples the two reachable elevation extrema.
 public float2 cloudNeuralKnot(uint slot, float lightUp)
 {
   const float t = float(slot / 2) / float(CLOUD_NEURAL_POLAR_KNOTS - 1);
-  const float mu = 1.0f - 2.0f * t * t * t;
+  const float chord = (exp2(kNeuralAngleOctaves * t) - 1.0f) / kNeuralAngleRange;
+  const float mu = clamp(1.0f - 2.0f * chord * chord, -1.0f, 1.0f);
   const float radius = sqrt(max(0.0f, (1.0f - mu * mu) * (1.0f - lightUp * lightUp)));
   return float2(mu, mu * lightUp + ((slot & 1) == 0 ? -radius : radius));
 }
@@ -69,27 +73,36 @@ public struct CloudNeuralAngle
 public CloudNeuralAngle cloudNeuralAngle(float cosine, float viewUp, float lightUp)
 {
   const float mu = clamp(cosine, -1.0f, 1.0f);
-  const float polar = pow(0.5f * (1.0f - mu), 1.0f / 3.0f) * float(CLOUD_NEURAL_POLAR_KNOTS - 1);
+  const float chord = sqrt(0.5f * (1.0f - mu));
+  const float polar = log2(1.0f + kNeuralAngleRange * chord)
+    * (float(CLOUD_NEURAL_POLAR_KNOTS - 1) / kNeuralAngleOctaves);
   const uint interval = min(uint(polar), uint(CLOUD_NEURAL_POLAR_KNOTS - 2));
   const float radiusSquared = max(0.0f, (1.0f - mu * mu) * (1.0f - lightUp * lightUp));
   const float elevation = (viewUp - mu * lightUp) * rsqrt(max(1e-12f, radiusSquared));
   return { interval, polar - float(interval), saturate(0.5f + 0.5f * elevation) };
 }
 
+// Fritsch–Butland tangents for equally spaced knots in the interpolation coordinate.
+public float2 cloudNeuralKnotTangent(float2 before, float2 after)
+{
+  const float2 slope = 2.0f * before * abs(after) / max(abs(before + after), 1e-12f);
+  return select(before * after > 0.0f, slope, float2(0.0f));
+}
+
 float sampleNeuralAngles(Sampler3D<float4> field, float2 uv, float v, CloudNeuralAngle angle)
 {
   const float band = 1.0f / CLOUD_NEURAL_TOTAL_BANDS;
-  const uint i = angle.interval;
-  const float4 first = field.SampleLevel(float3(uv.x, v + float(i / 2) * band, uv.y), 0);
-  float2 low = first.xy;
-  float2 high = first.zw;
-  if ((i & 1) != 0)
-  {
-    low = first.zw;
-    high = field.SampleLevel(float3(uv.x, v + float((i + 1) / 2) * band, uv.y), 0).xy;
-  }
-  const float2 endpoints = lerp(low, high, angle.polarBlend);
-  return lerp(endpoints.x, endpoints.y, angle.elevationBlend);
+  const float row = v + float(angle.interval) * band;
+  const float4 from = field.SampleLevel(float3(uv.x, row, uv.y), 0);
+  const float4 to = field.SampleLevel(float3(uv.x, row + band, uv.y), 0);
+
+  // Reuse the same tangent on both sides of each knot so brightness falls
+  // continuously around the light even where the forward lobe becomes shallow.
+  const float t = angle.polarBlend;
+  const float s = 1.0f - t;
+  const float2 radiance = lerp(from.xy, to.xy, t * t * (3.0f - 2.0f * t))
+    + (t * s) * (s * from.zw - t * to.zw);
+  return lerp(radiance.x, radiance.y, angle.elevationBlend);
 }
 
 // The lower boundary sees the same phase quadrature reflected about the horizon.
@@ -172,6 +185,6 @@ public float cloudNeuralDiffuse(Sampler3D<float4> field, float3 opticalDepth,
   const float3 state = saturate(log(1.0f + opticalDepth) / log(1.0f + kSolarMaxDepth));
   const float2 uv = (0.5f + state.xy * (size - 1.0f)) / size;
   const float row = cloudNeuralRowOffset(layer) + 0.5f + state.z * float(cloudNeuralHeightSamples(layer) - 1);
-  const float v = (float(light * CLOUD_NEURAL_BANDS) + row / CLOUD_NEURAL_COLUMN_HEIGHT) / CLOUD_NEURAL_TOTAL_BANDS;
+  const float v = (float(light * CLOUD_NEURAL_POLAR_KNOTS) + row / CLOUD_NEURAL_COLUMN_HEIGHT) / CLOUD_NEURAL_TOTAL_BANDS;
   return sampleNeuralAngles(field, uv, v, angle);
 }

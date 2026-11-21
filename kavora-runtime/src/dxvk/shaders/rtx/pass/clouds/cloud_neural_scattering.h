@@ -10,12 +10,11 @@
 #define CLOUD_NEURAL_HEIGHT 12
 #define CLOUD_NEURAL_HIGH_HEIGHT 4
 #define CLOUD_NEURAL_COLUMN_HEIGHT (CLOUD_NEURAL_HEIGHT + CLOUD_NEURAL_HIGH_HEIGHT)
-#define CLOUD_NEURAL_BANDS 3
+#define CLOUD_NEURAL_POLAR_KNOTS 6
 #define CLOUD_NEURAL_SKY_CHANNEL 2
-#define CLOUD_NEURAL_SKY_BAND (2 * CLOUD_NEURAL_BANDS)
+// A beam band stores radiance and tangent at the two elevations of one knot.
+#define CLOUD_NEURAL_SKY_BAND (CLOUD_NEURAL_SKY_CHANNEL * CLOUD_NEURAL_POLAR_KNOTS)
 #define CLOUD_NEURAL_TOTAL_BANDS (CLOUD_NEURAL_SKY_BAND + 2)
-// Each RGBA band holds the lower/upper view elevations of two polar knots.
-#define CLOUD_NEURAL_POLAR_KNOTS (2 * CLOUD_NEURAL_BANDS)
 // At either pole the two elevations coincide.
 #define CLOUD_NEURAL_DIRECTIONS (2 * CLOUD_NEURAL_POLAR_KNOTS - 2)
 #define CLOUD_NEURAL_INPUTS 16

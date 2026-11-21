@@ -702,7 +702,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
         double rain = weather.equals("clear") ? 0 : 1;
         double thunder = weather.equals("thunder") ? 1 : 0;
         context.waitFor(client -> Math.abs(cloudValue("weather") - rain) < 0.01
-                && Math.abs(cloudValue("thunder") - thunder) < 0.01, 300);
+                && Math.abs(client.level.getThunderLevel(0f) - thunder) < 0.01, 300);
     }
 
     private static void setClock(ClientGameTestContext context, TestSingleplayerContext world, long ticks) {

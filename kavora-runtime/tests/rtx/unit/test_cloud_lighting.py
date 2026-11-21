@@ -54,31 +54,46 @@ def main():
     # Distinct values at every angular knot expose band/channel crossings,
     # including the shared pole values and the second light in the packed atlas.
     angular_requests, expected = [], []
-    atlas = np.zeros((1, 8 * 16, 1, 4), np.float32)
     polar = np.linspace(0, 1, 6)
-    mu = 1 - 2 * polar**3
+    sky_start = 2 * len(polar) * 16
+    atlas_height = sky_start + 2 * 16
+    atlas = np.zeros((1, atlas_height, 1, 4), np.float32)
+
+    def polar_cosine(t):
+        chord = np.expm1(6.5 * np.log(2) * t) / np.expm1(6.5 * np.log(2))
+        return 1 - 2 * chord**2
+
+    mu = polar_cosine(polar)
     for light, light_up in enumerate((0.6, -1.0)):
         args['lights'][light]['directionToLight'] = [np.sqrt(1 - light_up**2), light_up, 0]
         spread = np.sqrt((1 - mu**2) * (1 - light_up**2))
         up = np.stack((mu * light_up - spread, mu * light_up + spread), axis=1)
-        radiance = 1 + light + 0.2 * mu[:, None] + 0.3 * up
-        for band, channels in enumerate(radiance.reshape(3, 4)):
-            atlas[:, (light * 3 + band) * 16:(light * 3 + band + 1) * 16] = channels
+        variation = 0.3 * np.sqrt(1 - light_up**2)
+        elevation = np.array([-1, 1]) * variation
+        # The Hermite reconstruction reproduces this quadratic exactly.
+        t = polar[:, None]
+        radiance = 1 + light + 0.2 * t + t * (1 - t) * elevation
+        tangent = (0.2 + (1 - 2 * t) * elevation) / (len(polar) - 1)
+        for knot, channels in enumerate(np.column_stack((radiance, tangent))):
+            row = (light * len(polar) + knot) * 16
+            atlas[:, row:row + 16] = channels
         for slot in range(12):
             for t in np.linspace(0, 1, 21):
-                cosine = 1 - 2 * t**3
+                cosine = polar_cosine(t)
                 for az in (-1, 0, 1):
                     view_up = cosine * light_up + az * np.sqrt((1 - cosine**2) * (1 - light_up**2))
                     angular_requests.append([cosine, view_up, light, slot])
-                    endpoints = (1 - az) * 0.5 * radiance[:, 0] + (1 + az) * 0.5 * radiance[:, 1]
-                    expected.append([mu[slot // 2], up.flat[slot], np.interp(t, polar, endpoints)])
+                    expected.append([mu[slot // 2], up.flat[slot], 1 + light + 0.2 * t + t * (1 - t) * variation * az])
     actual = run('neuralAngles', angular_requests, np.zeros_like(angular_requests), args,
                  neural=texture(atlas, spy.Format.rgba32_float))
-    np.testing.assert_allclose(actual[:, :3], expected, atol=5e-6, rtol=0)
+    expected = np.asarray(expected)
+    np.testing.assert_allclose(actual[:, :2], expected[:, :2], atol=5e-6, rtol=0)
+    # Close to the pole, rounding the cosine amplifies the angular coordinate error.
+    np.testing.assert_allclose(actual[:, 2], expected[:, 2], atol=2e-5, rtol=0)
     report['neuralAngularCases'] = len(actual)
     knots = np.arange(4, dtype=np.float32) / 3
-    atlas[:, 96:112] = knots
-    atlas[:, 112:128] = 1 - knots
+    atlas[:, sky_start:sky_start + 16] = knots
+    atlas[:, sky_start + 16:] = 1 - knots
     requests = [[up, down, multiple, strength] for up in (0, .25, 3, 40) for down in (0, 1, 20)
                 for multiple in (0, .4, 1.3) for strength in (0, 1)]
     requests = np.repeat(requests, 4, axis=0)
@@ -105,7 +120,7 @@ def main():
             spacing = near_spacing if z < 10 else middle_spacing
             expected_xz = (np.array([x - 20, z % 10]) - 4.5) * spacing
         np.testing.assert_allclose(node[[0, 2]], expected_xz, atol=1e-3, rtol=0)
-    atlas = np.full((20, 128, 30, 4), 0.875, np.float32)
+    atlas = np.full((20, atlas_height, 30, 4), 0.875, np.float32)
     atlas[:10, :, 20:] = 0.125
     atlas[10:, :, 20:] = 0.5
     positions, expected = [], []

@@ -105,11 +105,11 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
         model_layout = (shaders / 'rtx/pass/clouds/cloud_neural_model.h').read_text()
         tile = constant(neural_layout, 'CLOUD_NEURAL_TILE_SIZE')
         rows = constant(neural_layout, 'CLOUD_NEURAL_HEIGHT') + constant(neural_layout, 'CLOUD_NEURAL_HIGH_HEIGHT')
-        bands = constant(neural_layout, 'CLOUD_NEURAL_BANDS')
+        knots = constant(neural_layout, 'CLOUD_NEURAL_POLAR_KNOTS')
         lights = constant(neural_layout, 'CLOUD_NEURAL_SKY_CHANNEL')
         lanes = constant(model_layout, 'CLOUD_NEURAL_TENSOR_LANES')
         sky_directions = constant(model_layout, 'CLOUD_NEURAL_SKY_DIRECTIONS')
-        directions = 4 * bands - 2
+        directions = 2 * knots - 2
         plane = (3 * tile) * (2 * tile)
         groups = lights * (plane // (lanes // directions)) + plane // (lanes // sky_directions)
         inputs = dict(result)
@@ -121,7 +121,7 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
                 constant(neural_layout, 'CLOUD_NEURAL_HIDDEN_LAYERS'),
                 constant(model_layout, 'CLOUD_NEURAL_TENSOR_OUTPUTS'),
                 constant(model_layout, 'CLOUD_NEURAL_TENSOR_ALIGNMENT'))
-        bake('CloudNeuralLight', (3 * tile, (lights * bands + 2) * rows, 2 * tile), (groups * lanes, rows, 1), 4,
+        bake('CloudNeuralLight', (3 * tile, (lights * knots + 2) * rows, 2 * tile), (groups * lanes, rows, 1), 4,
              'cloud_neural_preview.comp.slang', 'main', inputs, spy.TextureAddressingMode.clamp_to_edge)
 
     return result, resources, {
