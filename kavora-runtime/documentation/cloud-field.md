@@ -1,12 +1,15 @@
 # Cloud density and transport
 
-This document records the cloud field before the HanPi experiment. The current
-experimental integration is described in [Visual quality controls](quality-integration.md#fog-lighting-integration).
+This document records earlier cloud experiments. The current runtime uses
+Revelation's cloud fields and the transport described in
+[Visual quality controls](quality-integration.md#fog-lighting-integration).
+See the [Revelation notice](../../kavora/packaging/licenses/Revelation-Clouds.txt).
 
-The native density field adapts the weather distribution and cloud profiles
+The early native density field adapted the weather distribution and cloud profiles
 from [Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce),
 revision `94400621dabc6b315d8e53b701c7be7beffa9303`. Its source and Apache-2.0
-notice are recorded under `documentation/licenses/RTX-Remix-CE-Clouds.txt`.
+notice for the retained source are recorded in the
+[Community Edition utilities notice](../../kavora/packaging/licenses/RTX-Remix-CE-Shader-Utilities.txt).
 
 [Photon](https://github.com/sixthsurge/photon/tree/2a3d502c17d2e310412c717be47241f014cba7fc)
 was studied as a visual reference for cloud layers, weather, erosion and
@@ -49,8 +52,7 @@ revision `d5911393856d9dd97375b46a1a088e6b8fddd755` (Apache-2.0).
 Revelation uses an authored coverage/type map, a vertical-profile lookup and
 a two-kilometre base volume. Here the field is independently generated from
 Kavora's existing noise, analytical profiles and filtered density moments.
-No Revelation source blocks, density formula, noise assets, cloud maps or
-profile lookups are included. No Beer-Powder brightness term is used.
+This early experiment predated the Revelation port.
 
 The low weather tile spans 64 shape-scale units. Broad moisture octaves at
 32768 and 16384 metres define regional humidity, but dry regions retain a

@@ -66,7 +66,8 @@ Kavora builds on the work of these projects and their contributors:
 - [rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft) — the original Minecraft integration.
 - [dxvk-remix](https://github.com/NVIDIAGameWorks/dxvk-remix) — the native rendering runtime.
 - [Iris](https://github.com/IrisShaders/Iris) — the adapted settings interface and widgets.
-- [RTX Remix Community Edition](https://github.com/NightSightProductions/RTX-Remix-Community-Edition) — cloud, material and lighting adaptations.
+- The volumetric cloud density, weather maps, phase-function LUT and cloud shadow method come from HaringPro's [Revelation](https://github.com/HaringPro/Revelation) under Apache 2.0.
+- Material and analytic lighting adaptations come from [RTX Remix for Minecraft Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce).
 - [Distant Horizons](https://gitlab.com/distant-horizons-team/distant-horizons) — the foundation of the earlier distant-terrain work.
 - [Caustica-Horizon](https://github.com/West68/Caustica-Horizon) — End-sky and lunar-surface adaptations.
 - [Sodium](https://github.com/CaffeineMC/sodium) — terrain meshing and video settings.

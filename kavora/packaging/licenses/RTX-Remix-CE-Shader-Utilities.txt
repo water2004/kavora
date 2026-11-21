@@ -1,0 +1,14 @@
+RTX Remix for Minecraft Community Edition - shader utilities
+
+Source: https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce
+Revision: 94400621dabc6b315d8e53b701c7be7beffa9303
+Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors
+License: Apache License, Version 2.0 (RTX-Remix-CE-Apache-2.0.txt).
+
+These Slang files retain attribution from the port of CloudNoise.java and
+CloudField.java. The hash jitters cloud integration samples. Revelation
+supplies the cloud density and weather fields used by the runtime.
+
+Modified shader source in kavora-runtime:
+  src/dxvk/shaders/rtx/utility/cloud_noise.slangh
+  src/dxvk/shaders/rtx/utility/cloud_density.slang

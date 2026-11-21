@@ -66,7 +66,8 @@ Kavora 仅使用 Vulkan，可能与部分基于 OpenGL 的模组不兼容。本�
 - [rtx-remix-minecraft](https://github.com/NVIDIAGameWorks/rtx-remix-minecraft)：最初的 Minecraft 集成。
 - [dxvk-remix](https://github.com/NVIDIAGameWorks/dxvk-remix)：原生渲染运行时。
 - [Iris](https://github.com/IrisShaders/Iris)：适配的设置界面与控件。
-- [RTX Remix Community Edition](https://github.com/NightSightProductions/RTX-Remix-Community-Edition)：云、材质与光源适配。
+- 体积云的形状与密度、天气贴图、相函数 LUT 和云影方法来自 HaringPro 的 [Revelation](https://github.com/HaringPro/Revelation)，采用 Apache 2.0 许可。
+- 材质和解析光源适配来自 [RTX Remix for Minecraft Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce)。
 - [Distant Horizons](https://gitlab.com/distant-horizons-team/distant-horizons)：早期远景工作的基础。
 - [Caustica-Horizon](https://github.com/West68/Caustica-Horizon)：末地天空与月面效果适配。
 - [Sodium](https://github.com/CaffeineMC/sodium)：地形网格构建与视频设置。

@@ -1,9 +1,8 @@
-# Cirrus morphology input
+# Cirrus morphology experiment
 
-`cirrus_density.dds` is a linear scalar morphology atlas used once when the
-native cloud weather texture is generated. It is not a sky photograph or an
-illuminated cloud sprite. The weather alpha channel supplies density to the
-same extinction and scattering functions as the rest of the cloud volume.
+`cirrus_density.dds` is the linear scalar morphology atlas from the earlier
+cirrus experiment. The production cloud density now uses Revelation's cirrus
+lookup. The source atlas and its preparation steps are retained here.
 
 ## Sources and reproduction
 

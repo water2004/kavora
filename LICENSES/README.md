@@ -10,17 +10,17 @@
 | DXVK 原始代码 | zlib/libpng | [运行时 LICENSE](../kavora-runtime/LICENSE) |
 | NVIDIA Remix 原生主体 | MIT | [运行时 LICENSE-MIT](../kavora-runtime/LICENSE-MIT) |
 | 云多重散射离线训练 | Apache-2.0，权重打包器为 MIT | [训练代码来源与许可](../kavora-runtime/training/cloud-scattering/README.md) |
-| HanPi Volume Cloud 云形及采样适配 | MIT，附署名要求 | [原始许可及署名](HanPi-Volume-Cloud.txt) |
-| Revelation 云密度函数、天气图和噪声纹理 | Apache-2.0 | [来源及修改说明](../kavora/packaging/licenses/Revelation-Clouds.txt) |
+| HanPi Volume Cloud 历史实验及训练工具 | MIT，附署名要求 | [原始许可及署名](HanPi-Volume-Cloud.txt) |
+| Revelation 体积云密度、天气与噪声纹理、相函数 LUT、短积分和云影方法 | Apache-2.0 | [完整许可](Apache-2.0.txt)、[来源及修改说明](../kavora/packaging/licenses/Revelation-Clouds.txt) |
 | 3DTextureExportTools 云噪声生成 | MIT | [原始许可](3DTextureExportTools-MIT.txt) |
 | Iris 派生界面代码与控件纹理 | LGPL-3.0-only | [原始声明及修改说明](../kavora/src/main/resources/META-INF/licenses/iris/NOTICE.txt) |
 | Caustica-Horizon 末地与月亮着色器适配 | LGPL-3.0-or-later | [来源及修改说明](../kavora/packaging/licenses/Caustica-Horizon-End.txt) |
-| Community Edition 云、材质和光源适配 | Apache-2.0 | [云](../kavora/packaging/licenses/RTX-Remix-CE-Clouds.txt)、[材质及光源](../kavora/packaging/licenses/RTX-Remix-CE-Materials.txt) |
+| Minecraft Community Edition 材质和光源适配及着色器工具 | Apache-2.0 | [材质及光源](../kavora/packaging/licenses/RTX-Remix-CE-Materials.txt)、[着色器工具](../kavora/packaging/licenses/RTX-Remix-CE-Shader-Utilities.txt) |
 | Kavora Horizon | LGPL-3.0-only | [LGPL](../kavora-horizon/LICENSE.LESSER.txt)、[保留的 GPL 文本](../kavora-horizon/LICENSE.txt) |
 | 远景的独立材质描述代码 | Apache-2.0 | [原始文本](../kavora-horizon/common/src/main/resources/LICENSE-APACHE-2.0.txt) |
 | 远景内嵌的 RocksDB | 选择 Apache-2.0 许可 | [RocksDB 和 LevelDB 声明](../kavora-horizon/licenses/) |
 | NASA 银河和月面数据 | NASA 公有领域数据及各自署名 | [银河](../kavora/packaging/licenses/NASA-Deep-Star-Maps.txt)、[月面](../kavora/packaging/licenses/NASA-CGI-Moon.txt) |
-| 卷云形态素材 | CC0-1.0，Estormiz、John Robert McPherson | [来源与处理](../kavora/packaging/licenses/Cirrus-CC0.txt) |
+| 历史卷云形态实验素材 | CC0-1.0，Estormiz、John Robert McPherson | [来源与处理](../kavora/packaging/licenses/Cirrus-CC0.txt) |
 | DLSS、NRC、NRD 等 NVIDIA SDK 二进制 | NVIDIA 各组件的 SDK 条款 | [运行时第三方文本](../kavora/packaging/licenses/remix-runtime/)、[总清单](../THIRD_PARTY_NOTICES.md) |
 | 其他原生依赖 | 各依赖的原始许可 | [DXVK Remix 第三方清单](../kavora-runtime/ThirdPartyLicenses.txt)及随包文本 |
 

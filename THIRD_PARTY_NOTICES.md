@@ -15,7 +15,7 @@ locations given.
   [Apache-2.0](LICENSES/Apache-2.0.txt).
 - [Integration notice and asset paths](kavora/packaging/licenses/Revelation-Clouds.txt).
 
-### HanPi Volume Cloud
+### HanPi Volume Cloud experiments and training tools
 
 - Copyright (c) 2026 AshenOneArt. The adapted Slang module preserves HanPi's
   profile warp, billow and wisp density, and adaptive sampling equations.
@@ -207,10 +207,9 @@ Center Scientific Visualization Studio; Gaia DR2: ESA/Gaia/DPAC.
 
 ## CC0 cirrus morphology
 
-`kavora/packaging/runtime-textures/cirrus_density.dds` contains relative cloud
-shapes extracted from CC0 photographs by Estormiz and John Robert McPherson.
-It contains one scalar channel. Cloud illumination is calculated by the
-renderer, and the source photographs' RGB backgrounds are not shipped.
+The source tree retains `kavora/packaging/runtime-textures/cirrus_density.dds`
+from an earlier cirrus experiment. It stores a scalar field extracted from
+CC0 photographs by Estormiz and John Robert McPherson.
 
 - [Credits and source hashes](kavora/packaging/licenses/Cirrus-CC0.txt)
 - [Reproducible preparation and interpretation](kavora/packaging/runtime-textures/CIRRUS.md)
@@ -245,26 +244,18 @@ rays share this environment.
 - [GPLv3](kavora/packaging/licenses/Caustica-Horizon-GPL-3.0.txt)
 
 
-## Community Edition cloud field
-
-The native runtime adapts the periodic cloud noise, weather distribution and
-height/density profiles from [RTX Remix for Minecraft Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce),
-revision `94400621dabc6b315d8e53b701c7be7beffa9303`, under Apache-2.0.
-Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors.
-Its OpenGL renderer and near-cloud mesh framework are not included.
-
-- [Integration notice](kavora/packaging/licenses/RTX-Remix-CE-Clouds.txt)
-- [Apache-2.0 license](kavora/packaging/licenses/RTX-Remix-CE-Apache-2.0.txt)
-
-## Community Edition material detail
+## Minecraft Community Edition adaptations
 
 `AutoPbr.java` adapts material classification, luminance-derived normals and
 roughness variation from [Community Edition](https://github.com/CuteEthanLeo/rtx-remix-minecraft-ce),
 revision `94400621dabc6b315d8e53b701c7be7beffa9303`, under Apache-2.0.
 Copyright (c) 2026 RTX Remix for Minecraft Community Edition contributors.
 The LabPBR conversion also follows CE's perceptual roughness correction.
+`BlockLightDefaults.java` adapts its analytic light rules. The runtime retains
+derived shader utilities, including the hash used to jitter integration samples.
 
-- [Integration notice](kavora/packaging/licenses/RTX-Remix-CE-Materials.txt)
+- [Material and lighting notice](kavora/packaging/licenses/RTX-Remix-CE-Materials.txt)
+- [Shader utilities notice](kavora/packaging/licenses/RTX-Remix-CE-Shader-Utilities.txt)
 - [Apache-2.0 license](kavora/packaging/licenses/RTX-Remix-CE-Apache-2.0.txt)
 
 ## Kavora Horizon and RocksDB
