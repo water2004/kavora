@@ -1682,7 +1682,7 @@ public class BenchmarkController {
                     "rtx.volumetrics.enableHeterogeneousFog", "rtx.volumetrics.groundMistExtinctionPerMeter",
                     "rtx.volumetrics.heightFogFalloffMeters", "rtx.volumetrics.anisotropy",
                     "rtx.clouds.sceneEnabled", "rtx.clouds.steps", "rtx.clouds.highSteps", "rtx.clouds.lightSteps",
-                    "rtx.clouds.windSpeed", "rtx.clouds.worldTimeSeconds", "rtx.clouds.weather", "rtx.clouds.thunder",
+                    "rtx.clouds.windSpeed", "rtx.clouds.worldTimeSeconds", "rtx.clouds.weather",
                     "rtx.clouds.coverage", "rtx.clouds.worldBaseHeightMeters", "rtx.clouds.altitudeOffsetMeters",
                     "rtx.clouds.thicknessMeters", "rtx.clouds.shapeScaleMeters", "rtx.clouds.extinctionPerMeter",
                     "rtx.clouds.maxDistanceMeters", "rtx.clouds.highMaxDistanceMeters",

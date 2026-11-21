@@ -33,10 +33,7 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float albedo;
   CLOUD_PARAMETER uint steps;
   CLOUD_PARAMETER uint lightSteps;
-  CLOUD_PARAMETER uint phasePadding;
   CLOUD_PARAMETER float multipleScattering;
-  CLOUD_PARAMETER float weather;
-  CLOUD_PARAMETER float thunder;
   CLOUD_PARAMETER vec3 groundReference;
   CLOUD_PARAMETER float planetRadius;
   CLOUD_PARAMETER float wetness;
@@ -49,8 +46,6 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER float highCoverage;
   CLOUD_PARAMETER float highMaxDistance;
   CLOUD_PARAMETER float groundAlbedo;
-  // Keep the constant buffer aligned after the ground albedo.
-  CLOUD_PARAMETER uint padding;
   CLOUD_PARAMETER uint activeCloudLights; // A bit for each populated directional light slot.
   CLOUD_PARAMETER float meterToWorld;
   CLOUD_PARAMETER uint highSteps;
@@ -64,5 +59,5 @@ CLOUD_PARAMETER struct CloudArgs {
 
 #ifdef __cplusplus
 static_assert(sizeof(CloudLight) == 96);
-static_assert(sizeof(CloudArgs) == 384);
+static_assert(sizeof(CloudArgs) == 368);
 #endif

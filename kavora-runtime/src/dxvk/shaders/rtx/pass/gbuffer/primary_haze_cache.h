@@ -1,0 +1,6 @@
+/* SPDX-License-Identifier: MIT */
+#pragma once
+
+#define GBUFFER_HAZE_COLUMN_STRIDE 2
+#define GBUFFER_HAZE_COLUMN_ENDPOINTS 8
+#define GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS 7

@@ -121,7 +121,8 @@ VOLUME_PARAMETER struct VolumeArgs {
   VOLUME_PARAMETER float groundMistBaseHeight;
   VOLUME_PARAMETER float groundMistFalloff;
   VOLUME_PARAMETER float groundMistRegionSize;
-  VOLUME_PARAMETER uint cloudIntegrationPixelStride;
+  // Keep the constant-buffer structure 16-byte aligned.
+  VOLUME_PARAMETER uint paddingVolume;
 };
 
 #undef VOLUME_PARAMETER

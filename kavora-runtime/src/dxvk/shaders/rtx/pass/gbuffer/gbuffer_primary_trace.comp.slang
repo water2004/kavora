@@ -28,7 +28,7 @@
 #include "rtx/pass/gbuffer/primary_intersection.slangh"
 #include "rtx/algorithm/ordered_intersection.slangh"
 #include "rtx/algorithm/view_distance.slangh"
-#include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
+#include "rtx/pass/gbuffer/primary_atmosphere.slangh"
 
 float primaryAtmosphereDistance(Ray ray, RayHitInfo hit)
 {

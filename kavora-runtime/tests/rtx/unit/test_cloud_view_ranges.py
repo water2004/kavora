@@ -29,7 +29,7 @@ def check_view_ranges(probe, textures, clouds):
     results = []
     for name, changes in (("broken", {"coverage": 0.45}),
                           ("cloud-rich", {"coverage": 0.85}),
-                          ("rain", {"coverage": 0.85, "weather": 1.0, "thunder": 0.45})):
+                          ("rain", {"coverage": 0.85, "wetness": 1.0})):
         for steps in (64, 128, 256, 384):
             parameters = {**clouds, **changes, "steps": steps, "baseHeight": 800.0,
                           "extinction": 0.03, "highExtinction": 0.0,

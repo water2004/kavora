@@ -83,18 +83,11 @@ void columnCoordinates(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void columnHistory(uint index : SV_DispatchThreadID)
+void pixelSample(uint index : SV_DispatchThreadID)
 {
-  if (index >= Count)
-  {
-    return;
-  }
-  const float4 old = Inputs[index];
-  const float4 current = Directions[index];
-  const uint2 entry = CloudHistoryGather.encode(float4(2, 4, 8, old.y), old.x);
-  CloudHistoryGather history = {};
-  history.add(entry, current.x, float4(float3(2, 4, 8) * old.z, current.w), current.y, current.z, 1);
-  Results[index] = float4(history.sum.rgb, history.weight);
+  if (index >= Count) return;
+  const uint3 sample = uint3(Inputs[index].xyz);
+  Results[index] = cloudPixelSampleOffset(sample.xy, sample.z).xxxx;
 }
 
 struct CloudOpacityProbe : ICloudViewIntegral
@@ -108,52 +101,6 @@ struct CloudOpacityProbe : ICloudViewIntegral
 
   bool opaque() { return 1.0f - moments.y < kOpaqueCloudTransmittance; }
 };
-
-[shader("compute")]
-[numthreads(64, 1, 1)]
-void stationaryColumnNoise(uint index : SV_DispatchThreadID)
-{
-  if (index >= Count) return;
-  const float3 origin = Inputs[index].xyz;
-  const float3 direction = Directions[index].xyz;
-  const float2 shell = cloudLayerInterval(Clouds, origin, direction, Clouds.maxDistance, 0, 0);
-  float2 mean = 0;
-  float2 squaredDeviation = 0;
-  uint2 old = 0;
-  uint2 older = 0;
-  uint misses = 0;
-  float reference = 0;
-  for (uint frame = 0; frame < 64; ++frame)
-  {
-    CloudOpacityProbe sample = {};
-    marchCloudView(Clouds, origin, direction, 0, shell, shell, Clouds.viewAngularFootprint,
-      Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), sample,
-      cloudColumnSampleOffset(uint2(index, 0), frame));
-    if (frame >= 32)
-    {
-      reference += sample.moments.y / 32.0f;
-      continue;
-    }
-    float2 value = sample.moments.yy;
-    misses += uint(value.x == 0);
-    float depth = value.x > 0 ? cloudMaxViewDistance(Clouds) * sample.moments.x / value.x : 0.5f * (shell.x + shell.y);
-    const float expectedDepth = depth;
-    CloudHistoryGather history = {};
-    history.add(old, expectedDepth, float4(0, 0, 0, value.x), 0, 1, 1);
-    history.add(older, expectedDepth, float4(0, 0, 0, value.x), 0, 1, 1);
-    value.y = history.resolve(float4(0, 0, 0, value.x), depth, shell).w;
-    older = old;
-    old = CloudHistoryGather.encode(float4(0, 0, 0, value.x), expectedDepth);
-    if (frame >= 8)
-    {
-      const float2 delta = value - mean;
-      mean += delta / float(frame - 7);
-      squaredDeviation += delta * (value - mean);
-    }
-  }
-  Results[index * 2] = float4(mean, squaredDeviation / 24.0f);
-  Results[index * 2 + 1] = float4(float(misses), reference, 0, 0);
-}
 
 [shader("compute")]
 [numthreads(64, 1, 1)]

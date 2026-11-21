@@ -2,6 +2,9 @@
 
 Branch: `perf/cloud-atmosphere-pathtracing`
 
+This document records the measurements and experiments from that branch. See
+[Visual quality controls](quality-integration.md) for the current pipeline.
+
 This change set keeps the existing Vulkan/RTX path-tracing transport. It does
 not replace the G-buffer atmosphere, cloud volume integration, PSR, or
 path-traced material transport with screen-space shader-pack rendering.

@@ -13,13 +13,12 @@ final class VolumetricCloudState {
     private float time = Float.NaN;
     private float height = Float.NaN;
     private float weather = Float.NaN;
-    private float thunder = Float.NaN;
 
     VolumetricCloudState(BiConsumer<String, String> writer) {
         this.writer = writer;
     }
 
-    void update(double worldTimeSeconds, float baseHeight, float rain, float storm) {
+    void update(double worldTimeSeconds, float baseHeight, float rain) {
         float worldTime = (float) worldTimeSeconds;
         if (Float.compare(time, worldTime) != 0) {
             writer.accept("rtx.clouds.worldTimeSeconds", Float.toString(worldTime));
@@ -32,10 +31,6 @@ final class VolumetricCloudState {
         if (Float.compare(weather, rain) != 0) {
             writer.accept("rtx.clouds.weather", Float.toString(rain));
             weather = rain;
-        }
-        if (Float.compare(thunder, storm) != 0) {
-            writer.accept("rtx.clouds.thunder", Float.toString(storm));
-            thunder = storm;
         }
         if (!enabled) {
             writer.accept("rtx.clouds.sceneEnabled", "true");

@@ -1,18 +1,39 @@
 /* SPDX-License-Identifier: MIT */
 #pragma once
 
-#include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
+#include "rtx/pass/gbuffer/primary_haze_cache.h"
+#include "rtx/pass/gbuffer/primary_atmosphere.slangh"
+#include "rtx/utility/math.slangh"
 #include "rtx/utility/volume_integral.h"
 import "rtx/algorithm/air_medium.slang";
 
+uint hazeColumnStride()
+{
+  return cb.volumeArgs.fogIntegrationMode == 1
+    ? cb.volumeArgs.fogIntegrationPixelStride : GBUFFER_HAZE_COLUMN_STRIDE;
+}
+
+uint2 columnExtent(uint stride)
+{
+  return (cb.camera.resolution + stride - 1) / stride;
+}
+
+AtmosphereSegment interpolateAtmospherePrefix(AtmosphereSegment from, AtmosphereSegment to, float fraction)
+{
+  const float3 endT = saturate(to.transmittance / max(from.transmittance, 1e-30f));
+  const float3 partialT = pow(max(endT, 1e-30f), fraction);
+  const float3 weight = select(endT < 0.9999f, (1.0f - partialT) / max(1.0f - endT, 1e-30f), fraction.xxx);
+  AtmosphereSegment transfer;
+  transfer.radiance = lerp(from.radiance, to.radiance, weight);
+  transfer.transmittance = from.transmittance * partialT;
+  transfer.cloudMoments = 0;
+  return transfer;
+}
+
 uint hazeColumnOffset(uint2 column)
 {
-  const uint2 atmosphere = atmosphereColumnExtent();
   const uint2 haze = columnExtent(hazeColumnStride());
-  const uint atmosphereWords = atmosphere.x * atmosphere.y
-    * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINTS * GBUFFER_ATMOSPHERE_COLUMN_ENDPOINT_WORDS;
-  return primaryTailBase(0) + atmosphereWords +
-    (column.y * haze.x + column.x) * GBUFFER_HAZE_COLUMN_ENDPOINTS * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS;
+  return primaryTailBase(0) + (column.y * haze.x + column.x) * GBUFFER_HAZE_COLUMN_ENDPOINTS * GBUFFER_HAZE_COLUMN_ENDPOINT_WORDS;
 }
 
 void storeHazePrefix(uint offset, float distance, AtmosphereSegment prefix)

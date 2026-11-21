@@ -9,39 +9,20 @@ reconstruction and frame generation have separate owners.
 
 `rtx.volumetrics.fogIntegrationMode` uses two-pixel fog and clear-air columns
 (`0`) or the width specified by `rtx.volumetrics.fogIntegrationPixelStride`
-(`1`). `rtx.clouds.primaryPixelStride` caps the column width for clouds.
-When clouds use a finer grid, the haze pass stores radiance and transmittance
-from the camera to a set of depth anchors on the fog grid. Cloud integration
-uses the cached transfer between cloud depths to compose the layers in ray order.
-Equal grids share one integration pass.
+(`1`). The haze pass records clear-air and fog transfer at eight depth anchors,
+including the nearest and farthest finite surface depths in each column.
 
-A two-pixel column records transfer at every endpoint in its 2×2 block.
-Wider columns retain a bounded set of depth anchors with a separate sky
-endpoint when present.
+Every primary pixel integrates its own cloud shells along its jittered camera
+ray up to its first surface. Ray budgets and density mip levels use the view
+angle and pixel footprint. The pass composes the haze prefixes and cloud
+transfer at each extinction centroid, then publishes the result and the
+opacity-weighted layer motion to primary shading. The ray queues reuse this
+storage after primary shading. DLSS consumes the result at its input resolution.
 
-The full-resolution pass reconstructs the recorded scattering, transmittance
-and cloud distance. Neighboring columns contribute where the scene depths
-match. The input slab is reused by the ray queues after primary shading.
-Camera and wind reprojection use the existing cloud motion guides. The
-directional atlas shares distant air and cloud transport between escaped rays
-within its spatial support. Reflected and refracted rays project through the
-first cloud interval beyond the atlas split. A footprint test bounds parallax
-across the remaining cloud intervals, and the cached depth moment is projected
-back onto the original ray. Fog lighting combines the same transfer with the
-near atmosphere. Finite light paths resolve in world space.
-
-Primary cloud columns combine their current quadrature observation with the
-two previous raw observations, independently for each layer. Each 16-byte record
-contains premultiplied radiance, opacity and signed centroid distance for both
-layers. The frame header stores its projection and a displacement per layer.
-Each observation undergoes at most one spatial interpolation. Depth mismatch
-and changes in optical coverage or source color lower a historical sample's confidence.
-An empty observation from a thin cloud can still contribute. A four-phase
-screen offset covers all four quadrants of a cloud column. The integration,
-spatial reconstruction and previous-frame lookup use the same sample positions.
-Clipped terrain prefixes, newly visible pixels and camera cuts use the current
-integral. Haze composes after this step at the filtered extinction centroid.
-View motion uses the opacity-weighted layer displacements.
+Reflected and refracted rays evaluate world-space transport. The directional
+atlas shares distant air and cloud transport between escaped rays within its
+spatial support. A footprint test bounds parallax across the cloud intervals
+and projects the cached depth moment back onto the original ray.
 
 Air attenuation uses absolute optical-depth prefixes from a finite Chapman
 approximation. Segment extinction comes from the difference between successive

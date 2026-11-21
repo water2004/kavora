@@ -94,29 +94,21 @@ public final class KavoraSettingsStore {
         JsonObject root;
         JsonObject values;
         QualityPreset base = settings.quality().base();
-        boolean migrated;
+        int version;
         try (Reader r = new InputStreamReader(Files.newInputStream(file), StandardCharsets.UTF_8)) {
             root = JsonParser.parseReader(r).getAsJsonObject();
-            int version = root.has("version") ? root.get("version").getAsBigDecimal().intValueExact() : 0;
+            version = root.has("version") ? root.get("version").getAsBigDecimal().intValueExact() : 0;
             if (version < FIRST_RELEASE_SCHEMA || version > VERSION) {
                 preserveFile = true;
                 LOGGER.warn("RTX settings file {} has unsupported schema {}; preserving it", file, version);
                 return;
             }
-            migrated = version != VERSION;
             migrate(root, version);
             values = root.getAsJsonObject("settings");
             if (values == null) throw new IllegalArgumentException("Missing settings object");
             if (root.has("quality")) {
                 JsonObject selection = root.getAsJsonObject("quality");
                 base = QualityPreset.byId(selection.get("base").getAsString()).orElse(base);
-                // Older saves serialized every value of a stock preset, including its column width.
-                stockPreset(selection).ifPresent(preset -> {
-                    switch (preset) {
-                        case HIGH -> dropStockValue(values, "clouds.primaryPixelStride", 4);
-                        case MEDIUM -> dropStockValue(values, "clouds.primaryPixelStride", 6);
-                    }
-                });
             }
         } catch (Exception e) {
             preserveFile = true;
@@ -142,7 +134,7 @@ public final class KavoraSettingsStore {
         loaded.forEach(KavoraSettingsStore::applyEntry);
         settings.afterVisualApply();
         settings.setQuality(KavoraQualityPresets.selection(settings, base, KavoraSetting::get));
-        if (migrated) {
+        if (version < VERSION) {
             JsonObject quality = root.has("quality") ? root.getAsJsonObject("quality") : new JsonObject();
             quality.addProperty("base", base.id());
             quality.addProperty("custom", settings.quality().customized());
@@ -207,8 +199,7 @@ public final class KavoraSettingsStore {
             case MEDIUM -> 4;
             case LOW -> 3;
         };
-        // Missing values inherit the selected profile. A stored range was an
-        // independent edit in schema 5 and stays explicit in schema 6.
+        // Schema 5 saved stock sample budgets. An explicit distance was a separate user edit.
         dropStockValue(values, "clouds.samples", previousViewSamples);
         dropStockValue(values, "clouds.shadowSamples", previousShadowSamples);
     }

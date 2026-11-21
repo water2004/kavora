@@ -59,10 +59,10 @@ when you switch profiles.
 
 | Profile | Cloud view samples (low / high) | Fog lighting | Relief | Indirect bounces | Reflection/refraction limits |
 | --- | --- | --- | --- | --- | --- |
-| Ultra | 64 / 20 | Lighting-grid integration | Quadtree, 64 iterations | 2 | 10 / 10 |
-| High | 40 / 12 | View volume, 8-pixel columns | Quadtree, 48 iterations | 2 | 8 / 8 |
-| Medium | 28 / 8 | View volume, 12-pixel columns | Ray-marched, 24 iterations | 1 | 4 / 4 |
-| Low | 16 / 4 | View volume, 16-pixel columns | Two-sample offset parallax | 1 | 2 / 2 |
+| Ultra | 64 / 20 | 2-pixel columns | Quadtree, 64 iterations | 2 | 10 / 10 |
+| High | 40 / 12 | 8-pixel columns | Quadtree, 48 iterations | 2 | 8 / 8 |
+| Medium | 28 / 8 | 12-pixel columns | Ray-marched, 24 iterations | 1 | 4 / 4 |
+| Low | 16 / 4 | 16-pixel columns | Two-sample offset parallax | 1 | 2 / 2 |
 
 Ultra uses the largest cloud sampling budgets. Lower tiers keep path-traced scene
 lighting, primary reflection/refraction, cloud shadows, scattering and
@@ -156,13 +156,9 @@ integration at every quality level so air, clouds and local fog share the same
 ray transfer. Lower quality levels reduce their sampling budgets. Classic
 clouds retain the complete sky and authored weather composition.
 
-Low-cloud shape and weather distribution adapt Community Edition's periodic
-Perlin-Worley fields. Regional weather forms groups and clear corridors over
-128 shape periods, with a smooth spatial variation in individual cloud shape.
-High clouds use finite feathered shapes derived from
-credited CC0 photographs, distributed in regional groups with clear areas.
-Their colour and lighting come from the volumetric renderer. All ray types
-use the same density including edge erosion.
+Low and high clouds use Revelation's weather and density fields. The primary
+view integrates clouds at each internal render pixel. All ray types use the
+same world-space cloud density.
 The **Cloud Quality** folder has separate view samples and distances for the low
 and high layers, plus a shared self-shadow control. Self-shadow quality is
 16 on Ultra, 12 on High, 8 on Medium and 4 on Low. Coverage, thickness, shape
@@ -170,9 +166,10 @@ scale, density, wind and scattering live in the cloud appearance settings.
 Classic edge smoothing and thickness apply to Classic clouds, while the height
 offset applies to both styles.
 
-Schema 6 replaces the saved schema 5 presets' stock view and shadow budgets
-with the new profile values. Customized budgets and explicit distances carry
-over. The old cloud transport and sky resolution settings are removed.
+When upgrading from 1.1.1, schema 5 stock cloud budgets take the new schema 6
+preset values. Customized budgets and explicit distances carry over. The old
+cloud transport mode, sky resolution, cloud anisotropy and combined SHaRC
+update/query option are retired.
 
 **Weather & Volumes → Volumetric Fog** has separate Overworld, Nether, and End folders.
 Each dimension exposes transmittance, optical distance,
@@ -195,14 +192,11 @@ blur. Bloom radius lives with bloom, while color inversion lives under Color
 Grading. **Path Tracing → Radiance Cache → NRC Training** controls the neural
 cache's training and path termination.
 
-Fog's **Integration & Sampling** folder selects full lighting-grid integration
-or a preintegrated view volume. Both use the same world-space fog density,
-ray-traced lighting cache and depth integration. The view volume records
-cumulative scattering and transmittance at the fog depth slices and samples
-them at the actual surface distance. Its pixel size controls spatial reuse;
-smaller columns preserve narrower light shafts. Reflection and refraction
-segments keep world-space integration. Density noise and ground mist remain
-active in both methods.
+Fog's **Integration & Sampling** folder selects standard two-pixel columns
+or a custom spacing for air and fog. Both store cumulative scattering and
+transmittance at depth anchors and resolve at the actual surface distance.
+Smaller columns preserve narrower light shafts. Reflection and refraction
+segments use world-space integration.
 
 Indirect light candidate counts are independent of primary RTXDI candidates.
 The volume sampler has separate light-grid and depth controls; depth presets

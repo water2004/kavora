@@ -242,18 +242,9 @@ public float cloudViewSampleOffset(float3 direction)
   return cloudNoiseUnit(cloudNoiseHash(asuint(direction), kCloudNoiseSeed));
 }
 
-public float cloudColumnSampleOffset(uint2 column, uint frame)
+public float cloudPixelSampleOffset(uint2 pixel, uint frame)
 {
-  // Projection jitter changes the direction bits. Keep the scramble tied to
-  // the integration column so successive frames still cover different strata.
-  return cloudNoiseUnit(reversebits(frame) ^ cloudNoiseHash(uint3(column, 0), kCloudNoiseSeed));
-}
-
-// Cycle the four quadrants of a column independently of the camera's pixel jitter.
-public float2 cloudColumnJitter(uint frame)
-{
-  const uint quadrant = frame & 3;
-  return 0.25f * (2.0f * float2(quadrant & 1, quadrant >> 1) - 1.0f);
+  return cloudNoiseUnit(reversebits(frame) ^ cloudNoiseHash(uint3(pixel, 0), kCloudNoiseSeed));
 }
 
 public interface ICloudViewIntegral

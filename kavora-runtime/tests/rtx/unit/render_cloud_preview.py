@@ -265,7 +265,6 @@ def main():
     parser.add_argument('--high-max-distance', type=float, default=96000.0, help='High cloud view range in meters')
     parser.add_argument('--coverage', type=float, default=0.35, help='High layer coverage')
     parser.add_argument('--weather', type=float, default=0)
-    parser.add_argument('--thunder', type=float, default=0)
     parser.add_argument('--ground-albedo', type=float, default=0.18,
                         help='Mean terrain reflectance used by production cloud illumination')
     parser.add_argument('--steps', type=int, default=384,
@@ -316,8 +315,8 @@ def main():
     if not 1 <= args.steps <= 1024 or not 1 <= args.high_steps <= 1024 or not 1 <= args.light_steps <= 256:
         parser.error('steps and high-steps must be in [1,1024] and light-steps in [1,256]')
     if any(not np.isfinite(value) or not 0 <= value <= 1 for value in
-           (args.weather, args.thunder, args.ground_albedo)):
-        parser.error('weather, thunder and ground-albedo must be in [0,1]')
+           (args.weather, args.ground_albedo)):
+        parser.error('weather and ground-albedo must be in [0,1]')
     if (not np.isfinite([args.low_base, args.low_thickness, args.low_shape_scale,
                          args.low_extinction, args.low_coverage, args.low_max_distance]).all()
             or args.low_base < 0 or min(args.low_thickness, args.low_shape_scale) <= 0
@@ -455,7 +454,7 @@ def main():
         highCoverage=args.coverage, highMaxDistance=args.high_max_distance,
         groundReference=[args.origin[0], 0, args.origin[2]], windOffset=args.wind,
         viewAngularFootprint=2 * np.tan(np.radians(args.vfov) * 0.5) / args.height,
-        weather=args.weather, thunder=args.thunder, groundAlbedo=args.ground_albedo,
+        wetness=args.weather, groundAlbedo=args.ground_albedo,
         steps=args.steps, highSteps=args.high_steps, lightSteps=args.light_steps, lights=[light, dark])
     cloud_layout = (shaders / 'rtx/pass/cloud_args.h').read_text()
     if 'activeCloudLights' in cloud_layout:

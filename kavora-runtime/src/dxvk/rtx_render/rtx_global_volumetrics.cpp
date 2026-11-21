@@ -724,12 +724,11 @@ namespace dxvk {
     clouds.highLookupOrigin = Vector2(float(std::remainder(c * lookupX - s * lookupZ, 1.0)),
       float(std::remainder(s * lookupX + c * lookupZ, 1.0)));
     clouds.extinction = CloudOptions::extinctionPerMeter() / cloudWorldScale;
-    clouds.weather = std::clamp(CloudOptions::weather(), 0.0f, 1.0f);
-    clouds.thunder = std::clamp(CloudOptions::thunder(), 0.0f, 1.0f);
+    const float rain = std::clamp(CloudOptions::weather(), 0.0f, 1.0f);
     clouds.coverage = CloudOptions::coverage();
     const float elapsed = std::chrono::duration<float>(now - m_previousCloudTime).count();
     // Revelation declares a wetness and dryness half-life of 16 deciseconds.
-    m_cloudWetness = continuous ? std::lerp(clouds.weather, m_cloudWetness, std::exp2(-elapsed / 1.6f)) : clouds.weather;
+    m_cloudWetness = continuous ? std::lerp(rain, m_cloudWetness, std::exp2(-elapsed / 1.6f)) : rain;
     m_previousCloudTime = now;
     clouds.wetness = m_cloudWetness;
     const Vector3 cameraPosition = mainCamera.getPosition();
@@ -798,7 +797,6 @@ namespace dxvk {
     volumeArgs.volumetricFogAnisotropy = anisotropy();
     volumeArgs.fogIntegrationMode = std::min(fogIntegrationMode(), 1u);
     volumeArgs.fogIntegrationPixelStride = std::clamp(fogIntegrationPixelStride(), 2u, 32u);
-    volumeArgs.cloudIntegrationPixelStride = std::clamp(CloudOptions::primaryPixelStride(), 2u, 16u);
 
     volumeArgs.enableNoiseFieldDensity = enableHeterogeneousFog();
     volumeArgs.noiseFieldSubStepSize = noiseFieldSubStepSizeMeters() * RtxOptions::getMeterToWorldUnitScale();

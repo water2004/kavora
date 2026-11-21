@@ -109,7 +109,7 @@ public final class CloudRenderer {
         float cloudHeight = environment.cloudHeight;
         boolean visible = areCloudsVisible(environment, cloudStatus);
         if (proceduralClouds && visible) {
-            volumetricState.update(frameGameTime / 20.0, cloudHeight + cloudsHeight, environment.rain, environment.thunder);
+            volumetricState.update(frameGameTime / 20.0, cloudHeight + cloudsHeight, environment.rain);
             return;
         }
         volumetricState.disable();

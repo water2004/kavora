@@ -181,8 +181,6 @@
   "kavora.effect.clouds.distance": "低云显示距离",
   "kavora.effect.clouds.distance.tip": "低云的最远可见距离，单位为方块。增大距离能保留更多远处的云，也会增加 GPU 开销。",
   "kavora.effect.clouds.samples": "低云视线采样",
-  "kavora.effect.clouds.primaryPixelStride": "云采样列宽",
-  "kavora.effect.clouds.primaryPixelStride.tip": "屏幕上相邻云采样列的最大间距，单位为内部渲染像素。间距越小，云边缘越细致，开销也越高。",
   "kavora.effect.clouds.samples.tip": "射线穿过低云时的最大密度采样数。提高数值能保留更多细节，也会增加 GPU 开销。",
   "kavora.effect.clouds.highSamples": "高空云视线采样",
   "kavora.effect.clouds.highSamples.tip": "射线穿过高空云时的最大密度采样数。提高数值能保留掠视角下的云层细节。",

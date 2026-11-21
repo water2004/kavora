@@ -181,8 +181,6 @@
   "kavora.effect.clouds.distance": "Low Cloud Distance",
   "kavora.effect.clouds.distance.tip": "Maximum visible distance of low clouds, in blocks. A longer range keeps more distant clouds visible and costs more GPU time.",
   "kavora.effect.clouds.samples": "Low Cloud View Samples",
-  "kavora.effect.clouds.primaryPixelStride": "Cloud Column Width",
-  "kavora.effect.clouds.primaryPixelStride.tip": "Maximum spacing in render pixels between cloud samples across the screen. Smaller values preserve finer cloud edges at additional cost.",
   "kavora.effect.clouds.samples.tip": "Maximum density samples along a ray through a low cloud. Higher values preserve more detail at a higher GPU cost.",
   "kavora.effect.clouds.highSamples": "High Cloud View Samples",
   "kavora.effect.clouds.highSamples.tip": "Maximum density samples along a ray through the high cloud layer. Higher values preserve detail when viewing the layer at a shallow angle.",

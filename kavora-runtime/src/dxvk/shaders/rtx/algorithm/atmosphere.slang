@@ -389,22 +389,8 @@ public struct IntegratedAtmosphereHaze<Fog : IAtmosphereFog, FogRadiance : IAtmo
   }
 };
 
-// Primary columns own view history. World-space probes and secondary rays integrate
-// the same cloud transport without sampling screen-space data.
-public interface ICloudViewHistory
-{
-  float sampleOffset(float3 direction);
-  [mutating] void resolve(uint shell, AtmosphereRay ray, inout float depth, inout AtmosphereSegment cloud);
-};
-
-struct CurrentCloudView : ICloudViewHistory
-{
-  float sampleOffset(float3 direction) { return cloudViewSampleOffset(direction); }
-  [mutating] void resolve(uint shell, AtmosphereRay ray, inout float depth, inout AtmosphereSegment cloud) {}
-};
-
-public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze, History : ICloudViewHistory>(
-  VolumeArgs args, Haze haze, inout History history,
+public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze>(
+  VolumeArgs args, Haze haze, float cloudSampleOffset,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
@@ -443,16 +429,10 @@ public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze, His
       CloudViewTransfer cloud = CloudViewTransfer(layer, cloudAmbient,
         cloudLighting, ray.cloudPhase, weather, base, detail);
       marchCloudView(args.clouds, ray.origin, ray.direction, layer, interval, float2(nearestStart, end),
-        ray.cloudAngularFootprint, weather, base, detail, cloud, history.sampleOffset(ray.direction));
+        ray.cloudAngularFootprint, weather, base, detail, cloud, cloudSampleOffset);
       depth = cloud.moments.y > 0.0f ? clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end)
         : 0.5f * (nearestStart + end);
       clouds = { cloud.radiance, cloud.transmission.xxx, float3(cloud.moments, float(layer) * cloud.moments.y) };
-      // A terrain endpoint inside a shell represents only a prefix. Never reuse
-      // a whole-layer history for that prefix or for its remaining segment.
-      if (nearestStart == interval.x && end == interval.y)
-      {
-        history.resolve(nearest, ray, depth, clouds);
-      }
       if (clouds.cloudMoments.y == 0.0f)
       {
         continue;
@@ -474,8 +454,7 @@ public AtmosphereSegment integrateAtmosphereRange<Fog : IAtmosphereFog, FogRadia
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail, CloudLightingCache cloudLighting,
   AtmosphereRay ray, float rangeBegin, float rangeEnd, float3 cloudAmbient, AirTables airTables)
 {
-  CurrentCloudView history = {};
-  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance, Visibility>(fogRadiance), history,
+  return integrateAtmosphereWithHaze(args, IntegratedAtmosphereHaze<Fog, FogRadiance, Visibility>(fogRadiance), cloudViewSampleOffset(ray.direction),
     weather, base, detail, cloudLighting, ray, rangeBegin, rangeEnd, cloudAmbient, airTables);
 }
 

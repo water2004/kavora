@@ -525,7 +525,7 @@ public final class KavoraVolumetricCloudGameTest implements FabricClientGameTest
             System.out.println("KAVORA_PROFILE_" + phase + " " + clock + " " + System.currentTimeMillis()
                     + " view=" + view + " cloudsTime=" + api.getConfigVariableResolved("rtx.clouds.worldTimeSeconds")
                     + " rain=" + api.getConfigVariableResolved("rtx.clouds.weather")
-                    + " thunder=" + api.getConfigVariableResolved("rtx.clouds.thunder"));
+                    + " thunder=" + client.level.getThunderLevel(0f));
             return mark;
         });
     }

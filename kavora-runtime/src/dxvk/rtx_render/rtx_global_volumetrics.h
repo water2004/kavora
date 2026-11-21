@@ -42,8 +42,6 @@ namespace dxvk {
       "World cloud-layer base height supplied by the host.");
     RTX_OPTION_FLAG("rtx.clouds", float, weather, 0.0f, RtxOptionFlags::NoSave,
       "World rain strength supplied by the host.");
-    RTX_OPTION_FLAG("rtx.clouds", float, thunder, 0.0f, RtxOptionFlags::NoSave,
-      "World thunderstorm strength supplied by the host.");
     RTX_OPTION_ARGS("rtx.clouds", float, coverage, 0.5f, "Coverage of fair-weather cumulus formations. Wetness increases coverage.",
       args.minValue = 0.0f, args.maxValue = 1.0f);
     RTX_OPTION_ARGS("rtx.clouds", float, windSpeed, 1.0f, "Multiplier on world-synchronized cloud advection.",
@@ -77,9 +75,6 @@ namespace dxvk {
       args.minValue = 8u, args.maxValue = 512u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, highSteps, 20u, "Maximum view integration cells per high-cloud interval. The view angle and projected texture footprint set the actual budget.",
       args.minValue = 1u, args.maxValue = 160u);
-    RTX_OPTION_ARGS("rtx.clouds", uint32_t, primaryPixelStride, 6u,
-      "Maximum spacing between primary cloud integration columns, in render pixels.",
-      args.minValue = 2u, args.maxValue = 16u);
     RTX_OPTION_ARGS("rtx.clouds", uint32_t, lightSteps, 16u, "Cloud lighting quality. Controls vertical diffuse samples and up to six direct low-cloud samples.",
       args.minValue = 1u, args.maxValue = 16u);
   };

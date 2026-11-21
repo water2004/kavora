@@ -25,8 +25,7 @@ def cloud_parameters(**changes):
         "baseHeight": 400.0, "thickness": 1500.0, "shapeScale": 1024.0,
         "extinction": 0.06, "coverage": 0.45, "maxDistance": 12000.0,
         "albedo": 1.0, "steps": 160, "highSteps": 48, "lightSteps": 16,
-        "multipleScattering": 0.8, "weather": 0.0,
-        "thunder": 0.0, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
+        "multipleScattering": 0.8, "groundReference": [0, 0, 0], "planetRadius": 6360000.0,
         "wetness": 0.0, "meterToWorld": 1.0, "highMapOrigin": [0., 0.], "highLookupOrigin": [0., 0.],
         "lightMaxDistance": 60000.0, "previousWindDelta": [0, 0, 0],
         "viewAngularFootprint": 0.0, "highBaseHeight": 6000.0,
@@ -85,15 +84,14 @@ class Probe:
         return output.to_numpy().view(np.float32).reshape(-1, 4)
 
 
-def check_column_history(probe):
-    old = [[131072, 0.5, 1, 0]] * 6 + [[131072, 1, 1, 0], [131072, .125, 1, 0], [131072, 1, 0, 0]]
-    current = [(131072, 1, 1, .5), (131072, 1, .25, .5), (-131072, 0, 1, .5),
-               (65536, 2, 1, .5), (65536, 0, 1, .5), (65536, 1, 1, .5),
-               (131072, 0, 1, 0), (131072, 0, 1, 0), (131072, 0, 1, 1)]
-    result = probe.run("columnHistory", old, current)
-    expected = np.outer([1, .25, 0, 0, .5, .5, 0, .875**2, 0], [2, 4, 8, 1])
-    np.testing.assert_allclose(result, expected, atol=1e-5)
-    print("PASS cloud observation: rotated silhouettes, changed lighting and thin quadrature misses")
+def check_pixel_samples(probe):
+    inputs = [(x, 37, frame, 0) for x in range(3) for frame in range(16)]
+    offsets = probe.run("pixelSample", inputs)[:, 0].reshape(3, 16)
+    assert np.all((offsets >= 0) & (offsets < 1))
+    for samples in offsets:
+        np.testing.assert_array_equal(np.sort((samples * 16).astype(int)), np.arange(16))
+    assert not np.array_equal(offsets[0], offsets[1])
+    print("PASS pixel samples cover every quadrature stratum with distinct pixel scrambles")
 
 
 def check_air_skylight(probe):
@@ -132,27 +130,6 @@ def check_weather_column_coordinates(probe):
         np.testing.assert_allclose(coords[:, :2], np.asarray(uv)[:, :2], atol=1e-6)
         np.testing.assert_allclose(coords[:, 2], np.asarray(uv)[:, 2], atol=.005)
     print("PASS local light position and lookup round trip for both up axes")
-
-
-def check_column_noise(probe, textures):
-    rng = np.random.default_rng(225)
-    count = 512
-    origins = np.zeros((count, 4), dtype=np.float32)
-    origins[:, [0, 2]] = rng.uniform(-30000, 30000, (count, 2))
-    directions = rng.normal(size=(count, 3))
-    directions[:, 1] = rng.uniform(.2, 1, count)
-    directions /= np.linalg.norm(directions, axis=1)[:, None]
-    args = cloud_parameters(steps=24, viewAngularFootprint=.002, maxDistance=24000.)
-    samples = probe.run("stationaryColumnNoise", origins, np.column_stack([directions, np.zeros(count)]),
-                        args, textures, output_records=2)
-    data = samples[::2]
-    edges = data[(data[:, 0] > .05) & (data[:, 0] < .95)]
-    assert len(edges) >= 16
-    before, after = np.sqrt(edges[:, 2:].mean(axis=0))
-    mean_shift = abs((edges[:, 0] - edges[:, 1]).mean())
-    assert 0 < after < before and mean_shift < .02
-    print(f"PASS {len(edges)} partly cloudy fixed rays at 24 steps: temporal opacity RMS "
-          f"{before:.5f} -> {after:.5f}, mean opacity shift {mean_shift:.5f}")
 
 
 def check_homogeneous(probe):
@@ -377,7 +354,7 @@ def uniform_cloud_textures(device):
 def check_distant_storm_horizon(probe, textures):
     # Horizontal rays reach this shell beyond either detail budget. Uniform
     # overcast isolates the transport under test from weather-map gaps.
-    clouds = cloud_parameters(baseHeight=800.0, coverage=.85, wetness=1., weather=1., thunder=1., extinction=.03)
+    clouds = cloud_parameters(baseHeight=800.0, coverage=.85, wetness=1., extinction=.03)
     y = -58.
     radius = clouds["planetRadius"]
     entry, exit_distance = (np.sqrt((h - y) * (2 * radius + h + y))
@@ -458,7 +435,7 @@ def main():
     args = parser.parse_args()
     device = spy.Device(type=spy.DeviceType.vulkan, compiler_options=OPTIONS)
     probe = Probe(device)
-    check_column_history(probe)
+    check_pixel_samples(probe)
     check_air_skylight(probe)
     check_weather_column_coordinates(probe)
     check_homogeneous(probe)
@@ -467,7 +444,6 @@ def main():
     check_light_profiles(probe)
     textures = cloud_textures(device, args.dump)
     check_upper_deck_illumination(probe, textures)
-    check_column_noise(probe, textures)
     uniform = uniform_cloud_textures(device)
     check_distant_storm_horizon(probe, uniform)
     check_distant_cloud_sequence(probe, textures)

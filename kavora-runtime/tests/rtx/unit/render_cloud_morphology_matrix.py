@@ -19,11 +19,11 @@ import time
 
 
 SCENARIOS = (
-    ("fair_broken", 0.45, 0.0, 0.0),
-    ("cloud_rich", 0.85, 0.0, 0.0),
-    ("mixed_clouds", 0.72, 0.25, 0.0),
-    ("stratiform_deck", 0.82, 0.65, 0.0),
-    ("storm_transition", 0.85, 1.0, 0.45),
+    ("fair_broken", 0.45, 0.0),
+    ("cloud_rich", 0.85, 0.0),
+    ("mixed_clouds", 0.72, 0.25),
+    ("stratiform_deck", 0.82, 0.65),
+    ("storm_transition", 0.85, 1.0),
 )
 LOCATIONS = {
     "user": (8043.0, 139.0, 1240.0),
@@ -111,7 +111,7 @@ def plan(args):
         preview = repo / "kavora-runtime/tests/rtx/unit/render_cloud_preview.py"
         for location in locations:
             for light_name, elevation, azimuth in lighting:
-                for name, coverage, weather, thunder in SCENARIOS:
+                for name, coverage, weather in SCENARIOS:
                     if name not in scenarios:
                         continue
                     destination = args.output / variant / location / light_name / name
@@ -125,7 +125,7 @@ def plan(args):
                                "--low-base", "800", "--low-thickness", "1500",
                                "--low-shape-scale", "1024", "--low-extinction", "0.03",
                                "--low-coverage", str(coverage), "--weather", str(weather),
-                               "--thunder", str(thunder), "--low-max-distance", str(args.low_max_distance),
+                               "--low-max-distance", str(args.low_max_distance),
                                "--high-max-distance", str(args.high_max_distance),
                                "--exposure", "1.0", "--tone-map", "aces",
                                "--steps", str(args.steps), "--high-steps", str(args.high_steps),
