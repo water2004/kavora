@@ -12,7 +12,6 @@ from pathlib import Path
 import sys
 
 import numpy as np
-from numpy.polynomial.legendre import leggauss
 import slangpy as spy
 
 
@@ -108,46 +107,25 @@ def check_ground_boundary(probe):
     print(f"PASS terrain boundary: {len(samples)} black/white terrain, empty/thick columns and reflected-beam feedback")
 
 
-def beam_reference(above, below, cosine):
-    """Integrate the positive Robin Green kernel against the incident beam."""
-    if cosine == 0 or above + below == 0:
-        return 0.0
-    d = 1.0
-    total = above + below
-    nodes, weights = leggauss(20)
-    cutoff = min(total / cosine, 80.0)
-    split = min(above / cosine, cutoff)
-    edges = np.unique(np.clip([0, 1, 2, 4, 8, 16, 32, 80, split, cutoff], 0, cutoff))
-    integral = 0.0
-    for lower, upper in zip(edges[:-1], edges[1:]):
-        v = lower + (nodes + 1) * 0.5 * (upper - lower)
-        source_depth = cosine * v
-        green = np.where(source_depth < above,
-                         (below + d) * (source_depth + d),
-                         (above + d) * (total - source_depth + d))
-        integral += np.sum(weights * green * np.exp(-v)) * 0.5 * (upper - lower)
-    return cosine * integral / (4 * np.pi * d * d * (total + 2 * d))
-
-
 def check_beam(probe):
-    samples = np.array([(total * fraction, total * (1 - fraction), cosine, 0)
-                        for total in (0, 1e-8, 1e-6, 0.001, 0.1, 1, 10, 100, 10000)
-                        for fraction in (0, 0.001, 0.1, 0.5, 0.9, 0.999, 1)
-                        for cosine in (0, 1e-8, 1e-5, 0.001, 0.01, 0.1, 0.5, 1)], dtype=np.float32)
-    actual = probe.run("beamRadiance", samples)[:, 0]
-    expected = np.array([beam_reference(float(t), float(b), float(m)) for t, b, m, _ in samples])
-    assert np.isfinite(actual).all() and np.all(actual >= 0)
-    np.testing.assert_allclose(actual, expected, rtol=2e-5, atol=3e-9)
-    zero = (samples[:, :2].sum(axis=1) == 0) | (samples[:, 2] == 0)
-    np.testing.assert_array_equal(actual[zero], 0)
-
-    grazing = [(t, b, cosine, 0) for t, b in ((0, 0), (0.1, 10), (10, 0.1), (1, 1))
-               for cosine in (-1e-7, 0, 1e-7)]
-    near_horizon = probe.run("beamRadiance", grazing)[:, 0].reshape(-1, 3)
-    assert np.max(np.abs(np.diff(near_horizon, axis=1))) < 1e-7
-    thin = probe.run("beamRadiance", [(t / 2, t / 2, 0.5, 0) for t in (1e-6, 1e-4)])[:, 0]
-    np.testing.assert_allclose(thin / [1e-6, 1e-4], thin[0] / 1e-6, rtol=3e-4)
-    print(f"PASS beam Green integral: {len(samples)} positive/finite samples, zero thickness and grazing continuity")
+    samples = [(tau, g, cosine, 0) for g in (0, 0.77, 0.8525, 1)
+               for cosine in (0, 1e-7, .2, .85, 1)
+               for tau in (0, 1e-7, .1, 1, 10, 10000)]
+    transfer = probe.run("groundBeamFlux", samples).reshape(4, 5, 6, 4)
+    flux, beam = transfer[..., 0], transfer[..., 1]
+    cosines = np.array([0, 1e-7, .2, .85, 1])
+    # Only flux outside the delta beam belongs to the next deck's diffuse
+    # sky. Check the energy partition, including the empty and forward limits.
+    diffuse = flux - beam * cosines[None, :, None]
+    assert np.all(diffuse >= -1e-6)
+    np.testing.assert_allclose(diffuse[:, :, 0], 0, atol=1e-7)
+    np.testing.assert_allclose(diffuse[-1], 0, atol=1e-7)
+    assert diffuse[1, 3, 4] > 0.1
+    np.testing.assert_allclose(flux[:, :, 0], np.broadcast_to(cosines, (4, 5)), atol=1e-7)
+    np.testing.assert_allclose(flux[-1], np.broadcast_to(cosines[:, None], (5, 6)), atol=1e-7)
+    assert np.isfinite(flux).all() and np.all(flux >= 0)
+    assert np.all(np.diff(flux, axis=-1) <= 1e-6)
+    print("PASS downward flux: empty and thick slabs, forward scattering and grazing incidence")
 
 
 def check_column_support(probe):
@@ -163,64 +141,38 @@ def check_column_support(probe):
     print(f"PASS local column support: {len(samples)} cloud types, top stretches and shell heights")
 
 
-def single_escape(outgoing_cosine, thickness, incident_cosine):
-    """Analytically integrate one beam collision and escape along each direction."""
-    result = np.empty_like(outgoing_cosine)
-    downward = outgoing_cosine > 0
-    mu = outgoing_cosine[downward]
-    equal = np.abs(mu - incident_cosine) < 1e-7
-    transmitted = np.empty_like(mu)
-    transmitted[equal] = thickness / incident_cosine * np.exp(-thickness / incident_cosine)
-    transmitted[~equal] = mu[~equal] / (mu[~equal] - incident_cosine) * (
-        np.exp(-thickness / mu[~equal]) - np.exp(-thickness / incident_cosine))
-    result[downward] = transmitted
-    mu = -outgoing_cosine[~downward]
-    result[~downward] = mu / (mu + incident_cosine) * -np.expm1(
-        -thickness * (1 / incident_cosine + 1 / np.maximum(mu, 1e-100)))
-    return result
-
-
-def phase_escape(thickness, incident_cosine, inverse, nodes, weights, azimuth):
-    cosine = np.interp(nodes, np.linspace(0, 1, len(inverse)), inverse)
-    outgoing = (incident_cosine * cosine[:, None]
-                + np.sqrt(1 - incident_cosine ** 2) * np.sqrt(np.maximum(0, 1 - cosine ** 2))[:, None]
-                * np.cos(azimuth)[None, :])
-    return np.sum(single_escape(outgoing, thickness, incident_cosine) * weights[:, None]) / len(azimuth)
+def slab_transmission(thickness, cosine, inverse, rng, paths=32768):
+    """Follow incident photons until they escape through either slab boundary."""
+    mu = np.full(paths, cosine)
+    depth = np.zeros(paths)
+    transmitted = 0
+    quantiles = np.linspace(0, 1, len(inverse))
+    while len(mu):
+        depth += rng.exponential(size=len(mu)) * mu
+        transmitted += np.count_nonzero(depth >= thickness)
+        inside = (depth > 0) & (depth < thickness)
+        depth, mu = depth[inside], mu[inside]
+        scatter = np.interp(rng.random(len(mu)), quantiles, inverse)
+        azimuth = rng.uniform(0, 2 * np.pi, len(mu))
+        mu = mu * scatter + np.sqrt(np.maximum(0, (1 - mu**2) * (1 - scatter**2))) * np.cos(azimuth)
+    return transmitted / paths
 
 
 def check_slab_energy(probe):
-    angular, angular_weights = leggauss(128)
-    angular = (angular + 1) / 2
-    angular_weights /= 2
-    azimuth = (np.arange(256) + 0.5) * 2 * np.pi / 256
-    depth_nodes, depth_weights = leggauss(24)
-    _, _, _, cdfs = transport_tables()
-    phases = (cdfs[0], cdfs[2])
-    worst = (0, None)
-    cases = 0
-    for incident_cosine in (0.0001, 0.001, 0.01, 0.035, 0.1, 0.3, 0.5, 0.7, 0.9, 1):
-        for thickness in (0.0001, 0.001, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100):
-            anchors = np.array([0, 1e-5, 1e-4, 0.001, 0.01, 0.1, 0.5, 1, 3, 10, 30, 100])
-            edges = np.unique(np.clip(np.r_[anchors, thickness - anchors, thickness], 0, thickness))
-            depths = np.concatenate([a + (depth_nodes + 1) * 0.5 * (b - a)
-                                     for a, b in zip(edges[:-1], edges[1:])])
-            weights = np.concatenate([depth_weights * 0.5 * (b - a)
-                                      for a, b in zip(edges[:-1], edges[1:])])
-            samples = np.column_stack([depths, thickness - depths,
-                                       np.full(len(depths), incident_cosine), np.zeros(len(depths))])
-            diffuse = probe.run("beamRadiance", samples)[:, 0].astype(np.float64)
-            escape = np.sum((np.exp(-depths[:, None] / angular)
-                             + np.exp(-(thickness - depths[:, None]) / angular)) * angular_weights, axis=1)
-            multiple_power = 2 * np.pi * np.sum(diffuse * escape * weights) / incident_cosine
-            for layer, inverse in enumerate(phases):
-                scattered = phase_escape(thickness, incident_cosine, inverse, angular, angular_weights, azimuth)
-                outgoing = np.exp(-thickness / incident_cosine) + scattered + multiple_power
-                assert np.isfinite(outgoing) and 0 <= outgoing <= 1 + 2e-6, (incident_cosine, thickness, layer, outgoing)
-                if outgoing > worst[0]:
-                    worst = (outgoing, (incident_cosine, thickness, layer))
-                cases += 1
-    print(f"PASS slab energy: {cases} Revelation cases at maximum multiple strength, "
-          f"maximum outgoing/incoming {worst[0]:.9f} at (mu, tau, layer)={worst[1]}")
+    _, _, moments, inverse = transport_tables()
+    rng = np.random.default_rng(20261121)
+    samples, expected = [], []
+    for layer in (0, 2):
+        for cosine in (.25, .85, 1.0):
+            for thickness in (.2, 2, 8):
+                samples.append((thickness, moments[layer], cosine, 0))
+                expected.append(slab_transmission(thickness, cosine, inverse[layer], rng))
+    predicted = probe.run("groundBeamFlux", samples)[:, 0] / np.asarray(samples)[:, 2]
+    error = np.abs(predicted - expected)
+    print(f"Ground flux against Revelation photon transport: mean error {error.mean():.4f}, max {error.max():.4f}")
+    # The two-stream boundary approximates the full angular transport. The
+    # reference's worst-case binomial standard error is below 0.003.
+    assert np.max(error) < .08 and np.mean(error) < .03
 
 
 def main():

@@ -95,26 +95,40 @@ def main():
     # tiles, both signs of each axis, the blend zones and the far edge clamp.
     cells = np.array([[x, z, 0, 0] for z in range(20) for x in range(30)], np.float32)
     nodes = run('neuralNodes', cells, np.zeros_like(cells), args)
+    radius = max(args["maxDistance"], args["lightMaxDistance"], 4.0 * args["shapeScale"])
+    near_spacing = args["shapeScale"] / 8.0
+    middle_spacing = radius / 30.0
     for (x, z, _, _), node in zip(cells, nodes):
         if x < 20:
-            radius = max(args["maxDistance"], args["lightMaxDistance"], 4.0 * args["shapeScale"])
             expected_xz = (np.array([x, z]) - 9.5) * (2.0 * radius / 20.0)
         else:
-            expected_xz = (np.array([x - 20, z % 10]) - 4.5) * (128 if z < 10 else 512)
+            spacing = near_spacing if z < 10 else middle_spacing
+            expected_xz = (np.array([x - 20, z % 10]) - 4.5) * spacing
         np.testing.assert_allclose(node[[0, 2]], expected_xz, atol=1e-3, rtol=0)
     atlas = np.full((20, 128, 30, 4), 0.875, np.float32)
     atlas[:10, :, 20:] = 0.125
     atlas[10:, :, 20:] = 0.5
     positions, expected = [], []
-    for distance, value in ((0, .125), (480, .125), (560, .3125), (640, .5),
-                            (1920, .5), (2240, .6875), (2560, .875), (50000, .875)):
+    for distance, value in ((0, .125), (3.75 * near_spacing, .125),
+                            (4.375 * near_spacing, .3125), (5 * near_spacing, .5),
+                            (3.75 * middle_spacing, .5), (4.375 * middle_spacing, .6875),
+                            (5 * middle_spacing, .875), (50000, .875)):
         for x, z in ((distance, 0), (-distance, 0), (0, distance), (0, -distance)):
             positions.append([x, 1000, z, 0])
             expected.append(value)
-    actual = run('neuralAngles', np.zeros_like(positions), positions, args,
+    actual = run('skyNodes', np.zeros_like(positions), positions, args,
                  neural=texture(atlas, spy.Format.rgba32_float))
-    np.testing.assert_allclose(actual[:, 2], expected, atol=2e-6, rtol=0)
+    np.testing.assert_allclose(actual[:, 0], expected, atol=2e-6, rtol=0)
     report['neuralAtlasCases'] = len(nodes) + len(positions)
+    # Check every optical node through the bake and lookup transforms, including both deck boundaries.
+    z, y, x = np.indices((20, 16, 30), dtype=np.int32)
+    marker = (x + 2*y + 3*z).astype(np.float32)
+    atlas[:,:16] = marker[:,:,:,None]
+    requests = np.stack((x, y, z, y >= 12), axis=-1).reshape(-1, 4)
+    actual = run('solarNodes', requests, np.zeros_like(requests), args,
+                 neural=texture(atlas, spy.Format.rgba32_float))
+    np.testing.assert_allclose(actual[:, 3], marker.ravel(), atol=3e-5, rtol=0)
+    report['solarOpticalNodes'] = len(requests)
     grid_inputs = [[start, end, spacing, angle] for start, end in ((0, 24000), (800, 24000), (20000, 24000),
                    (800, 1000), (0, 96000)) for spacing in (1, 8, 16, 128) for angle in (0, 0.0013)]
     for budget in (96, 160, 256, 384):

@@ -97,6 +97,8 @@ def build_lighting_cache(device, clouds, textures, shaders, lighting_enabled=Tru
 
     resolution = constant(layout, 'CLOUD_LOCAL_LIGHT_RESOLUTION')
     height = constant(layout, 'CLOUD_LOCAL_LIGHT_HEIGHT_SAMPLES') + constant(layout, 'CLOUD_LOCAL_LIGHT_HIGH_HEIGHT_SAMPLES')
+    if 'CLOUD_LOCAL_LIGHT_BOUNDARY_SLICES' in layout:
+        height += constant(layout, 'CLOUD_LOCAL_LIGHT_BOUNDARY_SLICES')
     bake('CloudLocalLight', (resolution, height, resolution), (resolution, resolution, 2 if high else 1), 2,
          'cloud_lighting_preview.comp.slang', 'buildLocalLight', {}, spy.TextureAddressingMode.wrap)
     if include_neural:

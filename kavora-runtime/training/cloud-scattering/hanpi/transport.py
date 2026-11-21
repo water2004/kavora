@@ -72,22 +72,58 @@ def scatter(w, inverse):
 
 
 @njit
-def short_depth(rho, p, span, height, sigma, light, steps):
-    length = min((height - p[1]) / light[1], height / max(light[1], 0.5))
+def short_depth(rho, base_density, p, span, height, sigma, light, steps):
+    vertical = height - p[1] if light[1] >= 0 else p[1]
+    length = min(vertical / max(abs(light[1]), 1e-10), height / max(abs(light[1]), 0.5))
     step = length / (steps * steps)
     depth = 0.0
     for tap in range(steps):
         center = tap + 0.5
-        density = sample(rho, p + light * (center * center * step), span, height)
+        density = sample(rho if tap < 3 else base_density,
+                         p + light * (center * center * step), span, height)
         depth += 2.0 * center * step * density * sigma
     return min(depth, 24.0)
 
 
+@njit
+def write_solar_features(out, rho, coarse_density, p, span, height, sigma, column, light, view, row, norm, g, steps):
+    sun = short_depth(rho, coarse_density, p, span, height, sigma, light, steps)
+    inward = short_depth(rho, coarse_density, p, span, height, sigma, view, 3)
+    mu = max(-1.0, min(1.0, view @ light))
+    out[0] = np.log1p(sun)
+    out[1] = np.log1p(inward)
+    out[2] = np.log1p(min(128., column))
+    out[3] = light[1]
+    out[4] = mu
+    out[5] = phase_probability(row, norm, mu)
+    out[6] = view[1]
+    out[7] = g
+
+
+@njit
+def beam_visibility(rho, p, span, height, sigma, light, majorant):
+    # Ratio tracking directly estimates transmission through the training medium.
+    distance = 0.0
+    exit_distance = (height - p[1]) / light[1]
+    transmission = 1.0
+    while True:
+        distance -= np.log1p(-np.random.random()) / majorant
+        if distance >= exit_distance:
+            return transmission
+        transmission *= max(0.0, 1 - sigma * sample(rho, p + distance * light, span, height) / majorant)
+        if transmission < .1:
+            if np.random.random() >= transmission:
+                return 0.0
+            transmission = 1.0
+
+
 @njit(parallel=True)
-def solve(fields, span, height, sigma, tau, vertical, light, points, views, row, norm, g, inverse, steps, spp, seed):
+def solve(fields, span, height, sigma, vertical, column_tau, light, points, views, row, norm, g, inverse, steps, spp, seed,
+          base_density=None):
     rho = fields[0]
+    coarse_density = rho if base_density is None else base_density
     majorant = sigma * np.max(rho)
-    solar_features = np.empty((len(points), 16), np.float32)
+    solar_features = np.empty((len(points), 8), np.float32)
     sky_features = np.empty((len(points), 10), np.float32)
     solar = np.zeros(len(points), np.float32)
     sky = np.zeros(len(points), np.float32)
@@ -96,17 +132,9 @@ def solve(fields, span, height, sigma, tau, vertical, light, points, views, row,
         p, view = points[i], views[i]
         for j in range(4):
             density = sample(fields[j], p, span, height)
-            solar_features[i, j] = density
             sky_features[i, j] = density
-        depth = short_depth(rho, p, span, height, sigma, light, steps)
-        mu = max(-1.0, min(1.0, view @ light))
-        solar_features[i, 4:10] = np.array(
-            [np.exp(-depth), depth / (1 + depth), p[1] / height, mu, phase_probability(row, norm, mu), view[1]]
-        )
-        for j, distance in enumerate((150.0, 500.0, 1200.0, -300.0)):
-            solar_features[i, 10 + j] = sample(rho, p + light * distance, span, height)
-        solar_features[i, 14] = sample(rho, p + np.array([0.0, 500.0, 0.0]), span, height)
-        solar_features[i, 15] = g
+        write_solar_features(solar_features[i], rho, coarse_density, p, span, height, sigma, column_tau[i],
+                             light, view, row, norm, g, steps)
         up_depth = sample(vertical, p, span, height)
         sky_features[i, 4:10] = np.array([
             up_depth / (1 + up_depth), p[1] / height, view[1],
@@ -135,7 +163,8 @@ def solve(fields, span, height, sigma, tau, vertical, light, points, views, row,
                     break
                 q = q + w * distance
                 mu = w @ light
-                sun_total += weight * phase_probability(row, norm, mu) * np.exp(-sample(tau, q, span, height))
+                sun_total += weight * phase_probability(row, norm, mu) * beam_visibility(
+                    rho, q, span, height, sigma, light, majorant)
                 order += 1
                 if order >= 16:
                     if np.random.random() >= 0.9:
@@ -144,6 +173,54 @@ def solve(fields, span, height, sigma, tau, vertical, light, points, views, row,
         solar[i] = sun_total / spp
         sky[i] = sky_total / spp
     return solar_features, solar, sky_features, sky
+
+
+@njit(parallel=True)
+def sample_visible_points(rho, points, views, span, height, sigma, seed):
+    majorant = sigma * np.max(rho)
+    for i in prange(len(points)):
+        np.random.seed(seed + i)
+        w = views[i]
+        p = points[i].copy()
+        # Start at the viewing boundary. At grazing angles the periodic slab
+        # supplies at most one horizontal period of foreground.
+        limit = min(span, (height - p[1]) / -w[1] if w[1] < 0 else p[1] / max(w[1], 1e-12))
+        origin = p - w * limit
+        distance = 0.0
+        while distance < limit:
+            distance -= np.log1p(-np.random.random()) / majorant
+            if distance < limit:
+                candidate = origin + w * distance
+                if np.random.random() * majorant < sigma * sample(rho, candidate, span, height):
+                    points[i] = candidate
+                    break
+
+
+def column_depths(rho, span, height, sigma, points, rng, samples):
+    """Bilinear column footprint at a random atlas origin and supported world scale."""
+    from scipy.ndimage import map_coordinates
+    side = rho.shape[0]
+    pitch = rng.choice((375., 937.5, 1500.))
+    # Sample the same cell centers and vertical quadrature used by the atlas.
+    plane = np.arange(side)
+    z, x = np.meshgrid(plane, plane, indexing="ij")
+    column = np.zeros((side, side))
+    for i in range(samples):
+        y = (i + .5) * (rho.shape[1] - 1) / samples
+        column += map_coordinates(rho, [z, np.full_like(z, y, dtype=float), x], order=1, mode="nearest")
+    column *= height * sigma / samples
+    offset = rng.uniform(0, pitch, size=2)
+    uv = (points[:, [2, 0]] - offset) / pitch
+    base = np.floor(uv)
+    frac = uv - base
+    result = np.zeros(len(points))
+    for a in (0, 1):
+        for b in (0, 1):
+            coords = ((base + [a, b]) * pitch + offset).T * side / span
+            weight = (frac[:, 0] if a else 1-frac[:, 0]) * (frac[:, 1] if b else 1-frac[:, 1])
+            result += weight * map_coordinates(column, coords, order=1, mode="grid-wrap")
+    return result
+
 
 def generate(directory, out, smoke=False):
     out.mkdir(parents=True, exist_ok=True)
@@ -154,11 +231,14 @@ def generate(directory, out, smoke=False):
         rng = np.random.default_rng(6011 + region * 2 + layer)
         with np.load(source) as data:
             fields = data["fields"]
+            base_density = data["baseDensity"]
             span, height, sigma = map(float, (data["span"], data["height"], data["sigma"]))
         rho = fields[0]
-        occupied = np.argwhere(rho > 0.01)
+        occupied = np.argwhere(rho > 0)
         if not len(occupied):
-            continue
+            raise ValueError(f"{source.stem} contains no scattering medium")
+        mass = rho[tuple(occupied.T)].astype(np.float64)
+        mass /= mass.sum()
         # Revelation shades both low-cloud shapes with the liquid cumulus row.
         material = 0 if layer == 0 else 2
         vertical = sun_depth(rho, span, height, sigma, np.array([0.0, 1.0, 0.0]))
@@ -166,13 +246,12 @@ def generate(directory, out, smoke=False):
         for e, elevation in enumerate((35,) if smoke else (6, 16, 35, 57, 83)):
             az, el = rng.uniform(0, 2 * np.pi), np.radians(elevation + rng.uniform(-2, 2))
             light = np.array([np.sin(az) * np.cos(el), np.sin(el), np.cos(az) * np.cos(el)])
-            tau = sun_depth(rho, span, height, sigma, light)
-            count = (256 if heldout else 1024) if layer == 0 else (128 if heldout else 384)
+            count = (512 if heldout else 1536) if layer == 0 else (128 if heldout else 384)
             if smoke:
                 count = 64
             points = rng.uniform(size=(count, 3)) * [span, height, span]
             n = 3 * count // 4
-            selected = occupied[rng.integers(len(occupied), size=n), :][:, [2, 1, 0]]
+            selected = occupied[rng.choice(len(occupied), size=n, p=mass)][:, [2, 1, 0]]
             points[:n] = (selected + rng.uniform(-0.5, 0.5, size=(n, 3))) * [
                 span / rho.shape[2],
                 height / (rho.shape[1] - 1),
@@ -181,8 +260,8 @@ def generate(directory, out, smoke=False):
             points[:, 1] = np.clip(points[:, 1], 0, height)
             views = rng.normal(size=(count, 3))
             views /= np.linalg.norm(views, axis=1, keepdims=True)
-            # Sample the solar lobe as well as uniform view directions. This
-            # gives the fit data near the forward peak and not just its tails.
+            # Cover the narrow forward lobe and give the dim backward hemisphere
+            # enough independent observations to fit its solar contribution.
             n = count // 4
             tangent = np.array([light[2], 0.0, -light[0]])
             tangent /= np.linalg.norm(tangent)
@@ -192,11 +271,20 @@ def generate(directory, out, smoke=False):
             views[:n] = cosines[:, None] * light + np.sqrt(1 - cosines**2)[:, None] * (
                 np.cos(phi)[:, None] * tangent + np.sin(phi)[:, None] * np.cross(light, tangent)
             )
+            cosines = -1.0 + .25 * rng.uniform(size=n)**2
+            phi = rng.uniform(0, 2 * np.pi, size=n)
+            views[n:2*n] = cosines[:, None] * light + np.sqrt(1 - cosines**2)[:, None] * (
+                np.cos(phi)[:, None] * tangent + np.sin(phi)[:, None] * np.cross(light, tangent)
+            )
+            sample_visible_points(rho, points[::2], views[::2], span, height, sigma,
+                                  13000000 + region * 70000 + layer * 3000 + e * count)
+            columns = column_depths(rho, span, height, sigma, points, rng, 16 if layer == 0 else 2)
             x, y, sx, sy = solve(
-                fields, span, height, sigma, tau, vertical, light, points, views,
+                fields, span, height, sigma, vertical, columns, light, points, views,
                 phase[material], norm[material], moment[material], inverse[material], 6 if layer == 0 else 3,
-                4 if smoke else 512 if heldout else 96,
+                4 if smoke else 4096 if region in (4, 5) else 1536,
                 900000 * region + 70000 * layer + 3000 * e,
+                base_density,
             )
             sky_rows.append(sx)
             sky_targets.append(sy)

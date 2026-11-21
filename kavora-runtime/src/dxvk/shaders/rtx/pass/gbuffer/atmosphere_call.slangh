@@ -14,5 +14,5 @@ struct AtmosphereCallData
   float cloudAngularFootprint;
   float3 radiance;
   float3 transmittance;
-  float2 cloudMoments;
+  float3 cloudMoments;
 };

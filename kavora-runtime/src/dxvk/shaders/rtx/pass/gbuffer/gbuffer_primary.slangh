@@ -250,17 +250,12 @@ void geometryResolverVertex(
   // Output a miss
   if (!rayInteractionHasHit(interaction))
   {
-    float cloudDistance = 0.0f;
+    float3 cloudMoments = 0;
     if (!cb.ignoreSkyIfCameraInMedium)
     {
       const float3 direction = geometryResolverState.direction;
-      const CloudArgs clouds = cb.volumeArgs.clouds;
       const float3 background = sampleClearBackgroundRadiance(direction, SkyProbe, LinearWrapSampler);
-      if (geometryResolverState.cloudMoments.y > 0.0f)
-      {
-        cloudDistance = geometryResolverState.cloudMoments.x / geometryResolverState.cloudMoments.y
-          * cloudMaxViewDistance(clouds);
-      }
+      cloudMoments = geometryResolverState.cloudMoments;
       geometryResolverState.radiance += geometryResolverState.attenuation * background;
     }
 
@@ -274,7 +269,7 @@ void geometryResolverVertex(
     }
 
     geometryResolverOutputMiss<true, true>(geometryResolverState.pixelCoordinate,
-      geometryResolverState.compactedCoordinate, geometryResolverState.alphaBlendSurfaceStored, cloudDistance);
+      geometryResolverState.compactedCoordinate, geometryResolverState.alphaBlendSurfaceStored, cloudMoments);
     geometryResolverState.alphaBlendSurfaceStored = true;
 
     if (usesPrimaryRayMissFlag(cb.sparseRenderingArgs))

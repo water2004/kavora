@@ -103,7 +103,7 @@ void resolveVertexFinalMiss<let overrideRayInteraction : bool, T : IBasePayloadS
   inout RayInteraction rayInteraction,
   inout vec3 radianceAttenuation,
   inout vec3 emissiveRadiance,
-  inout float2 cloudMoments,
+  inout float3 cloudMoments,
   float alreadyAttenuatedDistance = 0.0f,
   uint mediumState = SURFACE_INDEX_INVALID)
 {
@@ -112,7 +112,7 @@ void resolveVertexFinalMiss<let overrideRayInteraction : bool, T : IBasePayloadS
   // Account for attenuation on miss
   // Note: This is important for any effects which apply after miss, such as potential future skybox effects.
 #ifdef RESOLVER_USE_VOLUMETRIC_ATTENUATION
-  float2 tailMoments = resolveAtmosphere(resolveVertexState.origin + resolveVertexState.direction * alreadyAttenuatedDistance,
+  float3 tailMoments = resolveAtmosphere(resolveVertexState.origin + resolveVertexState.direction * alreadyAttenuatedDistance,
     resolveVertexState.direction, floatMax, portalSpaceToVolumeHint(resolveVertexState.portalSpace),
     radianceAttenuation, emissiveRadiance, mediumState);
   tailMoments.x += tailMoments.y * alreadyAttenuatedDistance / max(cloudMaxViewDistance(cb.volumeArgs.clouds), 1e-6f);
@@ -152,7 +152,7 @@ float resolveVertex<T: IBasePayloadState, M: IVertexMaterialContext>(
   inout Surface surface, inout SurfaceInteraction surfaceInteraction,
   inout PolymorphicSurfaceMaterialInteraction polymorphicSurfaceMaterialInteraction,
   inout vec3 radianceAttenuation, inout vec3 emissiveRadiance,
-  out float2 cloudMoments,
+  out float3 cloudMoments,
   uint4 decalMemory,
   f16vec3 decalEmissiveRadiance,
   float coneSpreadAngle,

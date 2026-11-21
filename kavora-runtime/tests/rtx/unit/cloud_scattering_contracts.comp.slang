@@ -41,15 +41,15 @@ void boundaryRadiance(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
-void beamRadiance(uint index : SV_DispatchThreadID)
+void groundBeamFlux(uint index : SV_DispatchThreadID)
 {
   if (index >= Count)
   {
     return;
   }
   const float4 sample = Inputs[index];
-  const float2 depth = sample.z >= 0 ? sample.xy : sample.yx;
-  Results[index] = float4(cloudDiffuseBeamRadiance(depth, abs(sample.z)), 0, 0, 0);
+  const CloudBeamTransfer transfer = cloudBeamTransfer(sample.x, sample.y, sample.z);
+  Results[index] = float4(transfer.downwardFlux, transfer.beam, 0, 0);
 }
 
 [shader("compute")]

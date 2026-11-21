@@ -50,7 +50,7 @@ class WeightExportTest(unittest.TestCase):
         self.assertEqual(payload.size, offset + 97)
 
     def test_rejects_reordered_features(self):
-        model = MultiScatterMLP(16, hidden=96, layers=4, activation="leaky_relu")
+        model = MultiScatterMLP(len(SUN_FEATURE_NAMES), hidden=96, layers=4, activation="leaky_relu")
         with TemporaryDirectory() as directory:
             archive = Path(directory) / "reordered.npz"
             model.export_numpy(archive, SUN_FEATURE_NAMES[::-1])

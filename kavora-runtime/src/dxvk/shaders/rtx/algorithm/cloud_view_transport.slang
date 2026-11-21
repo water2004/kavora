@@ -11,6 +11,11 @@ public float2 composeCloudMoments(float2 first, float2 second)
   return first + (1.0f - first.y) * second;
 }
 
+public float3 composeCloudMoments(float3 first, float3 second)
+{
+  return first + (1.0f - first.y) * second;
+}
+
 // Raw premultiplied radiance, opacity and signed centroid distance. Reproject
 // each observation once so a moving camera cannot recursively blur cloud detail.
 public struct CloudHistoryGather
@@ -19,23 +24,34 @@ public struct CloudHistoryGather
   public float weight;
   public float depthCorrection;
 
-  public static uint3 encode(float4 transfer, float signedDepth)
+  public static uint2 encode(float4 transfer, float signedDepth)
   {
-    const uint4 h = f32tof16(min(transfer, 65504.0f));
-    return uint3(h.x | (h.y << 16), h.z | (h.w << 16), asuint(signedDepth));
+    const uint3 h = f32tof16(clamp(transfer.rgb, 0.0f, 64000.0f));
+    const uint radiance = ((h.x + 8) >> 4) | (((h.y + 8) >> 4) << 11) | (((h.z + 16) >> 5) << 22);
+    // The distance scale covers a complete planetary ray in signed FP16.
+    return uint2(radiance, f32tof16(transfer.w) | (f32tof16(signedDepth / 1024.0f) << 16));
   }
 
-  [mutating] public void add(uint3 entry, float expectedSignedDepth, float parallaxInColumns, float bilinear, float cosine)
+  [mutating] public void add(uint2 entry, float expectedSignedDepth, float4 current,
+    float parallaxInColumns, float bilinear, float cosine)
   {
-    const float4 old = float4(f16tof32(entry.x & 0xffff), f16tof32(entry.x >> 16),
-      f16tof32(entry.y & 0xffff), f16tof32(entry.y >> 16));
-    const float oldDepth = asfloat(entry.z);
-    // Depth variation invalidates a tap only to the extent that parallax
-    // actually moved its cloud out of this column. A quadrature miss is a
-    // valid zero observation of the same volume, including at a silhouette.
-    const float disparity = parallaxInColumns * abs(oldDepth - expectedSignedDepth) / max(abs(oldDepth), 1e-6f);
+    const float4 old = float4(f16tof32((entry.x & 2047u) << 4), f16tof32(((entry.x >> 11) & 2047u) << 4),
+      f16tof32((entry.x >> 22) << 5), f16tof32(entry.y & 0xffffu));
+    const float oldDepth = 1024.0f * f16tof32(entry.y >> 16);
+    // Reprojection also mixes adjacent columns during rotation. Optical coverage
+    // downweights a stale opaque silhouette and retains a weak quadrature miss.
+    const float disparity = max(1.0f, parallaxInColumns) * abs(oldDepth - expectedSignedDepth) / max(abs(oldDepth), 1e-6f);
     const float confidence = (oldDepth * expectedSignedDepth > 0.0f) ? saturate(1.0f - disparity) : 0.0f;
-    const float samples = bilinear * confidence;
+    const float coverage = 1.0f - abs(old.w - current.w);
+    // Compare source colors after removing the opacity difference. Thin
+    // quadrature samples supply too little color evidence for strong rejection.
+    const float3 previousColor = old.rgb * current.w;
+    const float3 currentColor = current.rgb * old.w;
+    const float colorDifference = dot(abs(previousColor - currentColor), float3(1.0f));
+    const float colorEnergy = dot(previousColor + currentColor, float3(1.0f));
+    const float agreement = 1.0f - min(old.w, current.w) * colorDifference / max(colorEnergy, 1e-6f);
+    const float support = coverage * agreement;
+    const float samples = bilinear * confidence * support * support;
     sum += old * samples;
     depthCorrection += old.w * samples * (abs(oldDepth) - abs(expectedSignedDepth)) * cosine;
     weight += samples;
@@ -112,7 +128,7 @@ public struct CloudViewTransfer : ICloudViewIntegral
     const float span = end - begin;
     const float stepTransmission = exp(-sigma * span);
     const float2 cell = cloudCellMoments(sigma, begin, span, cloudMaxViewDistance(args));
-    const float3 source = cloudIncidentRadiance<Column>(args, position, layer, sigma,
+    const float3 source = cloudIncidentRadiance<Column>(args, position, layer,
       ambient, weather, base, detail, lighting, phase);
     radiance += transmission * (args.albedo * cell.y) * source;
     transmission *= stepTransmission;

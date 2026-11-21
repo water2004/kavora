@@ -30,17 +30,18 @@ across the remaining cloud intervals, and the cached depth moment is projected
 back onto the original ray. Fog lighting combines the same transfer with the
 near atmosphere. Finite light paths resolve in world space.
 
-Primary low-cloud columns combine the current quadrature observation with the
-two previous raw observations. Each 12-byte record contains premultiplied
-radiance, opacity and signed centroid distance. Each frame stores its projection
-and displacement in a 48-byte header so both observations can be sampled directly.
-Each observation undergoes at most one spatial interpolation. An empty observation
-of a complete shell contributes zero opacity and radiance. A tap from the same
-shell arc loses weight in proportion to its reprojection error in column pixels.
-The sampling sequence belongs to the column and is independent of camera jitter.
-High clouds use the current deterministic height and density integral.
+Primary cloud columns combine their current quadrature observation with the
+two previous raw observations, independently for each layer. Each 16-byte record
+contains premultiplied radiance, opacity and signed centroid distance for both
+layers. The frame header stores its projection and a displacement per layer.
+Each observation undergoes at most one spatial interpolation. Depth mismatch
+and changes in optical coverage or source color lower a historical sample's confidence.
+An empty observation from a thin cloud can still contribute. A four-phase
+screen offset covers all four quadrants of a cloud column. The integration,
+spatial reconstruction and previous-frame lookup use the same sample positions.
 Clipped terrain prefixes, newly visible pixels and camera cuts use the current
 integral. Haze composes after this step at the filtered extinction centroid.
+View motion uses the opacity-weighted layer displacements.
 
 Air attenuation uses absolute optical-depth prefixes from a finite Chapman
 approximation. Segment extinction comes from the difference between successive
@@ -56,15 +57,20 @@ Both cloud layers integrate over grids anchored to their unclipped shell interva
 The view budgets cap the number of cells independently of the light direction.
 Cumulus widens cells continuously on long paths to cover the whole interval.
 Clipped ranges start at their first covered cell and reuse the full grid's sample
-positions. Each cell evaluates Revelation's density at the source texture
-resolutions. The low shell uses the original low weather map, regional noise,
-vertical profile, 3D curl and alligator noise. The high shell uses the sum of
+positions. Beyond the detailed range, a second grid divides the full remaining
+arc into up to twelve cells. The cross section of the view and the covered cell
+length determine the detail mip in both grids. The low shell uses the original
+low weather map, regional noise, vertical profile, 3D curl and alligator noise.
+The high shell uses the sum of
 Revelation's cirrus, cirrostratus and cirrocumulus fields. The high density is
 horizontal and uniform through the shell thickness. Its spacing follows the
 projected cirrus texel and pixel footprint.
 
 The [asset workflow](../tools/clouds/README.md) records the source and packing
-process. View ranges bound detailed sampling, with coarse coverage beyond them.
+process. Low weather, three-dimensional noise and cirrus shapes have independent
+filtered mips. The low-cloud erosion lookup stores the first two noise moments
+so filtered cells can integrate density shaping over a range of values.
+Other weather lookups and the vertical profiles retain their native resolutions.
 Revelation's quadratic light-ray integration samples up to six taps in the
 low deck and three in the high deck. It is shared by camera and secondary
 cloud shading, sky generation and neural feature preparation. Surface and fog
@@ -78,26 +84,27 @@ is integrated along the camera or secondary ray.
 ### Cloud multiple scattering
 
 The local atlas stores optical depth toward the top and bottom of each cloud
-layer in RG16F. The existing neural network uses features sampled from the
-Revelation field and supplies multiple scattering for both layers and the active
-directional beams. Its weights come from the HanPi training field. Each
-wind-aligned node stores the network response
-at six light-relative polar knots. The knots are closer together in the forward lobe.
+layer in RG16F. The neural network uses features and reference transport sampled
+from the Revelation field and supplies multiple scattering for both layers and
+the active directional beams. A beam lookup uses the optical depths toward
+the light, onward along the view ray, and through the vertical column. The
+three log-depth axes share six light-relative polar knots at each node.
+The knots are closer together in the forward lobe.
 Each knot spans the two reachable view elevations, which coincide at the poles.
-The ten distinct predictions occupy three RGBA16F texels. A 30×20 horizontal
-atlas packs 10×10 near and middle grids beside a 20×20 full-range grid.
-The grids follow the wind and blend at their edges. Each has 12 height samples
-for cumulus and four for high clouds. The bake reuses the direct-light field where it covers a node.
-Before interpolating the solar prediction, the bake subtracts its fitted variation
-with density and beam transmission. Each ray restores that term with the density
-and transmission it has already evaluated. This preserves the network output
-at grid nodes and keeps empty neighboring cells from dimming sunlit detail.
-`depth64_sky/model_best.pt` predicts higher-order scattering for a unit upper hemisphere.
+The ten distinct predictions occupy three RGBA16F texels. The 30×20 optical
+grid has 12 column-depth samples for cumulus and four for high clouds. The
+ray computes inward depth with three density samples and reuses its light ray
+and vertical column for the other axes. Both direct and learned scattering
+receive illumination from the upper deck.
+The second network predicts higher-order scattering for a unit upper hemisphere.
+Its wind-aligned spatial grids blend between near, middle and far coverage.
 Its four view elevations share two extra atlas bands with the corresponding lower-boundary
 response. The bake combines its prediction with the training renderer's four-band
 single-scattering integral. Conservation for unit-albedo droplets gives the complementary
 ground response at full scattering strength. The ray consumer weights both coefficients
-with the actual sky and ground radiance. The default scattering strength is one.
+with the actual sky and ground radiance. The solar flux incident on the ground
+uses a conservative two-stream slab with a delta-scaled forward peak from each
+layer's phase moment. The default scattering strength is one.
 
 The runtime embeds both networks in [`cloud_neural_lighting.bin`](../src/dxvk/rtx_render/clouds/cloud_neural_lighting.bin).
 The [cloud scattering training workflow](../training/cloud-scattering/README.md)

@@ -4,9 +4,8 @@
 
 Two channels share the same architecture but see different features:
 
-* ``sun`` — direct sunlight, attenuated along the sun direction.  Features are
-  local density, a 3-scale density pyramid, the sun transmittance cache, height
-  inside the layer, the view/sun geometry and density probes along the sun.
+* ``sun`` — the optical depths toward the sun, along the view ray into the layer,
+  and through its vertical column, together with view/light geometry and phase.
 * ``sky`` — a uniform radiance over the upper hemisphere.  Here the sun is
   irrelevant; what matters is the *vertical* optical depth above the point
   (the analytic sky term already uses it) and density probes straight up.
@@ -63,33 +62,37 @@ class FeatureBuilder:
     def _up(self, pts: torch.Tensor, dist: float) -> torch.Tensor:
         return self.grid.sample(pts + torch.tensor([0.0, dist, 0.0], device=self.device))
 
+    def _short_depth(self, pts, direction, steps):
+        cosine = direction[..., 1]
+        height = torch.where(cosine >= 0, self.y1 - pts[..., 1], pts[..., 1] - self.y0)
+        span = torch.minimum(height.clamp(min=0) / cosine.abs().clamp(min=1e-10),
+                             (self.y1 - self.y0) / cosine.abs().clamp(min=.5))
+        step = span / (steps * steps)
+        column = torch.zeros_like(span)
+        for i in range(steps):
+            t = i + .5
+            column += 2 * t * self.grid.sample(pts + direction * (t*t*step)[..., None])
+        return (column * step * self.cfg["medium"]["extinction_scale_per_m"]).clamp(0, 24)
+
     # ------------------------------------------------------------------
-    def spatial_features(self, pts: torch.Tensor):
-        """Columns before and after the angular features in the checkpoint layout."""
-        prefix = self._base(pts)
-        if self.channel == "sky":
-            if self.tau_up is None:
-                raise ValueError("sky feature channel requires the tau_up grid")
-            tau = self.tau_up.sample(pts)
-            probes = [self._up(pts, dist) for dist in (300.0, 800.0)]
-        else:
-            tau = self.sun_cache.tau(pts)
-            prefix.append(torch.exp(-tau))
-            probes = [self.grid.sample(pts + self.sun_dir * dist)
-                      for dist in (150.0, 500.0, 1200.0, -300.0)]
-            probes.append(self._up(pts, 500.0))
-        prefix.extend((tau / (1.0 + tau), self._height(pts)))
-        probes.append(torch.full_like(prefix[0], self.phase.mean_cosine))
-        return prefix, probes
-
-    def with_directions(self, spatial, dirs: torch.Tensor, cos_sun: torch.Tensor) -> torch.Tensor:
-        prefix, probes = spatial
-        angular = [dirs[:, 1:2]]
-        if self.channel == "sun":
-            angular = [cos_sun[:, None], self.phase.probability(cos_sun)[:, None], *angular]
-        shape = (len(dirs), prefix[0].shape[1])
-        return torch.stack([v.expand(shape) for v in (*prefix, *angular, *probes)], dim=-1)
-
     def build(self, pts: torch.Tensor, dirs: torch.Tensor, cos_sun: torch.Tensor) -> torch.Tensor:
         """Assemble (ray, sample, feature) in the trained checkpoint's order."""
-        return self.with_directions(self.spatial_features(pts), dirs, cos_sun)
+        view_up = dirs[:, 1:2]
+        if self.tau_up is None:
+            raise ValueError("Cloud features require the vertical optical depth grid")
+        if self.channel == "sky":
+            tau = self.tau_up.sample(pts)
+            features = [*self._base(pts), tau / (1.0 + tau), self._height(pts), view_up,
+                        self._up(pts, 300.), self._up(pts, 800.)]
+        else:
+            bottom = pts.clone()
+            bottom[..., 1] = self.y0
+            column = self.tau_up.sample(bottom)
+            sun_steps = 3 if int(self.cfg["medium"].get("phase_material", 0)) == 2 else 6
+            sun = self._short_depth(pts, self.sun_dir, sun_steps)
+            inward = self._short_depth(pts, dirs[:, None, :], 3)
+            features = [sun.log1p(), inward.log1p(),
+                        column.clamp(0, 128).log1p(), self.sun_dir[1], cos_sun[:, None],
+                        self.phase.probability(cos_sun)[:, None], view_up]
+        features.append(pts.new_tensor(self.phase.mean_cosine))
+        return torch.stack([value.expand(pts.shape[:-1]) for value in features], dim=-1)

@@ -43,7 +43,7 @@ struct GeometryResolverState : IBasePayloadState
   // so they can be accumulated into in the geometry resolving loop.
   vec3 radiance;
   float _segmentHitDistance;
-  float2 cloudMoments;
+  float3 cloudMoments;
 
   // Note: This represents the quaternion to transform a normal or vector from world space into the virtual space seen
   // through PSR and ray portals.

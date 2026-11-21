@@ -689,7 +689,8 @@ namespace dxvk {
     const uint32_t frame = m_device->getCurrentFrameId();
     const auto now = std::chrono::steady_clock::now();
     const bool continuous = m_cloudHistoryValid && m_previousCloudFrame + 1 == frame;
-    clouds.previousWindDelta = m_cloudHistoryValid && m_previousCloudFrame + 1 == frame && !mainCamera.isCameraCut()
+    const bool reprojectWind = continuous && !mainCamera.isCameraCut();
+    clouds.previousWindDelta = reprojectWind
       ? m_previousCloudWindOffset - windOffset : Vector3(0.f);
     m_previousCloudWindOffset = windOffset;
     m_previousCloudFrame = frame;
@@ -708,6 +709,10 @@ namespace dxvk {
 
     const double highWindX = std::cos(70.0 * radiansPerDegree) * 30.0 * time;
     const double highWindZ = std::sin(70.0 * radiansPerDegree) * 30.0 * time;
+    const Vector3 highWind(float(1.5 * highWindX * metresToWorld), 0, float(1.5 * highWindZ * metresToWorld));
+    const Vector3 highWindOffset = RtxOptions::zUp() ? Vector3(highWind.x, highWind.z, highWind.y) : highWind;
+    clouds.previousHighWindDelta = reprojectWind ? m_previousHighCloudWindOffset - highWindOffset : Vector3(0.f);
+    m_previousHighCloudWindOffset = highWindOffset;
     constexpr double highPeriod = 3144000.0; // Common period of the 786 km map and 24 km curl.
     clouds.highMapOrigin = Vector2(float(std::remainder(originX - highWindX, highPeriod)),
       float(std::remainder(originZ - highWindZ, highPeriod)));
@@ -883,6 +888,7 @@ namespace dxvk {
     // Exclude wind reprojection and view integration parameters from the lighting key.
     CloudArgs lightingKey = clouds;
     lightingKey.previousWindDelta = Vector3(0.f);
+    lightingKey.previousHighWindDelta = Vector3(0.f);
     lightingKey.viewAngularFootprint = 0.f;
     lightingKey.steps = 0;
     lightingKey.highSteps = 0;

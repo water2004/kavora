@@ -4,6 +4,7 @@
 #include "rtx/pass/common_binding_indices.h"
 #include "rtx/pass/common_bindings.slangh"
 #include "rtx/pass/gbuffer/primary_atmosphere_cache.slangh"
+import "rtx/algorithm/clouds.slang";
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -16,7 +17,8 @@ void main(uint2 pixel : SV_DispatchThreadID)
   const float distance = loadAtmosphereEndpoint(pixel);
   const uint stride = atmosphereColumnStride();
   const uint2 center = pixel / stride;
-  const float2 sampleOffset = (float2(pixel % stride) + 0.5f) / float(stride) - 0.5f;
+  const float2 jitter = cb.volumeArgs.clouds.enable ? cloudColumnJitter(cb.frameIdx) : float2(0);
+  const float2 sampleOffset = (float2(pixel % stride) + 0.5f) / float(stride) - 0.5f - jitter;
   const int2 neighborDirection = int2(select(sampleOffset < 0.0f, -1, 1));
   const float2 neighborWeight = abs(sampleOffset);
   const uint2 last = atmosphereColumnExtent() - 1;

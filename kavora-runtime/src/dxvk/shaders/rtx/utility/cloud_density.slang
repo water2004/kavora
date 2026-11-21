@@ -106,7 +106,7 @@ public float2 cloudThresholdMoments(float mean, float secondMoment, float thresh
 
 [ForceInline]
 public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray<float4> weatherSampler,
-  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, uint layer, bool useCurl = true)
+  Sampler3D<float4> baseSampler, Sampler3D<float4> detailSampler, uint layer, bool useCurl = true, float footprint = 0)
 {
   const float altitude = cloudAltitude(args, position);
   const RevelationField field = { weatherSampler, baseSampler, detailSampler };
@@ -119,7 +119,7 @@ public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray
     }
     const float2 horizontal = args.up.z > 0.5 ? position.xy : position.xz;
     return revelationHighDensity(field, horizontal * inverseScale, args.highMapOrigin, args.highLookupOrigin,
-      args.highCoverage);
+      args.highCoverage, footprint * inverseScale);
   }
 
   const float heightFraction = (altitude - args.baseHeight) / args.thickness;
@@ -133,7 +133,7 @@ public float cloudDensity(CloudDensityArgs args, float3 position, Sampler2DArray
   // (6,371,000 m + 256 m) modulo the 2,000 m alligator volume.
   const float3 rayPos = local + float3(0, 1256.0, 0);
   return revelationLowDensity(field, rayPos, heightFraction, args.thickness * inverseScale,
-    args.coverage, args.wetness, useCurl);
+    args.coverage, args.wetness, useCurl, footprint * inverseScale);
 }
 
 public float cloudDensityFeature(CloudDensityArgs args, float3 position, uint layer, uint level, float meterToWorld,

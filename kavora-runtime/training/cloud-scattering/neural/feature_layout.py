@@ -3,22 +3,7 @@
 """Feature ordering shared by training and Vulkan weight packing."""
 
 SUN_FEATURE_NAMES = [
-    "rho",            # local density
-    "rho_mid",        # density averaged over ~2 voxels
-    "rho_large",      # density averaged over ~4 voxels
-    "rho_xlarge",     # density averaged over ~8 voxels
-    "sun_T",          # exp(-tau_sun)
-    "sun_tau_n",      # tau_sun / (1 + tau_sun)
-    "height",         # 0 at cloud base, 1 at cloud top
-    "cos_sun",        # dot(sun_dir, view_ray_dir)
-    "phase",          # OPAC phase at cos_sun
-    "view_up",        # view ray y component
-    "rho_toward_sun_150",   # density 150 m towards the sun
-    "rho_toward_sun_500",   # density 500 m towards the sun
-    "rho_toward_sun_1200",  # density 1200 m towards the sun
-    "rho_away_sun_300",     # density 300 m away from the sun
-    "rho_up_500",           # density 500 m above (sky occlusion probe)
-    "phase_g",              # First phase moment as the material feature
+    "log_sun_tau", "log_view_tau", "log_column_tau", "light_up", "cos_sun", "phase", "view_up", "phase_g",
 ]
 
 SKY_FEATURE_NAMES = [

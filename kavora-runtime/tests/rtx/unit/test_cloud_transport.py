@@ -86,14 +86,14 @@ class Probe:
 
 
 def check_column_history(probe):
-    old = [[131072, 0.5, 0, 0]] * 7
-    current = [[depth, parallax, weight, 0] for depth, parallax, weight in (
-        (131072, 1, 1), (131072, 1, 1), (131072, 1, .25), (-131072, 0, 1),
-        (65536, 2, 1), (65536, 0, 1), (65536, 1, 1))]
+    old = [[131072, 0.5, 1, 0]] * 6 + [[131072, 1, 1, 0], [131072, .125, 1, 0], [131072, 1, 0, 0]]
+    current = [(131072, 1, 1, .5), (131072, 1, .25, .5), (-131072, 0, 1, .5),
+               (65536, 2, 1, .5), (65536, 0, 1, .5), (65536, 1, 1, .5),
+               (131072, 0, 1, 0), (131072, 0, 1, 0), (131072, 0, 1, 1)]
     result = probe.run("columnHistory", old, current)
-    expected = np.outer([1, 1, .25, 0, 0, 1, .5], [2, 4, 8, 1])
+    expected = np.outer([1, .25, 0, 0, .5, .5, 0, .875**2, 0], [2, 4, 8, 1])
     np.testing.assert_allclose(result, expected, atol=1e-5)
-    print("PASS cloud observation: bilinear support, shell sides and parallax rejection")
+    print("PASS cloud observation: rotated silhouettes, changed lighting and thin quadrature misses")
 
 
 def check_air_skylight(probe):
@@ -276,32 +276,56 @@ def weather_fixture(device, layers):
     return texture
 
 
+def cloud_mips(data, spatial_dims, levels):
+    for level in range(levels):
+        yield level, data
+        if level + 1 < levels:
+            shape = tuple(dim for side in data.shape[:spatial_dims] for dim in (side // 2, 2))
+            shape += data.shape[spatial_dims:]
+            data = np.rint(data.reshape(shape).mean(axis=tuple(range(1, 2 * spatial_dims, 2)))).astype(data.dtype)
+
+
 def cloud_textures(device, dump=None):
     sampler = device.create_sampler(min_filter=spy.TextureFilteringMode.linear,
-                                    mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.point,
+                                    mag_filter=spy.TextureFilteringMode.linear, mip_filter=spy.TextureFilteringMode.linear,
                                     address_u=spy.TextureAddressingMode.wrap, address_v=spy.TextureAddressingMode.wrap,
                                     address_w=spy.TextureAddressingMode.wrap)
     textures = {}
-    for name, side, channels, fmt in (("Base", 128, 1, spy.Format.r8_unorm),
+    for name, side, channels, fmt in (("Base", 128, 1, spy.Format.rg16_unorm),
                                       ("Detail", 64, 4, spy.Format.rgba8_unorm)):
         data = np.fromfile(CLOUD_ASSETS / TEXTURE_FILES[name], dtype=np.uint8)
+        levels = side.bit_length()
         tex = device.create_texture(type=spy.TextureType.texture_3d, format=fmt,
-                                    width=side, height=side, depth=side, usage=spy.TextureUsage.shader_resource)
+                                    width=side, height=side, depth=side, mip_count=levels,
+                                    usage=spy.TextureUsage.shader_resource)
         shape = (side, side, side) if channels == 1 else (side, side, side, channels)
-        tex.copy_from_numpy(data.reshape(shape))
+        data = data.reshape(shape)
+        if name == "Base":
+            value = data.astype(np.uint32)
+            data = np.stack((value * 257, (value * value * 257 + 127) // 255), axis=-1).astype(np.uint16)
+        for mip, pixels in cloud_mips(data, 3, levels):
+            tex.copy_from_numpy(pixels, mip=mip)
         textures[name] = tex.create_view(sampler=sampler)
 
     weather = device.create_texture(type=spy.TextureType.texture_2d_array, format=spy.Format.rgba8_unorm,
-                                    width=1024, height=1024, array_length=2, mip_count=6,
+                                    width=1024, height=1024, array_length=3, mip_count=6,
                                     usage=spy.TextureUsage.shader_resource)
     raw = np.fromfile(CLOUD_ASSETS / TEXTURE_FILES["Weather"], dtype=np.uint8)
     offset = 0
-    for layer, mip in ((0, 0), (0, 2), (0, 5), (0, 1), (1, 1), (1, 0)):
+    sources = {}
+    for layer, mip in ((0, 0), (2, 2), (2, 5), (2, 1), (1, 1), (1, 0)):
         side = 1024 >> mip
         size = side * side * 4
-        weather.copy_from_numpy(raw[offset:offset + size].reshape(side, side, 4).copy(), layer=layer, mip=mip)
+        sources[layer, mip] = raw[offset:offset + size].reshape(side, side, 4).copy()
         offset += size
     assert offset == len(raw)
+    curl = sources.pop((1, 1))[:, :, :2]
+    sources[0, 0][:514, :514, 2:] = np.pad(curl, ((1, 1), (1, 1), (0, 0)), mode="wrap")
+    for layer in (0, 1):
+        for mip, pixels in cloud_mips(sources.pop((layer, 0)), 2, 6):
+            weather.copy_from_numpy(pixels, layer=layer, mip=mip)
+    for (layer, mip), pixels in sources.items():
+        weather.copy_from_numpy(pixels, layer=layer, mip=mip)
     textures["Weather"] = weather.create_view(sampler=sampler)
     return textures
 
@@ -368,12 +392,64 @@ def check_distant_storm_horizon(probe, textures):
     full = transmission(exit_distance + 10., 24000.)
     assert np.median(full) < .1, "Overcast shell disappeared beyond the resolved cloud range"
     np.testing.assert_allclose(full, transmission(exit_distance + 10., 48000.), atol=2e-5)
-    # A translucent column also exercises a meaningful, unsaturated prefix.
-    middle = transmission(.5 * (entry + exit_distance), 24000., .00003)
+    # Split within the same full shell. The two pieces must use the original grid.
+    midpoint = .5 * (entry + exit_distance)
+    middle = transmission(midpoint, 24000., .00003)
     assert np.any((middle > .05) & (middle < .95))
-    np.testing.assert_allclose(transmission(exit_distance + 10., 24000., .00003), middle ** 2, atol=2e-5)
+    rays = np.tile([0., y, 0., exit_distance + 10.], (len(angle), 1))
+    directions[:, 3] = midpoint
+    split = probe.run("viewTransmissionSplits", rays, directions,
+                      clouds | {"maxDistance": 24000., "extinction": .00003}, textures)
+    np.testing.assert_allclose(split[:, 0], middle, atol=2e-5)
+    np.testing.assert_allclose(transmission(exit_distance + 10., 24000., .00003),
+                               split[:, 0] * split[:, 1], atol=2e-5)
     print(f"PASS storm horizon at {entry / 1000:.1f} km: foreground is clear, "
           f"median cloud transmission {np.median(full):.5f} at both detail ranges")
+
+
+def check_upper_deck_illumination(probe, textures):
+    # Separate sun and moon fluxes. A unit upper-boundary response and a black
+    # ground isolate the interface from the network and the clear-sky source.
+    from cloud_lighting_preview import build_lighting_cache
+    clouds = cloud_parameters(highExtinction=.02, groundAlbedo=0, multipleScattering=1,
+                              activeCloudLights=0)
+    clouds['lights'] = [dict(directionToLight=[0, 1, 0], irradiance=rgb)
+                        for rgb in ([2, 0, 0], [0, 0, 3])]
+    _, resources, _ = build_lighting_cache(probe.device, clouds, textures, SHADERS)
+    local = resources[0]
+    packed = np.zeros_like(local.to_numpy())
+    packed[:, -1, :, :] = [.3, .1]
+    local.copy_from_numpy(packed)
+    neural = probe.device.create_texture(type=spy.TextureType.texture_3d, format=spy.Format.rgba32_float,
+        width=1, height=1, depth=1, usage=spy.TextureUsage.shader_resource,
+        data=np.ones((1, 1, 1, 4), np.float32))
+    views = dict(textures, VerticalDepth=resources[1], Neural=neural.create_view(sampler=probe.device.create_sampler()))
+    points = [[0, 900, 0, 0], [0, 6500, 0, 1]]
+    for strength in (0., .5, 1.):
+        rgb = probe.run("cloudBoundaryLight", points, clouds=clouds | {'multipleScattering': strength}, textures=views)
+        expected = np.array([[.6, 0, .3], [0, 0, 0]]) * (strength / np.pi)
+        np.testing.assert_allclose(rgb[:, :3], expected, atol=5e-5)
+    print("PASS upper deck illuminates the lower sky boundary, both lights and the single-scattering limit")
+
+
+def check_distant_cloud_sequence(probe, textures):
+    # The midpoint toggles between cloud and a gap on the first two sightlines.
+    # The third crosses a threshold with sparse unfiltered cells.
+    elapsed = np.linspace(0, .783, 48)
+    start_angles = np.array([28., 53., 284.])
+    yaw = np.radians(np.ravel(start_angles[:, None] + .05 * elapsed / elapsed[-1]))
+    elevation = np.radians(3.)
+    rays = np.column_stack((np.sin(yaw) * np.cos(elevation), np.full(len(yaw), np.sin(elevation)),
+                            np.cos(yaw) * np.cos(elevation), np.tile(elapsed, len(start_angles))))
+    clouds = cloud_parameters(baseHeight=1244., thickness=2000., shapeScale=1000., extinction=.06,
+                              coverage=.5, maxDistance=24000., viewAngularFootprint=.0026, steps=64)
+    transport = probe.run("distantCloudSequence", np.tile([0., 128., 0., 0.], (len(yaw), 1)), rays,
+                          clouds, textures).reshape(len(start_angles), 48, 4)
+    assert np.all(np.max(np.abs(np.diff(transport[:2, :, 1], axis=1)), axis=1) > .95)
+    np.testing.assert_allclose(transport[:2, :, 0], transport[:2, :, 2], atol=1e-4)
+    np.testing.assert_allclose(transport[2, :, 0], transport[2, :, 2], atol=3e-3)
+    assert np.max(np.abs(np.diff(transport[:, :, 0], axis=1))) < .005
+    print("PASS nonuniform distant clouds during a 48-frame camera turn with wind")
 
 
 def main():
@@ -390,9 +466,11 @@ def main():
     check_layer_intervals(probe)
     check_light_profiles(probe)
     textures = cloud_textures(device, args.dump)
+    check_upper_deck_illumination(probe, textures)
     check_column_noise(probe, textures)
     uniform = uniform_cloud_textures(device)
     check_distant_storm_horizon(probe, uniform)
+    check_distant_cloud_sequence(probe, textures)
     check_high_column_transmission(probe, textures)
 
 

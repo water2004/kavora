@@ -1053,35 +1053,76 @@ namespace dxvk {
     }
 
     ScopedGpuProfileZone(ctx, "Cloud field upload");
+    const auto filterMips = [&](const Resource& resource, int32_t side, int32_t depth, uint32_t layer, uint32_t mips) {
+      constexpr VkComponentMapping identity = {};
+      for (uint32_t mip = 1; mip < mips; ++mip) {
+        const int32_t nextDepth = std::max(1, depth / 2);
+        VkImageBlit region = {};
+        region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip - 1, layer, 1 };
+        region.srcOffsets[1] = { side, side, depth };
+        region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, layer, 1 };
+        region.dstOffsets[1] = { side / 2, side / 2, nextDepth };
+        ctx->blitImage(resource.image, identity, resource.image, identity, region, VK_FILTER_LINEAR);
+        side /= 2;
+        depth = nextDepth;
+      }
+    };
     const auto upload = [&](const char* name, uint32_t side, uint32_t texelBytes, VkFormat format,
-                            const auto& bytes) {
+                            const void* data, size_t bytes) {
       const VkExtent3D extent { side, side, side };
+      const uint32_t mips = std::bit_width(side);
       auto resource = createImageResource(ctx, name, extent, format, 1,
-        VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D);
-      assert(sizeof(bytes) == size_t(side) * side * side * texelBytes);
+        VK_IMAGE_TYPE_3D, VK_IMAGE_VIEW_TYPE_3D, 0, 0, {}, mips);
+      assert(bytes == size_t(side) * side * side * texelBytes);
       ctx->updateImage(resource.image, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 },
-        extent, bytes, side * texelBytes, side * side * texelBytes);
+        extent, data, side * texelBytes, side * side * texelBytes);
+      filterMips(resource, side, side, 0, mips);
       return resource;
     };
-    m_cloudBaseLut = upload("Revelation alligator FBM", kCloudBaseResolution, 1, VK_FORMAT_R8_UNORM, ___revelation_body);
-    m_cloudDetailLut = upload("Revelation 3D curl", kCloudDetailResolution, 4, VK_FORMAT_R8G8B8A8_UNORM, ___revelation_curl);
+    std::vector<uint16_t> moments(2 * sizeof(___revelation_body));
+    for (size_t i = 0; i < sizeof(___revelation_body); ++i) {
+      const uint32_t value = ___revelation_body[i];
+      moments[2 * i] = uint16_t(value * 257u);
+      moments[2 * i + 1] = uint16_t((value * value * 257u + 127u) / 255u);
+    }
+    m_cloudBaseLut = upload("Revelation alligator FBM moments", kCloudBaseResolution, 4, VK_FORMAT_R16G16_UNORM,
+      moments.data(), moments.size() * sizeof(uint16_t));
+    m_cloudDetailLut = upload("Revelation 3D curl", kCloudDetailResolution, 4, VK_FORMAT_R8G8B8A8_UNORM,
+      ___revelation_curl, sizeof(___revelation_curl));
 
-    // Each lookup selects the mip containing its source image at native resolution.
+    // The low weather and cirrus shape layers have independent mip chains.
+    // The auxiliary layer holds the fixed-resolution weather and profile maps.
     constexpr uint32_t sides[] = { 1024, 256, 32, 512, 512, 1024 };
-    constexpr uint32_t layers[] = { 0, 0, 0, 0, 1, 1 };
+    constexpr uint32_t layers[] = { 0, 2, 2, 2, 1, 1 };
     constexpr uint32_t side = 1024;
     m_cloudWeatherLut = createImageResource(ctx, "Revelation weather and profiles", { side, side, 1 },
-      VK_FORMAT_R8G8B8A8_UNORM, 2, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+      VK_FORMAT_R8G8B8A8_UNORM, 3, VK_IMAGE_TYPE_2D, VK_IMAGE_VIEW_TYPE_2D_ARRAY,
       0, 0, {}, 6);
+    constexpr uint32_t curlSide = 512;
+    constexpr size_t lowMapBytes = size_t(side) * side * 4;
+    constexpr size_t curlOffset = lowMapBytes + size_t(256 * 256 + 32 * 32 + 512 * 512) * 4;
+    std::vector<uint8_t> lowMap(___revelation_maps, ___revelation_maps + lowMapBytes);
+    for (uint32_t y = 0; y < curlSide + 2; ++y) {
+      for (uint32_t x = 0; x < curlSide + 2; ++x) {
+        const size_t from = curlOffset + 4 * (((y + curlSide - 1) % curlSide) * curlSide + (x + curlSide - 1) % curlSide);
+        const size_t to = 4 * (y * side + x);
+        lowMap[to + 2] = ___revelation_maps[from];
+        lowMap[to + 3] = ___revelation_maps[from + 1];
+      }
+    }
     auto data = ___revelation_maps;
     for (uint32_t index = 0; index < std::size(sides); ++index) {
       const uint32_t size = sides[index];
       const uint32_t mip = std::countr_zero(side / size);
-      ctx->updateImage(m_cloudWeatherLut.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, layers[index], 1 },
-        { 0, 0, 0 }, { size, size, 1 }, data, size * 4, size * size * 4);
+      if (data != ___revelation_maps + curlOffset) {
+        ctx->updateImage(m_cloudWeatherLut.image, { VK_IMAGE_ASPECT_COLOR_BIT, mip, layers[index], 1 },
+          { 0, 0, 0 }, { size, size, 1 }, index == 0 ? lowMap.data() : data, size * 4, size * size * 4);
+      }
       data += size * size * 4;
     }
     assert(data == ___revelation_maps + sizeof(___revelation_maps));
+    filterMips(m_cloudWeatherLut, side, 1, 0, 6);
+    filterMips(m_cloudWeatherLut, side, 1, 1, 6);
 
     constexpr VkExtent3D phaseExtent { CLOUD_PHASE_WIDTH, CLOUD_PHASE_HEIGHT, 1 };
     static_assert(sizeof(___revelation_phase) == CLOUD_PHASE_WIDTH * CLOUD_PHASE_HEIGHT * sizeof(uint16_t));

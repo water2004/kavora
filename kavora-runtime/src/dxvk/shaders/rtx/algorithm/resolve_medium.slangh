@@ -41,7 +41,7 @@ import "rtx/algorithm/atmosphere.slang";
 #include "rtx/algorithm/scene_atmosphere.slangh"
 #endif
 
-float2 resolveAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
+float3 resolveAtmosphere(float3 origin, float3 direction, float distance, uint volumeHint,
   inout float3 attenuation, inout float3 radiance, uint mediumState = SURFACE_INDEX_INVALID,
   float cloudAngularFootprint = 0)
 {

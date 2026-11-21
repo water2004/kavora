@@ -125,7 +125,11 @@ void main(uint2 invocation : SV_DispatchThreadID)
   const uint2 begin = column * stride;
   const uint2 end = min(begin + stride - 1, cb.camera.resolution - 1);
   const float4 distances = columnEndpointDistances(begin, end, stride);
-  const float2 center = 0.5f * float2(begin + end) + 0.5f;
+  float2 center = 0.5f * float2(begin + end) + 0.5f;
+#ifndef CACHED_HAZE_BUILD
+  if (cb.volumeArgs.clouds.enable)
+    center = clamp(center + float(stride) * cloudColumnJitter(cb.frameIdx), float2(begin) + 0.5f, float2(end) + 0.5f);
+#endif
   const float2 uv = center / float2(cb.camera.resolution);
   const Ray cameraRay = rayCreatePrimary(cb.camera, uv, cb.screenSpacePixelSpreadHalfAngle, true);
   const float3 medium = translucentMediumExtinction(cb.startInMediumMaterialIndex, surfaceMaterials);

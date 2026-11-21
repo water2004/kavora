@@ -44,6 +44,8 @@ const int SCATTERING_WIDTH = 64;
 const int SCATTERING_HEIGHT = 64;
 
 const float PI = 3.14159265358979323846;
+// Planet-mean diffuse reflectance for the static clear-air scattering LUT.
+const float PLANET_ALBEDO = 0.18;
 // Lengths and extinction use kilometres. Positions are relative to the ground
 // at the lower optical boundary, retaining precision near sea level.
 // Its vertical optical depth exceeds 500: it cannot contribute a visible surface.
@@ -72,13 +74,22 @@ float atmosphereDistance(vec3 origin, vec3 direction) {
     return b < 0.0 ? -b + root : -c / max(b + root, 1e-6);
 }
 
-float rayLength(vec3 origin, vec3 direction) {
+bool intersectsLowerSphere(vec3 origin, vec3 direction, float height, out float distance) {
     float b = dot(origin, direction) + INNER_RADIUS * direction.y;
-    float c = dot(origin, origin) + 2.0 * INNER_RADIUS * origin.y;
+    float c = dot(origin.xz, origin.xz) + (origin.y - height) * (2.0 * INNER_RADIUS + origin.y + height);
     float discriminant = b * b - c;
-    bool lowerBoundary = b < 0.0 && discriminant >= 0.0;
-    return lowerBoundary ? c / (-b + sqrt(discriminant))
-        : atmosphereDistance(origin, direction);
+    if (b < 0.0 && discriminant >= 0.0) {
+        distance = c / (-b + sqrt(discriminant));
+        return true;
+    }
+    distance = atmosphereDistance(origin, direction);
+    return false;
+}
+
+float rayLength(vec3 origin, vec3 direction) {
+    float distance;
+    intersectsLowerSphere(origin, direction, 0.0, distance);
+    return distance;
 }
 
 float sampleBoundary(float distance, int index, int count) {
@@ -218,7 +229,9 @@ vec3 angularDirection(int index) {
 
 void buildMultipleScattering(ivec2 pixel) {
     float fraction = float(pixel.y) / float(SCATTERING_HEIGHT - 1);
-    float height = tableHeight(fraction);
+    // The diffuse illumination field terminates at the mean reflecting surface.
+    // The deeper optical boundary belongs to view rays over unloaded terrain.
+    float height = max(LOWER_DEPTH, tableHeight(fraction));
     vec3 origin = vec3(0.0, height, 0.0);
     float mu = lightCosine(pixel.x);
     vec3 light = vec3(sqrt(max(0.0, 1.0 - mu * mu)), mu, 0.0);
@@ -226,7 +239,8 @@ void buildMultipleScattering(ivec2 pixel) {
     vec3 feedback = vec3(0.0);
     for (int sampleIndex = 0; sampleIndex < ANGULAR_SAMPLES; ++sampleIndex) {
         vec3 direction = angularDirection(sampleIndex);
-        float distance = rayLength(origin, direction);
+        float distance;
+        bool ground = intersectsLowerSphere(origin, direction, LOWER_DEPTH, distance);
         vec3 throughput = vec3(1.0);
         float previous = 0.0;
         for (int step = 0; step < VIEW_STEPS; ++step) {
@@ -242,6 +256,11 @@ void buildMultipleScattering(ivec2 pixel) {
             feedback += weight;
             throughput *= stepT;
             previous = next;
+        }
+        if (ground) {
+            float lightCos = dot(vertical(origin + distance * direction), light);
+            radiance += throughput * (PLANET_ALBEDO / PI) * max(lightCos, 0.0)
+                * transmittanceToLight(LOWER_DEPTH, lightCos, LIGHT_ANGULAR_RADIUS);
         }
     }
     // Isotropized higher orders form a geometric series of transported scattering.

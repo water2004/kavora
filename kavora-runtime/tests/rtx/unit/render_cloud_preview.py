@@ -62,7 +62,7 @@ def texture_cache(device, support, cache_dir):
         levels = {}
         for name, view in textures.items():
             for mip in range(view.texture.mip_count):
-                layer_count = 2 if support.TEXTURE_FILES["Weather"] == "revelation_maps.bin" else 3
+                layer_count = 3
                 levels[f'{name}_{mip}'] = (np.stack([view.texture.to_numpy(layer, mip) for layer in range(layer_count)])
                                            if name == 'Weather' else view.texture.to_numpy(mip=mip))
         np.savez(cache, **levels)

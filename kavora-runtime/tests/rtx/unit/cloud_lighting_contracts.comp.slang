@@ -39,9 +39,31 @@ void neuralAngles(uint index : SV_DispatchThreadID)
   const float lightUp = dot(Clouds.lights[light].directionToLight, Clouds.up);
   const CloudNeuralAngle angle = cloudNeuralAngle(request.x, request.y, lightUp);
   const float2 knot = cloudNeuralKnot(uint(request.w), lightUp);
-  const float value = cloudNeuralDiffuse(Clouds, Sampler3D<float4>(UnusedLighting),
-    Directions[index].xyz, 1000, angle, 0, light);
+  const float value = cloudNeuralDiffuse(Sampler3D<float4>(UnusedLighting),
+    Directions[index].xyz, angle, 0, light);
   Results[index] = float4(knot, value, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void skyNodes(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  Results[index] = float4(cloudNeuralSky(Clouds, Sampler3D<float4>(UnusedLighting),
+    Directions[index].xyz, 1000, cloudSkyAngle(0), 0), 0, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void solarNodes(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const uint3 cell = uint3(Origins[index].xyz);
+  const uint layer = uint(Origins[index].w);
+  const float3 state = cloudSolarStateAtNode(cell, layer);
+  const float value = cloudNeuralDiffuse(Sampler3D<float4>(UnusedLighting), exp(state) - 1,
+    cloudNeuralAngle(1, 1, 1), layer, 0);
+  Results[index] = float4(state, value);
 }
 
 [shader("compute")]

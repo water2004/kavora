@@ -27,28 +27,33 @@ py -3.11 -m venv .venv
 
 `--out` selects an empty directory. The defaults are `outputs/smoke/` and
 `outputs/reproduction/`. SlangPy captures disjoint periodic slabs of both
-production layers on Vulkan. The CPU path tracer generates solar and sky
-targets with the normalized scalar Revelation table for both the scattering
-PDF and the inverse CDF. It uses 96 paths per sample and 512 for the evaluation
-region. Four regions fit the model, one selects checkpoints, and a sixth
-reports independent errors including forward and backward subgroups. The
-training uses 3,600 steps per channel on CUDA. The smoke run reduces the
+production layers on Vulkan using the native default heights and extinction.
+The CPU path tracer generates solar and sky targets with the normalized scalar
+Revelation table for the scattering PDF and the inverse CDF. It takes samples
+from the forward lobe, backward hemisphere and full sphere. Points are drawn
+from the density-weighted volume and uniformly over the slab. Half are traced
+from the viewing boundary toward the first collision. Only material points
+supervise the solar source. Ratio tracking
+estimates sunlight visibility at subsequent collisions. Six regions fit the
+model using 1,536 paths per target. Two independent regions select and evaluate
+checkpoints with 4,096 paths per target. Checkpoint selection accounts for both
+absolute error and mean energy in each solar angular band. Training uses 6,000
+steps per channel. The smoke run reduces the
 problem size and uses CPU training.
 
 Both networks use Leaky ReLU with slope 0.01 and a Softplus output. The solar
-network sees the LUT phase at the viewing angle. Both see the first phase
+network sees three log optical depths, light and view elevation, scattering
+cosine and the LUT phase at that angle. Both see the first phase
 moment as a material feature. The checkpoint folds feature normalization
-into the first affine layer. The packer pads the sky inputs to 16 columns,
+into the first affine layer. The packer pads both input matrices to 16 columns,
 matching the cooperative-vector input layout. The runtime converts the FP32
 checkpoint to device-native FP16 weights at upload.
 
-Keep `cloud_neural_lighting.bin` and the generated
-`cloud_source_interpolation.slang` together when deploying a new fit. The
-binary belongs in `src/dxvk/rtx_render/clouds/` and the shader in
-`src/dxvk/shaders/rtx/algorithm/`. Data, caches, checkpoints, and evaluation
+Deploy `cloud_neural_lighting.bin` to `src/dxvk/rtx_render/clouds/`.
+Data, caches, intermediate checkpoints, and evaluation
 reports stay in the ignored output directory. The embedded 237,320-byte
 Leaky ReLU payload has SHA-256
-`1a02df286eb8f6fe311b910bb9628a3cb577ed09a801bf6e8f83738a33674e49`.
+`c8887a1462e3846215b1d28835fdf119afdaaad473f22d400930af48a8fda441`.
 
 `--activation silu` trains the comparison model with the same reference
 data. Evaluate its weights with the corresponding SiLU shader. Seeds are

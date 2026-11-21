@@ -22,6 +22,8 @@
 #pragma once
 
 import "rtx/utility/quaternion.slang";
+import "rtx/algorithm/clouds.slang";
+import "rtx/pass/cloud_parameters.slang";
 import "rtx/pass/gbuffer/gbuffer_motion.slang";
 #include "rtx/pass/gbuffer/gbuffer_debug.slangh"
 #include "rtx/pass/gbuffer/gbuffer_guides_output.slangh"
@@ -59,7 +61,7 @@ void geometryResolverOutputRawAovs(uvec2 pixelCoordinate, vec4 worldPosition, ve
 void geometryResolverOutputMiss<
   let PRIMARY_SURFACE : bool,
   let SELECTED_INTEGRATION_SURFACE : bool>(
-  uvec2 pixelCoordinate, uvec2 compactedCoordinate, bool alphaBlendSurfaceStored = true, float cloudDistance = 0.0f)
+  uvec2 pixelCoordinate, uvec2 compactedCoordinate, bool alphaBlendSurfaceStored = true, float3 cloudMoments = float3(0))
 {
   // Every pixel writes its per-pixel outputs. Only a pixel with a slot also stores a GBuffer.
   const bool storesGBuffer = hasGBufferSlot(compactedCoordinate);
@@ -69,11 +71,19 @@ void geometryResolverOutputMiss<
   {
     float depth = cb.clearColorDepth;
     float2 motion;
-    if (cloudDistance > 0.0f)
+    const float opacity = saturate(cloudMoments.y);
+    if (opacity > 0.0f)
     {
-      const VirtualHitProjection cloud = projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, cloudDistance, cb.volumeArgs.clouds.previousWindDelta);
-      depth = saturate(cloud.depth);
+      const CloudArgs clouds = cb.volumeArgs.clouds;
+      const float distance = cloudMoments.x / cloudMoments.y * cloudMaxViewDistance(clouds);
+      const float3 wind = lerp(clouds.previousWindDelta, clouds.previousHighWindDelta, saturate(cloudMoments.z / cloudMoments.y));
+      const VirtualHitProjection cloud = projectVirtualHit(cb.camera, cb.forceStaticSceneMotionVectors, pixelCoordinate, distance, wind);
+      depth = lerp(depth, saturate(cloud.depth), opacity);
       motion = cloud.screenSpaceMotion;
+      if (opacity < 1.0f)
+      {
+        motion = lerp(calcMotionVectorForRayMiss(cb.camera, pixelCoordinate), motion, opacity);
+      }
     }
     else
     {

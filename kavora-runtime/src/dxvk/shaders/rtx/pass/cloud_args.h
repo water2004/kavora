@@ -56,11 +56,13 @@ CLOUD_PARAMETER struct CloudArgs {
   CLOUD_PARAMETER uint highSteps;
   CLOUD_PARAMETER vec2 highMapOrigin;
   CLOUD_PARAMETER vec2 highLookupOrigin;
+  CLOUD_PARAMETER vec3 previousHighWindDelta;
+  CLOUD_PARAMETER uint highWindPadding;
 };
 
 #undef CLOUD_PARAMETER
 
 #ifdef __cplusplus
 static_assert(sizeof(CloudLight) == 96);
-static_assert(sizeof(CloudArgs) == 368);
+static_assert(sizeof(CloudArgs) == 384);
 #endif

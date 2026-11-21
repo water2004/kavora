@@ -5,6 +5,8 @@ import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_lighting_cache.slang";
+import "rtx/algorithm/cloud_scattering.slang";
+import "rtx/utility/cloud_phase.slang";
 #include "rtx/pass/clouds/cloud_lighting_cache.h"
 
 struct CloudLocalColumn
@@ -63,6 +65,42 @@ float2 cloudVerticalOpticalDepth(CloudLocalColumn column, float altitude)
   return float2(column.total - below, below);
 }
 
+// The diffuse exitance of a broken upper deck subtends a hemisphere at the
+// top of the lower deck. Integrate it once per horizontal column. The narrow
+// forward lobe still follows the actual light ray in cloudIncidentRadiance.
+float2 upperDeckDiffuseFlux(CloudArgs args, float3 receiver, Sampler2DArray<float4> weather,
+  Sampler3D<float4> base, Sampler3D<float4> detail)
+{
+  const uint samples = 16;
+  const float altitude = args.highBaseHeight + 0.5f * args.highThickness;
+  const float3 tangent = args.up.z > 0.5f ? float3(0, 1, 0) : float3(0, 0, 1);
+  const CloudDensityArgs density = cloudDensityParameters(args);
+  float2 flux = 0;
+  for (uint i = 0; i < samples; ++i)
+  {
+    const float r = sqrt((float(i) + 0.5f) / float(samples));
+    float s, c;
+    sincos(float(i) * 2.39996323f, s, c);
+    const float3 direction = r * (float3(c, 0, 0) + tangent * s) + args.up * sqrt(1.0f - r * r);
+    const float distance = cloudSphereRoots(args, receiver, direction, altitude).y;
+    const float3 position = receiver + direction * distance;
+    const float tau = args.highThickness * args.highExtinction
+      * cloudDensity(density, position, weather, base, detail, 1, true, distance * rsqrt(float(samples)));
+    const float3 radialUp = normalize(position - args.groundReference + args.planetRadius * args.up);
+    [unroll]
+    for (uint light = 0; light < 2; ++light)
+    {
+      const float cosine = dot(args.lights[light].directionToLight, radialUp);
+      if (cosine > 0)
+      {
+        const CloudBeamTransfer transfer = cloudBeamTransfer(tau, cloudMeanCosine(1), cosine);
+        flux[light] += max(0.0f, transfer.downwardFlux - cosine * transfer.beam);
+      }
+    }
+  }
+  return flux / float(samples);
+}
+
 public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   Sampler2DArray<float4> weather, Sampler3D<float4> base, Sampler3D<float4> detail,
   RWTexture3D<float2> output)
@@ -76,6 +114,12 @@ public void buildCloudLocalLightColumn(CloudArgs args, uint2 index, uint layer,
   const float bottom = cloudLayerBase(args, layer);
   const float thickness = cloudLayerTop(args, layer) - bottom;
   const float2 uv = (float2(index) + 0.5f) / float(CLOUD_LOCAL_LIGHT_RESOLUTION);
+  if (layer == 0 && cloudLayerEnabled(args, 1) && args.multipleScattering > 0)
+  {
+    const float3 receiver = cloudLocalLightPosition(args, uv, cloudLayerTop(args, 0), 0);
+    output[uint3(index.x, CLOUD_LOCAL_LIGHT_PACKED_HEIGHT - 1, index.y)] =
+      upperDeckDiffuseFlux(args, receiver, weather, base, detail);
+  }
   const float3 center = cloudLocalLightPosition(args, uv, bottom + 0.5f * thickness, layer);
   const CloudLocalColumn column = prepareCloudLocalColumn(args, layer, center, weather, base, detail);
   for (uint y = 0; y < samples; y++)

@@ -18,26 +18,30 @@ static const float floatMax = 3.402823466e+38f;
 public struct AtmosphereSegment {
   public float3 radiance;
   public float3 transmittance;
-  // Cloud-only extinction moments for motion guides: normalized first moment and opacity.
-  public float2 cloudMoments;
+  // Cloud-only extinction moments for motion guides: depth moment, opacity, high-cloud opacity.
+  public float3 cloudMoments;
 };
 
 
 
 // Store the conditional mean rather than the small raw first moment, retaining
 // distance precision at thin edges. This compression affects motion guides only.
-public uint packCloudMoments(float2 moments)
+public uint packCloudMoments(float3 moments)
 {
   // Continuations shift their moment to the camera origin, so the compression
   // scale is not a distance cutoff. Longer paths may have a mean above one.
   const float mean = moments.y > 0.0f ? max(0.0f, moments.x / moments.y) : 0.0f;
-  return f32tof16(mean) | (f32tof16(saturate(moments.y)) << 16);
+  const float highFraction = moments.y > 0.0f ? saturate(moments.z / moments.y) : 0.0f;
+  const uint opacity = uint(round(sqrt(saturate(moments.y)) * 1023.0f));
+  const uint high = uint(round(highFraction * 63.0f));
+  return f32tof16(mean) | (opacity << 16) | (high << 26);
 }
 
-public float2 unpackCloudMoments(uint packed)
+public float3 unpackCloudMoments(uint packed)
 {
-  const float opacity = f16tof32(packed >> 16);
-  return float2(f16tof32(packed & 0xffff) * opacity, opacity);
+  const float rootOpacity = float((packed >> 16) & 1023u) / 1023.0f;
+  const float opacity = rootOpacity * rootOpacity;
+  return float3(f16tof32(packed & 0xffff) * opacity, opacity, opacity * (float(packed >> 26) / 63.0f));
 }
 
 public interface IAtmosphereFog
@@ -442,7 +446,7 @@ public AtmosphereSegment integrateAtmosphereWithHaze<Haze : IAtmosphereHaze, His
         ray.cloudAngularFootprint, weather, base, detail, cloud, history.sampleOffset(ray.direction));
       depth = cloud.moments.y > 0.0f ? clamp(distanceScale * cloud.moments.x / cloud.moments.y, nearestStart, end)
         : 0.5f * (nearestStart + end);
-      clouds = { cloud.radiance, cloud.transmission.xxx, cloud.moments };
+      clouds = { cloud.radiance, cloud.transmission.xxx, float3(cloud.moments, float(layer) * cloud.moments.y) };
       // A terrain endpoint inside a shell represents only a prefix. Never reuse
       // a whole-layer history for that prefix or for its remaining segment.
       if (nearestStart == interval.x && end == interval.y)

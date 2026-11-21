@@ -23,8 +23,7 @@ NeuralGrid neuralGrid(CloudArgs args, uint layer, uint cascade)
   const uint side = cascade == 2 ? 2 * tileSize : tileSize;
   const uint2 tile = cascade == 2 ? uint2(0) : uint2(2 * tileSize, cascade * tileSize);
   const float far = cloudLocalLightRadius(args, layer) / float(tileSize);
-  const float mid = min(0.5f * args.shapeScale, 0.5f * far);
-  const float spacing = cascade == 2 ? far : cascade == 1 ? mid : 0.25f * mid;
+  const float spacing = cascade == 2 ? far : cascade == 1 ? far / 3.0f : 0.125f * args.shapeScale;
   const float2 wind = cloudLightHorizontal(args, args.windOffset - args.groundReference);
   const float2 center = wind + floor(-wind / spacing) * spacing;
   const float2 origin = center - 0.5f * float(side) * spacing;
@@ -51,7 +50,7 @@ public float3 cloudNeuralPosition(CloudArgs args, uint2 index, uint layer, float
 
 // For a fixed light the checkpoint sees only view.light and view.up.
 // At each polar knot only the extrema of the reachable elevations are needed
-// for linear interpolation. Sample more densely around the forward HG lobe.
+// for linear interpolation. Sample more densely around the forward lobe.
 public float2 cloudNeuralKnot(uint slot, float lightUp)
 {
   const float t = float(slot / 2) / float(CLOUD_NEURAL_POLAR_KNOTS - 1);
@@ -122,14 +121,14 @@ float2 sampleSkyAngles(Sampler3D<float4> field, float2 uv, float v, CloudNeuralA
   return lerp(float2(upper[i], lower[i]), float2(upper[i+1], lower[i+1]), angle.polarBlend);
 }
 
-float2 sampleNeuralResponse<let Sky : bool>(CloudArgs args, Sampler3D<float4> field, float3 position, float altitude,
-  CloudNeuralAngle angle, uint layer, uint channel)
+public float2 cloudNeuralSky(CloudArgs args, Sampler3D<float4> field, float3 position, float altitude,
+  CloudNeuralAngle angle, uint layer)
 {
   const float bottom = layer == 0 ? args.baseHeight : args.highBaseHeight;
   const float thickness = layer == 0 ? args.thickness : args.highThickness;
   const float height = saturate((altitude - bottom) / thickness);
   const float row = cloudNeuralRowOffset(layer) + 0.5f + height * float(cloudNeuralHeightSamples(layer) - 1);
-  const float v = (float(channel * CLOUD_NEURAL_BANDS) + row / CLOUD_NEURAL_COLUMN_HEIGHT) / CLOUD_NEURAL_TOTAL_BANDS;
+  const float v = (CLOUD_NEURAL_SKY_BAND + row / CLOUD_NEURAL_COLUMN_HEIGHT) / CLOUD_NEURAL_TOTAL_BANDS;
   const float2 horizontal = cloudLightHorizontal(args, position - args.groundReference);
   float2 radiance = 0;
   float remaining = 1;
@@ -144,10 +143,7 @@ float2 sampleNeuralResponse<let Sky : bool>(CloudArgs args, Sampler3D<float4> fi
       // Clamp in tile space so hardware filtering cannot pull from its neighbor.
       const float2 uv = (float2(grid.tile) + clamp(cell, 0.5f, float(grid.side) - 0.5f))
         / float2(CLOUD_NEURAL_ATLAS_WIDTH, CLOUD_NEURAL_ATLAS_DEPTH);
-      if (Sky)
-        radiance += (remaining * coverage) * sampleSkyAngles(field, uv, v, angle);
-      else
-        radiance.x += (remaining * coverage) * sampleNeuralAngles(field, uv, v, angle);
+      radiance += (remaining * coverage) * sampleSkyAngles(field, uv, v, angle);
       if (coverage == 1)
         break;
       remaining *= 1.0f - coverage;
@@ -156,14 +152,26 @@ float2 sampleNeuralResponse<let Sky : bool>(CloudArgs args, Sampler3D<float4> fi
   return radiance;
 }
 
-public float cloudNeuralDiffuse(CloudArgs args, Sampler3D<float4> field, float3 position, float altitude,
-  CloudNeuralAngle angle, uint layer, uint light)
+// The solar source is tabulated over the medium seen at the interaction.
+// X and Z encode optical depth toward the light and into the cloud along
+// the view ray. Rows measure the optical thickness of the surrounding column.
+static const float3 kSolarMaxDepth = float3(24, 24, 128);
+
+public float3 cloudSolarStateAtNode(uint3 cell, uint layer)
 {
-  return sampleNeuralResponse<false>(args, field, position, altitude, angle, layer, light).x;
+  const uint row = cell.y % CLOUD_NEURAL_COLUMN_HEIGHT - cloudNeuralRowOffset(layer);
+  const float3 node = float3(float(cell.x) / (CLOUD_NEURAL_ATLAS_WIDTH - 1),
+    float(cell.z) / (CLOUD_NEURAL_ATLAS_DEPTH - 1), float(row) / float(cloudNeuralHeightSamples(layer) - 1));
+  return node * log(1.0f + kSolarMaxDepth);
 }
 
-public float2 cloudNeuralSky(CloudArgs args, Sampler3D<float4> field, float3 position, float altitude,
-  CloudNeuralAngle angle, uint layer)
+public float cloudNeuralDiffuse(Sampler3D<float4> field, float3 opticalDepth,
+  CloudNeuralAngle angle, uint layer, uint light)
 {
-  return sampleNeuralResponse<true>(args, field, position, altitude, angle, layer, CLOUD_NEURAL_SKY_CHANNEL);
+  const float2 size = float2(CLOUD_NEURAL_ATLAS_WIDTH, CLOUD_NEURAL_ATLAS_DEPTH);
+  const float3 state = saturate(log(1.0f + opticalDepth) / log(1.0f + kSolarMaxDepth));
+  const float2 uv = (0.5f + state.xy * (size - 1.0f)) / size;
+  const float row = cloudNeuralRowOffset(layer) + 0.5f + state.z * float(cloudNeuralHeightSamples(layer) - 1);
+  const float v = (float(light * CLOUD_NEURAL_BANDS) + row / CLOUD_NEURAL_COLUMN_HEIGHT) / CLOUD_NEURAL_TOTAL_BANDS;
+  return sampleNeuralAngles(field, uv, v, angle);
 }

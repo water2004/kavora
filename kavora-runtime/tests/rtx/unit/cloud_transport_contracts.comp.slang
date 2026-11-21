@@ -17,6 +17,7 @@ Sampler2DArray<float4>.Handle Weather;
 Sampler3D<float4>.Handle Base;
 Sampler3D<float4>.Handle Detail;
 Sampler3D<float2>.Handle VerticalDepth;
+Sampler3D<float4>.Handle Neural;
 uint Count;
 
 [shader("compute")]
@@ -37,11 +38,36 @@ void neuralDensities(uint index : SV_DispatchThreadID)
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
+void neuralBaseDensity(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count)
+  {
+    return;
+  }
+  const float4 point = Inputs[index];
+  Results[index] = cloudDensity(cloudDensityParameters(Clouds), point.xyz,
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), uint(point.w), false).xxxx;
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
 void airSkylight(uint index : SV_DispatchThreadID)
 {
   if (index >= Count) return;
   Results[index] = float4(cloudDiffuseAirIllumination(Clouds, Sampler3D<float2>(VerticalDepth),
     Inputs[index].xyz, Directions[index].rgb), 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void cloudBoundaryLight(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float4 point = Inputs[index];
+  const CloudLightingCache cache = { Sampler3D<float2>(VerticalDepth), Sampler3D<float4>(Neural) };
+  CloudRayPhase phase = {};
+  Results[index] = float4(cloudIncidentRadiance(Clouds, point.xyz, uint(point.w), 0,
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), cache, phase), 0);
 }
 
 [shader("compute")]
@@ -65,9 +91,9 @@ void columnHistory(uint index : SV_DispatchThreadID)
   }
   const float4 old = Inputs[index];
   const float4 current = Directions[index];
-  const uint3 entry = CloudHistoryGather.encode(float4(2, 4, 8, old.y), old.x);
+  const uint2 entry = CloudHistoryGather.encode(float4(2, 4, 8, old.y), old.x);
   CloudHistoryGather history = {};
-  history.add(entry, current.x, current.y, current.z, 1);
+  history.add(entry, current.x, float4(float3(2, 4, 8) * old.z, current.w), current.y, current.z, 1);
   Results[index] = float4(history.sum.rgb, history.weight);
 }
 
@@ -93,8 +119,8 @@ void stationaryColumnNoise(uint index : SV_DispatchThreadID)
   const float2 shell = cloudLayerInterval(Clouds, origin, direction, Clouds.maxDistance, 0, 0);
   float2 mean = 0;
   float2 squaredDeviation = 0;
-  uint3 old = 0;
-  uint3 older = 0;
+  uint2 old = 0;
+  uint2 older = 0;
   uint misses = 0;
   float reference = 0;
   for (uint frame = 0; frame < 64; ++frame)
@@ -113,8 +139,8 @@ void stationaryColumnNoise(uint index : SV_DispatchThreadID)
     float depth = value.x > 0 ? cloudMaxViewDistance(Clouds) * sample.moments.x / value.x : 0.5f * (shell.x + shell.y);
     const float expectedDepth = depth;
     CloudHistoryGather history = {};
-    history.add(old, expectedDepth, 0, 1, 1);
-    history.add(older, expectedDepth, 0, 1, 1);
+    history.add(old, expectedDepth, float4(0, 0, 0, value.x), 0, 1, 1);
+    history.add(older, expectedDepth, float4(0, 0, 0, value.x), 0, 1, 1);
     value.y = history.resolve(float4(0, 0, 0, value.x), depth, shell).w;
     older = old;
     old = CloudHistoryGather.encode(float4(0, 0, 0, value.x), expectedDepth);
@@ -288,6 +314,57 @@ void viewTransmission(uint index : SV_DispatchThreadID)
   const float transmission = cloudTransmittance(Clouds, origin.xyz, direction, origin.w,
     Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail));
   Results[index] = float4(transmission, 0, 0, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void viewTransmissionSplits(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float4 ray = Inputs[index];
+  const float3 direction = Directions[index].xyz;
+  const float split = Directions[index].w;
+  const float2 shell = cloudLayerInterval(Clouds, ray.xyz, direction, ray.w, 0, 0);
+  const float offset = cloudViewSampleOffset(direction);
+  CloudOpacityProbe first = {};
+  CloudOpacityProbe second = {};
+  marchCloudView(Clouds, ray.xyz, direction, 0, shell, float2(shell.x, split), Clouds.viewAngularFootprint,
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), first, offset);
+  marchCloudView(Clouds, ray.xyz, direction, 0, shell, float2(split, shell.y), Clouds.viewAngularFootprint,
+    Sampler2DArray<float4>(Weather), Sampler3D<float4>(Base), Sampler3D<float4>(Detail), second, offset);
+  Results[index] = float4(1.0f - first.moments.y, 1.0f - second.moments.y, 0, 0);
+}
+
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void distantCloudSequence(uint index : SV_DispatchThreadID)
+{
+  if (index >= Count) return;
+  const float3 origin = Inputs[index].xyz;
+  const float4 ray = Directions[index];
+  const float3 direction = ray.xyz;
+  CloudArgs args = Clouds;
+  args.windOffset += ray.w * float3(9.396926f, 5.0f, 3.420201f);
+  const float2 shell = cloudLayerInterval(args, origin, direction, 3.402823466e+38f, 0, 0);
+  const float begin = max(shell.x, args.maxDistance);
+  const float length = shell.y - begin;
+  const Sampler2DArray<float4> weather = Sampler2DArray<float4>(Weather);
+  const Sampler3D<float4> base = Sampler3D<float4>(Base);
+  const Sampler3D<float4> detail = Sampler3D<float4>(Detail);
+  CloudOpacityProbe sample = {};
+  marchCloudView(args, origin, direction, 0, shell, float2(begin, shell.y), args.viewAngularFootprint,
+    weather, base, detail, sample, 0.5f);
+  const float oldDepth = length * cloudLayerExtinction(args, origin + direction * (begin + length * 0.5f), 0,
+    weather, base, detail);
+  const uint steps = uint(ceil(length / 20.0f));
+  const float step = length / steps;
+  float opticalDepth = 0;
+  for (uint i = 0; i < steps; ++i)
+  {
+    opticalDepth += step * cloudLayerExtinction(args, origin + direction * (begin + step * (i + 0.5f)), 0,
+      weather, base, detail);
+  }
+  Results[index] = float4(1.0f - sample.moments.y, exp(-oldDepth), exp(-opticalDepth), length);
 }
 
 [shader("compute")]

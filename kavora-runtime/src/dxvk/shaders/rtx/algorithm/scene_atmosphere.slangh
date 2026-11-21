@@ -113,7 +113,9 @@ AtmosphereSegment resolveSceneAtmosphere(float3 origin, float3 direction, float 
       transmittance = lerp(transmittance, 0.25f * filteredTransmittance, blend);
     }
     const float firstMoment = max(0.0f, transmittance.w * cachedDepthProjection.x - radiance.w * cachedDepthProjection.y);
-    AtmosphereSegment tail = { radiance.xyz, transmittance.xyz, float2(firstMoment, radiance.w) };
+    const float centroid = firstMoment * cloudMaxViewDistance(volume.clouds) / max(radiance.w, 1e-8f);
+    const uint layer = cloudLayerAt(volume.clouds, origin + direction * centroid);
+    AtmosphereSegment tail = { radiance.xyz, transmittance.xyz, float3(firstMoment, radiance.w, float(layer) * radiance.w) };
     transfer = composeAtmosphereSegments(transfer, tail);
   }
   return transfer;

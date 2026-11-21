@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-// One 2x2 far tile beside two 1x1 tiles for the near and middle fields.
+// Sky bands pack one far tile beside near and middle tiles. Beam bands use
+// the full plane for the light- and view-optical-depth axes.
 #define CLOUD_NEURAL_TILE_SIZE 10
 #define CLOUD_NEURAL_ATLAS_WIDTH (3 * CLOUD_NEURAL_TILE_SIZE)
 #define CLOUD_NEURAL_ATLAS_DEPTH (2 * CLOUD_NEURAL_TILE_SIZE)

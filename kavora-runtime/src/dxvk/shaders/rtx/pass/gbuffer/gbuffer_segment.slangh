@@ -11,7 +11,7 @@ struct GBufferSegment
 {
   vec3 attenuation;
   vec3 emission;
-  float2 cloudMoments;
+  float3 cloudMoments;
   uint4 decalMemory;
   f16vec3 decalEmission;
   uint numUnorderedInteractions;

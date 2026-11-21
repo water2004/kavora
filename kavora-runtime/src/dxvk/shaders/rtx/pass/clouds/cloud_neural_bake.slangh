@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 import "rtx/algorithm/clouds.slang";
 import "rtx/algorithm/cloud_neural_scattering.slang";
-import "rtx/algorithm/cloud_source_interpolation.slang";
 import "rtx/pass/cloud_parameters.slang";
 import "rtx/utility/cloud_density.slang";
 import "rtx/utility/cloud_phase.slang";
@@ -24,51 +23,25 @@ float densityFeature(CloudDensityArgs density, float3 position, uint layer)
   return cloudDensity(density, position, CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler, layer);
 }
 
-void writeSpatialFeatures(CloudArgs args, float3 position, uint layer, uint lightIndex, float height, float altitude, uint lane, uint slot)
+void writeSkyFeatures(CloudArgs args, float3 position, uint layer, float height, float altitude, uint lane, uint slot)
 {
   const CloudDensityArgs density = cloudDensityParameters(args);
-  const bool sky = lightIndex == CLOUD_NEURAL_SKY_CHANNEL;
   if (lane < 4)
   {
     Cells[slot].features[lane] = cloudDensityFeature(density, position, layer, lane, args.meterToWorld,
       CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler);
     return;
   }
-  if (sky)
-  {
-    if (lane == 4)
-    {
-      const CloudLightingCache cache = sceneCloudLightingCache();
-      const float2 depth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
-      Cells[slot].skyDepth = depth;
-      Cells[slot].features[4] = depth.x / (1.0f + depth.x);
-      Cells[slot].features[5] = height;
-    }
-    if (lane == 7 || lane == 8)
-      Cells[slot].features[lane] = densityFeature(density, position + args.up * (lane == 7 ? 300.0f : 800.0f) * args.meterToWorld, layer);
-    return;
-  }
-  const float3 light = args.lights[lightIndex].directionToLight;
   if (lane == 4)
   {
-    const float2 depth = cloudLightOpticalDepth(args, position, light, 3.402823466e+38f,
-      CloudWeatherSampler, CloudBaseSampler, CloudDetailSampler);
-    const float tau = min(depth.x + depth.y, 24.0f);
-    const float transmission = exp(-tau);
-    Cells[slot].features[4] = transmission;
-    Cells[slot].features[5] = tau / (1.0f + tau);
-    Cells[slot].features[6] = height;
+    const CloudLightingCache cache = sceneCloudLightingCache();
+    const float2 depth = cache.local.SampleLevel(cloudLocalLightCoordinates(args, position, altitude, layer), 0);
+    Cells[slot].skyDepth = depth;
+    Cells[slot].features[4] = depth.x / (1.0f + depth.x);
+    Cells[slot].features[5] = height;
   }
-  else if (lane < 8)
-  {
-    Cells[slot].features[lane + 5] = densityFeature(density, position + light * args.meterToWorld
-      * (lane == 5 ? 150.0f : lane == 6 ? 500.0f : 1200.0f), layer);
-  }
-  else
-  {
-    const float3 offset = lane == 8 ? -light * 300.0f : args.up * 500.0f;
-    Cells[slot].features[lane + 5] = densityFeature(density, position + offset * args.meterToWorld, layer);
-  }
+  if (lane == 7 || lane == 8)
+    Cells[slot].features[lane] = densityFeature(density, position + args.up * (lane == 7 ? 300.0f : 800.0f) * args.meterToWorld, layer);
 }
 
 uint3 cloudNeuralTexel(uint3 cell, uint band)
@@ -88,13 +61,25 @@ bool prepareNeuralCell(CloudArgs args, uint3 cell, uint lane, out uint lightInde
   {
     return false;
   }
+  if (!sky)
+  {
+    if (lane == 0)
+    {
+      const float3 state = cloudSolarStateAtNode(cell, layer);
+      Cells[slot].features[0] = state.x;
+      Cells[slot].features[1] = state.y;
+      Cells[slot].features[2] = state.z;
+      Cells[slot].features[3] = dot(args.lights[lightIndex].directionToLight, args.up);
+    }
+    return true;
+  }
   const float height = float(row - cloudNeuralRowOffset(layer)) / float(cloudNeuralHeightSamples(layer) - 1);
   const float altitude = lerp(cloudLayerBase(args, layer), cloudLayerTop(args, layer), height);
   const float3 position = cloudNeuralPosition(args, cell.xz, layer, altitude);
-  for (uint feature = lane; feature < (sky ? 9u : 10u); feature += stride)
+  for (uint feature = lane; feature < 9; feature += stride)
   {
     if (args.multipleScattering > 0 || feature == 4)
-      writeSpatialFeatures(args, position, layer, lightIndex, height, altitude, feature, slot);
+      writeSkyFeatures(args, position, layer, height, altitude, feature, slot);
   }
   return true;
 }
@@ -103,14 +88,6 @@ bool prepareNeuralCell(CloudArgs args, uint3 cell, uint lane, out uint lightInde
 float softplus(float x)
 {
   return 0.25f * (max(x, 0.0f) + log(1.0f + exp(-abs(x))));
-}
-
-// Interpolate the smooth part of the learned source. At a lattice node the
-// ray uses identical density and transmission and recovers the MLP result.
-float sourceForCache(float result, uint3 cell, bool sky, float cosine, uint slot = 0)
-{
-  const uint layer = uint((cell.y % CLOUD_NEURAL_COLUMN_HEIGHT) >= CLOUD_NEURAL_HEIGHT);
-  return softplus(result) - (sky ? 0.0f : cloudSourceVariation(layer, Cells[slot].features[0], Cells[slot].features[4], cosine));
 }
 
 float3 neuralAngularFeatures(CloudArgs args, uint lightIndex, uint angle, uint layer)
@@ -125,9 +102,7 @@ float neuralFeature(uint index, float3 angular, float meanCosine, bool sky, uint
 {
   if (sky)
     return index == 6 ? angular.z : index < 9 ? Cells[slot].features[index] : index == 9 ? meanCosine : 0;
-  if (index == 15)
-    return meanCosine;
-  return index >= 7 && index <= 9 ? angular[index - 7] : Cells[slot].features[index];
+  return index < 4 ? Cells[slot].features[index] : index < 7 ? angular[index - 4] : index == 7 ? meanCosine : 0;
 }
 
 void storeCloudLighting(uint3 cell, uint lane, uint channel, float strength, uint slot = 0)
@@ -216,7 +191,7 @@ void main(uint3 group : SV_GroupID, uint invocation : SV_GroupIndex)
   let result = neuralLayer<CLOUD_NEURAL_TENSOR_OUTPUTS, CLOUD_NEURAL_WIDTH>(value, bank + CLOUD_NEURAL_HIDDEN_LAYERS);
   if (lane < directions)
   {
-    Cells[slot].prediction[lane] = sourceForCache(float(result[0]), cell, sky, angular.x, slot);
+    Cells[slot].prediction[lane] = softplus(float(result[0]));
   }
   storeCloudLighting(cell, lane, lightIndex, args.multipleScattering, slot);
 }

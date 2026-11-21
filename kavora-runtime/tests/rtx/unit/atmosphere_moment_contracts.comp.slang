@@ -19,7 +19,7 @@ void moments(uint index : SV_DispatchThreadID)
   }
   const float4 cell = Inputs[index];
   const float2 value = cloudCellMoments(cell.x, cell.y, cell.z, MaxDistance);
-  Results[index] = float4(value, unpackCloudMoments(packCloudMoments(value)));
+  Results[index] = float4(value, unpackCloudMoments(packCloudMoments(float3(value, 0))).xy);
 }
 
 [shader("compute")]
@@ -39,10 +39,10 @@ void composition(uint index : SV_DispatchThreadID)
     AtmosphereSegment segment = emptyAtmosphereSegment();
     // Chromatic fog attenuation must not change the cloud-only motion guide.
     segment.transmittance = float3(0.2f, 0.6f, 0.9f);
-    segment.cloudMoments = cloudCellMoments(cell.x, cell.y + float(step) * length, length, MaxDistance);
+    segment.cloudMoments = float3(cloudCellMoments(cell.x, cell.y + float(step) * length, length, MaxDistance), 0);
     result = composeAtmosphereSegments(result, segment);
   }
-  Results[index] = float4(result.cloudMoments, result.radiance.x, result.transmittance.x);
+  Results[index] = float4(result.cloudMoments.xy, result.radiance.x, result.transmittance.x);
 }
 
 float integrateGridProbe(CloudRayGrid grid, float begin, float end)

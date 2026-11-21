@@ -384,6 +384,7 @@ namespace dxvk {
     CloudArgs m_previousCloudLightingArgs{};
     bool m_cloudLightingArgsValid = false;
     Vector3 m_previousCloudWindOffset = Vector3(0.f);
+    Vector3 m_previousHighCloudWindOffset = Vector3(0.f);
     uint32_t m_previousCloudFrame = 0;
     std::chrono::steady_clock::time_point m_previousCloudTime;
     float m_cloudWetness = 0;

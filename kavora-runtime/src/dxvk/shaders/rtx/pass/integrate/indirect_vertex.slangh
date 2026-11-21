@@ -118,7 +118,7 @@ void integratePathVertex(
   uint8_t firstRayPortal = invalidRayPortalIndex;
 
   VertexMaterialContext materialContext;
-  float2 cloudMoments;
+  float3 cloudMoments;
   resolveVertex<PathState, VertexMaterialContext>(
     resolveMode,
     rayHitInfo, pathState,

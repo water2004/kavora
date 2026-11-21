@@ -64,10 +64,22 @@ public float3 cloudLocalLightCoordinates(CloudArgs args, float3 position, float 
   return float3(uv.x, (cloudLocalLightHeightOffset(layer) + slice) / CLOUD_LOCAL_LIGHT_PACKED_HEIGHT, uv.y);
 }
 
+public float cloudLocalColumnExteriorWeight(CloudArgs args, float3 position, uint layer)
+{
+  const float2 horizontal = abs(cloudLightHorizontal(args, position - args.groundReference));
+  const float radius = cloudLocalLightRadius(args, layer);
+  return saturate(0.5f + (max(horizontal.x, horizontal.y) / radius - 1.0f) * (0.5f * CLOUD_LOCAL_LIGHT_RESOLUTION));
+}
+
 public float3 cloudLocalLightPosition(CloudArgs args, float2 uv, float altitude, uint layer)
 {
   const float2 horizontal = (uv - 0.5f) * (2.0f * cloudLocalLightRadius(args, layer));
   return cloudLightPositionAtAltitude(args, horizontal, altitude);
+}
+
+public float3 cloudBoundaryFluxCoordinates(float2 uv)
+{
+  return float3(uv.x, 1.0f - 0.5f / CLOUD_LOCAL_LIGHT_PACKED_HEIGHT, uv.y);
 }
 
 public float3 cloudLightPositionAtAltitude(CloudArgs args, float2 horizontal, float altitude)
