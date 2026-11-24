@@ -84,15 +84,11 @@ namespace dxvk {
     }
   }
 
-  bool DxvkDisplayOutput::configureClientFormat(VkFormat format) {
+  void DxvkDisplayOutput::observeClientFormat(VkFormat format) {
     std::lock_guard lock(m_impl->mutex);
-    const bool extended = m_impl->sharedVulkan && format == VK_FORMAT_R16G16B16A16_SFLOAT;
-    if (m_impl->clientFormatKnown && extended != m_impl->extendedSrgb) {
-      return false;
-    }
-    m_impl->extendedSrgb = extended;
+    const bool extended = m_impl->sharedVulkan && isExtendedSrgbClientFormat(format);
+    m_impl->extendedSrgb = extended || (m_impl->clientFormatKnown && m_impl->extendedSrgb);
     m_impl->clientFormatKnown = true;
-    return true;
   }
 
   DxvkDisplayFrame DxvkDisplayOutput::prepareFrame(void* window, uint32_t frameIndex, bool sceneFrame) {
@@ -129,9 +125,10 @@ namespace dxvk {
     Logger::warn(str::format("HDR swap chain creation failed (", failure, "); retrying SDR."));
   }
 
-  DxvkDisplayPresent DxvkDisplayOutput::makePresent(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual) const {
+  DxvkDisplayPresent DxvkDisplayOutput::makePresent(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual,
+                                                   VkFormat clientFormat) const {
     std::lock_guard lock(m_impl->mutex);
-    return m_impl->policy.present(source, actual);
+    return m_impl->policy.present(source, actual, clientFormat);
   }
 
   bool DxvkDisplayOutput::hdrMetadata(VkHdrMetadataEXT& metadata) const {

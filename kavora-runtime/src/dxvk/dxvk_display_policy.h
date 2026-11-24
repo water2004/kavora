@@ -32,7 +32,8 @@ namespace dxvk {
     bool needsSurfaceRecreation(VkSurfaceFormatKHR actual) const;
     void acceptSurface(VkSurfaceFormatKHR actual);
     void rejectHdrSurface();
-    DxvkDisplayPresent present(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual) const;
+    DxvkDisplayPresent present(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual,
+                               VkFormat clientFormat = VK_FORMAT_UNDEFINED) const;
 
     bool wantsHdr() const;
     bool hdrActive() const;

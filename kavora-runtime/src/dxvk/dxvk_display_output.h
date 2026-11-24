@@ -13,6 +13,10 @@ namespace dxvk {
 
   class DxvkDevice;
 
+  constexpr bool isExtendedSrgbClientFormat(VkFormat format) {
+    return format == VK_FORMAT_R16G16B16A16_SFLOAT;
+  }
+
   enum class DxvkDisplayFrameFlag : uint32_t {
     ExtendedSrgb = 1u << 0,
     HdrScene = 1u << 1,
@@ -48,6 +52,7 @@ namespace dxvk {
   constexpr uint32_t kDxvkDisplayTransferMask = 0xffu;
   constexpr uint32_t kDxvkDisplayTargetSrgb = 1u << 8;
   constexpr uint32_t kDxvkDisplaySourceHdr = 1u << 9;
+  constexpr uint32_t kDxvkDisplaySourceLinear = 1u << 10;
 
   struct DxvkDisplayPresentArgs {
     uint32_t transfer = uint32_t(DxvkDisplayTransfer::LegacySdr);
@@ -78,8 +83,8 @@ namespace dxvk {
     ~DxvkDisplayOutput();
 
     void configureHost(void* window, bool sharedVulkan);
-    // Locks the client's encoding contract after its first actual composition image.
-    bool configureClientFormat(VkFormat format);
+    // Records whether the host has supplied an FP16 composition image.
+    void observeClientFormat(VkFormat format);
     DxvkDisplayFrame prepareFrame(void* window, uint32_t frameIndex, bool sceneFrame = true);
 
     // The command-stream thread copies this before scene post-processing.
@@ -90,7 +95,7 @@ namespace dxvk {
     bool needsSurfaceRecreation(VkSurfaceFormatKHR actual) const;
     void acceptSurface(VkSurfaceFormatKHR actual);
     void rejectHdrSurface(VkResult failure);
-    DxvkDisplayPresent makePresent(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual) const;
+    DxvkDisplayPresent makePresent(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual, VkFormat clientFormat) const;
     bool hdrMetadata(VkHdrMetadataEXT& metadata) const;
     bool readStatus(std::string_view key, std::string& value) const;
 

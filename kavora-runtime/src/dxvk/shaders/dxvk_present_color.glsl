@@ -5,7 +5,8 @@
 
 vec3 presentDisplayColor(vec3 encoded, uvec2 pixel) {
   uint transfer = display_transfer & 255u;
-  vec3 linear = displaySanitizeColor(displaySrgbDecode(encoded));
+  bool sourceLinear = (display_transfer & 1024u) != 0u;
+  vec3 linear = displaySanitizeColor(sourceLinear ? encoded : displaySrgbDecode(encoded));
   vec3 outputColor;
   if (transfer == 2u) {
     bool sourceHdr = (display_transfer & 512u) != 0u;

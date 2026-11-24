@@ -15,6 +15,7 @@ import slangpy as spy
 HERE = Path(__file__).resolve().parent
 SHADERS = HERE.parents[2] / "src/dxvk/shaders"
 SOURCE_HDR = 512
+SOURCE_LINEAR = 1024
 TARGET_SRGB = 256
 
 
@@ -80,6 +81,9 @@ def expect_nits(probe, linear, nits, transfer=2 | SOURCE_HDR, source=(200, 1000)
 def check_present(probe):
     white = np.ones((1, 3))
     expect_nits(probe, white, white * 200, transfer=2, source=(80, 80))
+    sampled_srgb = np.full((1, 3), 0.18)
+    np.testing.assert_allclose(probe.run(sampled_srgb, 2 | SOURCE_LINEAR, encoded=True),
+                               probe.run(sampled_srgb, 2), atol=2e-5, rtol=0)
     ramp = np.repeat(np.asarray([0, 0.18, 1, 2, 5])[:, None], 3, axis=1)
     expect_nits(probe, ramp, ramp * 200)
     expect_nits(probe, white, white * 500, source=(500, 1000))

@@ -151,7 +151,14 @@ namespace dxvk {
     m_confirmed = false;
   }
 
-  DxvkDisplayPresent DxvkDisplayPolicy::present(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual) const {
+  DxvkDisplayPresent DxvkDisplayPolicy::present(const DxvkDisplayFrame& source, VkSurfaceFormatKHR actual,
+                                                VkFormat clientFormat) const {
+    const bool extendedSource = source.extendedSrgb()
+      && (clientFormat == VK_FORMAT_UNDEFINED || isExtendedSrgbClientFormat(clientFormat));
+    const bool hdrSource = extendedSource && source.hdrScene();
+    const bool sourceLinear = isSrgbFormat(clientFormat);
+    const bool targetSrgb = isSrgbFormat(actual.format);
+
     DxvkDisplayPresent result;
     result.sourceGeneration = source.generation;
     result.generation = m_generation;
@@ -162,14 +169,17 @@ namespace dxvk {
       result.shader.transfer = uint32_t(DxvkDisplayTransfer::Hdr10);
       result.shader.targetPaperWhiteNits = m_paperWhiteNits;
       result.shader.targetPeakNits = m_peakNits;
-    } else if (source.extendedSrgb()) {
-      result.shader.transfer = uint32_t(source.hdrScene() ? DxvkDisplayTransfer::HdrToSdr : DxvkDisplayTransfer::Sdr);
-      if (isSrgbFormat(actual.format)) {
+    } else if (extendedSource || (source.extendedSrgb() && sourceLinear != targetSrgb)) {
+      result.shader.transfer = uint32_t(hdrSource ? DxvkDisplayTransfer::HdrToSdr : DxvkDisplayTransfer::Sdr);
+      if (targetSrgb) {
         result.shader.transfer |= kDxvkDisplayTargetSrgb;
       }
     }
-    if (source.hdrScene()) {
+    if (hdrSource) {
       result.shader.transfer |= kDxvkDisplaySourceHdr;
+    }
+    if (sourceLinear && (result.shader.transfer & kDxvkDisplayTransferMask)) {
+      result.shader.transfer |= kDxvkDisplaySourceLinear;
     }
     return result;
   }

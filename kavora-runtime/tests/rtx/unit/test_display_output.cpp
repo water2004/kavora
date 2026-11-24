@@ -133,7 +133,7 @@ namespace {
     policy.update(settings, caps);
     require(!policy.wantsHdr() && !policy.frame(1, true).extendedSrgb()
       && !policy.needsSurfaceRecreation(kSdr) && policy.surfaceFormats(formats, 4) == 0,
-      "A first legacy eight-bit frame must permanently remain eligible only for SDR.");
+      "An eight-bit host remains on SDR until it supplies an FP16 composition image.");
 
     DxvkDisplayPolicy floating;
     caps.extendedSrgb = true;
@@ -142,6 +142,34 @@ namespace {
       "An FP16 confirmation still needs successful WSI negotiation before rendering HDR.");
     floating.acceptSurface(kHdr);
     require(floating.frame(3, true).hdrScene(), "Confirmed FP16 and WSI together permit HDR scene values.");
+  }
+
+  void checkMixedClientFormats() {
+    DxvkDisplayPolicy policy;
+    DxvkDisplaySettings settings;
+    DxvkDisplayCapabilities caps { 1, true, true, true, true, 200.0f, 1000.0f };
+    policy.update(settings, caps);
+    policy.acceptSurface(kHdr);
+    const auto source = policy.frame(7, true);
+    const auto generation = policy.generation();
+    const auto preview = policy.present(source, kHdr, VK_FORMAT_R8G8B8A8_UNORM);
+    require(preview.hdr10() && !(preview.shader.transfer & kDxvkDisplaySourceHdr)
+      && preview.shader.targetPaperWhiteNits == 200.0f,
+      "An SDR composition must use the HDR window's reference white and ignore the original HDR scene metadata.");
+    const auto srgb = policy.present(source, kHdr, VK_FORMAT_R8G8B8A8_SRGB);
+    require(srgb.shader.transfer == (uint32_t(DxvkDisplayTransfer::Hdr10) | kDxvkDisplaySourceLinear),
+      "A sampled sRGB format must skip software decoding when presented in HDR.");
+    const auto sdr = policy.present(source, kSdr, VK_FORMAT_R8G8B8A8_UNORM);
+    require(sdr.shader.transfer == uint32_t(DxvkDisplayTransfer::LegacySdr),
+      "An eight-bit SDR composition must not be tone mapped again.");
+    constexpr VkSurfaceFormatKHR kSrgb { VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR };
+    const auto hardware = policy.present(source, kSrgb, VK_FORMAT_R8G8B8A8_UNORM);
+    require(hardware.shader.transfer == (uint32_t(DxvkDisplayTransfer::Sdr) | kDxvkDisplayTargetSrgb),
+      "An encoded SDR source must reach an sRGB framebuffer without a second encode.");
+    const auto restored = policy.present(source, kHdr, VK_FORMAT_R16G16B16A16_SFLOAT);
+    require(restored.hdr10() && (restored.shader.transfer & kDxvkDisplaySourceHdr)
+      && policy.generation() == generation && !policy.needsSurfaceRecreation(kHdr),
+      "Changing composition formats must preserve the negotiated HDR surface and let HDR scenes resume.");
   }
 
   void checkFormats() {
@@ -173,6 +201,7 @@ int main() {
     checkTransitions();
     checkFailures();
     checkClientConfirmation();
+    checkMixedClientFormats();
     checkFormats();
     std::cout << "PASS display policy: negotiated generations, HDR transitions, bounded fallback and exact surface pairs\n";
     return 0;

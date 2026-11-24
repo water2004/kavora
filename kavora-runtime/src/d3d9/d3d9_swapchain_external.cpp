@@ -216,9 +216,8 @@ namespace dxvk {
     }
     auto& display = m_device->getCommon()->displayOutput();
     display.configureHost(m_window, !m_device->vkd()->ownsDevice());
-    if (!display.configureClientFormat(VkFormat(frame.format))) {
-      return D3DERR_INVALIDCALL;
-    }
+    const auto clientFormat = VkFormat(frame.format);
+    display.observeClientFormat(clientFormat);
     if (!m_clientFrameConsumed.ptr()) {
       m_clientFrameConsumed = RtxSemaphore::createTimeline(m_device.ptr(), "ClientFrame::consumed");
     }
@@ -301,6 +300,7 @@ namespace dxvk {
     if (hudless) hudless->frameGenerationEnabled = frameGenerationEnabled;
     if (frameGenerationEnabled && (!hudless || hudless->hudlessImage) && rtxFramePrepared &&
         frame.allowFrameGeneration && m_clientFrameInterpolation.valid() &&
+        (!sourceDisplay.extendedSrgb() || isExtendedSrgbClientFormat(clientFormat)) &&
         m_clientFrameInterpolation.frameId == m_interopFrameId) {
       if (hudless) {
         const auto hudlessHandle = reinterpret_cast<VkImage>(hudless->hudlessImage);

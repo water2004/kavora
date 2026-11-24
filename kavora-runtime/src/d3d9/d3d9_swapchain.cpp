@@ -1240,7 +1240,8 @@ namespace dxvk {
       }
 
       // NV-DXVK start: The composed image and FG inputs share one actual output contract.
-      const auto display = displayOutput.makePresent(clientImage ? clientImage->display : DxvkDisplayFrame {}, info.format);
+      const auto display = displayOutput.makePresent(clientImage ? clientImage->display : DxvkDisplayFrame {}, info.format,
+        clientImage ? swapImageView->info().format : VK_FORMAT_UNDEFINED);
       if (display.generation != m_displayMetadataGeneration) {
         VkHdrMetadataEXT metadata;
         if (displayOutput.hdrMetadata(metadata)) {
