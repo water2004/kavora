@@ -84,7 +84,7 @@ bool sampleTranslucentTangentNormal(TranslucentSurfaceMaterial translucentSurfac
     const uint8_t rows = max(surface.spriteSheetRows, uint8_t(1));
     const uint8_t cols = max(surface.spriteSheetCols, uint8_t(1));
     float2 frameSize, frameOrigin;
-    calcSpritesheetValues(cb.timeSinceStartSeconds, rows, cols, surface.spriteSheetFPS, frameSize, frameOrigin);
+    calcSpritesheetValues(cb.water.animationSeconds, rows, cols, surface.spriteSheetFPS, frameSize, frameOrigin);
     const float2 gradientToTile = surface.spriteSheetFPS ? float2(cols, rows) : float2(1.f);
     uint width;
     uint height;
@@ -112,7 +112,7 @@ bool sampleTranslucentTangentNormal(TranslucentSurfaceMaterial translucentSurfac
   {
     vec2 uvSize, uvBias;
     calcSpritesheetValues(
-      cb.timeSinceStartSeconds,
+      cb.water.animationSeconds,
       surface.spriteSheetRows,
       surface.spriteSheetCols,
       surface.spriteSheetFPS,
@@ -124,12 +124,12 @@ bool sampleTranslucentTangentNormal(TranslucentSurfaceMaterial translucentSurfac
 
     // The texcoords with primary motion applied, put back into spritesheet space.
     const vec2 primaryUV = waterSpritesheetNormalUV(uvPreSpritesheet, uvBias, uvSize,
-      cb.timeSinceStartSeconds, cb.translucentMaterialArgs.animatedWaterPrimaryNormalMotion);
+      cb.water.animationSeconds, cb.translucentMaterialArgs.animatedWaterPrimaryNormalMotion);
 
     // Take a second sample before taking the primary, so that we don't have to keep the secondary UV around.
     // Use a lod bias now and a different texcoord velocity to make it a second 'layer' of normals.
     const vec2 secondaryUV = waterSpritesheetNormalUV(uvPreSpritesheet, uvBias, uvSize,
-      cb.timeSinceStartSeconds, cb.translucentMaterialArgs.animatedWaterSecondaryNormalMotion);
+      cb.water.animationSeconds, cb.translucentMaterialArgs.animatedWaterSecondaryNormalMotion);
     const float lodBias = cb.translucentMaterialArgs.animatedWaterSecondaryNormalLodBias;
 
     surfaceInteraction.textureCoordinates = secondaryUV;

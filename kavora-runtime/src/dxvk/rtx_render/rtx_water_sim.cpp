@@ -5,6 +5,7 @@
 #include <random>
 
 #include "rtx_water_sim.h"
+#include "rtx_animation_time.h"
 #include "rtx_context.h"
 #include "rtx_shader_manager.h"
 #include "../../util/util_global_time.h"
@@ -64,6 +65,10 @@ namespace dxvk {
 
     constexpr float kCellSize = 0.5f;
     constexpr float kTimeStep = 1.0f / 60.0f;
+    constexpr int64_t kMicrosecondsPerSecond = 1000000;
+    constexpr int64_t kMaxContinuousGapUs = kMicrosecondsPerSecond;
+    // The supplied normal map has 120 frames and an integer playback rate.
+    constexpr uint64_t kWaterNormalPeriodUs = 120 * kMicrosecondsPerSecond;
     constexpr float kWaveSpeed = 5.0f;
     constexpr float kDamping = 0.991f;
     constexpr float kTau = 6.28318530718f;
@@ -120,14 +125,19 @@ namespace dxvk {
     }
   }
 
+  void RtxWaterSimulation::resetLocalWaves() {
+    m_reset = true;
+    m_resetImpacts = true;
+    m_count = 0;
+    m_appliedImpactImpulses = 0;
+    m_activity = 0.0f;
+    m_accumulatedTime = 0.0f;
+  }
+
   void RtxWaterSimulation::addImpulses(const WaterSimImpulse* impulses, uint32_t count, bool reset) {
     if (reset) {
-      m_reset = true;
-      m_resetImpacts = true;
-      m_count = 0;
-      m_appliedImpactImpulses = 0;
-      m_activity = 0.0f;
-      m_accumulatedTime = 0.0f;
+      resetLocalWaves();
+      m_previousSceneTimeUs = -1;
       setRain(0.0f);
     }
     if (count != 0) {
@@ -163,11 +173,31 @@ namespace dxvk {
     const bool wind = surface && windEnabled() && windScale > 0.0f;
     const bool rings = surface && ringsEnabled() && ringScale > 0.0f;
     const uint32_t impactEffects = (sludge ? WATER_EFFECT_SLUDGE : 0u) | (rings ? WATER_EFFECT_RINGS : 0u);
-    const float delta = std::clamp(GlobalTime::get().deltaTime(), 0.0f, 4.0f * kTimeStep);
-    const uint64_t timeMs = GlobalTime::get().absoluteTimeMs();
+    uint64_t timeUs;
+    float elapsedSeconds;
+    if (m_sceneTimeUs >= 0) {
+      timeUs = uint64_t(m_sceneTimeUs);
+      const int64_t elapsedUs = m_previousSceneTimeUs < 0 ? 0 : m_sceneTimeUs - m_previousSceneTimeUs;
+      m_previousSceneTimeUs = m_sceneTimeUs;
+      if (elapsedUs < 0 || elapsedUs > kMaxContinuousGapUs) {
+        resetLocalWaves();
+        elapsedSeconds = 0.0f;
+      } else {
+        elapsedSeconds = float(elapsedUs) / kMicrosecondsPerSecond;
+      }
+      m_shaderArgs.animationSeconds = float(double(timeUs % kWaterNormalPeriodUs) / kMicrosecondsPerSecond);
+      m_gustAngle = (double(timeUs) / kMicrosecondsPerSecond) * double(0.17f);
+    } else {
+      timeUs = GlobalTime::get().absoluteTimeUs();
+      elapsedSeconds = GlobalTime::get().deltaTime();
+      m_shaderArgs.animationSeconds = RtxAnimationTime::seconds();
+      m_gustAngle = double(m_shaderArgs.animationSeconds) * double(0.17f);
+    }
+    const float delta = std::clamp(elapsedSeconds, 0.0f, 4.0f * kTimeStep);
 
     if (wind) {
-      prepareWind(ctx, float(timeMs % uint64_t(kWaterWindLoopSeconds * 1000.0f)) * 0.001f, windScale);
+      const auto periodUs = uint64_t(kWaterWindLoopSeconds * kMicrosecondsPerSecond);
+      prepareWind(ctx, float(double(timeUs % periodUs) / kMicrosecondsPerSecond), windScale);
       m_shaderArgs.effects |= WATER_EFFECT_WIND;
     } else if (m_windSeed != nullptr) {
       m_wind = {};
@@ -192,7 +222,7 @@ namespace dxvk {
     const bool runImpacts = impactEffects && active;
     const bool waterRings = rings && (m_shaderArgs.rain > 0.0f || runImpacts);
     if (waterRings || rainGroundRings) {
-      prepareRings(ctx, float(timeMs % 4096000u) * 0.001f, 1.0f);
+      prepareRings(ctx, float(double(timeUs % (4096u * kMicrosecondsPerSecond)) / kMicrosecondsPerSecond), 1.0f);
     }
     if (waterRings) {
       m_shaderArgs.effects |= WATER_EFFECT_RINGS;

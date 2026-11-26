@@ -178,6 +178,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_CLOUD_RADIANCE_PROFILE_EXT = 59,
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_ATMOSPHERE_EXT             = 60,
     REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_UI_COVERAGE_EXT         = 61,
+    REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_CLOCK_EXT           = 62,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -1289,6 +1290,13 @@ extern "C" {
     void* pNext;
     float rain;
   } remixapi_SubmitInfoWaterRainEXT;
+
+  /** Sets the water simulation's scene timestamp in microseconds for this frame. */
+  typedef struct remixapi_SubmitInfoWaterClockEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    int64_t timeUs; // Nonnegative scene time, including partial ticks.
+  } remixapi_SubmitInfoWaterClockEXT;
 
   enum { REMIXAPI_RAIN_GROUND_GRID_SIZE = 256 };
 

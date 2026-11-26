@@ -225,8 +225,10 @@ namespace pnext::detail {
   template<> constexpr auto ToEnum<remixapi_CameraMediumWaterEXT> = REMIXAPI_STRUCT_TYPE_CAMERA_MEDIUM_WATER_EXT;
   template<> struct Root<remixapi_CameraMediumWaterEXT> { using Type = remixapi_CameraMediumInfo; };
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterSimEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_SIM_EXT;
+  template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterClockEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_CLOCK_EXT;
   template<> constexpr auto ToEnum<remixapi_SubmitInfoWaterRainEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_RAIN_EXT;
   template<> struct Root<remixapi_SubmitInfoWaterSimEXT> { using Type = remixapi_SubmitInfo; };
+  template<> struct Root<remixapi_SubmitInfoWaterClockEXT> { using Type = remixapi_SubmitInfo; };
   template<> constexpr auto ToEnum<remixapi_SubmitInfoRainGroundEXT> = REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_RAIN_GROUND_EXT;
   template<> struct Root<remixapi_SubmitInfoRainGroundEXT> { using Type = remixapi_SubmitInfo; };
   template<> constexpr auto ToEnum<remixapi_HostVulkanDeviceInfo> = REMIXAPI_STRUCT_TYPE_HOST_VULKAN_DEVICE_INFO;

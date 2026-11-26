@@ -525,6 +525,10 @@ final class RemixLayouts {
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 JAVA_FLOAT.withName("rain"));
+        define("SubmitInfoWaterClockEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_LONG.withName("timeUs"));
         define("SubmitInfoRainGroundEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

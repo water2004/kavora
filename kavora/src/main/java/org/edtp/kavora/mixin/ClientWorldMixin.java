@@ -6,7 +6,9 @@ package org.edtp.kavora.mixin;
 
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.particle.rapids.WaterRapidParticleSpawner;
+import org.edtp.kavora.render.SceneAnimationClock;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -19,11 +21,33 @@ import net.minecraft.client.multiplayer.ClientLevel;
  * to Remix frame cost.
  */
 @Mixin(ClientLevel.class)
-public abstract class ClientWorldMixin {
+public abstract class ClientWorldMixin implements SceneAnimationClock {
     
     private static final ThreadLocal<ProfileScope> kavora$worldTickScope = new ThreadLocal<>();
     private static final ThreadLocal<ProfileScope> kavora$entityTickScope = new ThreadLocal<>();
     private static final ThreadLocal<ProfileScope> kavora$randomDisplayTickScope = new ThreadLocal<>();
+    @Unique private static final int kavora$timeJumpTicks = 20;
+    @Unique private long kavora$animationTicks = Long.MIN_VALUE;
+
+    @Inject(method = "tickTime", at = @At("RETURN"))
+    private void kavora$advanceAnimationClock(CallbackInfo ci) {
+        kavora$animationTicks = kavora$animationTicks == Long.MIN_VALUE
+                ? ((ClientLevel) (Object) this).getGameTime()
+                : kavora$animationTicks + 1;
+    }
+
+    @Inject(method = "setTimeFromServer", at = @At("HEAD"))
+    private void kavora$rebaseAnimationClock(long gameTime, CallbackInfo ci) {
+        long previousTime = ((ClientLevel) (Object) this).getGameTime();
+        if (kavora$animationTicks == Long.MIN_VALUE || Math.abs(gameTime - previousTime) > kavora$timeJumpTicks) {
+            kavora$animationTicks = gameTime;
+        }
+    }
+
+    @Override
+    public long kavora$animationTicks() {
+        return kavora$animationTicks == Long.MIN_VALUE ? ((ClientLevel) (Object) this).getGameTime() : kavora$animationTicks;
+    }
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void kavora$tickHead(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {

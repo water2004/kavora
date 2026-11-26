@@ -10,7 +10,6 @@ public struct WaterSurfaceSettings
 {
   public bool isZUp;
   public WaterSurfaceArgs water;
-  public float time;
 };
 
 public interface IWaterSurfaceResources
@@ -55,7 +54,7 @@ float3 sampleWaterSimulation<let Detail : bool>(float3 position, float footprint
     }
   }
   if (settings.water.effects & WATER_EFFECT_WIND) {
-    const float gust = 0.75f + 0.25f * sin(dot(planar, float2(0.058f, 0.041f)) + (settings.time * 0.17f + settings.water.gustPhase));
+    const float gust = 0.75f + 0.25f * sin(dot(planar, float2(0.058f, 0.041f)) + settings.water.gustPhase);
     wave += wind.SampleLevel(tileSampler, float3(tilePosition / kWaterWindTileLong, 0.0f), 0.0f).xyz * gust;
     if (Detail && footprint < 0.75f) {
       const float fineFade = 1.0f - smoothstep(0.12f, 0.75f, footprint);

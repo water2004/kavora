@@ -29,13 +29,14 @@ namespace dxvk {
 
     void addImpulses(const WaterSimImpulse* impulses, uint32_t count, bool reset);
     void setRain(float amount) { m_shaderArgs.rain = amount; }
+    void setSceneTime(int64_t timeUs) { m_sceneTimeUs = timeUs; }
     void prepare(RtxContext* ctx, bool hasWater, bool hasSludge, bool rainGroundRings);
     __forceinline WaterSurfaceArgs shaderArgs(int32_t originX, int32_t originZ) const {
       auto args = m_shaderArgs;
       // Both FFT cascades and the rain tiles repeat at this interval.
       args.tileOrigin = vec2(float(originX % 672), float(originZ % 672));
       args.gustPhase = float(std::remainder(
-        double(originX) * double(0.058f) + double(originZ) * double(0.041f), 6.2831853071795864769));
+        double(originX) * double(0.058f) + double(originZ) * double(0.041f) + m_gustAngle, 6.2831853071795864769));
       return args;
     }
     uint32_t effects() const { return m_shaderArgs.effects; }
@@ -45,6 +46,7 @@ namespace dxvk {
     const Rc<DxvkImageView>& impactView() const { return m_impacts[m_currentImpact].view; }
 
   private:
+    void resetLocalWaves();
     void prepareRipples(RtxContext* ctx, ivec2 origin, float delta, float strength);
     void prepareWind(RtxContext* ctx, float time, float strength);
     void prepareRings(RtxContext* ctx, float time, float strength);
@@ -68,6 +70,9 @@ namespace dxvk {
     uint32_t m_appliedImpactImpulses = 0;
     float m_accumulatedTime = 0.0f;
     float m_activity = 0.0f;
+    int64_t m_sceneTimeUs = -1;
+    int64_t m_previousSceneTimeUs = -1;
+    double m_gustAngle = 0.0;
     bool m_reset = true;
     bool m_resetImpacts = true;
   };

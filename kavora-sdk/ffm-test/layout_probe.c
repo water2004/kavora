@@ -581,6 +581,11 @@ printf("SubmitInfoWaterRainEXT alignof %zu\n", __alignof(remixapi_SubmitInfoWate
 printf("SubmitInfoWaterRainEXT sType %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, sType));
 printf("SubmitInfoWaterRainEXT pNext %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, pNext));
 printf("SubmitInfoWaterRainEXT rain %zu\n", offsetof(remixapi_SubmitInfoWaterRainEXT, rain));
+printf("SubmitInfoWaterClockEXT sizeof %zu\n", sizeof(remixapi_SubmitInfoWaterClockEXT));
+printf("SubmitInfoWaterClockEXT alignof %zu\n", __alignof(remixapi_SubmitInfoWaterClockEXT));
+printf("SubmitInfoWaterClockEXT sType %zu\n", offsetof(remixapi_SubmitInfoWaterClockEXT, sType));
+printf("SubmitInfoWaterClockEXT pNext %zu\n", offsetof(remixapi_SubmitInfoWaterClockEXT, pNext));
+printf("SubmitInfoWaterClockEXT timeUs %zu\n", offsetof(remixapi_SubmitInfoWaterClockEXT, timeUs));
 printf("SubmitInfoRainGroundEXT sizeof %zu\n", sizeof(remixapi_SubmitInfoRainGroundEXT));
 printf("SubmitInfoRainGroundEXT alignof %zu\n", __alignof(remixapi_SubmitInfoRainGroundEXT));
 printf("SubmitInfoRainGroundEXT sType %zu\n", offsetof(remixapi_SubmitInfoRainGroundEXT, sType));

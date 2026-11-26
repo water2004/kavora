@@ -12,7 +12,7 @@ struct BoundWater : IWaterSurfaceResources
   [ForceInline]
   static WaterSurfaceSettings settings()
   {
-    return { cb.isZUp != 0, cb.water, cb.timeSinceStartSeconds };
+    return { cb.isZUp != 0, cb.water };
   }
 
   [ForceInline]

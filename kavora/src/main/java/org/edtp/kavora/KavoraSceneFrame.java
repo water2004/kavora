@@ -24,6 +24,7 @@ import org.edtp.kavora.particle.ParticleFramePipeline;
 import org.edtp.kavora.profiling.ProfileScope;
 import org.edtp.kavora.render.KavoraFramePresentation;
 import org.edtp.kavora.render.KavoraInterop;
+import org.edtp.kavora.render.SceneAnimationClock;
 import org.edtp.kavora.sdk.RemixAPI;
 import org.edtp.kavora.sdk.RemixException;
 import org.edtp.kavora.sdk.SubmitInfo;
@@ -179,6 +180,9 @@ final class KavoraSceneFrame {
             perfTimer.begin(perfTimer.perfSubmit);
             try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
                 SceneEffectSchedule.beforeSubmit(effects, scene, world, cameraPos, tickDelta);
+                double waterTime = ((SceneAnimationClock) world).kavora$animationTicks()
+                        + (double) client.getDeltaTracker().getGameTimeDeltaPartialTick(false);
+                scene.waterTimeUs = Math.round(benchmarkController.animationGameTime(waterTime) * 50_000.0);
                 presentation.submitScene(scene);
             } finally {
                 perfTimer.end(perfTimer.perfSubmit);

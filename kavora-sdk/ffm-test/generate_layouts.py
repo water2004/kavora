@@ -32,7 +32,7 @@ def java_type(ctype):
     if '*' in ctype or ctype.startswith('PFN_') or ctype.endswith('Handle') or ctype in ('remixapi_HWND', 'remixapi_Path'):
         return 'ADDRESS'
     if ctype == 'float': return 'JAVA_FLOAT'
-    if ctype == 'uint64_t': return 'JAVA_LONG'
+    if ctype in ('int64_t', 'uint64_t'): return 'JAVA_LONG'
     if ctype == 'uint16_t': return 'JAVA_SHORT'
     if ctype == 'uint8_t': return 'JAVA_BYTE'
     suffix = ctype.removeprefix('remixapi_')

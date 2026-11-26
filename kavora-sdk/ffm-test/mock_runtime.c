@@ -221,8 +221,14 @@ static remixapi_ErrorCode REMIXAPI_CALL mock_UpdateTextureFromMemory(
 }
 static remixapi_ErrorCode REMIXAPI_CALL mock_dxvk_GetInteropInfo(remixapi_dxvk_InteropInfo* out_info) { memset(out_info,0,sizeof(*out_info)); out_info->width=640; out_info->height=480; out_info->dxvkDoneSemaphore_Handle=0x1234; out_info->depthImageMemory_Handle=0x5678; return REMIXAPI_ERROR_CODE_SUCCESS; }
 static remixapi_ErrorCode REMIXAPI_CALL mock_Submit(const remixapi_SubmitInfo* info) {
-    CHECK(info && info->sType == 30 && info->interopFlags == 5);
+    CHECK(info && info->sType == 30 && (info->interopFlags == 5 || info->interopFlags == 7));
     const void* next = info->pNext;
+    if (info->interopFlags == 7) {
+        const remixapi_SubmitInfoWaterClockEXT* clock = next;
+        CHECK(clock && clock->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_CLOCK_EXT
+            && clock->timeUs == 9876543210LL);
+        next = clock->pNext;
+    }
     if (next && *(const remixapi_StructType*)next == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_RAIN_GROUND_EXT) {
         const remixapi_SubmitInfoRainGroundEXT* ground = next;
         CHECK(ground->originX == -128 && ground->originZ == 256 && ground->rain == 0.5f);

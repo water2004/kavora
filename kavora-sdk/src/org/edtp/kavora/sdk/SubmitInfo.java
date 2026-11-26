@@ -14,6 +14,8 @@ public class SubmitInfo {
     public static final int DISABLE_QUEUE_SUBMIT            = 1 << 2;
 
     public int interopFlags; // see remixapi_SubmitInteropFlagBit
+    /** Scene time including partial ticks, in microseconds. Negative leaves the water clock unset. */
+    public long waterTimeUs = -1;
     public WaterSimulationFrame waterSimulation;
     public RainGroundFrame rainGround;
 

@@ -65,6 +65,7 @@ public final class RemixBridgeContractTest {
         }
         equal(0, RemixBridge.startup(HANDLE, true, false, false, false, true));
         equal(0, RemixBridge.submit(5));
+        equal(0, RemixBridge.submit(7, null, null, 9876543210L));
         WaterSimulationFrame waves = new WaterSimulationFrame();
         waves.resetWaves();
         check(waves.add(1, 2, 3, 0.5f, 1), "First water disturbance was dropped");
@@ -82,7 +83,7 @@ public final class RemixBridgeContractTest {
         ground.rain = 0.5f;
         ground.columns = ByteBuffer.allocateDirect(RainGroundFrame.GRID_BYTES).order(ByteOrder.nativeOrder());
         ground.columns.putInt(0, 64).putInt(RainGroundFrame.GRID_BYTES - Integer.BYTES, Integer.MAX_VALUE);
-        equal(0, RemixBridge.submit(5, waves, ground));
+        equal(0, RemixBridge.submit(7, waves, ground, 9876543210L));
         ground.columns = null;
         equal(0, RemixBridge.submit(5, null, ground));
         SharedBufferInfo shared = new SharedBufferInfo();
