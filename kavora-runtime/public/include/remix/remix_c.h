@@ -179,6 +179,7 @@ extern "C" {
     REMIXAPI_STRUCT_TYPE_LIGHT_INFO_ATMOSPHERE_EXT             = 60,
     REMIXAPI_STRUCT_TYPE_VULKAN_CLIENT_UI_COVERAGE_EXT         = 61,
     REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_CLOCK_EXT           = 62,
+    REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_SCENE_EXTENT_EXT          = 63,
     // NOTE: always leave ',' after the number, so the git diff is cleaner!
     // NOTE: if adding a new struct, register it in 'rtx_remix_specialization.inl'
     //       and only extend this enum by appending, never adjust the order of these 
@@ -1297,6 +1298,14 @@ extern "C" {
     void* pNext;
     int64_t timeUs; // Nonnegative scene time, including partial ticks.
   } remixapi_SubmitInfoWaterClockEXT;
+
+  /** Sets the shared host's scene output size in pixels independently of the window surface. */
+  typedef struct remixapi_SubmitInfoSceneExtentEXT {
+    remixapi_StructType sType;
+    void* pNext;
+    uint32_t width;
+    uint32_t height;
+  } remixapi_SubmitInfoSceneExtentEXT;
 
   enum { REMIXAPI_RAIN_GROUND_GRID_SIZE = 256 };
 

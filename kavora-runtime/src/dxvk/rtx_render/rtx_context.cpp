@@ -385,6 +385,7 @@ namespace dxvk {
       Logger::debug("Raytracing output resources were not available to use this frame, so we must re-create inline.");
 
       resetScreenResolution(upscaledExtent);
+      m_resetHistory = true;
     }
 
     const RtCamera& mainCamera = getSceneManager().getCamera();

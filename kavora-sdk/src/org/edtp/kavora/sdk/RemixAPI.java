@@ -185,7 +185,8 @@ public class RemixAPI {
         checkInitialized();
         int result = RemixBridge.submit(info != null ? info.interopFlags : 0,
                 info != null ? info.waterSimulation : null, info != null ? info.rainGround : null,
-                info != null ? info.waterTimeUs : -1);
+                info != null ? info.waterTimeUs : -1,
+                info != null ? info.sceneWidth : 0, info != null ? info.sceneHeight : 0);
         if (result != ErrorCode.SUCCESS) {
             throw new RemixException("Submit failed", result);
     }

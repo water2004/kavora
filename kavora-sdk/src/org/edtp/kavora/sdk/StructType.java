@@ -66,6 +66,7 @@ public final class StructType {
     public static final int SUBMIT_INFO_WATER_SIM_EXT = 49;
     public static final int SUBMIT_INFO_WATER_RAIN_EXT = 50;
     public static final int SUBMIT_INFO_WATER_CLOCK_EXT = 62;
+    public static final int SUBMIT_INFO_SCENE_EXTENT_EXT = 63;
     public static final int SUBMIT_INFO_RAIN_GROUND_EXT = 55;
     public static final int LIGHT_INFO_CLOUD_RADIANCE_EXT = 56;
     public static final int MESH_INFO_QUAD_SUBSET_EXT = 57;

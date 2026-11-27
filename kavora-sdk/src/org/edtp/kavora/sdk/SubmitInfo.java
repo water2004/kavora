@@ -14,6 +14,9 @@ public class SubmitInfo {
     public static final int DISABLE_QUEUE_SUBMIT            = 1 << 2;
 
     public int interopFlags; // see remixapi_SubmitInteropFlagBit
+    /** Shared host scene output size in pixels. Leave both fields zero to retain the current size. */
+    public int sceneWidth;
+    public int sceneHeight;
     /** Scene time including partial ticks, in microseconds. Negative leaves the water clock unset. */
     public long waterTimeUs = -1;
     public WaterSimulationFrame waterSimulation;

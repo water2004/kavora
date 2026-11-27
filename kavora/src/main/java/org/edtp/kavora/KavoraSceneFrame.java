@@ -179,6 +179,9 @@ final class KavoraSceneFrame {
 
             perfTimer.begin(perfTimer.perfSubmit);
             try (ProfileScope submitScope = ProfileScope.begin("Submit")) {
+                var color = client.gameRenderer.mainRenderTarget().getColorTexture();
+                scene.sceneWidth = color.getWidth(0);
+                scene.sceneHeight = color.getHeight(0);
                 SceneEffectSchedule.beforeSubmit(effects, scene, world, cameraPos, tickDelta);
                 double waterTime = ((SceneAnimationClock) world).kavora$animationTicks()
                         + (double) client.getDeltaTracker().getGameTimeDeltaPartialTick(false);

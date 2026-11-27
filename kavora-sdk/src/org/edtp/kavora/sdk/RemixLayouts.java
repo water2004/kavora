@@ -529,6 +529,11 @@ final class RemixLayouts {
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),
                 JAVA_LONG.withName("timeUs"));
+        define("SubmitInfoSceneExtentEXT",
+                JAVA_INT.withName("sType"),
+                ADDRESS.withName("pNext"),
+                JAVA_INT.withName("width"),
+                JAVA_INT.withName("height"));
         define("SubmitInfoRainGroundEXT",
                 JAVA_INT.withName("sType"),
                 ADDRESS.withName("pNext"),

@@ -347,6 +347,7 @@ namespace dxvk
     Matrix4d getShakenViewToWorldMatrix(Matrix4d& viewToWorld, uint32_t flags);
     Matrix4d updateFreeCamera(uint32_t flags);
     void updateAntiCulling(float fov, float aspectRatio, float nearPlane, float farPlane, bool isLHS);
+    void updateProjectionJitter();
     Matrix4d overrideNearPlane(const Matrix4d& modifiedViewToProj);
 
     RtCameraSetting m_context;

@@ -355,6 +355,7 @@ namespace dxvk {
     bool m_interopEnabled = false;
     bool m_interopSharedDevice = false;
     bool m_interopSubmitted = false;
+    bool m_hostSceneExtent = false;
     Rc<RtxSemaphore> m_interopDone;
     Rc<RtxSemaphore> m_interopClient;
     Rc<DxvkImage> m_interopColor;
@@ -403,6 +404,8 @@ namespace dxvk {
     void enableInterop();
     bool hasInterop() const { return m_interopEnabled; }
     bool hasPendingInteropFrame() const { return m_interopSubmitted; }
+    bool hasHostSceneExtent() const { return m_hostSceneExtent; }
+    void setSceneExtent(VkExtent2D extent);
     HRESULT completeInterop(uint64_t clientDoneValue);
     HRESULT presentClientFrame(::remixapi_VulkanClientFrameInfoEXT& frame, ::remixapi_VulkanClientHudlessInfoEXT* hudless,
                                bool rtxFramePrepared, bool uiCoverage);

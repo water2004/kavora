@@ -344,6 +344,11 @@ public final class RemixBridge {
     }
 
     public static int submit(int interopFlags, WaterSimulationFrame water, RainGroundFrame rainGround, long waterTimeUs) {
+        return submit(interopFlags, water, rainGround, waterTimeUs, 0, 0);
+    }
+
+    public static int submit(int interopFlags, WaterSimulationFrame water, RainGroundFrame rainGround,
+                             long waterTimeUs, int sceneWidth, int sceneHeight) {
         try (Scratch arena = scratch()) {
             long chain = 0;
             if (water != null && !water.isEmpty()) {
@@ -388,6 +393,13 @@ public final class RemixBridge {
                 String type = "SubmitInfoWaterClockEXT";
                 MemorySegment extension = info(arena, type, StructType.SUBMIT_INFO_WATER_CLOCK_EXT, chain);
                 put(extension, type, "timeUs", waterTimeUs);
+                chain = extension.address();
+            }
+            if (sceneWidth != 0 || sceneHeight != 0) {
+                String type = "SubmitInfoSceneExtentEXT";
+                MemorySegment extension = info(arena, type, StructType.SUBMIT_INFO_SCENE_EXTENT_EXT, chain);
+                put(extension, type, "width", sceneWidth);
+                put(extension, type, "height", sceneHeight);
                 chain = extension.address();
             }
             MemorySegment info = info(arena, "SubmitInfo", StructType.SUBMIT_INFO, chain);

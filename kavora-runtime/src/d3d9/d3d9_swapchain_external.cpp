@@ -73,6 +73,21 @@ namespace dxvk {
     m_interopEnabled = true;
   }
 
+  void D3D9SwapchainExternal::setSceneExtent(VkExtent2D extent) {
+    assert(m_interopSharedDevice && !m_interopSubmitted);
+    m_hostSceneExtent = true;
+    if (m_presentParams.BackBufferWidth == extent.width && m_presentParams.BackBufferHeight == extent.height) {
+      return;
+    }
+
+    // The external backbuffer is the RTX scene target. Window WSI is sized in presentClientFrame.
+    D3D9DeviceLock lock = m_parent->LockDevice();
+    m_presentParams.BackBufferWidth = extent.width;
+    m_presentParams.BackBufferHeight = extent.height;
+    CreateBackBuffers(m_presentParams.BackBufferCount);
+    m_parent->SetRenderTarget(0, m_backBuffers[0].ptr());
+  }
+
   void D3D9SwapchainExternal::prepareInteropImages(const Rc<DxvkImage>& color, const Rc<DxvkImage>& depth) {
     auto prepare = [this, &color](const Rc<DxvkImage>& source, Rc<DxvkImage>& target, HANDLE& handle, const char* name, bool ui = false) {
       if (!source.ptr()) {

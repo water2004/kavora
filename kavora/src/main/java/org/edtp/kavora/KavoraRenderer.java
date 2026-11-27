@@ -537,9 +537,8 @@ public class KavoraRenderer {
     
             Minecraft client = Minecraft.getInstance();
             float worldFov = camera.getFov();
-            int width = client.getWindow().getWidth();
-            int height = client.getWindow().getHeight();
-            float aspect = (float) width / (float) height;
+            var color = client.gameRenderer.mainRenderTarget().getColorTexture();
+            float aspect = (float) color.getWidth(0) / color.getHeight(0);
             int farDistanceChunks = chunkManager == null ? 0 : chunkManager.getFarRenderDistanceChunks();
             if (weatherRenderer != null) {
                 weatherRenderer.updateCamera(

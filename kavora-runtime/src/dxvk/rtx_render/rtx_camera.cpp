@@ -244,6 +244,11 @@ namespace dxvk
       m_renderResolution[1] = renderResolution[1];
       m_finalResolution[0] = finalResolution[0];
       m_finalResolution[1] = finalResolution[1];
+
+      // A host can resize the scene at Submit, after this frame's camera was set up.
+      if (!m_firstUpdate) {
+        updateProjectionJitter();
+      }
     }
   }
 
@@ -745,20 +750,11 @@ namespace dxvk
       m_context.jitterFrameIdx = frameIdx;
     }
 
-    auto newViewToProjectionJittered = modifiedViewToProj;
-    applyAndGetJitter(
-      newViewToProjectionJittered,
-      m_jitter,
-      m_context.jitterFrameIdx);
-
-    m_context.jitter[0] = m_jitter[0];
-    m_context.jitter[1] = m_jitter[1];
     m_context.isCameraShaking = RtxOptions::shakeCamera();
 
     m_matCache[MatrixType::PreviousViewToProjectionJittered] = m_matCache[MatrixType::ViewToProjectionJittered];
     m_matCache[MatrixType::PreviousProjectionToViewJittered] = m_matCache[MatrixType::ProjectionToViewJittered];
-    m_matCache[MatrixType::ViewToProjectionJittered] = newViewToProjectionJittered;
-    m_matCache[MatrixType::ProjectionToViewJittered] = inverse(newViewToProjectionJittered);
+    updateProjectionJitter();
 
     m_frameLastTouched = frameIdx;
 
@@ -818,6 +814,15 @@ namespace dxvk
     m_matCachef[MatrixType::FreeCamWorldToView] = m_matCache[MatrixType::FreeCamWorldToView];
 
     return false; // If we are using the debug/free camera, never do camera cuts
+  }
+
+  void RtCamera::updateProjectionJitter() {
+    auto projection = m_matCache[MatrixType::ViewToProjection];
+    applyAndGetJitter(projection, m_jitter, m_context.jitterFrameIdx);
+    m_context.jitter[0] = m_jitter[0];
+    m_context.jitter[1] = m_jitter[1];
+    m_matCache[MatrixType::ViewToProjectionJittered] = projection;
+    m_matCache[MatrixType::ProjectionToViewJittered] = inverse(projection);
   }
 
   void RtCamera::getJittering(float jitter[2]) const {

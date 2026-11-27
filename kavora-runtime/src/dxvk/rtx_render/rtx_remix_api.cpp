@@ -2260,6 +2260,11 @@ namespace {
   remixapi_ErrorCode REMIXAPI_CALL remixapi_Submit(const remixapi_SubmitInfo* info) {
     const uint32_t flags = info ? info->interopFlags : 0;
     const void* next = info ? info->pNext : nullptr;
+    const remixapi_SubmitInfoSceneExtentEXT* sceneExtent = nullptr;
+    if (pnext::detail::getStructType(next) == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_SCENE_EXTENT_EXT) {
+      sceneExtent = static_cast<const remixapi_SubmitInfoSceneExtentEXT*>(next);
+      next = sceneExtent->pNext;
+    }
     const auto* clock = static_cast<const remixapi_SubmitInfoWaterClockEXT*>(next);
     const bool hasClock = clock && clock->sType == REMIXAPI_STRUCT_TYPE_SUBMIT_INFO_WATER_CLOCK_EXT;
     const int64_t waterTimeUs = hasClock ? clock->timeUs : -1;
@@ -2300,6 +2305,14 @@ namespace {
     if (device->GetDXVKDevice()->getDeviceStatus() != VK_SUCCESS) {
       return REMIXAPI_ERROR_CODE_GENERAL_FAILURE;
     }
+    if (sceneExtent) {
+      // Ray payloads reserve 14 bits for each pixel coordinate.
+      constexpr uint32_t kMaxSceneDimension = (1u << 14) - 1;
+      const uint32_t limit = std::min(kMaxSceneDimension, device->GetDXVKDevice()->adapter()->deviceProperties().limits.maxImageDimension2D);
+      if (!s_hostD3D9.ptr() || !sceneExtent->width || !sceneExtent->height || sceneExtent->width > limit || sceneExtent->height > limit) {
+        return REMIXAPI_ERROR_CODE_INVALID_ARGUMENTS;
+      }
+    }
     if (water) {
       std::array<WaterSimImpulse, kWaterSimMaxImpulses> impulses{};
       const bool zUp = dxvk::RtxOptions::zUp();
@@ -2337,6 +2350,9 @@ namespace {
       common->getSceneManager().setRainGround(origin, rain);
       replayRetainedSceneInstances(ctx);
     });
+    if (sceneExtent) {
+      presenter->setSceneExtent({ sceneExtent->width, sceneExtent->height });
+    }
     if (FAILED(device->Present(nullptr, nullptr, nullptr, nullptr))) {
       return REMIXAPI_ERROR_CODE_GENERAL_FAILURE;
     }
@@ -2465,6 +2481,10 @@ namespace {
     }
     if (FAILED(hr)) {
       return REMIXAPI_ERROR_CODE_GENERAL_FAILURE;
+    }
+
+    if (presenter && presenter->hasHostSceneExtent()) {
+      return REMIXAPI_ERROR_CODE_SUCCESS;
     }
 
     UINT windowWidth = 0, windowHeight = 0;
